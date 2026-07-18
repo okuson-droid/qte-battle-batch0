@@ -1,0 +1,59 @@
+/* 対戦画面の最小限のスタイル。凝った見た目より状態の見やすさを優先する */
+
+.board-side { background: rgba(255, 255, 255, 0.06); min-height: 140px; }
+.opponent-side { border-top: 3px solid #dc3545; }
+.my-side { border-bottom: 3px solid #0d6efd; }
+
+.leader-card {
+    width: 110px; height: 80px; padding: 4px;
+    background: #343a40; border: 2px solid #6c757d;
+    display: flex; flex-direction: column; justify-content: center;
+}
+.leader-card.attackable { border-color: #ffc107; cursor: pointer; }
+
+.minion-row, .hand-row { display: flex; flex-wrap: wrap; gap: 8px; min-height: 110px; }
+
+.game-card {
+    width: 120px; min-height: 105px; padding: 6px;
+    background: #1a3a5c; border: 2px solid #4a6a8c; border-radius: 6px;
+    font-size: 12px; position: relative;
+}
+.game-card .card-name { font-weight: bold; line-height: 1.2; }
+.game-card .card-stats { position: absolute; bottom: 4px; left: 6px; right: 6px;
+    display: flex; justify-content: space-between; font-weight: bold; }
+.game-card .kw { color: #ffd54f; }
+.game-card .card-cost { color: #7fd4ff; }
+
+.game-card.playable { border-color: #4caf50; cursor: pointer; }
+.game-card.playable:hover { background: #1f4d24; }
+.game-card.can-attack { border-color: #ffc107; cursor: pointer; }
+.game-card.selected-attacker { border-color: #ff5722; box-shadow: 0 0 8px #ff5722; }
+.game-card.attack-target { border-color: #ef5350; cursor: crosshair; }
+.game-card.exhausted { opacity: 0.55; }
+
+.mana-row { display: flex; gap: 3px; flex-wrap: wrap; }
+.mana-chip {
+    width: 22px; height: 30px; border-radius: 3px;
+    background: #26a69a; border: 1px solid #80cbc4;
+}
+.mana-chip.tapped { transform: rotate(90deg); opacity: 0.5; margin: 0 5px; }
+.mana-chip.face-down { background: #455a64; }
+
+.log-box { background: rgba(0, 0, 0, 0.4); height: 130px; overflow-y: auto; }
+
+.mana-chip.mana-selectable { cursor: pointer; border-color: #ffca28; box-shadow: 0 0 4px #ffca28; }
+.mana-chip.mana-picked { background: #ff7043; }
+.leader-card.selected-attacker { border-color: #ff5722; box-shadow: 0 0 8px #ff5722; }
+
+/* Batch 5: 情報モーダルとマリガン選択 */
+.info-modal {
+    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+    display: flex; align-items: center; justify-content: center; z-index: 1000;
+}
+.info-modal-body {
+    background: #212529; color: #f8f9fa; border: 1px solid #6c757d;
+    border-radius: 8px; padding: 16px; max-width: 480px; width: 90%;
+    max-height: 70vh; overflow-y: auto;
+}
+.game-card.mulligan-selected { border-color: #ab47bc; box-shadow: 0 0 8px #ab47bc; }
+.link-info { text-decoration: none; }

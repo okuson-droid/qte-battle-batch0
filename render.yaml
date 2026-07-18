@@ -1,0 +1,8 @@
+# Render の Blueprint 定義。リポジトリ直下に置いておくと
+# 「New +」→「Blueprint」からこの内容で一発構築できる(手動設定でも可)
+services:
+  - type: web
+    name: qte-battle
+    runtime: docker
+    plan: free
+    healthCheckPath: /

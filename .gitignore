@@ -1,0 +1,11 @@
+# ビルド生成物(原本から再生成できるものはコミットしない)
+target/
+
+# Eclipseの個人環境ファイル(クローンした側はMavenインポートで再生成される)
+.settings/
+.classpath
+.project
+
+# OS固有
+.DS_Store
+Thumbs.db
