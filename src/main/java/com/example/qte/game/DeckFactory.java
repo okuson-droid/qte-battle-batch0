@@ -92,12 +92,45 @@ public class DeckFactory {
         FIRE_STARTER.put("QTE-0052", 1); // 再起の炎陣 (3) 1捨て1ドロー・還元
     }
 
+    /** 闇スターターデッキ: ミニオン28枚+ウェポン3枚+スペル9枚 */
+    private static final Map<String, Integer> DARK_STARTER = new LinkedHashMap<>();
+
+    static {
+        // ミニオン28枚
+        DARK_STARTER.put("QTE-0076", 4); // カース・ボーン 1/2/1 召喚時:マナを裏向きに(できねば自壊)
+        DARK_STARTER.put("QTE-0012", 5); // ゾンストライカー 1/1/1 突進・4枚制限の対象外
+        DARK_STARTER.put("QTE-0019", 3); // 腐敗の投擲者 2/2/1 召喚時:相手ミニオンに1ダメージ
+        DARK_STARTER.put("QTE-0088", 3); // 生贄を求める邪鬼 2/3/2 召喚時:生贄か自壊
+        DARK_STARTER.put("QTE-0005", 3); // 執念の暗殺者 4/3/3 召喚時3ダメージ・破壊のたびドロー
+        DARK_STARTER.put("QTE-0074", 2); // ボーン・コレクター 4/4/2 突進・戦闘破壊で1ドロー
+        DARK_STARTER.put("QTE-0072", 2); // 不滅のネクロマンサー 4/3/3 裏向きマナで蘇生
+        DARK_STARTER.put("QTE-0087", 1); // 死の知識人 3/0/3 守護・知識・還元
+        DARK_STARTER.put("QTE-0085", 1); // 這い寄る生霊 5/1/1 特殊召喚・知識
+        DARK_STARTER.put("QTE-0078", 1); // 裏切りの魔女 3/2/3 召喚時:条件付き除去
+        DARK_STARTER.put("QTE-0083", 1); // 封印されし禁忌魔人 2+/5/5 守護・踏み倒し不可
+        DARK_STARTER.put("QTE-0082", 1); // 群がる死霊王 6-/7/3 墓地のゾンストライカーで軽減
+        DARK_STARTER.put("QTE-0077", 1); // 冥界神ハデス 8/7/7 召喚時:全体破壊+蘇生
+        // ウェポン3枚
+        DARK_STARTER.put("QTE-0086", 1); // 死神の大鎌 (2/⚔0) 攻撃対象を無条件破壊
+        DARK_STARTER.put("QTE-0089", 1); // 死霊の収鎌 (2/⚔1) 攻撃時:墓地から1枚回収
+        DARK_STARTER.put("QTE-0073", 1); // 禁忌の冥魔剣 (4/⚔1) 裏向きマナを表に+1ダメージ
+        // スペル9枚
+        DARK_STARTER.put("QTE-0081", 2); // 絶望の連鎖 (1) 相互1体破壊
+        DARK_STARTER.put("QTE-0006", 2); // マナを貪る怨霊 (2) マナ2枚裏向き+3ドロー
+        DARK_STARTER.put("QTE-0075", 1); // 禁忌の代償 (2) 裏向きマナ1枚破壊+確定除去
+        DARK_STARTER.put("QTE-0068", 1); // 墓穴の呪い (3) 3枚ミル+HP条件の全体破壊
+        DARK_STARTER.put("QTE-0069", 1); // 冥府への道 (5) 確定除去
+        DARK_STARTER.put("QTE-0084", 1); // 禁忌の墓地利用 (5) 墓地のスペルを裏向きマナへ
+        DARK_STARTER.put("QTE-0080", 1); // 死者蘇生 (7-) 生贄で軽減+突進付き蘇生
+    }
+
     private final CardMasterRepository cardMasterRepository;
 
     public DeckFactory(CardMasterRepository cardMasterRepository) {
         this.cardMasterRepository = cardMasterRepository;
         validate(WATER_STARTER);
         validate(FIRE_STARTER);
+        validate(DARK_STARTER);
     }
 
     /**
@@ -153,6 +186,7 @@ public class DeckFactory {
         Map<String, Integer> definition = switch (leader.civilization()) {
             case WATER -> WATER_STARTER;
             case FIRE -> FIRE_STARTER;
+            case DARK -> DARK_STARTER;
             default -> throw new IllegalStateException(
                     leader.civilization().getDisplayName() + "文明のメインデッキは未実装です");
         };
@@ -208,8 +242,8 @@ public class DeckFactory {
         }
         deckDefinition.forEach((cardId, count) -> {
             cardMasterRepository.findById(cardId); // 存在チェック(なければ例外)
-            if (count > 4) {
-                // ゾンストライカーのようなテキストによる上書きは、該当カード実装時に対応する
+            // ゾンストライカーはカードテキストで4枚制限を上書きしている(DeckValidatorと同じ例外)
+            if (count > 4 && !"QTE-0012".equals(cardId)) {
                 throw new IllegalStateException("同名カードは4枚まで: " + cardId + " x" + count);
             }
         });

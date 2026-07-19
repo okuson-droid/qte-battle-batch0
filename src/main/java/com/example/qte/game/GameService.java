@@ -49,6 +49,9 @@ public class GameService {
     /** リーダー【黄泉の召喚主】。サブフェイズ中に墓地からミニオンを召喚できる */
     private static final String GRAVE_SUMMONER_LEADER_ID = "QTE-L006";
 
+    /** 【死者蘇生】。生贄の数だけ自身のコストが下がるため、支払い前に選択結果を渡す */
+    private static final String SACRIFICE_SPELL_ID = "QTE-0080";
+
     private final CardMasterRepository cards;
     private final DeckFactory deckFactory;
     private final GameActions actions;
@@ -222,6 +225,13 @@ public class GameService {
 
         // 「このターン中」の効果を除去する(設計判断12)
         for (PlayerState p : new PlayerState[] { state.getPlayer1(), state.getPlayer2() }) {
+            // ターンの終わりに自壊するミニオン(特殊召喚された這い寄る生霊)。
+            // 破壊トリガーを正しく発火させるため、リストから消すのではなく破壊処理を通す
+            for (MinionInstance dying : List.copyOf(p.getMinionZone())) {
+                if (dying.isDestroyAtEndOfTurn()) {
+                    actions.destroyMinion(room, p, dying);
+                }
+            }
             p.getMinionZone().forEach(MinionInstance::expireThisTurnModifiers);
             p.getThisTurnAuras().clear();
 
@@ -278,6 +288,9 @@ public class GameService {
             throw new IllegalStateException("このターンはカードを使用できません");
         }
         CardMaster master = cards.findById(peekHand(player, handIndex));
+        // 「代償を払えなければ使用できない」カード(禁忌の代償・絶望の連鎖など)。
+        // コストを支払う前に判定する必要があるためここで見る
+        effects.requirePlayable(master.id(), state, player);
 
         switch (master.type()) {
             case MINION -> playMinion(room, state, player, handIndex, master, choices);
@@ -323,7 +336,16 @@ public class GameService {
         }
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.targetSpecOf(master.id()), choices);
-        payCost(player, stats.effectiveCost(state, player, master));
+        // 【死者蘇生】は「生贄にした自分のミニオンの数だけコスト-1」であり、
+        // 支払う額が選択結果に依存する。StatCalculatorが参照できる場所に数を置いてから支払う
+        if (SACRIFICE_SPELL_ID.equals(master.id())) {
+            player.setPendingSacrificeCount(validated.minions().get(0).size());
+        }
+        try {
+            payCost(player, stats.effectiveCost(state, player, master));
+        } finally {
+            player.setPendingSacrificeCount(0); // MP不足で弾かれた場合も必ず戻す
+        }
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
         room.addLog("%sが【%s】を唱えました".formatted(player.getDisplayName(), master.name()));
 
@@ -477,9 +499,10 @@ public class GameService {
         // 代替コストの支払い(手札を山札の下へ・ミニオンを手札に戻す等)
         spec.costEffect().accept(contextOf(room, state, player, null, resolved));
 
-        summonToField(room, state, player, master, resolved, false);
-        // 特殊召喚で出したときのみ発生する追加効果(背水の炎壁)。通常の【召喚時】とは別枠
-        spec.onSpecialSummon().accept(contextOf(room, state, player, null, resolved));
+        MinionInstance summoned = summonToField(room, state, player, master, resolved, false);
+        // 特殊召喚で出したときのみ発生する追加効果(背水の炎壁・這い寄る生霊の自壊予約)。
+        // 通常の【召喚時】とは別枠であり、出したミニオン自身をsourceとして渡す
+        spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
         player.setPlayedCardThisTurn(true);
     }
 
@@ -525,7 +548,7 @@ public class GameService {
 
     /** 召喚の共通着地処理。ON_SUMMONとON_ENTERの両方が発動する(発注者確認済み裁定)。
      *  効果による「出す」(黄泉還る水龍など)を実装するときはON_ENTERのみを発火する */
-    private void summonToField(GameRoom room, GameState state, PlayerState player,
+    private MinionInstance summonToField(GameRoom room, GameState state, PlayerState player,
             CardMaster master, ResolvedTargets resolved, boolean fromTaboo) {
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
         player.getMinionZone().add(minion);
@@ -534,6 +557,7 @@ public class GameService {
         EffectContext ctx = contextOf(room, state, player, minion, resolved);
         effects.fire(TriggerType.ON_SUMMON, minion, ctx);
         effects.fire(TriggerType.ON_ENTER, minion, ctx);
+        return minion;
     }
 
     /** ウェポンの装備。装備済みなら古いウェポンは即座に墓地へ(総合ルール2-5) */
@@ -643,6 +667,23 @@ public class GameService {
             case "QTE-0061" -> { // 魔剣 レーヴァテイン: 自分のリーダーが攻撃した時、自分のリーダーに3ダメージ
                 actions.damageLeader(room, player, 3);
             }
+            case "QTE-0073" -> { // 禁忌の冥魔剣: 裏向きマナが1枚表に戻り、相手リーダーに1ダメージ
+                if (actions.turnManaFaceUp(room, player, 1) > 0) {
+                    actions.damageLeader(room, opponent, 1, "QTE-0073");
+                }
+            }
+            case "QTE-0089" -> { // 死霊の収鎌: 自分の墓地からカードを1枚手札に戻す
+                // どの1枚かは自動選択(AutoChoice: 最後に墓地へ置かれたカード)
+                String recovered = com.example.qte.effect.AutoChoice.recoverFromTrash(player);
+                if (recovered != null) {
+                    actions.returnFromTrashToHand(room, player, recovered);
+                }
+            }
+            case "QTE-0086" -> { // 死神の大鎌: 攻撃されたミニオンは戦闘ダメージに関わらず破壊される
+                if (!targetIsLeader && opponent.getMinionZone().contains(target)) {
+                    actions.destroyMinion(room, opponent, target, DestructionCause.COMBAT);
+                }
+            }
             case "QTE-0031" -> { // 氷結の杖: 攻撃されたリーダーまたはミニオンは、次のターン攻撃できない
                 int nextTurn = state.getTurnNumber() + 1;
                 if (targetIsLeader) {
@@ -674,6 +715,10 @@ public class GameService {
         }
         if (player.isLeaderAbilityUsedThisTurn()) {
             throw new IllegalStateException("起動能力は1ターンに1回までです");
+        }
+        // 代償を払えない能力(冥府の禁皇: 裏向きマナが必要)は、状態を変える前に弾く
+        if (!spec.condition().test(state, player)) {
+            throw new IllegalStateException("この能力を使用する条件を満たしていません");
         }
         ValidatedTargets validated = validateTargets(state, player, -1, spec.targets(), choices);
         payCost(player, spec.mpCost());
@@ -781,7 +826,8 @@ public class GameService {
             List<TargetSpec.Requirement> requirements,
             List<List<Integer>> handIndexes,
             List<List<ResolvedTargets.TargetedMinion>> minions,
-            List<List<ManaCard>> mana) {
+            List<List<ManaCard>> mana,
+            List<List<String>> trashCardIds) {
     }
 
     /**
@@ -792,7 +838,7 @@ public class GameService {
             int playedHandIndex, TargetSpec spec, List<TargetChoice> choices) {
         List<TargetSpec.Requirement> reqs = spec.requirements();
         if (reqs.isEmpty()) {
-            return new ValidatedTargets(reqs, List.of(), List.of(), List.of());
+            return new ValidatedTargets(reqs, List.of(), List.of(), List.of(), List.of());
         }
         if (choices == null || choices.size() != reqs.size()) {
             throw new IllegalArgumentException("対象の指定が不足しています");
@@ -800,6 +846,7 @@ public class GameService {
         List<List<Integer>> handPerReq = new ArrayList<>();
         List<List<ResolvedTargets.TargetedMinion>> minionsPerReq = new ArrayList<>();
         List<List<ManaCard>> manaPerReq = new ArrayList<>();
+        List<List<String>> trashPerReq = new ArrayList<>();
         Set<Integer> usedHandIndexes = new HashSet<>();
         Set<String> usedMinionIds = new HashSet<>();
 
@@ -825,6 +872,7 @@ public class GameService {
                     handPerReq.add(List.copyOf(indexes));
                     minionsPerReq.add(List.of());
                     manaPerReq.add(List.of());
+                    trashPerReq.add(List.of());
                 }
                 case MANA -> {
                     List<Integer> indexes = choice.manaIndexes();
@@ -840,6 +888,7 @@ public class GameService {
                     handPerReq.add(List.of());
                     minionsPerReq.add(List.of());
                     manaPerReq.add(manaList);
+                    trashPerReq.add(List.of());
                 }
                 case MINION -> {
                     List<String> ids = choice.minionIds();
@@ -860,14 +909,37 @@ public class GameService {
                     handPerReq.add(List.of());
                     minionsPerReq.add(resolved);
                     manaPerReq.add(List.of());
+                    trashPerReq.add(List.of());
+                }
+                case TRASH -> {
+                    // 墓地は自分のものだけを対象にできる。選んだカードは墓地に残したまま渡し、
+                    // 移動(蘇生・手札回収・マナ送り)は効果自身が行う
+                    List<Integer> indexes = choice.trashIndexes();
+                    requireCount(req, indexes.size());
+                    List<String> trashIds = new ArrayList<>();
+                    Set<Integer> seen = new HashSet<>();
+                    for (int idx : indexes) {
+                        if (idx < 0 || idx >= player.getTrash().size() || !seen.add(idx)) {
+                            throw new IllegalArgumentException("不正な墓地の指定です");
+                        }
+                        String cardId = player.getTrash().get(idx);
+                        checkFilter(req, cards.findById(cardId));
+                        trashIds.add(cardId);
+                    }
+                    handPerReq.add(List.of());
+                    minionsPerReq.add(List.of());
+                    manaPerReq.add(List.of());
+                    trashPerReq.add(trashIds);
                 }
             }
         }
-        return new ValidatedTargets(reqs, handPerReq, minionsPerReq, manaPerReq);
+        return new ValidatedTargets(reqs, handPerReq, minionsPerReq, manaPerReq, trashPerReq);
     }
 
     private void requireCount(TargetSpec.Requirement req, int actual) {
-        boolean ok = actual == req.count() || (req.optional() && actual == 0);
+        // upTo(「好きな数」「あるだけ」)は0からcountまでのどれでもよい
+        boolean ok = req.upTo() ? (actual >= 0 && actual <= req.count())
+                : actual == req.count() || (req.optional() && actual == 0);
         if (!ok) {
             throw new IllegalArgumentException("対象は%d体(枚)選ぶ必要があります".formatted(req.count()));
         }
@@ -903,6 +975,16 @@ public class GameService {
                 case COST_4_OR_LESS -> {
                     if (master.cost() == null || master.cost() > 4) {
                         throw new IllegalArgumentException("コスト4以下のカードを選んでください");
+                    }
+                }
+                case COST_3_OR_LESS -> {
+                    if (master.cost() == null || master.cost() > 3) {
+                        throw new IllegalArgumentException("コスト3以下のカードを選んでください");
+                    }
+                }
+                case SPELL_CARD -> {
+                    if (master.type() != CardType.SPELL) {
+                        throw new IllegalArgumentException("スペルカードを選んでください");
                     }
                 }
             }
@@ -963,7 +1045,7 @@ public class GameService {
             List<String> handIds = validated.handIndexes().get(i).isEmpty()
                     ? List.of() : handIdsPerReq.get(i);
             selections.add(new ResolvedTargets.Selection(handIds, validated.minions().get(i),
-                    validated.mana().get(i)));
+                    validated.mana().get(i), validated.trashCardIds().get(i)));
         }
         return new ResolvedTargets(selections);
     }

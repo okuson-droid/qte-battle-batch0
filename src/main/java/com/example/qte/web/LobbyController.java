@@ -153,9 +153,9 @@ public class LobbyController {
         return "redirect:/rooms/" + roomId + "/play?playerId=" + playerId;
     }
 
-    /** 選択可能なリーダー。メインデッキを用意済みの文明(水・火)に限る */
+    /** 選択可能なリーダー。メインデッキを用意済みの文明(水・火・闇)に限る */
     private List<CardMaster> selectableLeaders() {
-        return java.util.stream.Stream.of(Civilization.WATER, Civilization.FIRE)
+        return java.util.stream.Stream.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK)
                 .flatMap(civ -> cards.findByCivilization(civ).stream())
                 .filter(c -> c.type() == CardType.LEADER)
                 .toList();

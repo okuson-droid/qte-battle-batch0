@@ -109,6 +109,7 @@ public class GameViewBuilder {
         return new PlayerView(
                 player.getDisplayName(),
                 player.getLeader().name(),
+                player.getLeader().id(),
                 player.getLp(),
                 player.getDeck().size(),
                 player.getHand().size(),
@@ -119,6 +120,9 @@ public class GameViewBuilder {
                 minions,
                 player.getTrash().size(),
                 player.getTrash().stream().map(id -> cards.findById(id).name()).toList(),
+                player.getTrash().stream()
+                        .map(id -> buildCardView(state, player, cards.findById(id), -1))
+                        .toList(),
                 player.getLostZone().size(),
                 player.getLostZone().stream().map(id -> cards.findById(id).name()).toList(),
                 player.getTabooDeck().size(),
@@ -146,7 +150,9 @@ public class GameViewBuilder {
                 && state.getStatus() == com.example.qte.game.GameStatus.PLAYING
                 && player.getPlayerId().equals(state.getTurnPlayerId())
                 && !player.isLeaderAbilityUsedThisTurn()
-                && player.getAvailableMp() >= spec.mpCost();
+                && player.getAvailableMp() >= spec.mpCost()
+                // 代償を払えない能力(冥府の禁皇: 裏向きマナが必要)はボタンを押せなくする
+                && spec.condition().test(state, player);
         return new PlayerView.LeaderAbilityView(usable, spec.mpCost(), spec.description(),
                 toReqViews(spec.targets()));
     }
@@ -183,7 +189,7 @@ public class GameViewBuilder {
     private List<CardView.TargetReqView> toReqViews(TargetSpec spec) {
         return spec.requirements().stream()
                 .map(r -> new CardView.TargetReqView(
-                        r.kind().name(), r.side().name(), r.count(), r.optional(),
+                        r.kind().name(), r.side().name(), r.count(), r.optional(), r.upTo(),
                         r.filters().stream().map(Enum::name).toList(), r.prompt()))
                 .toList();
     }

@@ -77,6 +77,10 @@ public class StatCalculator {
         if ("QTE-0080".equals(card.id())) {
             cost -= owner.getPendingSacrificeCount();
         }
+        // 悪夢: このターン中、ミニオンの召喚コストを-4する(サブフェイズに使用したときのみ付与される)
+        if (card.type() == CardType.MINION && owner.getThisTurnAuras().contains("QTE-0070")) {
+            cost -= 4;
+        }
         if ("QTE-0041".equals(card.id())) {
             long knowledgeOnBoard = java.util.stream.Stream
                     .of(state.getPlayer1(), state.getPlayer2())

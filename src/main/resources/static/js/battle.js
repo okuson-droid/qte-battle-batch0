@@ -129,9 +129,18 @@ function beginSelection(action, handIndex, specs, extra) {
     pending = {
         action, handIndex, specs, extra,
         collected: [],
-        current: { handIndexes: [], minionIds: [], manaIndexes: [] },
+        current: { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [] },
     };
     render(latestView);
+    maybeOpenTrashPicker();
+}
+
+/** 墓地を対象に取る要求に進んだら、選択用のモーダルを自動で開く */
+function maybeOpenTrashPicker() {
+    const req = currentRequirement();
+    if (req && req.kind === 'TRASH') {
+        openTrashPicker();
+    }
 }
 
 function buildActionPayload(handIndex, targets, extra) {
@@ -193,6 +202,10 @@ function matchesFilters(req, card, minion) {
                 ok = minion ? minion.currentHp <= 5 : (card.hp != null && card.hp <= 5); break;
             case 'COST_4_OR_LESS':
                 ok = (minion || card).cost != null && (minion || card).cost <= 4; break;
+            case 'COST_3_OR_LESS':
+                ok = (minion || card).cost != null && (minion || card).cost <= 3; break;
+            case 'SPELL_CARD':
+                ok = card && card.type === 'SPELL'; break;
         }
         if (!ok) {
             showMessage('このカードは選べません(条件: ' + (req.filters || []).join(', ') + ')');
@@ -215,7 +228,7 @@ function isPicked(kind, value) {
 function advanceIfComplete() {
     const req = currentRequirement();
     const picked = pending.current.handIndexes.length + pending.current.minionIds.length
-        + pending.current.manaIndexes.length;
+        + pending.current.manaIndexes.length + pending.current.trashIndexes.length;
     if (picked >= req.count) {
         commitRequirement();
     } else {
@@ -225,13 +238,16 @@ function advanceIfComplete() {
 
 function commitRequirement() {
     pending.collected.push(pending.current);
-    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [] };
+    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [] };
     if (pending.collected.length === pending.specs.length) {
         const { action, handIndex, collected, extra } = pending;
         pending = null;
+        hideModal();
         send(action, buildActionPayload(handIndex, collected, extra));
     } else {
+        hideModal(); // 前の要求で開いた墓地モーダルを閉じてから次へ進む
         render(latestView);
+        maybeOpenTrashPicker();
     }
 }
 
@@ -239,14 +255,96 @@ function commitRequirement() {
 function skipRequirement() {
     const req = currentRequirement();
     if (!req || !req.optional) return;
-    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [] };
+    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [] };
+    commitRequirement();
+}
+
+/** 「好きな数だけ」の要求を、今選んでいる分で確定する */
+function confirmRequirement() {
+    const req = currentRequirement();
+    if (!req || !req.upTo) return;
     commitRequirement();
 }
 
 function cancelSelection() {
     pending = null;
     tabooPay = null;
+    hideModal();
     render(latestView);
+}
+
+/**
+ * 墓地からの選択。墓地は枚数が多くなるためモーダルに一覧を出して選ばせる。
+ * 選んでも墓地からは消えない(移動はサーバ側の効果が行う)ため、表示は選択済みの印で区別する。
+ */
+function pickTrashCard(index) {
+    const req = currentRequirement();
+    if (!req || req.kind !== 'TRASH') return;
+    if (pending.current.trashIndexes.includes(index)) return;
+    const card = latestView.you.trash[index];
+    if (!matchesFilters(req, card, null)) return;
+    pending.current.trashIndexes.push(index);
+    if (pending.current.trashIndexes.length >= req.count) {
+        commitRequirement();
+        return;
+    }
+    openTrashPicker();
+    render(latestView);
+}
+
+/** 墓地の一覧をモーダルに出す。用途は対象選択(mode省略)と墓地からの召喚(mode='summon') */
+function openTrashPicker(mode) {
+    const trash = (latestView && latestView.you && latestView.you.trash) || [];
+    const title = mode === 'summon' ? '墓地から召喚するミニオンを選択' : '墓地からカードを選択';
+    const rows = [];
+    trash.forEach((card, index) => {
+        if (mode === 'summon' && card.type !== 'MINION') return;
+        const picked = pending && pending.current.trashIndexes.includes(index);
+        const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
+        const label = `${card.name} (${card.type === 'SPELL' ? 'スペル' : card.type === 'WEAPON' ? 'ウェポン' : 'ミニオン'}${cost != null ? ' コスト' + cost : ''})`;
+        rows.push({ index, label, picked });
+    });
+    showModalRows(title, rows, mode);
+}
+
+/** クリックできる行を持つモーダル。情報表示用のshowModalとは別に用意する */
+function showModalRows(title, rows, mode) {
+    document.getElementById('info-modal-title').textContent = title;
+    const content = document.getElementById('info-modal-content');
+    content.innerHTML = '';
+    if (rows.length === 0) {
+        content.textContent = '(選べるカードがありません)';
+    } else {
+        rows.forEach(row => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm w-100 text-start mb-1 '
+                + (row.picked ? 'btn-secondary' : 'btn-outline-secondary');
+            btn.textContent = (row.picked ? '選択中: ' : '') + row.label;
+            btn.onclick = () => {
+                if (mode === 'summon') {
+                    hideModal();
+                    send('summon-from-grave', { trashIndex: row.index });
+                } else {
+                    pickTrashCard(row.index);
+                }
+            };
+            content.appendChild(btn);
+        });
+    }
+    document.getElementById('info-modal').classList.remove('d-none');
+}
+
+/**
+ * 墓地からの召喚(リーダー【黄泉の召喚主】の常在能力)。
+ * サブフェイズ中のみ・回数制限なし・コストは通常どおり支払う。
+ */
+function openGraveSummon() {
+    if (!latestView || !latestView.myTurn || latestView.phase !== 'SUB') {
+        showMessage('墓地からの召喚はサブフェイズにのみ行えます');
+        return;
+    }
+    openTrashPicker('summon');
 }
 
 function pickMana(index) {
@@ -559,6 +657,10 @@ function renderControls(view) {
     document.getElementById('choose-order-area').classList.toggle('d-none', !view.chooseOrder);
     const controls = document.getElementById('turn-controls');
     controls.classList.toggle('d-none', !(view.status === 'PLAYING' && view.myTurn));
+    // 墓地からの召喚は【黄泉の召喚主】のサブフェイズ限定(常在能力)
+    const graveSummon = view.status === 'PLAYING' && view.myTurn && view.phase === 'SUB'
+        && view.you.leaderCardId === 'QTE-L006';
+    document.getElementById('btn-summon-grave').classList.toggle('d-none', !graveSummon);
 }
 
 function renderSelection() {
@@ -577,10 +679,13 @@ function renderSelection() {
     area.classList.toggle('d-none', !req);
     if (!req) return;
     const picked = pending.current.handIndexes.length + pending.current.minionIds.length
-        + pending.current.manaIndexes.length;
+        + pending.current.manaIndexes.length + pending.current.trashIndexes.length;
     document.getElementById('selection-prompt').textContent =
-        `${req.prompt} (${picked}/${req.count})`;
-    document.getElementById('btn-skip-target').classList.toggle('d-none', !req.optional);
+        `${req.prompt} (${picked}/${req.count}${req.upTo ? 'まで' : ''})`;
+    // upTo(好きな数)は0枚でも確定できるため「選ばない」ではなく「確定」を出す
+    skipBtn.classList.toggle('d-none', !req.optional || req.upTo);
+    document.getElementById('btn-confirm-target').classList.toggle('d-none', !req.upTo);
+    document.getElementById('btn-open-trash').classList.toggle('d-none', req.kind !== 'TRASH');
 }
 
 function renderLog(log) {

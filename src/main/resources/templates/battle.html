@@ -62,6 +62,10 @@
                 <span id="selection-prompt"></span>
                 <button id="btn-skip-target" class="btn btn-sm btn-outline-dark ms-2 d-none"
                         onclick="skipRequirement()">選ばない</button>
+                <button id="btn-confirm-target" class="btn btn-sm btn-dark ms-2 d-none"
+                        onclick="confirmRequirement()">この内容で確定</button>
+                <button id="btn-open-trash" class="btn btn-sm btn-outline-dark ms-2 d-none"
+                        onclick="openTrashPicker()">墓地を開く</button>
                 <button class="btn btn-sm btn-outline-dark ms-2" onclick="cancelSelection()">キャンセル</button>
             </div>
             <div id="mulligan-area" class="alert alert-primary py-2 mb-2 d-none">
@@ -71,6 +75,8 @@
             </div>
             <div id="turn-controls" class="d-none">
                 <button id="btn-next-phase" class="btn btn-primary btn-sm" onclick="nextPhase()">次のフェイズへ</button>
+                <button id="btn-summon-grave" class="btn btn-outline-secondary btn-sm d-none"
+                        onclick="openGraveSummon()">墓地から召喚</button>
                 <button id="btn-end-turn" class="btn btn-outline-danger btn-sm" onclick="endTurn()">ターン終了</button>
             </div>
         </div>
@@ -130,6 +136,6 @@
     const PLAYER_ID = /*[[${playerId}]]*/ '';
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
-<script th:src="@{/js/battle.js(v=9)}"></script>
+<script th:src="@{/js/battle.js(v=10)}"></script>
 </body>
 </html>

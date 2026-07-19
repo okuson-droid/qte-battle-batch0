@@ -258,6 +258,11 @@ public class GameActions {
     // 闇文明の基本操作(Batch 10a)
     // ---------------------------------------------------------------
 
+    /** 「コストを支払わず場に出せない」カードか。蘇生系の効果が事前判定に使う */
+    public boolean isCheatIntoFieldBlocked(String cardId) {
+        return NO_CHEAT_INTO_FIELD.contains(cardId);
+    }
+
     /**
      * 山札の上からN枚を墓地に置く(ミル)。
      * ドローとは異なり、山札が尽きても敗北しない(引いていないため)。

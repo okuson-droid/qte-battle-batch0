@@ -29,18 +29,27 @@ public record TargetSpec(List<Requirement> requirements) {
             Side side,
             int count,
             boolean optional,
+            boolean upTo,
             List<Filter> filters,
             String prompt) {
 
         /** 絞り込みなしの要求を作る */
         public static Requirement of(Kind kind, Side side, int count, boolean optional, String prompt) {
-            return new Requirement(kind, side, count, optional, List.of(), prompt);
+            return new Requirement(kind, side, count, optional, false, List.of(), prompt);
         }
 
         /** 絞り込み条件付きの要求を作る */
         public static Requirement filtered(Kind kind, Side side, int count, boolean optional,
                 String prompt, Filter... filters) {
-            return new Requirement(kind, side, count, optional, List.of(filters), prompt);
+            return new Requirement(kind, side, count, optional, false, List.of(filters), prompt);
+        }
+
+        /**
+         * 「好きな数だけ」「あるだけ」選ばせる要求(0個からcount個までのどこでもよい)。
+         * 死者蘇生の生贄・禁忌の墓地利用の2枚(墓地に1枚しかなければ1枚)で使う。
+         */
+        public static Requirement upTo(Kind kind, Side side, int max, String prompt, Filter... filters) {
+            return new Requirement(kind, side, max, true, true, List.of(filters), prompt);
         }
     }
 
@@ -48,7 +57,13 @@ public record TargetSpec(List<Requirement> requirements) {
     public enum Kind {
         HAND, MINION,
         /** 自分のマナゾーンのカード(流転の智者の起動能力など)。SideはSELFのみ有効 */
-        MANA
+        MANA,
+        /**
+         * 自分の墓地のカード(闇文明で追加)。SideはSELFのみ有効。
+         * 選ばれたカードは墓地に残ったまま効果に渡され、移動は効果自身が行う
+         * (蘇生・手札回収・マナ送りで行き先が異なるため)。
+         */
+        TRASH
     }
 
     /** どちら側から選ぶか */
@@ -70,6 +85,10 @@ public record TargetSpec(List<Requirement> requirements) {
         /** 現在HPが5以下(場のミニオンにのみ意味を持つ) */
         HP_5_OR_LESS,
         /** コストが4以下 */
-        COST_4_OR_LESS
+        COST_4_OR_LESS,
+        /** コストが3以下(裏切りの魔女) */
+        COST_3_OR_LESS,
+        /** スペルカードである(墓地からスペルだけを選ばせる) */
+        SPELL_CARD
     }
 }

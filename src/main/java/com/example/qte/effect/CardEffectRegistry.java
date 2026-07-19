@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
+import java.util.function.BiPredicate;
 import java.util.function.Consumer;
 
 import org.springframework.stereotype.Component;
@@ -13,10 +14,14 @@ import com.example.qte.effect.TargetSpec.Filter;
 import com.example.qte.effect.TargetSpec.Kind;
 import com.example.qte.effect.TargetSpec.Requirement;
 import com.example.qte.effect.TargetSpec.Side;
+import com.example.qte.game.GameState;
+import com.example.qte.game.ManaCard;
 import com.example.qte.game.MinionInstance;
+import com.example.qte.game.TurnPhase;
 import com.example.qte.game.StatModifier;
 import com.example.qte.game.PlayerState;
 import com.example.qte.master.CardMasterRepository;
+import com.example.qte.master.CardType;
 import com.example.qte.master.Keyword;
 
 /**
@@ -57,6 +62,14 @@ public class CardEffectRegistry {
      */
     private final Map<String, BiConsumer<EffectContext, String>> ownMinionDestroyedWatchers = new HashMap<>();
 
+    /**
+     * 使用条件(カードID → 判定)。「代償を払えないなら使用できない」カードのための仕組み。
+     *
+     * 対象指定(TargetSpec)では表現できない条件をここに置く。判定は
+     * コストの支払いより前に行われるため、条件を満たさないカードは状態を一切変えずに弾かれる。
+     */
+    private final Map<String, BiPredicate<GameState, PlayerState>> playConditions = new HashMap<>();
+
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
 
@@ -68,6 +81,7 @@ public class CardEffectRegistry {
         registerSpecialSummons();
         registerLeaderAbilities();
         registerFireCards();
+        registerDarkCards();
     }
 
     // ---------------------------------------------------------------
@@ -142,8 +156,8 @@ public class CardEffectRegistry {
 
         // 手札を喰らう大蟹: 【召喚時】自分の手札を1枚捨てる。相手のミニオン1体を持ち主の手札に戻す
         targetSpecs.put("QTE-0034", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, false, List.of(), "捨てるカードを選んでください"),
-                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, List.of(), "手札に戻す相手のミニオンを選んでください")));
+                new Requirement(Kind.HAND, Side.SELF, 1, false, false, List.of(), "捨てるカードを選んでください"),
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(), "手札に戻す相手のミニオンを選んでください")));
         register("QTE-0034", TriggerType.ON_SUMMON, ctx -> {
             // 選択済み手札は除去済みで届くため、行き先(墓地)を決めるだけでよい
             ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
@@ -154,7 +168,7 @@ public class CardEffectRegistry {
 
         // 英知の継承者: 【召喚時】【知識】を持つカードを1枚手札から捨てても良い。そうしたら【知識】を行う
         targetSpecs.put("QTE-0021", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, true, List.of(Filter.KNOWLEDGE),
+                new Requirement(Kind.HAND, Side.SELF, 1, true, false, List.of(Filter.KNOWLEDGE),
                         "捨てる【知識】カードを選んでください(任意)")));
         register("QTE-0021", TriggerType.ON_SUMMON, ctx -> {
             var selection = ctx.targets().get(0);
@@ -170,7 +184,7 @@ public class CardEffectRegistry {
         // 双流の幻術師: 場に居る知識の数Cost-1。【召喚時】ミニオンを2体選び持ち主の手札に戻す
         // (数え方・対象とも両者の場を参照する: 発注者確認済み)
         targetSpecs.put("QTE-0041", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.ANY, 2, false, List.of(), "手札に戻すミニオンを2体選んでください")));
+                new Requirement(Kind.MINION, Side.ANY, 2, false, false, List.of(), "手札に戻すミニオンを2体選んでください")));
         register("QTE-0041", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions().forEach(
                 t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion())));
     }
@@ -184,7 +198,7 @@ public class CardEffectRegistry {
         // 深海神 プレサージュ: 自分の知識を持つカードを手札から5枚山札の下に置いて0コストで出せる
         specialSummons.put("QTE-0020", SpecialSummonSpec.of(
                 (state, player, handIndex) -> countKnowledgeInHandExcluding(player, handIndex) >= 5,
-                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 5, false, List.of(Filter.KNOWLEDGE),
+                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 5, false, false, List.of(Filter.KNOWLEDGE),
                         "山札の下に置く【知識】カードを5枚選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getDeck().addLast(id));
@@ -196,7 +210,7 @@ public class CardEffectRegistry {
         specialSummons.put("QTE-0032", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE)).count() >= 2,
-                TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 2, false, List.of(Filter.KNOWLEDGE),
+                TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 2, false, false, List.of(Filter.KNOWLEDGE),
                         "手札に戻す自分の【知識】ミニオンを2体選んでください")),
                 ctx -> ctx.targets().get(0).minions().forEach(
                         t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion())),
@@ -222,7 +236,7 @@ public class CardEffectRegistry {
         // 「開始時」の厳密な実装は「このターンまだカードをプレイしていない」で近似する(設計解説4章)
         specialSummons.put("QTE-0038", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getHand().size() >= 7 && !player.isPlayedCardThisTurn(),
-                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, List.of(),
+                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, false, List.of(),
                         "捨てるカードを3枚選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
@@ -237,9 +251,9 @@ public class CardEffectRegistry {
 
     private void registerLeaderAbilities() {
         // 蒼海の賢者: 自分の手札を1枚デッキの一番下に戻す。自分のリーダーの体力を2回復
-        leaderAbilities.put("QTE-L002", new LeaderAbilitySpec(0,
+        leaderAbilities.put("QTE-L002", LeaderAbilitySpec.of(0,
                 TargetSpec.of(new TargetSpec.Requirement(TargetSpec.Kind.HAND, TargetSpec.Side.SELF,
-                        1, false, List.of(), "山札の一番下に戻すカードを選んでください")),
+                        1, false, false, List.of(), "山札の一番下に戻すカードを選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getDeck().addLast(id));
                     ctx.actions().healLeader(ctx.room(), ctx.owner(), 2);
@@ -247,9 +261,9 @@ public class CardEffectRegistry {
                 "手札1枚を山札の下に戻し、リーダーを2回復"));
 
         // 流転の智者: コスト2支払っても良い。そうしたら、マナを1枚手札に戻して2ドロー
-        leaderAbilities.put("QTE-L003", new LeaderAbilitySpec(2,
+        leaderAbilities.put("QTE-L003", LeaderAbilitySpec.of(2,
                 TargetSpec.of(new TargetSpec.Requirement(TargetSpec.Kind.MANA, TargetSpec.Side.SELF,
-                        1, false, List.of(), "手札に戻すマナを選んでください")),
+                        1, false, false, List.of(), "手札に戻すマナを選んでください")),
                 ctx -> {
                     ctx.targets().get(0).mana().forEach(mana -> {
                         ctx.owner().getManaZone().remove(mana);
@@ -504,14 +518,14 @@ public class CardEffectRegistry {
         // ---- リーダー起動能力 ----
 
         // 傷痕の闘帝: 自分のリーダーに1ダメージ。そうしたら1枚ドローする
-        leaderAbilities.put("QTE-L001", new LeaderAbilitySpec(0, TargetSpec.of(), ctx -> {
+        leaderAbilities.put("QTE-L001", LeaderAbilitySpec.of(0, TargetSpec.of(), ctx -> {
             ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-L001");
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
         }, "自分のリーダーに1ダメージ、1枚ドロー"));
 
         // 剛火の将: 自分のライフを2減らす(ダメージ扱い: 発注者確認済み)。
         // このターン中、次に手札から使用する火文明ミニオンのコストを-1する(0にはならない)
-        leaderAbilities.put("QTE-L004", new LeaderAbilitySpec(0, TargetSpec.of(), ctx -> {
+        leaderAbilities.put("QTE-L004", LeaderAbilitySpec.of(0, TargetSpec.of(), ctx -> {
             ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-L004");
             ctx.owner().setPendingFireMinionDiscount(1);
             ctx.room().addLog("次に使う火文明ミニオンのコストが1下がる(このターン中)");
@@ -546,11 +560,304 @@ public class CardEffectRegistry {
         }
     }
 
+
+    // ---------------------------------------------------------------
+    // 登録: 闇文明(Batch 10bで全面実装)
+    //
+    // 闇のテーマは「墓地」と「裏向きマナ」を資源として使い潰すこと。
+    // 効果の解決中に生じる選択は AutoChoice が自動で決める(Batch 10bの暫定方針)。
+    // ---------------------------------------------------------------
+
+    private void registerDarkCards() {
+
+        // ---- リーダー ----
+
+        // 冥府の禁皇: 裏向きのマナ1枚を手札に戻し、2枚引く。
+        // 裏向きマナが無ければ使用できないため、状態を変える前に条件で弾く
+        leaderAbilities.put("QTE-L005", new LeaderAbilitySpec(0, TargetSpec.of(),
+                ctx -> {
+                    if (ctx.actions().returnFaceDownManaToHand(ctx.room(), ctx.owner())) {
+                        ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+                    }
+                },
+                (state, player) -> player.getFaceDownManaCount() > 0,
+                "裏向きのマナ1枚を手札に戻し、カードを2枚引く"));
+
+        // 黄泉の召喚主(QTE-L006)は起動能力ではなく常在能力(サブフェイズの墓地召喚)。
+        // ルールそのものを書き換えるため GameService.summonFromGrave が担当する
+
+        // ---- ミニオン ----
+
+        // 執念の暗殺者: 【召喚時】ミニオン1体に3ダメージ。自分のミニオンが破壊されるたび1枚引いてもよい
+        targetSpecs.put("QTE-0005", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.ANY, 1, true, false, List.of(),
+                        "3ダメージを与えるミニオンを選んでください(自分のミニオンも選べます)")));
+        register("QTE-0005", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
+                .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3)));
+        watchOwnMinionDestroyed("QTE-0005", (ctx, destroyedCardId) -> {
+            // 「引いてもよい」= 山札が空でなければ引く(AutoChoice)
+            if (AutoChoice.shouldDrawOptional(ctx.owner())) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+                ctx.room().addLog("【執念の暗殺者】が1枚ドロー");
+            }
+        });
+
+        // ゾンストライカー: 【召喚時】墓地の「ゾンストライカー」を全て出す(ゾーン上限まで)。
+        // 効果による「出す」なので【召喚時】は再発動しない(無限ループにならない)
+        register("QTE-0012", TriggerType.ON_SUMMON, ctx -> {
+            while (ctx.owner().getTrash().contains("QTE-0012") && !ctx.owner().isMinionZoneFull()) {
+                ctx.owner().getTrash().remove("QTE-0012");
+                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), "QTE-0012");
+            }
+        });
+
+        // 腐敗の投擲者: 【召喚時】相手のミニオン1体に1ダメージ
+        targetSpecs.put("QTE-0019", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
+                        "1ダメージを与える相手のミニオンを選んでください")));
+        register("QTE-0019", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
+                .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 1)));
+
+        // 墓場の怨念集合体: 【召喚時】墓地のスペルを1枚手札に加える(攻撃力の加算はStatCalculator)
+        targetSpecs.put("QTE-0071", TargetSpec.of(
+                new Requirement(Kind.TRASH, Side.SELF, 1, true, false, List.of(Filter.SPELL_CARD),
+                        "手札に加えるスペルを墓地から選んでください")));
+        register("QTE-0071", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).trashCardIds()
+                .forEach(id -> ctx.actions().returnFromTrashToHand(ctx.room(), ctx.owner(), id)));
+
+        // 不滅のネクロマンサー: 自分の他のミニオンが破壊されるたび、裏向きマナ1枚を破壊して
+        // そのミニオンを蘇生し【突進】を付与してもよい。
+        // 「してもよい」の判断はAutoChoice。マナを無駄にしないよう、蘇生できる見込みを先に確かめる
+        watchOwnMinionDestroyed("QTE-0072", (ctx, destroyedCardId) -> {
+            if (!AutoChoice.shouldRevivePayingMana(ctx.owner())
+                    || !ctx.owner().getTrash().contains(destroyedCardId)
+                    || ctx.actions().isCheatIntoFieldBlocked(destroyedCardId)) {
+                return;
+            }
+            if (ctx.actions().destroyFaceDownMana(ctx.room(), ctx.owner(), 1) == 0) {
+                return;
+            }
+            if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), destroyedCardId)) {
+                List<MinionInstance> zone = ctx.owner().getMinionZone();
+                zone.get(zone.size() - 1).grantKeyword(Keyword.RUSH);
+                ctx.room().addLog("【不滅のネクロマンサー】が【%s】を蘇生し【突進】を付与"
+                        .formatted(cards.findById(destroyedCardId).name()));
+            }
+        });
+
+        // ボーン・コレクター: このミニオンが戦闘で破壊された時1枚引く(効果破壊では引かない)
+        register("QTE-0074", TriggerType.ON_DESTROYED_BY_COMBAT,
+                ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 1));
+
+        // カース・ボーン: 【召喚時】表向きマナ1枚を裏向きにする。できなければ自身を破壊する
+        register("QTE-0076", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.actions().turnManaFaceDown(ctx.room(), ctx.owner(), 1) == 0) {
+                ctx.room().addLog("表向きのマナが無いため【カース・ボーン】は破壊されます");
+                ctx.actions().destroyMinion(ctx.room(), ctx.owner(), ctx.source());
+            }
+        });
+
+        // 冥界神ハデス: 【召喚時】ハデス以外の全ミニオンを破壊し、その後
+        // 裏向きマナの枚数だけ、このターン破壊された味方ミニオンを墓地から出す。
+        // 破壊が先・蘇生が後という順序のため、自分が今破壊したミニオンも蘇生候補に入る
+        register("QTE-0077", TriggerType.ON_SUMMON, ctx -> {
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                for (MinionInstance minion : List.copyOf(side.getMinionZone())) {
+                    if (!"QTE-0077".equals(minion.getMaster().id())) {
+                        ctx.actions().destroyMinion(ctx.room(), side, minion);
+                    }
+                }
+            }
+            int reviveLimit = ctx.owner().getFaceDownManaCount();
+            ctx.room().addLog("【冥界神ハデス】: 裏向きマナ%d枚分まで蘇生します".formatted(reviveLimit));
+            int revived = 0;
+            // どの体を蘇生するかはAutoChoice(コストの高い順)が決める
+            for (String cardId : AutoChoice.reviveOrder(cards, ctx.owner().getMinionsDestroyedThisTurn())) {
+                if (revived >= reviveLimit) {
+                    break;
+                }
+                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId)) {
+                    revived++;
+                }
+            }
+        });
+
+        // 裏切りの魔女: 【召喚時】裏向きマナが2枚以上なら、相手のコスト3以下のミニオン1体を破壊
+        targetSpecs.put("QTE-0078", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(Filter.COST_3_OR_LESS),
+                        "破壊する相手のコスト3以下のミニオンを選んでください(裏向きマナ2枚以上が必要)")));
+        register("QTE-0078", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.owner().getFaceDownManaCount() < 2) {
+                ctx.room().addLog("裏向きのマナが2枚未満のため【裏切りの魔女】の効果は発動しません");
+                return;
+            }
+            ctx.targets().get(0).minions()
+                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+        });
+
+        // 獄門の裁定者: 【守護】このミニオンがダメージを受けた時、相手のリーダーに2ダメージ
+        register("QTE-0079", TriggerType.ON_MINION_DAMAGED,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 2, "QTE-0079"));
+
+        // 這い寄る生霊: 【特殊召喚】自分のターン中に自分のミニオンが破壊されていればコスト0で使用できる。
+        // 特殊召喚で出た場合のみ、そのターンの終わりに破壊される
+        specialSummons.put("QTE-0085", new SpecialSummonSpec(
+                (state, player, handIndex) -> player.isOwnMinionDestroyedThisTurn(),
+                0,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                ctx -> {
+                    if (ctx.source() != null) {
+                        ctx.source().setDestroyAtEndOfTurn(true);
+                    }
+                },
+                "自分のミニオンが破壊されているため、コスト0で特殊召喚できます(このターンの終わりに破壊されます)"));
+
+        // 生贄を求める邪鬼: 【召喚時】自分の他のミニオン1体を破壊しなければ、このミニオンを破壊する。
+        // 選ばない(自壊を選ぶ)こともできる(発注者確認済み)
+        targetSpecs.put("QTE-0088", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.SELF, 1, true, false, List.of(),
+                        "生贄にする自分のミニオンを選んでください(選ばない場合このミニオンが破壊されます)")));
+        register("QTE-0088", TriggerType.ON_SUMMON, ctx -> {
+            List<ResolvedTargets.TargetedMinion> sacrifice = ctx.targets().get(0).minions();
+            if (sacrifice.isEmpty()) {
+                ctx.room().addLog("生贄を選ばなかったため【生贄を求める邪鬼】は破壊されます");
+                ctx.actions().destroyMinion(ctx.room(), ctx.owner(), ctx.source());
+                return;
+            }
+            sacrifice.forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+        });
+
+        // ---- スペル ----
+
+        // マナを貪る怨霊: 表向きのマナ2枚を裏向きにする。3枚引く
+        playConditions.put("QTE-0006",
+                (state, player) -> player.getManaZone().stream().anyMatch(ManaCard::isFaceUp));
+        spellEffects.put("QTE-0006", ctx -> {
+            ctx.actions().turnManaFaceDown(ctx.room(), ctx.owner(), 2);
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
+        });
+
+        // 墓穴の呪い: 山札の上から3枚を墓地に置く。墓地の枚数以下のHPを持つミニオンを全て破壊。
+        // 枚数の判定は3枚を置いた後に行う(発注者確認済み)。自分のミニオンも巻き込む
+        spellEffects.put("QTE-0068", ctx -> {
+            ctx.actions().mill(ctx.room(), ctx.owner(), 3);
+            int threshold = ctx.owner().getTrash().size();
+            ctx.room().addLog("【墓穴の呪い】: HP%d以下のミニオンを全て破壊します".formatted(threshold));
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                for (MinionInstance minion : List.copyOf(side.getMinionZone())) {
+                    if (minion.getCurrentHp() <= threshold) {
+                        ctx.actions().destroyMinion(ctx.room(), side, minion);
+                    }
+                }
+            }
+        });
+
+        // 冥府への道: 相手のミニオンを1体選び破壊する
+        playConditions.put("QTE-0069",
+                (state, player) -> !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
+        targetSpecs.put("QTE-0069", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(),
+                        "破壊する相手のミニオンを選んでください")));
+        spellEffects.put("QTE-0069", ctx -> ctx.targets().get(0).minions()
+                .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion())));
+
+        // 悪夢: コスト軽減はStatCalculatorが行う。本体効果はサブフェイズに使ったときのみ。
+        // 「このターン、ミニオンの召喚コストを-4」はターン中オーラとして表現する
+        spellEffects.put("QTE-0070", ctx -> {
+            if (ctx.state().getPhase() != TurnPhase.SUB) {
+                ctx.room().addLog("【悪夢】はサブフェイズ以外で使用されたため、効果は発動しませんでした");
+                return;
+            }
+            ctx.owner().getThisTurnAuras().add("QTE-0070");
+            ctx.room().addLog("このターン、%sのミニオンの召喚コストが4下がります"
+                    .formatted(ctx.owner().getDisplayName()));
+        });
+
+        // 禁忌の代償: 裏向きマナ1枚を破壊する。相手のミニオン1体を破壊する
+        playConditions.put("QTE-0075", (state, player) -> player.getFaceDownManaCount() > 0
+                && !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
+        targetSpecs.put("QTE-0075", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(),
+                        "破壊する相手のミニオンを選んでください")));
+        spellEffects.put("QTE-0075", ctx -> {
+            ctx.actions().destroyFaceDownMana(ctx.room(), ctx.owner(), 1);
+            ctx.targets().get(0).minions()
+                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+        });
+
+        // 死者蘇生: 好きな数の自分のミニオンを破壊してもよい(その数だけコスト-1)。
+        // 墓地からミニオン1体を【突進】付きで蘇生する。
+        // 生贄はコスト計算に影響するためGameServiceが支払い前に数を読む
+        playConditions.put("QTE-0080", (state, player) -> !player.getMinionZone().isEmpty()
+                || player.getTrash().stream().anyMatch(id -> cards.findById(id).type() == CardType.MINION));
+        targetSpecs.put("QTE-0080", TargetSpec.of(
+                Requirement.upTo(Kind.MINION, Side.SELF, PlayerState.MAX_MINIONS,
+                        "生贄にする自分のミニオンを選んでください(1体につきコスト-1)")));
+        spellEffects.put("QTE-0080", ctx -> {
+            ctx.targets().get(0).minions()
+                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            List<String> candidates = ctx.owner().getTrash().stream()
+                    .filter(id -> cards.findById(id).type() == CardType.MINION)
+                    .toList();
+            // 蘇生する1体はAutoChoice(コストの高い順)が決める
+            for (String cardId : AutoChoice.reviveOrder(cards, candidates)) {
+                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId)) {
+                    List<MinionInstance> zone = ctx.owner().getMinionZone();
+                    zone.get(zone.size() - 1).grantKeyword(Keyword.RUSH);
+                    ctx.room().addLog("【死者蘇生】が【%s】を蘇生し【突進】を付与"
+                            .formatted(cards.findById(cardId).name()));
+                    break;
+                }
+            }
+        });
+
+        // 絶望の連鎖: 自分のミニオン1体を破壊する。相手のミニオン1体を破壊する
+        playConditions.put("QTE-0081", (state, player) -> !player.getMinionZone().isEmpty());
+        targetSpecs.put("QTE-0081", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(),
+                        "破壊する自分のミニオンを選んでください"),
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
+                        "破壊する相手のミニオンを選んでください")));
+        spellEffects.put("QTE-0081", ctx -> {
+            ctx.targets().get(0).minions()
+                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            ctx.targets().get(1).minions()
+                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+        });
+
+        // 禁忌の墓地利用: 墓地のスペルを2枚選び、マナゾーンに裏向きで置く。
+        // 墓地に1枚しかなければ1枚だけ置く(発注者確認済み)ため upTo で表現する
+        playConditions.put("QTE-0084", (state, player) -> player.getManaZone().size() < PlayerState.MAX_MANA
+                && player.getTrash().stream().anyMatch(id -> cards.findById(id).type() == CardType.SPELL));
+        targetSpecs.put("QTE-0084", TargetSpec.of(
+                Requirement.upTo(Kind.TRASH, Side.SELF, 2,
+                        "マナに置くスペルを墓地から2枚まで選んでください", Filter.SPELL_CARD)));
+        spellEffects.put("QTE-0084", ctx -> ctx.targets().get(0).trashCardIds()
+                .forEach(id -> ctx.actions().putTrashCardIntoManaFaceDown(ctx.room(), ctx.owner(), id)));
+
+        // ---- ウェポン ----
+        // 禁忌の冥魔剣(QTE-0073)・死神の大鎌(QTE-0086)・死霊の収鎌(QTE-0089)は
+        // 「リーダーが攻撃した時」の効果であり、GameService.leaderAttack内で解決する
+    }
+
     // ---------------------------------------------------------------
     // 照会・発火
     // ---------------------------------------------------------------
 
-    /** 「自分のミニオンが破壊された」監視効果の登録(Batch 10b の闇文明カードで使用する) */
+    /**
+     * 使用条件の検証。満たしていなければ例外を投げる(状態は変更しない)。
+     * GameServiceがコストの支払いより前に呼ぶ。
+     */
+    public void requirePlayable(String cardId, GameState state, PlayerState player) {
+        BiPredicate<GameState, PlayerState> condition = playConditions.get(cardId);
+        if (condition != null && !condition.test(state, player)) {
+            throw new IllegalStateException("このカードを使用する条件を満たしていません");
+        }
+    }
+
+    /** 「自分のミニオンが破壊された」監視効果の登録 */
     private void watchOwnMinionDestroyed(String cardId, BiConsumer<EffectContext, String> effect) {
         ownMinionDestroyedWatchers.put(cardId, effect);
     }

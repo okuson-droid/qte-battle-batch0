@@ -39,6 +39,13 @@ public class MinionInstance {
     /** このターンに攻撃した回数。アンタップフェイズで0に戻す */
     private int attacksUsedThisTurn = 0;
 
+    /**
+     * ターンの終わりに自身を破壊するか(這い寄る生霊を特殊召喚で出した場合)。
+     * 通常召喚で出したときは立てない(カードテキストが特殊召喚のときだけを指しているため)。
+     */
+    @lombok.Setter
+    private boolean destroyAtEndOfTurn = false;
+
     /** このターン番号の間は攻撃できない(氷結の杖の凍結)。0なら制限なし */
     @lombok.Setter
     private int cannotAttackOnTurn = 0;

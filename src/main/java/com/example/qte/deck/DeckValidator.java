@@ -30,7 +30,15 @@ public class DeckValidator {
     public static final int MAX_SAME_NAME = 4;
 
     /** 効果を実装済みの文明。未実装文明のカードは「入れられるのに何も起きない」ため禁止する */
-    private static final Set<Civilization> IMPLEMENTED = Set.of(Civilization.WATER, Civilization.FIRE);
+    private static final Set<Civilization> IMPLEMENTED =
+            Set.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK);
+
+    /**
+     * 同名4枚制限をカードテキストで上書きしているカード(ゾンストライカー)。
+     * 「このカードは4枚以上入れられる」という例外はカード側の性質だが、
+     * 判定はデッキ検証でしか行えないため、ここにIDを持つ。
+     */
+    private static final Set<String> UNLIMITED_COPIES = Set.of("QTE-0012");
 
     private final CardMasterRepository cards;
     private final CardEffectRegistry effects;
@@ -77,7 +85,7 @@ public class DeckValidator {
                 throw new IllegalArgumentException(
                         "メインデッキはリーダーと同じ文明のカードのみです: " + card.name());
             }
-            if (entry.count() > MAX_SAME_NAME) {
+            if (entry.count() > MAX_SAME_NAME && !UNLIMITED_COPIES.contains(entry.cardId())) {
                 throw new IllegalArgumentException(
                         "同名カードは%d枚までです: %s".formatted(MAX_SAME_NAME, card.name()));
             }
