@@ -15,6 +15,7 @@ import java.util.List;
  * @param cannotUseCards このターンカードを使用できないか(静寂の瞑想)
  * @param mulliganDone  マリガンを完了したか
  * @param leaderText    リーダーカードの効果テキスト(いつでも確認できるようにする)
+ * @param deckName      使用しているデッキ名(公開情報)
  * @param weaponName    装備中ウェポン名(未装備はnull)
  * @param weaponAttack  ウェポンの現在攻撃力(動的値込み。水刺客など)
  * @param leaderCanAttack 今リーダーが攻撃宣言できるか(自分のビューでのみ意味を持つ)
@@ -42,6 +43,7 @@ public record PlayerView(
         boolean cannotUseCards,
         boolean mulliganDone,
         String leaderText,
+        String deckName,
         String weaponName,
         Integer weaponAttack,
         boolean leaderCanAttack,

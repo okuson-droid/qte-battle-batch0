@@ -27,6 +27,10 @@ public class PlayerState {
     private final String displayName;
     private final CardMaster leader;
 
+    /** 使用デッキ名(表示用)。プリセットなら「おまかせ」 */
+    @Setter
+    private String deckName = "おまかせ";
+
     /** 体力。0以下で即座に敗北(総合ルール2-1) */
     @Setter
     private int lp = INITIAL_LP;

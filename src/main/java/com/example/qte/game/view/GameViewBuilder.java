@@ -127,6 +127,7 @@ public class GameViewBuilder {
                 player.isCannotUseCardsThisTurn(),
                 player.isMulliganDone(),
                 player.getLeader().text(),
+                player.getDeckName(),
                 player.getEquippedWeapon() == null ? null : player.getEquippedWeapon().name(),
                 player.getEquippedWeapon() == null ? null
                         : stats.effectiveWeaponAttack(state, player),

@@ -89,8 +89,16 @@ public class GameService {
             throw new IllegalArgumentException("リーダーカードではありません: " + leader.name());
         }
         PlayerState player = new PlayerState(slot.getPlayerId(), slot.getDisplayName(), leader);
-        player.getDeck().addAll(deckFactory.createMainDeck(leader));
-        player.getTabooDeck().addAll(deckFactory.createTabooDeck(leader));
+        player.setDeckName(slot.getDeckName());
+        if (slot.getDeck() != null) {
+            // 読み込まれたデッキファイル(検証済み)を使う
+            player.getDeck().addAll(deckFactory.createMainDeckFrom(slot.getDeck()));
+            player.getTabooDeck().addAll(deckFactory.createTabooDeckFrom(slot.getDeck()));
+        } else {
+            // デッキ未指定: 文明ごとのプリセット
+            player.getDeck().addAll(deckFactory.createMainDeck(leader));
+            player.getTabooDeck().addAll(deckFactory.createTabooDeck(leader));
+        }
         return player;
     }
 

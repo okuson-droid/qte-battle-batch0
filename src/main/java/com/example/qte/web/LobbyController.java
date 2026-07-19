@@ -1,16 +1,19 @@
 package com.example.qte.web;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
+import com.example.qte.deck.DeckDefinition;
+import com.example.qte.deck.DeckValidator;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
@@ -20,13 +23,15 @@ import com.example.qte.room.GameRoomManager;
 import com.example.qte.room.PlayerSlot;
 
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.ObjectMapper;
 
 /**
- * ロビー(部屋の作成・入室)。ここは従来型のMVC + PRGパターンで作る。
+ * ロビー(部屋の作成・入室)とデッキビルダー画面。
  * 「ページを開くまで」はMVC、「開いた後の対戦」はWebSocket、という役割分担。
  *
- * playerIdはサーバが発行するUUIDで、URLのクエリパラメータで持ち回る。
- * 認証は作らない方針(仕様1-2)のため、このUUIDを知っていること自体を本人確認とする割り切り。
+ * デッキはファイルとして持ち込まれる(アカウント・DBを持たない方針)。
+ * ファイルの中身はクライアントのJSが読み取って隠しフィールドに載せ、
+ * 通常のフォーム送信で届く。サーバは必ずDeckValidatorで検証してから受け付ける。
  */
 @Controller
 @RequiredArgsConstructor
@@ -34,6 +39,8 @@ public class LobbyController {
 
     private final GameRoomManager roomManager;
     private final CardMasterRepository cards;
+    private final DeckValidator deckValidator;
+    private final ObjectMapper objectMapper;
 
     @GetMapping("/")
     public String lobby(Model model) {
@@ -43,22 +50,24 @@ public class LobbyController {
 
     /** 部屋を作成し、作成者をプレイヤー1として登録する */
     @PostMapping("/rooms")
-    public String createRoom(@RequestParam String playerName, @RequestParam String leaderCardId,
-            RedirectAttributes redirectAttributes) {
+    public String createRoom(@RequestParam String playerName,
+            @RequestParam(required = false) String leaderCardId,
+            @RequestParam(required = false) String deckJson) {
         GameRoom room = roomManager.createRoom();
-        String playerId = registerPlayer(room, playerName, leaderCardId);
+        String playerId = registerPlayer(room, playerName, leaderCardId, deckJson);
         return redirectToBattle(room.getRoomId(), playerId);
     }
 
     /** 部屋コードを指定して入室する(プレイヤー2) */
     @PostMapping("/rooms/join")
     public String joinRoom(@RequestParam String roomId, @RequestParam String playerName,
-            @RequestParam String leaderCardId, RedirectAttributes redirectAttributes) {
+            @RequestParam(required = false) String leaderCardId,
+            @RequestParam(required = false) String deckJson) {
         GameRoom room = roomManager.findRoom(roomId.trim())
                 .orElseThrow(() -> new IllegalArgumentException("部屋が見つかりません: " + roomId));
         String playerId;
         synchronized (room.getLock()) {
-            playerId = registerPlayer(room, playerName, leaderCardId);
+            playerId = registerPlayer(room, playerName, leaderCardId, deckJson);
         }
         return redirectToBattle(room.getRoomId(), playerId);
     }
@@ -76,10 +85,16 @@ public class LobbyController {
         return "battle";
     }
 
-    /** カードマスタ一覧(Batch 0の動作確認画面をこちらへ移設) */
+    /** デッキビルダー画面 */
+    @GetMapping("/deck-builder")
+    public String deckBuilder() {
+        return "deck-builder";
+    }
+
+    /** カードマスタ一覧(人が読む用) */
     @GetMapping("/cards")
     public String cards(Model model) {
-        var byCiv = new java.util.LinkedHashMap<Civilization, List<CardMaster>>();
+        var byCiv = new LinkedHashMap<Civilization, List<CardMaster>>();
         for (Civilization civ : Civilization.values()) {
             List<CardMaster> list = cards.findByCivilization(civ);
             if (!list.isEmpty()) {
@@ -92,11 +107,46 @@ public class LobbyController {
         return "cards";
     }
 
-    private String registerPlayer(GameRoom room, String playerName, String leaderCardId) {
+    /** 入力エラー(部屋が見つからない・デッキ不正など)はロビーに戻して理由を表示する */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public String handleInvalidInput(IllegalArgumentException e, Model model) {
+        model.addAttribute("errorMessage", e.getMessage());
+        model.addAttribute("leaders", selectableLeaders());
+        return "lobby";
+    }
+
+    private String registerPlayer(GameRoom room, String playerName, String leaderCardId, String deckJson) {
         String playerId = UUID.randomUUID().toString();
         String name = playerName == null || playerName.isBlank() ? "名無しのデュエリスト" : playerName.trim();
-        room.addSlot(new PlayerSlot(playerId, name, leaderCardId));
+
+        DeckDefinition deck = parseDeck(deckJson);
+        String effectiveLeaderId;
+        String deckName;
+        if (deck != null) {
+            // デッキファイルのリーダーが優先される(プルダウンの選択は無視)
+            deckValidator.validate(deck);
+            effectiveLeaderId = deck.leaderCardId();
+            deckName = deck.name() == null || deck.name().isBlank() ? "読み込んだデッキ" : deck.name();
+        } else {
+            if (leaderCardId == null || leaderCardId.isBlank()) {
+                throw new IllegalArgumentException("リーダーを選択するか、デッキファイルを読み込んでください");
+            }
+            effectiveLeaderId = leaderCardId;
+            deckName = "おまかせ";
+        }
+        room.addSlot(new PlayerSlot(playerId, name, effectiveLeaderId, deck, deckName));
         return playerId;
+    }
+
+    private DeckDefinition parseDeck(String deckJson) {
+        if (deckJson == null || deckJson.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(deckJson, DeckDefinition.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("デッキファイルの形式が正しくありません");
+        }
     }
 
     private String redirectToBattle(String roomId, String playerId) {

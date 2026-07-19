@@ -606,6 +606,7 @@ function renderOpponent(opp, view) {
     document.getElementById('opp-trash-count').textContent = opp.trashCount;
     document.getElementById('opp-lost-count').textContent = opp.lostCount;
     document.getElementById('opp-taboo-count').textContent = opp.tabooCount;
+    document.getElementById('opp-deck-name').textContent = opp.deckName;
 
     // 相手のマナ行(裏向きは中身が送られてこないためツールチップも伏せる)
     const oppManaRow = document.getElementById('opp-mana-row');
@@ -655,6 +656,7 @@ function renderSelf(you, view) {
     document.getElementById('my-trash-count').textContent = you.trashCount;
     document.getElementById('my-lost-count').textContent = you.lostCount;
     document.getElementById('my-taboo-count').textContent = you.tabooCount;
+    document.getElementById('my-deck-name').textContent = you.deckName;
 
     // リーダー能力ボタン
     const abilityBtn = document.getElementById('btn-leader-ability');

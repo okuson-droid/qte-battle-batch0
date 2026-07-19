@@ -1,0 +1,40 @@
+/* デッキビルダーの表示。対戦画面と同様、見た目より状態の分かりやすさを優先する */
+
+.panel { background: rgba(255, 255, 255, 0.06); border-radius: 6px; }
+
+.card-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 6px; max-height: 70vh; overflow-y: auto;
+}
+
+.pool-card {
+    background: #1a3a5c; border: 1px solid #4a6a8c; border-radius: 5px;
+    padding: 5px; font-size: 11px; cursor: pointer; position: relative;
+}
+.pool-card:hover { background: #23507d; }
+.pool-card.fire { background: #4a1f1f; border-color: #8c4a4a; }
+.pool-card.fire:hover { background: #5f2828; }
+.pool-card.disabled { opacity: 0.4; cursor: not-allowed; }
+.pool-card .nm { font-weight: bold; line-height: 1.2; }
+.pool-card .kw { color: #ffd54f; }
+.pool-card .st { display: flex; justify-content: space-between; margin-top: 3px; }
+.pool-card .in-deck {
+    position: absolute; top: -6px; right: -6px; background: #28a745; color: #fff;
+    border-radius: 50%; width: 20px; height: 20px; line-height: 20px;
+    text-align: center; font-weight: bold; font-size: 11px;
+}
+
+.deck-list { max-height: 32vh; overflow-y: auto; font-size: 12px; }
+.deck-row {
+    display: flex; align-items: center; gap: 6px; padding: 3px 5px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.deck-row:hover { background: rgba(255, 255, 255, 0.08); }
+.deck-row .cost {
+    background: #0d6efd; border-radius: 3px; padding: 0 5px; font-weight: bold; min-width: 22px;
+    text-align: center;
+}
+.deck-row .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deck-row .cnt { color: #ffc107; font-weight: bold; }
+
+.flt.on { background: #ffc107; color: #111; border-color: #ffc107; font-weight: bold; }

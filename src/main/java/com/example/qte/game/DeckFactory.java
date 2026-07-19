@@ -9,6 +9,7 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
+import com.example.qte.deck.DeckDefinition;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.Civilization;
@@ -127,7 +128,27 @@ public class DeckFactory {
             "QTE-0011"  // ディープシー・シャーク 4/4/3 突進・威圧
     );
 
-    /** リーダーの文明に対応するメインデッキ(1-2: リーダーと同一文明のみ) */
+    /**
+     * デッキファイル(検証済み)からメインデッキを生成する。
+     * 検証はDeckValidatorが済ませている前提で、ここでは並べてシャッフルするだけ。
+     */
+    public List<String> createMainDeckFrom(DeckDefinition deck) {
+        List<String> list = new ArrayList<>(40);
+        deck.main().forEach(e -> {
+            for (int i = 0; i < e.count(); i++) {
+                list.add(e.cardId());
+            }
+        });
+        Collections.shuffle(list);
+        return list;
+    }
+
+    /** デッキファイルの禁忌デッキ(順序は保持する。所有者が並べた順に表示される) */
+    public List<String> createTabooDeckFrom(DeckDefinition deck) {
+        return new ArrayList<>(deck.taboo());
+    }
+
+    /** リーダーの文明に対応するプリセットのメインデッキ(1-2: リーダーと同一文明のみ) */
     public List<String> createMainDeck(CardMaster leader) {
         Map<String, Integer> definition = switch (leader.civilization()) {
             case WATER -> WATER_STARTER;
