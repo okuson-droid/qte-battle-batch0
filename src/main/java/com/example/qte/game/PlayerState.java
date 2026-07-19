@@ -100,6 +100,30 @@ public class PlayerState {
     @Setter
     private int pendingFireMinionDiscount = 0;
 
+    /**
+     * このターン中に自分のミニオンが破壊されたか。
+     * 【這い寄る生霊】の特殊召喚条件が参照する。
+     * 破壊の「瞬間」に割り込むのではなく、破壊が起きた事実をターン内フラグとして残し、
+     * メインフェイズ中ならいつでも特殊召喚できる形にしている(黄泉還る水龍と同じ方式)。
+     */
+    @Setter
+    private boolean ownMinionDestroyedThisTurn = false;
+
+    /**
+     * このターン中に破壊され、墓地にある自分のミニオンのカードID。
+     * 【冥界神ハデス】の「このターン破壊された味方ミニオン」の蘇生対象。
+     * 還元・消滅で墓地に行かなかったものは含めない(蘇生できないため)。
+     */
+    private final List<String> minionsDestroyedThisTurn = new ArrayList<>();
+
+    /**
+     * 【死者蘇生】の使用宣言時に生贄として破壊した自分のミニオンの数。
+     * コストの評価はStatCalculatorが行うため、選択結果をここに置いて参照させる
+     * (剛火の将の割引 pendingFireMinionDiscount と同じ方式)。
+     */
+    @Setter
+    private int pendingSacrificeCount = 0;
+
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter
     private boolean leaderAbilityUsedThisTurn = false;
@@ -146,5 +170,13 @@ public class PlayerState {
         pendingFireMinionDiscount = 0;
         leaderAbilityUsedThisTurn = false;
         leaderAttackedThisTurn = false;
+        ownMinionDestroyedThisTurn = false;
+        pendingSacrificeCount = 0;
+        minionsDestroyedThisTurn.clear();
+    }
+
+    /** マナゾーンにある裏向きのカードの枚数(闇文明の参照元) */
+    public int getFaceDownManaCount() {
+        return (int) manaZone.stream().filter(m -> !m.isFaceUp()).count();
     }
 }

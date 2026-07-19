@@ -7,6 +7,8 @@ import com.example.qte.game.MinionInstance;
 import com.example.qte.game.PlayerState;
 import com.example.qte.game.StatModifier;
 import com.example.qte.master.CardMaster;
+import com.example.qte.master.CardMasterRepository;
+import com.example.qte.master.CardType;
 import com.example.qte.master.Keyword;
 
 /**
@@ -22,6 +24,29 @@ import com.example.qte.master.Keyword;
 @Component
 public class StatCalculator {
 
+    /** 墓地のカードの種別(スペルか否か)を判定するために参照する */
+    private final CardMasterRepository cards;
+
+    public StatCalculator(CardMasterRepository cards) {
+        this.cards = cards;
+    }
+
+    // ---------------------------------------------------------------
+    // 参照元の集計(闇文明: 墓地と裏向きマナを資源として数える)
+    // ---------------------------------------------------------------
+
+    /** 自分の墓地にあるスペル以外のカードの枚数(悪夢・墓場の怨念集合体) */
+    public int nonSpellCountInTrash(PlayerState owner) {
+        return (int) owner.getTrash().stream()
+                .filter(id -> cards.findById(id).type() != CardType.SPELL)
+                .count();
+    }
+
+    /** 自分の墓地にある特定のカードの枚数(群がる死霊王が数える「ゾンストライカー」) */
+    public int countInTrash(PlayerState owner, String cardId) {
+        return (int) owner.getTrash().stream().filter(cardId::equals).count();
+    }
+
     /**
      * 手札のカードの現在コスト。コストも動的ステータス(設計判断5)。
      * 例: 双流の幻術師「場に居る知識の数Cost-1」(両者の場を参照: 発注者確認済み)
@@ -34,6 +59,23 @@ public class StatCalculator {
                 && card.type() == com.example.qte.master.CardType.MINION
                 && card.civilization() == com.example.qte.master.Civilization.FIRE) {
             cost = Math.max(1, cost - 1);
+        }
+        // ---- 闇文明: 墓地・禁忌デッキ・生贄を参照する動的コスト ----
+        // 悪夢: 墓地にあるスペル以外のカード1枚につきコスト-1
+        if ("QTE-0070".equals(card.id())) {
+            cost -= nonSpellCountInTrash(owner);
+        }
+        // 群がる死霊王: 墓地にある「ゾンストライカー」の数だけコスト-1
+        if ("QTE-0082".equals(card.id())) {
+            cost -= countInTrash(owner, "QTE-0012");
+        }
+        // 封印されし禁忌魔人: 禁忌デッキの残り枚数だけコスト+1(唯一のコスト増加カード)
+        if ("QTE-0083".equals(card.id())) {
+            cost += owner.getTabooDeck().size();
+        }
+        // 死者蘇生: 使用宣言時に生贄にした自分のミニオンの数だけコスト-1
+        if ("QTE-0080".equals(card.id())) {
+            cost -= owner.getPendingSacrificeCount();
         }
         if ("QTE-0041".equals(card.id())) {
             long knowledgeOnBoard = java.util.stream.Stream
@@ -79,6 +121,13 @@ public class StatCalculator {
             if (m.stat() == StatModifier.Stat.ATTACK && m.operation() == StatModifier.Operation.SET) {
                 attack = m.value();
             }
+        }
+
+        // ---- 動的ADD ----
+        // 墓場の怨念集合体: 自分の墓地にあるスペル以外のカード1枚につきAttack+1。
+        // SETの後に評価しなければ加算が上書きで消えるため、必ずこの位置に置く
+        if ("QTE-0071".equals(cardId)) {
+            attack += nonSpellCountInTrash(owner);
         }
 
         // ---- 動的ADD(オーラ) ----

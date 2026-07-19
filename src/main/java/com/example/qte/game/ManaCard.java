@@ -28,8 +28,13 @@ public class ManaCard {
         this.tapped = false;
     }
 
-    /** 禁忌コスト支払い等で裏向きにする。表向きに戻す手段は現状のカードプールに存在しない。 */
+    /** 禁忌コスト支払い等で裏向きにする */
     public void turnFaceDown() {
         this.faceUp = false;
+    }
+
+    /** 表向きに戻す(闇文明【禁忌の冥魔剣】で初めて必要になった逆操作) */
+    public void turnFaceUp() {
+        this.faceUp = true;
     }
 }

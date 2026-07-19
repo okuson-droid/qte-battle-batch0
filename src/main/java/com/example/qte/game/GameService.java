@@ -46,6 +46,9 @@ public class GameService {
 
     private static final String PURE_ELEMENT_ID = "QTE-X001";
 
+    /** リーダー【黄泉の召喚主】。サブフェイズ中に墓地からミニオンを召喚できる */
+    private static final String GRAVE_SUMMONER_LEADER_ID = "QTE-L006";
+
     private final CardMasterRepository cards;
     private final DeckFactory deckFactory;
     private final GameActions actions;
@@ -480,6 +483,46 @@ public class GameService {
         player.setPlayedCardThisTurn(true);
     }
 
+    /**
+     * 墓地からの召喚(リーダー【黄泉の召喚主】の常在能力)。
+     *
+     * 総合ルール6章-6では、サブフェイズに使用できるのはメインデッキ由来のスペルのみである。
+     * この能力はそのルールをリーダー単位で上書きする、初の「ルール変更型」の能力である。
+     * 起動能力ではないため1ターン1回の制限はなく、MPが続く限り何度でも行える(発注者確認済み)。
+     *
+     * 効果による「出す」ではなく「召喚」であるため、【召喚時】(ON_SUMMON)も発動する。
+     *
+     * @param trashIndex 墓地の何番目のカードか
+     */
+    public void summonFromGrave(GameRoom room, String playerId, int trashIndex) {
+        GameState state = requireState(room);
+        requireTurnPlayer(state, playerId);
+        requireStatus(state, GameStatus.PLAYING);
+        requirePhase(state, TurnPhase.SUB);
+        PlayerState player = state.playerOf(playerId);
+        if (!GRAVE_SUMMONER_LEADER_ID.equals(player.getLeader().id())) {
+            throw new IllegalStateException("このリーダーは墓地から召喚できません");
+        }
+        if (player.isCannotUseCardsThisTurn()) {
+            throw new IllegalStateException("このターンはカードを使用できません");
+        }
+        if (trashIndex < 0 || trashIndex >= player.getTrash().size()) {
+            throw new IllegalArgumentException("不正な墓地の指定です");
+        }
+        CardMaster master = cards.findById(player.getTrash().get(trashIndex));
+        if (master.type() != CardType.MINION) {
+            throw new IllegalStateException("墓地から召喚できるのはミニオンのみです");
+        }
+        if (player.isMinionZoneFull()) {
+            throw new IllegalStateException("ミニオンは6体までです");
+        }
+        payCost(player, stats.effectiveCost(state, player, master));
+        player.getTrash().remove(trashIndex);
+        room.addLog("%sが墓地から【%s】を召喚".formatted(player.getDisplayName(), master.name()));
+        summonToField(room, state, player, master, null, false);
+        player.setPlayedCardThisTurn(true);
+    }
+
     /** 召喚の共通着地処理。ON_SUMMONとON_ENTERの両方が発動する(発注者確認済み裁定)。
      *  効果による「出す」(黄泉還る水龍など)を実装するときはON_ENTERのみを発火する */
     private void summonToField(GameRoom room, GameState state, PlayerState player,
@@ -588,8 +631,8 @@ public class GameService {
             }
         } else {
             // 一方的にダメージを与える(反撃なし: 4-3)
-            target.takeDamage(damage);
-            actions.checkDestruction(room, opponent, target);
+            actions.dealCombatDamage(room, opponent, target, damage);
+            actions.checkDestruction(room, opponent, target, DestructionCause.COMBAT);
         }
 
         // ウェポンの攻撃時効果。現状2種のためswitchで直書きし、増えたらRegistryへ移す(TODO)
@@ -679,12 +722,14 @@ public class GameService {
             // ダメージ適用と破壊判定は別ステップ(設計判断2)
             int toTarget = stats.effectiveAttack(state, player, attacker);
             int toAttacker = stats.effectiveAttack(state, opponent, target);
-            target.takeDamage(toTarget);
-            attacker.takeDamage(toAttacker);
             room.addLog("【%s】⇔【%s】(%d ⇔ %d)"
                     .formatted(attacker.getMaster().name(), target.getMaster().name(), toTarget, toAttacker));
-            actions.checkDestruction(room, opponent, target);
-            actions.checkDestruction(room, player, attacker);
+            // ダメージは同時に与え合う(4-2)。被ダメージトリガー(獄門の裁定者)は
+            // 両者への適用が終わった時点で発火し、その後にまとめて破壊判定を行う
+            actions.dealCombatDamage(room, opponent, target, toTarget);
+            actions.dealCombatDamage(room, player, attacker, toAttacker);
+            actions.checkDestruction(room, opponent, target, DestructionCause.COMBAT);
+            actions.checkDestruction(room, player, attacker, DestructionCause.COMBAT);
         }
     }
 

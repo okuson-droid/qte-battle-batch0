@@ -4,6 +4,7 @@ import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 import org.springframework.stereotype.Component;
@@ -46,6 +47,15 @@ public class CardEffectRegistry {
 
     /** リーダー起動能力(リーダーカードID → 仕様) */
     private final Map<String, LeaderAbilitySpec> leaderAbilities = new HashMap<>();
+
+    /**
+     * 「自分の他のミニオンが破壊された」ことを場から監視する効果
+     * (カードID → 処理。第2引数は破壊されたミニオンのカードID)。
+     *
+     * 破壊されたミニオン自身のトリガー(ON_DESTROYED)とは向きが逆で、
+     * 場に残っている側が他者の破壊に反応する。執念の暗殺者・不滅のネクロマンサーが該当する。
+     */
+    private final Map<String, BiConsumer<EffectContext, String>> ownMinionDestroyedWatchers = new HashMap<>();
 
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
@@ -268,6 +278,26 @@ public class CardEffectRegistry {
         while (ctx.owner().getTrash().contains("QTE-0040") && !ctx.owner().isMinionZoneFull()) {
             ctx.owner().getTrash().remove("QTE-0040");
             ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), "QTE-0040");
+        }
+    }
+
+    /**
+     * 「自分のミニオンが破壊された」イベントの処理。
+     * 場に残っている自分のミニオンのうち、監視効果を登録しているものだけが反応する。
+     *
+     * 反復中に効果が場を変える(蘇生で増える・連鎖破壊で減る)ため、
+     * リストのコピーを走査し、実行直前に「まだ場にいるか」を確認する。
+     *
+     * @param destroyedCardId 破壊されたミニオンのカードID(既に場を離れているため実体ではなくIDで渡す)
+     */
+    public void fireOwnMinionDestroyed(EffectContext ctx, String destroyedCardId) {
+        for (MinionInstance watcher : List.copyOf(ctx.owner().getMinionZone())) {
+            BiConsumer<EffectContext, String> effect =
+                    ownMinionDestroyedWatchers.get(watcher.getMaster().id());
+            if (effect == null || !ctx.owner().getMinionZone().contains(watcher)) {
+                continue;
+            }
+            effect.accept(ctx, destroyedCardId);
         }
     }
 
@@ -519,6 +549,11 @@ public class CardEffectRegistry {
     // ---------------------------------------------------------------
     // 照会・発火
     // ---------------------------------------------------------------
+
+    /** 「自分のミニオンが破壊された」監視効果の登録(Batch 10b の闇文明カードで使用する) */
+    private void watchOwnMinionDestroyed(String cardId, BiConsumer<EffectContext, String> effect) {
+        ownMinionDestroyedWatchers.put(cardId, effect);
+    }
 
     private void register(String cardId, TriggerType trigger, Consumer<EffectContext> effect) {
         triggers.computeIfAbsent(cardId, k -> new EnumMap<>(TriggerType.class)).put(trigger, effect);

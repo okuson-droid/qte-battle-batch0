@@ -106,6 +106,16 @@ public class GameWsController {
                 room, request.playerId(), request.targets()));
     }
 
+    /**
+     * 墓地からのミニオン召喚(リーダー【黄泉の召喚主】のみ・サブフェイズ)。
+     * UIからの呼び出しはBatch 10bで追加する。
+     */
+    @MessageMapping("/room/{roomId}/summon-from-grave")
+    public void summonFromGrave(@DestinationVariable String roomId, TrashActionRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.summonFromGrave(
+                room, request.playerId(), request.trashIndex()));
+    }
+
     /** フェイズを1つ進める */
     @MessageMapping("/room/{roomId}/next-phase")
     public void nextPhase(@DestinationVariable String roomId, ActionRequest request) {
@@ -158,6 +168,9 @@ public class GameWsController {
     }
 
     public record HandActionRequest(String playerId, int handIndex) {
+    }
+
+    public record TrashActionRequest(String playerId, int trashIndex) {
     }
 
     public record PlayCardRequest(String playerId, int handIndex, List<TargetChoice> targets) {
