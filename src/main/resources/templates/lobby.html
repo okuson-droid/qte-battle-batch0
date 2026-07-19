@@ -26,7 +26,7 @@
                     <label class="form-label">リーダー</label>
                     <select name="leaderCardId" class="form-select">
                         <option th:each="leader : ${leaders}" th:value="${leader.id}"
-                                th:text="${leader.name}">リーダー</option>
+                                th:text="${leader.civilization.displayName} + ' / ' + ${leader.name}">リーダー</option>
                     </select>
                 </div>
                 <div class="col-12">
@@ -52,7 +52,7 @@
                     <label class="form-label">リーダー</label>
                     <select name="leaderCardId" class="form-select">
                         <option th:each="leader : ${leaders}" th:value="${leader.id}"
-                                th:text="${leader.name}">リーダー</option>
+                                th:text="${leader.civilization.displayName} + ' / ' + ${leader.name}">リーダー</option>
                     </select>
                 </div>
                 <div class="col-12">

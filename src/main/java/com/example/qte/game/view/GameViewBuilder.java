@@ -183,7 +183,7 @@ public class GameViewBuilder {
         return spec.requirements().stream()
                 .map(r -> new CardView.TargetReqView(
                         r.kind().name(), r.side().name(), r.count(), r.optional(),
-                        r.filter() == null ? null : r.filter().name(), r.prompt()))
+                        r.filters().stream().map(Enum::name).toList(), r.prompt()))
                 .toList();
     }
 

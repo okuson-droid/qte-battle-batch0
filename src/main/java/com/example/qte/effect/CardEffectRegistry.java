@@ -13,6 +13,7 @@ import com.example.qte.effect.TargetSpec.Kind;
 import com.example.qte.effect.TargetSpec.Requirement;
 import com.example.qte.effect.TargetSpec.Side;
 import com.example.qte.game.MinionInstance;
+import com.example.qte.game.StatModifier;
 import com.example.qte.game.PlayerState;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.Keyword;
@@ -56,48 +57,7 @@ public class CardEffectRegistry {
         registerTargetedCards();
         registerSpecialSummons();
         registerLeaderAbilities();
-        registerFireTabooCards();
-    }
-
-    // ---------------------------------------------------------------
-    // 登録: 火文明(Batch 7では禁忌デッキに入る8枚分のみ。全面実装はBatch 8)
-    // ---------------------------------------------------------------
-
-    private void registerFireTabooCards() {
-
-        // 血誓のバーサーカー: 【召喚時】自分のリーダーに1ダメージ。
-        // 体力が10以上なら追加で2ダメージ(判定は1ダメージを与えた後: 発注者確認済み)
-        register("QTE-0044", TriggerType.ON_SUMMON, ctx -> {
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1);
-            if (ctx.owner().getLp() >= 10) {
-                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2);
-            }
-        });
-
-        // ブラッドレイジの突撃兵: 【召喚時】自分のリーダーに2ダメージ
-        register("QTE-0055", TriggerType.ON_SUMMON,
-                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2));
-
-        // 赫灼の重戦士: 【召喚時】自分のリーダーの体力が10以下ならこれは【速攻】を得る
-        register("QTE-0050", TriggerType.ON_SUMMON, ctx -> {
-            if (ctx.owner().getLp() <= 10 && ctx.source() != null) {
-                ctx.source().grantKeyword(Keyword.HASTE);
-                ctx.room().addLog("【赫灼の重戦士】は【速攻】を得た");
-            }
-        });
-
-        // イグニッション・バースト: 自分のリーダーに1ダメージ。カードを2枚引く
-        spellEffects.put("QTE-0064", ctx -> {
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1);
-            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
-        });
-
-        // マグマ・ストレート: ミニオン1体に3ダメージ(対象は限定なし=両者の場)
-        targetSpecs.put("QTE-0046", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.ANY, 1, false, null,
-                        "3ダメージを与えるミニオンを選んでください")));
-        spellEffects.put("QTE-0046", ctx -> ctx.targets().get(0).minions().forEach(
-                t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3)));
+        registerFireCards();
     }
 
     // ---------------------------------------------------------------
@@ -172,8 +132,8 @@ public class CardEffectRegistry {
 
         // 手札を喰らう大蟹: 【召喚時】自分の手札を1枚捨てる。相手のミニオン1体を持ち主の手札に戻す
         targetSpecs.put("QTE-0034", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, false, null, "捨てるカードを選んでください"),
-                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, null, "手札に戻す相手のミニオンを選んでください")));
+                new Requirement(Kind.HAND, Side.SELF, 1, false, List.of(), "捨てるカードを選んでください"),
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, List.of(), "手札に戻す相手のミニオンを選んでください")));
         register("QTE-0034", TriggerType.ON_SUMMON, ctx -> {
             // 選択済み手札は除去済みで届くため、行き先(墓地)を決めるだけでよい
             ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
@@ -184,7 +144,7 @@ public class CardEffectRegistry {
 
         // 英知の継承者: 【召喚時】【知識】を持つカードを1枚手札から捨てても良い。そうしたら【知識】を行う
         targetSpecs.put("QTE-0021", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, true, Filter.KNOWLEDGE,
+                new Requirement(Kind.HAND, Side.SELF, 1, true, List.of(Filter.KNOWLEDGE),
                         "捨てる【知識】カードを選んでください(任意)")));
         register("QTE-0021", TriggerType.ON_SUMMON, ctx -> {
             var selection = ctx.targets().get(0);
@@ -200,7 +160,7 @@ public class CardEffectRegistry {
         // 双流の幻術師: 場に居る知識の数Cost-1。【召喚時】ミニオンを2体選び持ち主の手札に戻す
         // (数え方・対象とも両者の場を参照する: 発注者確認済み)
         targetSpecs.put("QTE-0041", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.ANY, 2, false, null, "手札に戻すミニオンを2体選んでください")));
+                new Requirement(Kind.MINION, Side.ANY, 2, false, List.of(), "手札に戻すミニオンを2体選んでください")));
         register("QTE-0041", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions().forEach(
                 t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion())));
     }
@@ -212,9 +172,9 @@ public class CardEffectRegistry {
     private void registerSpecialSummons() {
 
         // 深海神 プレサージュ: 自分の知識を持つカードを手札から5枚山札の下に置いて0コストで出せる
-        specialSummons.put("QTE-0020", new SpecialSummonSpec(
+        specialSummons.put("QTE-0020", SpecialSummonSpec.of(
                 (state, player, handIndex) -> countKnowledgeInHandExcluding(player, handIndex) >= 5,
-                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 5, false, Filter.KNOWLEDGE,
+                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 5, false, List.of(Filter.KNOWLEDGE),
                         "山札の下に置く【知識】カードを5枚選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getDeck().addLast(id));
@@ -223,17 +183,17 @@ public class CardEffectRegistry {
                 "手札の【知識】カード5枚を山札の下に置き、0コストで召喚します"));
 
         // 知恵の双翼: 自分の【知識】を持つミニオンを2体手札に戻して0コストで出せる
-        specialSummons.put("QTE-0032", new SpecialSummonSpec(
+        specialSummons.put("QTE-0032", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE)).count() >= 2,
-                TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 2, false, Filter.KNOWLEDGE,
+                TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 2, false, List.of(Filter.KNOWLEDGE),
                         "手札に戻す自分の【知識】ミニオンを2体選んでください")),
                 ctx -> ctx.targets().get(0).minions().forEach(
                         t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion())),
                 "自分の【知識】ミニオン2体を手札に戻し、0コストで召喚します"));
 
         // 智将 ポセイドン・コア: 自分の【知識】ミニオンの合計体力が12以上なら0コストで出せる
-        specialSummons.put("QTE-0035", new SpecialSummonSpec(
+        specialSummons.put("QTE-0035", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE))
                         .mapToInt(MinionInstance::getCurrentHp).sum() >= 12,
@@ -250,9 +210,9 @@ public class CardEffectRegistry {
 
         // 海皇 ポセイドン: メインフェーズ開始時、手札7枚以上なら手札3枚を捨ててコストなしで出せる
         // 「開始時」の厳密な実装は「このターンまだカードをプレイしていない」で近似する(設計解説4章)
-        specialSummons.put("QTE-0038", new SpecialSummonSpec(
+        specialSummons.put("QTE-0038", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getHand().size() >= 7 && !player.isPlayedCardThisTurn(),
-                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, null,
+                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, List.of(),
                         "捨てるカードを3枚選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
@@ -269,7 +229,7 @@ public class CardEffectRegistry {
         // 蒼海の賢者: 自分の手札を1枚デッキの一番下に戻す。自分のリーダーの体力を2回復
         leaderAbilities.put("QTE-L002", new LeaderAbilitySpec(0,
                 TargetSpec.of(new TargetSpec.Requirement(TargetSpec.Kind.HAND, TargetSpec.Side.SELF,
-                        1, false, null, "山札の一番下に戻すカードを選んでください")),
+                        1, false, List.of(), "山札の一番下に戻すカードを選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getDeck().addLast(id));
                     ctx.actions().healLeader(ctx.room(), ctx.owner(), 2);
@@ -279,7 +239,7 @@ public class CardEffectRegistry {
         // 流転の智者: コスト2支払っても良い。そうしたら、マナを1枚手札に戻して2ドロー
         leaderAbilities.put("QTE-L003", new LeaderAbilitySpec(2,
                 TargetSpec.of(new TargetSpec.Requirement(TargetSpec.Kind.MANA, TargetSpec.Side.SELF,
-                        1, false, null, "手札に戻すマナを選んでください")),
+                        1, false, List.of(), "手札に戻すマナを選んでください")),
                 ctx -> {
                     ctx.targets().get(0).mana().forEach(mana -> {
                         ctx.owner().getManaZone().remove(mana);
@@ -322,6 +282,238 @@ public class CardEffectRegistry {
             }
         }
         return count;
+    }
+
+    // ---------------------------------------------------------------
+    // 登録: 火文明(Batch 8で全面実装)
+    // ---------------------------------------------------------------
+
+    private void registerFireCards() {
+
+        // ---- 【召喚時】 ----
+
+        // 血誓のバーサーカー: 自分のリーダーに1ダメージ。
+        // 体力が10以上なら追加で2ダメージ(判定は1ダメージを与えた後: 発注者確認済み)
+        register("QTE-0044", TriggerType.ON_SUMMON, ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0044");
+            if (ctx.owner().getLp() >= 10) {
+                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-0044");
+            }
+        });
+
+        // ブラッドレイジの突撃兵: 自分のリーダーに2ダメージ
+        register("QTE-0055", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-0055"));
+
+        // 赫灼の重戦士: 自分のリーダーの体力が10以下ならこれは【速攻】を得る
+        register("QTE-0050", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.owner().getLp() <= 10 && ctx.source() != null) {
+                ctx.source().grantKeyword(Keyword.HASTE);
+                ctx.room().addLog("【赫灼の重戦士】は【速攻】を得た");
+            }
+        });
+
+        // 痛撃の炎術師: 自分のリーダーの体力が10以上なら自分のリーダーに1ダメージ
+        register("QTE-0049", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.owner().getLp() >= 10) {
+                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0049");
+            }
+        });
+
+        // 相打ちの咎人: 以下を2回行う。自分のリーダーに1ダメージ、相手のリーダーに1ダメージ
+        register("QTE-0059", TriggerType.ON_SUMMON, ctx -> {
+            for (int i = 0; i < 2; i++) {
+                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0059");
+                ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-0059");
+            }
+        });
+
+        // 背水の烈火使い: 手札をすべて捨てる
+        register("QTE-0063", TriggerType.ON_SUMMON, ctx -> {
+            int count = ctx.owner().getHand().size();
+            ctx.owner().getTrash().addAll(ctx.owner().getHand());
+            ctx.owner().getHand().clear();
+            ctx.room().addLog("%sは手札%d枚をすべて捨てた".formatted(ctx.owner().getDisplayName(), count));
+        });
+
+        // 背水の炎壁: 【召喚時】1回復(特殊召喚で出した場合の追加1回復は下のspecで別途)
+        register("QTE-0057", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1));
+
+        // 逆境の猛火者: 体力10以下なら手札からコスト4以下のミニオンを1体場に出す。
+        // 条件を満たさないときのために選択は任意(optional)としている
+        targetSpecs.put("QTE-0066", TargetSpec.of(Requirement.filtered(
+                Kind.HAND, Side.SELF, 1, true, "場に出すコスト4以下のミニオンを選んでください(体力10以下のときのみ有効)",
+                Filter.MINION_CARD, Filter.COST_4_OR_LESS)));
+        register("QTE-0066", TriggerType.ON_SUMMON, ctx -> {
+            var selection = ctx.targets().get(0);
+            if (selection.isEmpty()) {
+                return;
+            }
+            if (ctx.owner().getLp() > 10) {
+                // 条件を満たさない場合、選ばれたカードは手札から失われたままにはしない
+                selection.handCardIds().forEach(id -> ctx.owner().getHand().add(id));
+                ctx.room().addLog("体力が10を超えているため効果は発動しなかった");
+                return;
+            }
+            // 「出す」であり召喚ではないため【召喚時】は発動しない(ON_ENTERのみ)
+            selection.handCardIds().forEach(id ->
+                    ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id));
+        });
+
+        // ---- スペル ----
+
+        // 武具昇華の炎: 自分のウェポンを1枚破壊する。そうしたら自分のリーダーを2回復
+        spellEffects.put("QTE-0043", ctx -> {
+            if (ctx.actions().destroyOwnWeapon(ctx.room(), ctx.owner())) {
+                ctx.actions().healLeader(ctx.room(), ctx.owner(), 2);
+            } else {
+                ctx.room().addLog("破壊するウェポンがなかった");
+            }
+        });
+
+        // マグマ・ストレート: ミニオン1体に3ダメージ(対象は限定なし=両者の場)
+        targetSpecs.put("QTE-0046", TargetSpec.of(Requirement.of(
+                Kind.MINION, Side.ANY, 1, false, "3ダメージを与えるミニオンを選んでください")));
+        spellEffects.put("QTE-0046", ctx -> ctx.targets().get(0).minions().forEach(
+                t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3)));
+
+        // イグニッション・バースト: 自分のリーダーに1ダメージ。カードを2枚引く
+        spellEffects.put("QTE-0064", ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0064");
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+        });
+
+        // 再起の炎陣: 1枚捨てる。そうしたら1枚引く。【還元】
+        targetSpecs.put("QTE-0052", TargetSpec.of(Requirement.of(
+                Kind.HAND, Side.SELF, 1, true, "捨てるカードを選んでください")));
+        spellEffects.put("QTE-0052", ctx -> {
+            var selection = ctx.targets().get(0);
+            if (selection.isEmpty()) {
+                return;
+            }
+            selection.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+        });
+
+        // 血の対価: 手札を1枚捨てる。そうしたら3回復
+        targetSpecs.put("QTE-0065", TargetSpec.of(Requirement.of(
+                Kind.HAND, Side.SELF, 1, true, "捨てるカードを選んでください")));
+        spellEffects.put("QTE-0065", ctx -> {
+            var selection = ctx.targets().get(0);
+            if (selection.isEmpty()) {
+                return;
+            }
+            selection.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 3);
+        });
+
+        // 捨て身の猛進: このターン中、自分のミニオンすべての攻撃力+1、および【突進】付与
+        spellEffects.put("QTE-0053", ctx -> {
+            ctx.owner().getMinionZone().forEach(m -> {
+                m.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD,
+                        1, StatModifier.Duration.THIS_TURN, "QTE-0053"));
+                m.grantKeywordThisTurn(Keyword.RUSH);
+            });
+            ctx.room().addLog("%sのミニオンは攻撃力+1と【突進】を得た(このターン中)"
+                    .formatted(ctx.owner().getDisplayName()));
+        });
+
+        // フレイム・スナイプ: 相手の【守護】を持つHP5以下のミニオンを1体選び破壊
+        targetSpecs.put("QTE-0054", TargetSpec.of(Requirement.filtered(
+                Kind.MINION, Side.OPPONENT, 1, false, "破壊する相手の【守護】ミニオン(HP5以下)を選んでください",
+                Filter.GUARD, Filter.HP_5_OR_LESS)));
+        spellEffects.put("QTE-0054", ctx -> ctx.targets().get(0).minions().forEach(
+                t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion())));
+
+        // 命を削る烈火: 自分のリーダーに3ダメージ。相手の場のミニオンすべてに2ダメージ
+        spellEffects.put("QTE-0056", ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 3, "QTE-0056");
+            List.copyOf(ctx.opponent().getMinionZone()).forEach(
+                    m -> ctx.actions().damageMinion(ctx.room(), ctx.opponent(), m, 2));
+        });
+
+        // 命喰いの火種: 自分のリーダーに3ダメージ。その後カードを2枚引く。【還元】
+        spellEffects.put("QTE-0060", ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 3, "QTE-0060");
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+        });
+
+        // ---- 【特殊召喚】 ----
+
+        // 極炎竜 ヴォルカニクス: ターン中に自分のリーダーが4回以上ダメージを受けている時、コスト1で出せる
+        specialSummons.put("QTE-0051", new SpecialSummonSpec(
+                (state, player, handIndex) -> player.getLeaderDamagedCountThisTurn() >= 4,
+                1, TargetSpec.of(), ctx -> {
+                }, ctx -> {
+                },
+                "このターン4回以上ダメージを受けている: コスト1で召喚します"));
+
+        // 背水の炎壁: ターン中3回以上ダメージを受けていた場合0コストで出せる。これで出したとき1回復
+        specialSummons.put("QTE-0057", new SpecialSummonSpec(
+                (state, player, handIndex) -> player.getLeaderDamagedCountThisTurn() >= 3,
+                0, TargetSpec.of(), ctx -> {
+                },
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1),
+                "このターン3回以上ダメージを受けている: 0コストで召喚し、追加で1回復します"));
+
+        // 鳳凰神 ヴォルカニクスレヴォ: このターン5回以上回復したとき0コストで出せる
+        specialSummons.put("QTE-0058", SpecialSummonSpec.of(
+                (state, player, handIndex) -> player.getHealedCountThisTurn() >= 5,
+                TargetSpec.of(), ctx -> {
+                },
+                "このターン5回以上回復している: 0コストで召喚します"));
+
+        // 覚醒の炎童: 自分のリーダーの体力が10以下のときコスト0にする
+        specialSummons.put("QTE-0062", SpecialSummonSpec.of(
+                (state, player, handIndex) -> player.getLp() <= 10,
+                TargetSpec.of(), ctx -> {
+                },
+                "体力10以下: 0コストで召喚します"));
+
+        // ---- リーダー起動能力 ----
+
+        // 傷痕の闘帝: 自分のリーダーに1ダメージ。そうしたら1枚ドローする
+        leaderAbilities.put("QTE-L001", new LeaderAbilitySpec(0, TargetSpec.of(), ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-L001");
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+        }, "自分のリーダーに1ダメージ、1枚ドロー"));
+
+        // 剛火の将: 自分のライフを2減らす(ダメージ扱い: 発注者確認済み)。
+        // このターン中、次に手札から使用する火文明ミニオンのコストを-1する(0にはならない)
+        leaderAbilities.put("QTE-L004", new LeaderAbilitySpec(0, TargetSpec.of(), ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-L004");
+            ctx.owner().setPendingFireMinionDiscount(1);
+            ctx.room().addLog("次に使う火文明ミニオンのコストが1下がる(このターン中)");
+        }, "ライフを2減らし、次の火文明ミニオンのコストを-1"));
+    }
+
+    /**
+     * 自分のリーダーがダメージを受けたときのトリガー(ON_LEADER_DAMAGED)。
+     * ミニオンだけでなく装備ウェポンも発動源になりうるため、
+     * ミニオン単位のfire()とは別の入口として用意している。
+     *
+     * @param sourceCardId ダメージの発生源カードID(戦闘ダメージ等ならnull)
+     */
+    public void fireLeaderDamaged(EffectContext ctx, String sourceCardId) {
+        // 火炎の狂信者: 自分のリーダーがダメージを受けるたび、自身の攻撃力+2(永続・累積)
+        ctx.owner().getMinionZone().stream()
+                .filter(m -> "QTE-0045".equals(m.getMaster().id()))
+                .forEach(m -> m.addModifier(new StatModifier(StatModifier.Stat.ATTACK,
+                        StatModifier.Operation.ADD, 2, StatModifier.Duration.PERMANENT, "QTE-0045")));
+
+        // 反転の炎鏡: 自分のターン中、このカード以外の「効果で」ダメージを受けたとき
+        // 自分のリーダーに1ダメージ、その後1回復。
+        // 自己誘発を除外しないと無限ループになるため、発生源が炎鏡自身なら発動しない
+        var weapon = ctx.owner().getEquippedWeapon();
+        boolean mirrorEquipped = weapon != null && "QTE-0048".equals(weapon.id());
+        boolean ownTurn = ctx.owner().getPlayerId().equals(ctx.state().getTurnPlayerId());
+        boolean byOtherCard = sourceCardId != null && !"QTE-0048".equals(sourceCardId);
+        if (mirrorEquipped && ownTurn && byOtherCard) {
+            ctx.room().addLog("【反転の炎鏡】が反応した");
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0048");
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 1);
+        }
     }
 
     // ---------------------------------------------------------------

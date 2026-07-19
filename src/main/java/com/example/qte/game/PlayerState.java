@@ -78,6 +78,24 @@ public class PlayerState {
     @Setter
     private boolean playedCardThisTurn = false;
 
+    /**
+     * このターンに自分のリーダーがダメージを受けた「回数」(量ではない)。
+     * 火文明の特殊召喚条件が参照する(極炎竜ヴォルカニクス4回・背水の炎壁3回)。
+     */
+    @Setter
+    private int leaderDamagedCountThisTurn = 0;
+
+    /** このターンに回復した「回数」。鳳凰神ヴォルカニクスレヴォ(5回)が参照する */
+    @Setter
+    private int healedCountThisTurn = 0;
+
+    /**
+     * 【剛火の将】の起動能力で得た割引の残り回数。
+     * 「次に手札から使用する火文明ミニオン」1体にのみ適用され、消費される。
+     */
+    @Setter
+    private int pendingFireMinionDiscount = 0;
+
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter
     private boolean leaderAbilityUsedThisTurn = false;
@@ -119,6 +137,9 @@ public class PlayerState {
         manaChargedThisTurn = false;
         cannotUseCardsThisTurn = false;
         playedCardThisTurn = false;
+        leaderDamagedCountThisTurn = 0;
+        healedCountThisTurn = 0;
+        pendingFireMinionDiscount = 0;
         leaderAbilityUsedThisTurn = false;
         leaderAttackedThisTurn = false;
     }

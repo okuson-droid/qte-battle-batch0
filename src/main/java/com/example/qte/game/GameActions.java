@@ -47,10 +47,11 @@ public class GameActions {
         }
     }
 
-    /** リーダーの回復(上限20) */
+    /** リーダーの回復(上限20)。回復「回数」はターン内カウンタとして数える(鳳凰神の条件) */
     public void healLeader(GameRoom room, PlayerState player, int amount) {
         int before = player.getLp();
         player.setLp(Math.min(MAX_LP, before + amount));
+        player.setHealedCountThisTurn(player.getHealedCountThisTurn() + 1);
         room.addLog("%sのリーダーが%d回復(LP %d → %d)"
                 .formatted(player.getDisplayName(), amount, before, player.getLp()));
     }
@@ -75,15 +76,51 @@ public class GameActions {
      * 「ライフを減らす」表記もダメージとして扱う(発注者確認済み)。
      */
     public void damageLeader(GameRoom room, PlayerState player, int amount) {
+        damageLeader(room, player, amount, null);
+    }
+
+    /**
+     * @param sourceCardId ダメージの発生源カードID。自己誘発を禁じるカード
+     *                     (反転の炎鏡「このカード以外の効果で」)の判定に使う。
+     *                     戦闘ダメージなどカード効果由来でない場合はnull。
+     */
+    public void damageLeader(GameRoom room, PlayerState player, int amount, String sourceCardId) {
         player.setLp(player.getLp() - amount);
+        player.setLeaderDamagedCountThisTurn(player.getLeaderDamagedCountThisTurn() + 1);
         room.addLog("%sのリーダーに%dダメージ(残りLP %d)"
                 .formatted(player.getDisplayName(), amount, player.getLp()));
+
+        GameState state = room.getGameState();
         if (player.getLp() <= 0) {
-            GameState state = room.getGameState();
             finish(room, state.opponentOf(player.getPlayerId()));
+            return; // 決着後はトリガーを発火しない
         }
-        // TODO Batch 8(火文明): ターン内被ダメージ回数のカウントと
-        // ON_LEADER_DAMAGEDトリガー(火炎の狂信者・反転の炎鏡)の発火をここで行う
+        // リーダー被ダメージのトリガー(火炎の狂信者・反転の炎鏡)。
+        // 炎鏡自身が与えたダメージでは炎鏡を再誘発させないため、発生源を渡す
+        effects.fireLeaderDamaged(contextOf(room, player, null), sourceCardId);
+    }
+
+    /**
+     * 効果による破壊(ダメージを経由しない)。フレイム・スナイプなど。
+     * 行き先の判断(消滅/還元/墓地)はcheckDestructionと同じ経路を使う。
+     */
+    public void destroyMinion(GameRoom room, PlayerState owner, MinionInstance minion) {
+        owner.getMinionZone().remove(minion);
+        room.addLog("【%s】が破壊されました".formatted(minion.getMaster().name()));
+        sendToTrashOrRestore(room, owner, minion.getMaster(), minion.isFromTaboo());
+    }
+
+    /** 装備中ウェポンの破壊(武具昇華の炎)。破壊できたらtrue */
+    public boolean destroyOwnWeapon(GameRoom room, PlayerState owner) {
+        CardMaster weapon = owner.getEquippedWeapon();
+        if (weapon == null) {
+            return false;
+        }
+        owner.setEquippedWeapon(null);
+        room.addLog("【%s】が破壊されました".formatted(weapon.name()));
+        sendToTrashOrRestore(room, owner, weapon, owner.isEquippedWeaponFromTaboo());
+        owner.setEquippedWeaponFromTaboo(false);
+        return true;
     }
 
     /** 効果によるミニオンへのダメージ。適用と破壊判定を分離する原則に従う(設計判断2) */

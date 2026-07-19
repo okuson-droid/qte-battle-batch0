@@ -153,10 +153,7 @@ function pickHandCard(index) {
     }
     if (isPicked('HAND', index)) return;
     const card = latestView.you.hand[index];
-    if (req.filter === 'KNOWLEDGE' && !card.keywords.includes('知識')) {
-        showMessage('【知識】を持つカードを選んでください');
-        return;
-    }
+    if (!matchesFilters(req, card, null)) return;
     pending.current.handIndexes.push(index);
     advanceIfComplete();
 }
@@ -168,16 +165,41 @@ function pickMinion(instanceId, isOwn) {
     if (isPicked('MINION', instanceId)) return;
     const list = isOwn ? latestView.you.minions : latestView.opponent.minions;
     const minion = list.find(m => m.instanceId === instanceId);
-    if (req.filter === 'KNOWLEDGE' && !minion.keywords.includes('知識')) {
-        showMessage('【知識】を持つミニオンを選んでください');
-        return;
-    }
+    if (!matchesFilters(req, null, minion)) return;
     if (!isOwn && minion.keywords.includes('潜伏')) {
         showMessage('【潜伏】持ちは相手の効果の対象になりません');
         return;
     }
     pending.current.minionIds.push(instanceId);
     advanceIfComplete();
+}
+
+/**
+ * 絞り込み条件(AND)の判定。クライアント側は操作補助であり、
+ * 最終的な正当性はサーバのvalidateTargetsが判定する。
+ * cardは手札のカードビュー、minionは場のミニオンビュー(該当しない方はnull)。
+ */
+function matchesFilters(req, card, minion) {
+    for (const filter of (req.filters || [])) {
+        let ok = true;
+        switch (filter) {
+            case 'KNOWLEDGE':
+                ok = (minion || card).keywords.includes('知識'); break;
+            case 'GUARD':
+                ok = (minion || card).keywords.includes('守護'); break;
+            case 'MINION_CARD':
+                ok = card && card.type === 'MINION'; break;
+            case 'HP_5_OR_LESS':
+                ok = minion ? minion.currentHp <= 5 : (card.hp != null && card.hp <= 5); break;
+            case 'COST_4_OR_LESS':
+                ok = (minion || card).cost != null && (minion || card).cost <= 4; break;
+        }
+        if (!ok) {
+            showMessage('このカードは選べません(条件: ' + (req.filters || []).join(', ') + ')');
+            return false;
+        }
+    }
+    return true;
 }
 
 function isPicked(kind, value) {
@@ -755,7 +777,16 @@ function createHandCardEl(card, index, view) {
         // 対象選択中: 選択可能な手札を光らせる
         const selectable = index !== pending.handIndex
             && !isPicked('HAND', index)
-            && (req.filter !== 'KNOWLEDGE' || card.keywords.includes('知識'));
+            && (req.filters || []).every(f => {
+                switch (f) {
+                    case 'KNOWLEDGE': return card.keywords.includes('知識');
+                    case 'GUARD': return card.keywords.includes('守護');
+                    case 'MINION_CARD': return card.type === 'MINION';
+                    case 'HP_5_OR_LESS': return card.hp != null && card.hp <= 5;
+                    case 'COST_4_OR_LESS': return card.cost != null && card.cost <= 4;
+                    default: return true;
+                }
+            });
         if (selectable) el.classList.add('attack-target');
         if (pending.current.handIndexes.includes(index)
             || pending.collected.some(s => s.handIndexes.includes(index))) {

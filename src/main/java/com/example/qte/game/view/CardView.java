@@ -40,7 +40,7 @@ public record CardView(
             String side,
             int count,
             boolean optional,
-            String filter,
+            List<String> filters,
             String prompt) {
     }
 }

@@ -58,11 +58,45 @@ public class DeckFactory {
         WATER_STARTER.put("QTE-0023", 1); // タイダルウェーブ (4) 相手コスト4以下全バウンス
     }
 
+    /** 火文明スターターデッキ: ミニオン28枚+ウェポン3枚+スペル9枚 */
+    private static final Map<String, Integer> FIRE_STARTER = new LinkedHashMap<>();
+
+    static {
+        // ミニオン28枚
+        FIRE_STARTER.put("QTE-0047", 3); // フレア・ポーン 1/2/1
+        FIRE_STARTER.put("QTE-0044", 3); // 血誓のバーサーカー 1/2/2 召喚時:自傷1(+条件2)
+        FIRE_STARTER.put("QTE-0045", 3); // 火炎の狂信者 2/2+/2 被ダメージのたび攻撃+2
+        FIRE_STARTER.put("QTE-0055", 3); // ブラッドレイジの突撃兵 2/3/3 召喚時:自傷2
+        FIRE_STARTER.put("QTE-0066", 2); // 逆境の猛火者 2/1/1 召喚時:条件で踏み倒し
+        FIRE_STARTER.put("QTE-0049", 2); // 痛撃の炎術師 3/1/2 知識・召喚時:条件で自傷1
+        FIRE_STARTER.put("QTE-0001", 3); // インフェルノ・ハウンド 4/4/1 速攻
+        FIRE_STARTER.put("QTE-0050", 2); // 赫灼の重戦士 4/4/4 召喚時:条件で速攻
+        FIRE_STARTER.put("QTE-0059", 2); // 相打ちの咎人 4/2/2 召喚時:相互2ダメージ
+        FIRE_STARTER.put("QTE-0062", 1); // 覚醒の炎童 4/1/1 知識・特殊召喚
+        FIRE_STARTER.put("QTE-0063", 1); // 背水の烈火使い 4/8/8 召喚時:手札全捨て
+        FIRE_STARTER.put("QTE-0057", 1); // 背水の炎壁 6/5/3 守護・特殊召喚
+        FIRE_STARTER.put("QTE-0051", 1); // 極炎竜 ヴォルカニクス 7/6/2 速攻・特殊召喚
+        FIRE_STARTER.put("QTE-0058", 1); // 鳳凰神 ヴォルカニクスレヴォ 13/3/8 速攻・特殊召喚
+        // ウェポン3枚
+        FIRE_STARTER.put("QTE-0067", 1); // フレム・ダガー (1/⚔1) 知識
+        FIRE_STARTER.put("QTE-0061", 1); // 魔剣 レーヴァテイン (3/⚔5) 攻撃時:自傷3
+        FIRE_STARTER.put("QTE-0048", 1); // 反転の炎鏡 (3/⚔1) 自傷を水増しする
+        // スペル9枚
+        FIRE_STARTER.put("QTE-0064", 2); // イグニッション・バースト (1) 自傷1+2ドロー
+        FIRE_STARTER.put("QTE-0054", 1); // フレイム・スナイプ (1) 守護HP5以下を破壊
+        FIRE_STARTER.put("QTE-0046", 2); // マグマ・ストレート (2) ミニオン1体に3ダメージ
+        FIRE_STARTER.put("QTE-0053", 1); // 捨て身の猛進 (3) 全体+1攻撃と突進
+        FIRE_STARTER.put("QTE-0056", 1); // 命を削る烈火 (3) 自傷3+相手全体2ダメージ
+        FIRE_STARTER.put("QTE-0060", 1); // 命喰いの火種 (3) 自傷3+2ドロー・還元
+        FIRE_STARTER.put("QTE-0052", 1); // 再起の炎陣 (3) 1捨て1ドロー・還元
+    }
+
     private final CardMasterRepository cardMasterRepository;
 
     public DeckFactory(CardMasterRepository cardMasterRepository) {
         this.cardMasterRepository = cardMasterRepository;
         validate(WATER_STARTER);
+        validate(FIRE_STARTER);
     }
 
     /**
@@ -81,18 +115,33 @@ public class DeckFactory {
             "QTE-0050"  // 赫灼の重戦士 4/4/4 召喚時:条件で速攻
     );
 
+    /** 水リーダー用の禁忌デッキ(火リーダーが使う。1-3: リーダーと異なる文明) */
+    private static final List<String> WATER_TABOO = List.of(
+            "QTE-0028", // アクア・サーチ (1) 1ドロー
+            "QTE-0026", // アクア・ジェリー 1/1/1 知識
+            "QTE-0025", // スプラッシュ・ドロー (2) 2ドロー
+            "QTE-0002", // 恵みの雨 (2) 4回復+1ドロー
+            "QTE-0029", // 潮流の魔導士 2/2/2 召喚時:条件回復
+            "QTE-0031", // 氷結の杖 (2/⚔1) 凍結
+            "QTE-0003", // 波濤の突撃兵 3/3/1 突進・攻撃時1ドロー
+            "QTE-0011"  // ディープシー・シャーク 4/4/3 突進・威圧
+    );
+
     /** リーダーの文明に対応するメインデッキ(1-2: リーダーと同一文明のみ) */
     public List<String> createMainDeck(CardMaster leader) {
-        if (leader.civilization() != Civilization.WATER) {
-            throw new IllegalStateException(
+        Map<String, Integer> definition = switch (leader.civilization()) {
+            case WATER -> WATER_STARTER;
+            case FIRE -> FIRE_STARTER;
+            default -> throw new IllegalStateException(
                     leader.civilization().getDisplayName() + "文明のメインデッキは未実装です");
-        }
-        return createWaterStarterDeck();
+        };
+        return buildShuffled(definition);
     }
 
     /** リーダーの文明と異なる文明の禁忌デッキ(1-3) */
     public List<String> createTabooDeck(CardMaster leader) {
-        List<String> taboo = new ArrayList<>(FIRE_TABOO);
+        List<String> taboo = new ArrayList<>(
+                leader.civilization() == Civilization.FIRE ? WATER_TABOO : FIRE_TABOO);
         validateTaboo(leader, taboo);
         return taboo;
     }
@@ -116,8 +165,12 @@ public class DeckFactory {
 
     /** シャッフル済みの水スターターデッキ(カードIDのリスト)を生成する */
     public List<String> createWaterStarterDeck() {
+        return buildShuffled(WATER_STARTER);
+    }
+
+    private List<String> buildShuffled(Map<String, Integer> definition) {
         List<String> deck = new ArrayList<>(40);
-        WATER_STARTER.forEach((cardId, count) -> {
+        definition.forEach((cardId, count) -> {
             for (int i = 0; i < count; i++) {
                 deck.add(cardId);
             }

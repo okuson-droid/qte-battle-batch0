@@ -288,6 +288,11 @@ public class GameService {
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.targetSpecOf(master.id()), choices);
         payCost(player, stats.effectiveCost(state, player, master));
+        // 【剛火の将】の割引は「次に使う火文明ミニオン」1体で消費される
+        if (player.getPendingFireMinionDiscount() > 0
+                && master.civilization() == com.example.qte.master.Civilization.FIRE) {
+            player.setPendingFireMinionDiscount(player.getPendingFireMinionDiscount() - 1);
+        }
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
 
         summonToField(room, state, player, master, resolved, false);
@@ -455,12 +460,15 @@ public class GameService {
         }
 
         ValidatedTargets validated = validateTargets(state, player, handIndex, spec.targets(), choices);
+        payCost(player, spec.mpCost()); // 多くは0だが、極炎竜ヴォルカニクスのようにMPを要するものもある
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
         room.addLog("%sが【%s】を特殊召喚".formatted(player.getDisplayName(), master.name()));
-        // 代替コストの支払い(手札を山札の下へ・ミニオンを手札に戻す等)。MPは支払わない
+        // 代替コストの支払い(手札を山札の下へ・ミニオンを手札に戻す等)
         spec.costEffect().accept(contextOf(room, state, player, null, resolved));
 
         summonToField(room, state, player, master, resolved, false);
+        // 特殊召喚で出したときのみ発生する追加効果(背水の炎壁)。通常の【召喚時】とは別枠
+        spec.onSpecialSummon().accept(contextOf(room, state, player, null, resolved));
         player.setPlayedCardThisTurn(true);
     }
 
@@ -793,7 +801,7 @@ public class GameService {
                         if (tm.owner() != player && tm.minion().hasKeyword(Keyword.STEALTH)) {
                             throw new IllegalArgumentException("【潜伏】持ちは相手の効果の対象になりません");
                         }
-                        checkFilter(req, tm.minion().getMaster());
+                        checkFilter(req, tm.minion().getMaster(), tm.minion());
                         resolved.add(tm);
                     }
                     handPerReq.add(List.of());
@@ -812,9 +820,47 @@ public class GameService {
         }
     }
 
+    /** 手札・禁忌など「カードそのもの」に対する絞り込み判定 */
     private void checkFilter(TargetSpec.Requirement req, CardMaster master) {
-        if (req.filter() == TargetSpec.Filter.KNOWLEDGE && !master.hasKeyword(Keyword.KNOWLEDGE)) {
-            throw new IllegalArgumentException("【知識】を持つカードを選んでください");
+        checkFilter(req, master, null);
+    }
+
+    /**
+     * 絞り込み判定。複数条件はAND。
+     * minionがnullでない場合(場のミニオン)は、印刷値ではなく現在の状態を見る条件も評価する。
+     */
+    private void checkFilter(TargetSpec.Requirement req, CardMaster master, MinionInstance minion) {
+        for (TargetSpec.Filter filter : req.filters()) {
+            switch (filter) {
+                case KNOWLEDGE -> requireKeyword(master, minion, Keyword.KNOWLEDGE, "【知識】");
+                case GUARD -> requireKeyword(master, minion, Keyword.GUARD, "【守護】");
+                case MINION_CARD -> {
+                    if (master.type() != CardType.MINION) {
+                        throw new IllegalArgumentException("ミニオンカードを選んでください");
+                    }
+                }
+                case HP_5_OR_LESS -> {
+                    // 現在HPで判定する(ダメージを受けた大型ミニオンも対象になる)
+                    int hp = minion != null ? minion.getCurrentHp()
+                            : (master.hp() == null ? Integer.MAX_VALUE : master.hp());
+                    if (hp > 5) {
+                        throw new IllegalArgumentException("HP5以下のミニオンを選んでください");
+                    }
+                }
+                case COST_4_OR_LESS -> {
+                    if (master.cost() == null || master.cost() > 4) {
+                        throw new IllegalArgumentException("コスト4以下のカードを選んでください");
+                    }
+                }
+            }
+        }
+    }
+
+    private void requireKeyword(CardMaster master, MinionInstance minion, Keyword keyword, String label) {
+        // 場のミニオンは付与されたキーワードも含めて判定する
+        boolean has = minion != null ? minion.hasKeyword(keyword) : master.hasKeyword(keyword);
+        if (!has) {
+            throw new IllegalArgumentException(label + "を持つカードを選んでください");
         }
     }
 

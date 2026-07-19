@@ -28,6 +28,13 @@ public class StatCalculator {
      */
     public int effectiveCost(GameState state, PlayerState owner, CardMaster card) {
         int cost = card.cost();
+
+        // 【剛火の将】の起動能力: 次に手札から使用する火文明ミニオンのコスト-1(0にはならない)
+        if (owner.getPendingFireMinionDiscount() > 0
+                && card.type() == com.example.qte.master.CardType.MINION
+                && card.civilization() == com.example.qte.master.Civilization.FIRE) {
+            cost = Math.max(1, cost - 1);
+        }
         if ("QTE-0041".equals(card.id())) {
             long knowledgeOnBoard = java.util.stream.Stream
                     .of(state.getPlayer1(), state.getPlayer2())

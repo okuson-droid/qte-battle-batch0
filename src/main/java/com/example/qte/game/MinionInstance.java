@@ -43,8 +43,11 @@ public class MinionInstance {
     @lombok.Setter
     private int cannotAttackOnTurn = 0;
 
-    /** 効果で付与されたキーワード(設計判断16: 印刷+付与の合成で評価する) */
+    /** 効果で永続的に付与されたキーワード(設計判断16: 印刷+付与の合成で評価する) */
     private final Set<Keyword> grantedKeywords = EnumSet.noneOf(Keyword.class);
+
+    /** このターンだけ付与されたキーワード(捨て身の猛進など)。ターン終了時にクリアする */
+    private final Set<Keyword> grantedKeywordsThisTurn = EnumSet.noneOf(Keyword.class);
 
     /** ステータス修正のスタック(設計判断12) */
     private final List<StatModifier> modifiers = new ArrayList<>();
@@ -93,22 +96,30 @@ public class MinionInstance {
         return base;
     }
 
-    /** 印刷キーワード + 付与キーワードの合成(設計判断16) */
+    /** 印刷キーワード + 付与キーワード(永続・このターン限り)の合成(設計判断16・24) */
     public boolean hasKeyword(Keyword keyword) {
-        return master.hasKeyword(keyword) || grantedKeywords.contains(keyword);
+        return master.hasKeyword(keyword)
+                || grantedKeywords.contains(keyword)
+                || grantedKeywordsThisTurn.contains(keyword);
     }
 
     public void grantKeyword(Keyword keyword) {
         grantedKeywords.add(keyword);
     }
 
+    /** このターンだけキーワードを付与する */
+    public void grantKeywordThisTurn(Keyword keyword) {
+        grantedKeywordsThisTurn.add(keyword);
+    }
+
     public void addModifier(StatModifier modifier) {
         modifiers.add(modifier);
     }
 
-    /** ターン終了時: THIS_TURN期限の修正を除去する */
+    /** ターン終了時: THIS_TURN期限の修正と付与キーワードを除去する */
     public void expireThisTurnModifiers() {
         modifiers.removeIf(m -> m.duration() == StatModifier.Duration.THIS_TURN);
+        grantedKeywordsThisTurn.clear();
     }
 
     public void countAttack() {

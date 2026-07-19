@@ -37,7 +37,7 @@ public class LobbyController {
 
     @GetMapping("/")
     public String lobby(Model model) {
-        model.addAttribute("leaders", waterLeaders());
+        model.addAttribute("leaders", selectableLeaders());
         return "lobby";
     }
 
@@ -103,8 +103,10 @@ public class LobbyController {
         return "redirect:/rooms/" + roomId + "/play?playerId=" + playerId;
     }
 
-    private List<CardMaster> waterLeaders() {
-        return cards.findByCivilization(Civilization.WATER).stream()
+    /** 選択可能なリーダー。メインデッキを用意済みの文明(水・火)に限る */
+    private List<CardMaster> selectableLeaders() {
+        return java.util.stream.Stream.of(Civilization.WATER, Civilization.FIRE)
+                .flatMap(civ -> cards.findByCivilization(civ).stream())
                 .filter(c -> c.type() == CardType.LEADER)
                 .toList();
     }
