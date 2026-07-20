@@ -139,7 +139,20 @@ public class GameViewBuilder {
                         : stats.effectiveWeaponAttack(state, player),
                 leaderCanAttack,
                 leaderFrozen,
-                buildLeaderAbility(state, player, isSelf));
+                buildLeaderAbility(state, player, isSelf),
+                buildPendingReveal(player));
+    }
+
+    /** 降臨の伝道師: 選択待ちの公開カードのビュー(選択待ちでなければ空リスト) */
+    private List<PlayerView.RevealedCardView> buildPendingReveal(PlayerState player) {
+        List<String> revealed = player.getPendingReveal();
+        List<PlayerView.RevealedCardView> views = new java.util.ArrayList<>();
+        for (int i = 0; i < revealed.size(); i++) {
+            CardMaster m = cards.findById(revealed.get(i));
+            views.add(new PlayerView.RevealedCardView(i, m.name(), CardView.keywordNames(m),
+                    m.hasKeyword(Keyword.GUARD)));
+        }
+        return views;
     }
 
     /** リーダー起動能力の状態。使用可否はサーバで評価する(UIはボタンの活性に使うだけ) */
@@ -176,6 +189,7 @@ public class GameViewBuilder {
                 master.id(),
                 master.name(),
                 master.type().name(),
+                master.civilization().name(),
                 master.cost(),
                 master.cost() == null ? null : stats.effectiveCost(state, player, master),
                 master.attack(),

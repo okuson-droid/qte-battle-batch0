@@ -1,5 +1,6 @@
 package com.example.qte.effect;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -82,6 +83,7 @@ public class CardEffectRegistry {
         registerLeaderAbilities();
         registerFireCards();
         registerDarkCards();
+        registerLightCards();
     }
 
     // ---------------------------------------------------------------
@@ -840,6 +842,208 @@ public class CardEffectRegistry {
         // ---- ウェポン ----
         // 禁忌の冥魔剣(QTE-0073)・死神の大鎌(QTE-0086)・死霊の収鎌(QTE-0089)は
         // 「リーダーが攻撃した時」の効果であり、GameService.leaderAttack内で解決する
+    }
+
+    // ---------------------------------------------------------------
+    // 登録: 光文明(Batch 11bで全面実装)
+    //
+    // 光のテーマは「相手のリソースの流れを止める」こと。攻撃・破壊・ダメージ・ドロー・使用・
+    // フェイズ進行の判定点(RuleGuards)はBatch 11aで用意済みのため、ここで書くのは
+    // 主に効果の「発火側」である(11a側の受け皿は各カードのnotesと引き継ぎ書を参照)。
+    // ---------------------------------------------------------------
+
+    private void registerLightCards() {
+
+        // ---- リーダー ----
+
+        // 断罪の聖導者: コスト4を支払う。次の相手のターン、相手はスペルを唱えられません。1枚引く。
+        // 禁忌デッキ由来のスペルも封じられる(GameService.playCard/playTabooCardの両方でspellDenialを見る)
+        leaderAbilities.put("QTE-L007", LeaderAbilitySpec.of(4, TargetSpec.of(), ctx -> {
+            ctx.opponent().setSpellSealedOnTurn(ctx.state().getTurnNumber() + 1);
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            ctx.room().addLog("次の%sのターン、スペルを唱えられません".formatted(ctx.opponent().getDisplayName()));
+        }, "コスト4を支払う: 次の相手のターン、相手はスペルを唱えられません。カードを1枚引く"));
+
+        // 聖光の守護聖: コスト2を支払う。次の相手のターン終了時まで、自分は相手の効果による
+        // 破壊を受けない(戦闘破壊・自分自身の効果による破壊は防げない)。自分のターンをまたぐ持続効果
+        leaderAbilities.put("QTE-L008", LeaderAbilitySpec.of(2, TargetSpec.of(), ctx -> {
+            int expireTurn = ctx.state().getTurnNumber() + 1;
+            ctx.owner().getPersistentAuras().add(PersistentAura.untilEndOfTurn("QTE-L008", expireTurn));
+            ctx.room().addLog("次の相手のターン終了時まで、%sは相手の効果で破壊されなくなりました"
+                    .formatted(ctx.owner().getDisplayName()));
+        }, "コスト2を支払う: 次の相手のターン終了時まで、自分は相手の効果による破壊を受けません"));
+
+        // ---- ミニオン ----
+
+        // 聖域の案内人: 【知識】自分の場に【守護】を持つミニオンがいるなら、もう一度【知識】を行う。
+        // 1回目のドローはfire()が自動処理する(自身がKNOWLEDGEを持つため)。ここでは2回目だけを扱う。
+        // 守護の有無は「登場時」(ON_ENTER)に判定し、召喚か効果で出したかを問わない(発注者確認済み)
+        register("QTE-0093", TriggerType.ON_ENTER, ctx -> {
+            boolean hasGuard = ctx.owner().getMinionZone().stream().anyMatch(m -> m.hasKeyword(Keyword.GUARD));
+            if (hasGuard) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+                ctx.room().addLog("【聖域の案内人】: 【守護】がいるためもう一度【知識】");
+            }
+        });
+
+        // 光の召喚士: 【召喚時】の表記が無いためON_ENTER型として扱う(発注者確認済み)。
+        // 自分の手札からコスト3以下のミニオンを1体、コストを支払わず場に出す。
+        // 効果で「出す」のでON_SUMMONは発動しない
+        targetSpecs.put("QTE-0105", TargetSpec.of(Requirement.filtered(
+                Kind.HAND, Side.SELF, 1, true, "場に出すコスト3以下のミニオンを選んでください(いなければ確定)",
+                Filter.MINION_CARD, Filter.COST_3_OR_LESS)));
+        register("QTE-0105", TriggerType.ON_ENTER, ctx -> {
+            var selection = ctx.targets().get(0);
+            if (selection.isEmpty()) {
+                return;
+            }
+            selection.handCardIds().forEach(id -> ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id));
+        });
+
+        // 降臨の伝道師: 【召喚時】山札の上から4枚を公開。【守護】ミニオンを1体場に出し
+        // (0体なら不発・1体なら自動決定・2体以上ならプレイヤーが選ぶ)、残りは山札の下へ。
+        // 出したミニオンはその後3ダメージを受ける
+        register("QTE-0112", TriggerType.ON_SUMMON, ctx -> {
+            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 4);
+            List<Integer> guardIndexes = new ArrayList<>();
+            for (int i = 0; i < revealed.size(); i++) {
+                if (cards.findById(revealed.get(i)).hasKeyword(Keyword.GUARD)) {
+                    guardIndexes.add(i);
+                }
+            }
+            if (guardIndexes.isEmpty()) {
+                ctx.actions().returnToBottomOfDeck(ctx.owner(), revealed);
+                ctx.room().addLog("公開した4枚に【守護】ミニオンがいなかったため、山札の下に置かれました");
+                return;
+            }
+            if (guardIndexes.size() == 1) {
+                resolveMissionaryChoice(ctx, revealed, guardIndexes.get(0));
+                return;
+            }
+            // 【守護】が複数: プレイヤーの選択を待つ(手札・場・マナ・墓地のどれとも違う新しいUI)
+            ctx.owner().getPendingReveal().addAll(revealed);
+            ctx.room().addLog("%sは公開した%d枚から場に出す【守護】ミニオンを選んでください"
+                    .formatted(ctx.owner().getDisplayName(), revealed.size()));
+        });
+
+        // ---- スペル ----
+
+        // 運命のリセット: 両者が手札を全てデッキに戻しシャッフルし、同じ枚数を引き直す
+        spellEffects.put("QTE-0014", ctx -> {
+            int ownerCount = ctx.owner().getHand().size();
+            int opponentCount = ctx.opponent().getHand().size();
+            reshuffleHandIntoDeck(ctx.owner());
+            reshuffleHandIntoDeck(ctx.opponent());
+            ctx.room().addLog("%sと%sが手札をシャッフルして山札に戻しました"
+                    .formatted(ctx.owner().getDisplayName(), ctx.opponent().getDisplayName()));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), ownerCount);
+            ctx.actions().drawCards(ctx.room(), ctx.opponent(), opponentCount);
+        });
+
+        // ホーリー・シグナル: 相手の場で最も攻撃力の高いミニオン1体を破壊。
+        // 対象はプレイヤーが選ばず盤面から自動決定する除去で、タイのときだけ実質選択になる。
+        // 【潜伏】持ちであっても破壊できる(発注者確認済み。IGNORES_STEALTHで潜伏の対象化禁止を上書き)
+        playConditions.put("QTE-0090",
+                (state, player) -> !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
+        targetSpecs.put("QTE-0090", TargetSpec.of(new Requirement(
+                Kind.MINION, Side.OPPONENT, 1, false, false,
+                List.of(Filter.HIGHEST_ATTACK_OPPONENT, Filter.IGNORES_STEALTH),
+                "相手の場で最も攻撃力の高いミニオンを選んでください")));
+        spellEffects.put("QTE-0090", ctx -> ctx.targets().get(0).minions()
+                .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion())));
+
+        // 聖光の武装解除: ウェポンを1枚破壊する。【還元】。自分のウェポンも選べ、
+        // 誰も装備していなければ空撃ちになる(発注者確認済み)
+        targetSpecs.put("QTE-0091", TargetSpec.of(
+                Requirement.upTo(Kind.WEAPON, Side.ANY, 1, "破壊するウェポンを選んでください(いなければ確定)")));
+        spellEffects.put("QTE-0091", ctx -> ctx.targets().get(0).weapons()
+                .forEach(owner -> ctx.actions().destroyOwnWeapon(ctx.room(), owner)));
+
+        // 神の福音: 手札から光文明の【守護】ミニオンを最大2体、コストを支払わず場に出す。
+        // 出した数だけ引く。ゾーンの空きが足りなければ出せた数だけ出し、その数だけ引く(発注者確認済み)
+        targetSpecs.put("QTE-0097", TargetSpec.of(Requirement.upTo(Kind.HAND, Side.SELF, 2,
+                "コストを支払わず場に出す光文明の【守護】ミニオンを2体まで選んでください",
+                Filter.LIGHT_CIVILIZATION, Filter.GUARD)));
+        spellEffects.put("QTE-0097", ctx -> {
+            int summoned = 0;
+            for (String id : ctx.targets().get(0).handCardIds()) {
+                if (ctx.owner().isMinionZoneFull()) {
+                    ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
+                    continue;
+                }
+                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+                summoned++;
+            }
+            if (summoned > 0) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), summoned);
+            }
+        });
+
+        // 聖なる降誕の儀式: 手札のコスト7以下の【守護】ミニオン1体を、コストを支払わず場に出す
+        playConditions.put("QTE-0109", (state, player) -> player.getHand().stream().anyMatch(id -> {
+            var m = cards.findById(id);
+            return m.hasKeyword(Keyword.GUARD) && m.cost() != null && m.cost() <= 7;
+        }));
+        targetSpecs.put("QTE-0109", TargetSpec.of(Requirement.filtered(
+                Kind.HAND, Side.SELF, 1, false, "コストを支払わず場に出すコスト7以下の【守護】ミニオンを選んでください",
+                Filter.GUARD, Filter.COST_7_OR_LESS)));
+        spellEffects.put("QTE-0109", ctx -> ctx.targets().get(0).handCardIds()
+                .forEach(id -> ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id)));
+
+        // 光の戒め: 相手のミニオン1体を次のターン攻撃できなくする(氷結の杖と同じ仕組み)。1枚引く
+        playConditions.put("QTE-0110",
+                (state, player) -> !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
+        targetSpecs.put("QTE-0110", TargetSpec.of(Requirement.of(
+                Kind.MINION, Side.OPPONENT, 1, false, "凍結させる相手のミニオンを選んでください")));
+        spellEffects.put("QTE-0110", ctx -> {
+            ctx.targets().get(0).minions().forEach(t -> {
+                int nextTurn = ctx.state().getTurnNumber() + 1;
+                t.minion().setCannotAttackOnTurn(nextTurn);
+                ctx.room().addLog("【%s】は凍結しました(次のターン攻撃不可)"
+                        .formatted(t.minion().getMaster().name()));
+            });
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+        });
+
+        // ---- ウェポン ----
+        // 聖剣エクスカリバー(QTE-0018)は「リーダーが攻撃した時」の効果であり、
+        // 既存の6件と同じくGameService.leaderAttack内のswitchで解決する(11bでは移設しない)
+    }
+
+    /** 運命のリセット: 手札をすべて山札に戻してシャッフルする(枚数はドローで別途戻す) */
+    private void reshuffleHandIntoDeck(PlayerState player) {
+        List<String> pool = new ArrayList<>(player.getDeck());
+        pool.addAll(player.getHand());
+        player.getHand().clear();
+        java.util.Collections.shuffle(pool);
+        player.getDeck().clear();
+        player.getDeck().addAll(pool);
+    }
+
+    /**
+     * 降臨の伝道師の解決を1箇所にまとめる。0体/1体の自動解決(registerLightCards内)と、
+     * 2体以上のときのプレイヤー選択(resolvePendingReveal)の両方から呼ばれる。
+     */
+    private void resolveMissionaryChoice(EffectContext ctx, List<String> revealed, int chosenIndex) {
+        String chosenId = revealed.get(chosenIndex);
+        List<String> rest = new ArrayList<>(revealed);
+        rest.remove(chosenIndex);
+        if (ctx.owner().isMinionZoneFull()) {
+            ctx.actions().returnToBottomOfDeck(ctx.owner(), revealed);
+            ctx.room().addLog("ミニオンゾーンが満杯のため、公開した4枚はすべて山札の下に置かれました");
+            return;
+        }
+        ctx.actions().returnToBottomOfDeck(ctx.owner(), rest);
+        ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), chosenId);
+        List<MinionInstance> zone = ctx.owner().getMinionZone();
+        MinionInstance summoned = zone.get(zone.size() - 1);
+        ctx.room().addLog("【降臨の伝道師】が【%s】を場に出しました".formatted(cards.findById(chosenId).name()));
+        ctx.actions().damageMinion(ctx.room(), ctx.owner(), summoned, 3);
+    }
+
+    /** GameService.resolveRevealChoiceから呼ばれる: プレイヤーが選んだ結果で降臨の伝道師を解決する */
+    public void resolvePendingReveal(EffectContext ctx, List<String> revealed, int chosenIndex) {
+        resolveMissionaryChoice(ctx, revealed, chosenIndex);
     }
 
     // ---------------------------------------------------------------

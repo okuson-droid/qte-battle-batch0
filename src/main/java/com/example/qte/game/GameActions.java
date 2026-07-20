@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
+import com.example.qte.effect.PersistentAura;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.TriggerType;
 import com.example.qte.master.CardMaster;
@@ -157,6 +158,7 @@ public class GameActions {
         }
         owner.setEquippedWeapon(null);
         room.addLog("【%s】が破壊されました".formatted(weapon.name()));
+        onWeaponLeftPlay(owner, weapon);
         sendToTrashOrRestore(room, owner, weapon, owner.isEquippedWeaponFromTaboo());
         owner.setEquippedWeaponFromTaboo(false);
         return true;
@@ -451,6 +453,45 @@ public class GameActions {
     /** 「自分のマナがマナゾーンを離れた」イベントの発火。マナを動かした側が呼ぶ */
     public void manaLeft(GameRoom room, PlayerState owner) {
         effects.fireManaLeft(contextOf(room, owner, null));
+    }
+
+    // ---------------------------------------------------------------
+    // 光文明の基本操作(Batch 11b)
+    // ---------------------------------------------------------------
+
+    /**
+     * 詠唱の宝珠(QTE-0106): ウェポンが場を離れたとき、次に唱えるスペルのコスト-1を付与する。
+     * 破壊(destroyOwnWeapon)・新しいウェポンへの付け替え(GameService.equipWeapon)の
+     * どちらの経路でも発動する(発注者確認済み)。ウェポンには破壊トリガーの仕組みがまだ無いため、
+     * 「ウェポンが場を離れる」2箇所の処理から直接呼ぶ形にしている。
+     */
+    public void onWeaponLeftPlay(PlayerState owner, CardMaster weapon) {
+        if ("QTE-0106".equals(weapon.id())) {
+            owner.getPersistentAuras().add(PersistentAura.untilNextSpell("QTE-0106"));
+        }
+    }
+
+    /**
+     * 山札の上からcount枚を表向きに取り出す(降臨の伝道師)。
+     * ミルと違い、取り出したカードは呼び出し元が行き先(場に出す/山札の下に戻す)を決める。
+     * 山札が尽きればそこまでしか取り出せない。
+     */
+    public java.util.List<String> revealFromTopOfDeck(GameRoom room, PlayerState player, int count) {
+        java.util.List<String> revealed = new java.util.ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            String cardId = player.getDeck().pollFirst();
+            if (cardId == null) {
+                break;
+            }
+            revealed.add(cardId);
+        }
+        room.addLog("%sが山札の上から%d枚を公開しました".formatted(player.getDisplayName(), revealed.size()));
+        return revealed;
+    }
+
+    /** 公開した束を山札の下に、公開した順のまま戻す(降臨の伝道師) */
+    public void returnToBottomOfDeck(PlayerState player, java.util.List<String> cardIds) {
+        cardIds.forEach(id -> player.getDeck().addLast(id));
     }
 
     private EffectContext contextOf(GameRoom room, PlayerState owner, MinionInstance source) {

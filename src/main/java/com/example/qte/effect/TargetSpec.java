@@ -63,7 +63,13 @@ public record TargetSpec(List<Requirement> requirements) {
          * 選ばれたカードは墓地に残ったまま効果に渡され、移動は効果自身が行う
          * (蘇生・手札回収・マナ送りで行き先が異なるため)。
          */
-        TRASH
+        TRASH,
+        /**
+         * 装備中のウェポン(光文明で追加。聖光の武装解除)。
+         * ウェポンは各プレイヤー最大1枚のためインスタンスIDを持たず、
+         * どちら側の装備ウェポンかだけを選ばせる(TargetChoice.weaponSides)。
+         */
+        WEAPON
     }
 
     /** どちら側から選ぶか */
@@ -89,6 +95,20 @@ public record TargetSpec(List<Requirement> requirements) {
         /** コストが3以下(裏切りの魔女) */
         COST_3_OR_LESS,
         /** スペルカードである(墓地からスペルだけを選ばせる) */
-        SPELL_CARD
+        SPELL_CARD,
+        /** 光文明のカードである(神の福音) */
+        LIGHT_CIVILIZATION,
+        /** コストが7以下(聖なる降誕の儀式) */
+        COST_7_OR_LESS,
+        /**
+         * 相手の場で現在攻撃力が最も高い(ホーリー・シグナル)。
+         * 複数タイのときだけ実質的にプレイヤーの選択が発生する(タイでなければ1体しか条件を満たさない)。
+         */
+        HIGHEST_ATTACK_OPPONENT,
+        /**
+         * 【潜伏】による相手からの対象化禁止を無視する(ホーリー・シグナル)。
+         * 通常「相手の効果の対象にならない」潜伏の原則に対する初のテキスト上書き例。
+         */
+        IGNORES_STEALTH
     }
 }

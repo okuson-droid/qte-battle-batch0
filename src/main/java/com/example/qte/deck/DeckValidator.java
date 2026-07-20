@@ -31,7 +31,7 @@ public class DeckValidator {
 
     /** 効果を実装済みの文明。未実装文明のカードは「入れられるのに何も起きない」ため禁止する */
     private static final Set<Civilization> IMPLEMENTED =
-            Set.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK);
+            Set.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK, Civilization.LIGHT);
 
     /**
      * 同名4枚制限をカードテキストで上書きしているカード(ゾンストライカー)。

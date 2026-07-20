@@ -8,6 +8,7 @@ import com.example.qte.master.Keyword;
 /**
  * 手札のカード1枚の表示情報。
  *
+ * @param civilization      文明(英語名。LIGHT_CIVILIZATIONフィルタのハイライトにクライアントが使う)
  * @param cost              印刷コスト
  * @param effectiveCost     現在の実効コスト(動的コスト。双流の幻術師など)
  * @param targets           プレイ時に要求される対象選択(クライアントの選択UIがこれを読んで進行する)
@@ -19,6 +20,7 @@ public record CardView(
         String cardId,
         String name,
         String type,
+        String civilization,
         Integer cost,
         Integer effectiveCost,
         Integer attack,

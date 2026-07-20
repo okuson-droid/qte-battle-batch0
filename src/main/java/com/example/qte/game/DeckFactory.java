@@ -124,6 +124,41 @@ public class DeckFactory {
         DARK_STARTER.put("QTE-0080", 1); // 死者蘇生 (7-) 生贄で軽減+突進付き蘇生
     }
 
+    /** 光スターターデッキ: ミニオン28枚+ウェポン3枚+スペル9枚 */
+    private static final Map<String, Integer> LIGHT_STARTER = new LinkedHashMap<>();
+
+    static {
+        // ミニオン28枚
+        LIGHT_STARTER.put("QTE-0101", 4); // 煌めきの盾 1/2/2 守護・攻撃不可
+        LIGHT_STARTER.put("QTE-0099", 3); // ライト・シールド 2/1/3 守護
+        LIGHT_STARTER.put("QTE-0013", 3); // 聖域の司祭 2/2/2 知識
+        LIGHT_STARTER.put("QTE-0093", 2); // 聖域の案内人 3/2/2 知識・条件で知識2回目
+        LIGHT_STARTER.put("QTE-0100", 2); // 唱導の聖騎士 3/2/2 還元・自分のスペルコスト-1
+        LIGHT_STARTER.put("QTE-0102", 2); // 英知の水晶 3/0/2 自分の知識カードコスト-1
+        LIGHT_STARTER.put("QTE-0108", 1); // 戒律のガーディアン 4/1/1 守護・スペル/守護コスト-1
+        LIGHT_STARTER.put("QTE-0111", 2); // 秩序の執行官 4/3/4 相手の特殊召喚を封じる
+        LIGHT_STARTER.put("QTE-0105", 1); // 光の召喚士 5/3/3 守護・召喚時:コスト3以下を1体踏み倒し
+        LIGHT_STARTER.put("QTE-0007", 1); // ホーリー・ガーディアン 5/3/6 守護・潜伏
+        LIGHT_STARTER.put("QTE-0112", 1); // 降臨の伝道師 6/1/1 守護・召喚時:山札4枚から守護を1体展開
+        LIGHT_STARTER.put("QTE-0098", 1); // 戒律の聖堂騎士 6/5/5 守護・相手のサブフェイズを封じる
+        LIGHT_STARTER.put("QTE-0004", 1); // 大天使ミカエル 7/4/8 守護・戦闘では破壊されない
+        LIGHT_STARTER.put("QTE-0095", 1); // 平和の結界 7/3/5 守護・Attack3以上は攻撃不可
+        LIGHT_STARTER.put("QTE-0104", 1); // 天界の守護神 ゾディアック 9/7/9 守護・相手リーダー攻撃不可
+        LIGHT_STARTER.put("QTE-0096", 1); // 断罪の大天使 10/8/8 守護・相手の3枚目以降のドローを置換
+        LIGHT_STARTER.put("QTE-0107", 1); // 創世神 ゾディアックアイリス 11/11/11 守護・潜伏・知識・リーダー攻撃不可
+        // ウェポン3枚
+        LIGHT_STARTER.put("QTE-0103", 1); // 正義の御盾 (1/⚔0) リーダーへの被ダメージ-1
+        LIGHT_STARTER.put("QTE-0106", 1); // 詠唱の宝珠 (1/⚔1) 破壊時:次のスペルコスト-1
+        LIGHT_STARTER.put("QTE-0018", 1); // 聖剣エクスカリバー (4/⚔3) リーダー攻撃時:守護全体2回復
+        // スペル9枚
+        LIGHT_STARTER.put("QTE-0110", 2); // 光の戒め (2) 凍結+1ドロー
+        LIGHT_STARTER.put("QTE-0090", 2); // ホーリー・シグナル (3) 相手の最高攻撃力を破壊
+        LIGHT_STARTER.put("QTE-0091", 1); // 聖光の武装解除 (3) ウェポン破壊・還元
+        LIGHT_STARTER.put("QTE-0014", 1); // 運命のリセット (4) 両者手札をシャッフルして引き直し
+        LIGHT_STARTER.put("QTE-0109", 2); // 聖なる降誕の儀式 (5) コスト7以下の守護を1体踏み倒し
+        LIGHT_STARTER.put("QTE-0097", 1); // 神の福音 (6) 光の守護を2体まで踏み倒し+その数だけドロー
+    }
+
     private final CardMasterRepository cardMasterRepository;
 
     public DeckFactory(CardMasterRepository cardMasterRepository) {
@@ -131,6 +166,7 @@ public class DeckFactory {
         validate(WATER_STARTER);
         validate(FIRE_STARTER);
         validate(DARK_STARTER);
+        validate(LIGHT_STARTER);
     }
 
     /**
@@ -187,6 +223,7 @@ public class DeckFactory {
             case WATER -> WATER_STARTER;
             case FIRE -> FIRE_STARTER;
             case DARK -> DARK_STARTER;
+            case LIGHT -> LIGHT_STARTER;
             default -> throw new IllegalStateException(
                     leader.civilization().getDisplayName() + "文明のメインデッキは未実装です");
         };

@@ -383,6 +383,36 @@ public class GameService {
         actions.disposeUsedSpell(room, player, master, false);
     }
 
+    /**
+     * 降臨の伝道師(QTE-0112): 公開した4枚の中に【守護】ミニオンが複数あったとき、
+     * どれを場に出すかをプレイヤーが選ぶ(新しいUI: 手札・場・マナ・墓地のどれとも違う、
+     * 公開領域からの一時的な選択)。0体/1体のときはCardEffectRegistry側で即座に解決するため、
+     * ここに来るのは常に「複数の【守護】から選ぶ」場合のみ。
+     */
+    public void resolveRevealChoice(GameRoom room, String playerId, int chosenIndex) {
+        GameState state = requireState(room);
+        // この操作自身がpendingRevealを解消するため、requireTurnPlayerは経由しない
+        // (経由すると「選び終えるまで塞ぐ」判定に自分自身が引っかかってしまう)
+        if (!playerId.equals(state.getTurnPlayerId())) {
+            throw new IllegalStateException("相手のターンです");
+        }
+        requireStatus(state, GameStatus.PLAYING);
+        PlayerState player = state.playerOf(playerId);
+        List<String> revealed = player.getPendingReveal();
+        if (revealed.isEmpty()) {
+            throw new IllegalStateException("選択待ちの公開カードがありません");
+        }
+        if (chosenIndex < 0 || chosenIndex >= revealed.size()) {
+            throw new IllegalArgumentException("不正な選択です");
+        }
+        if (!cards.findById(revealed.get(chosenIndex)).hasKeyword(Keyword.GUARD)) {
+            throw new IllegalArgumentException("【守護】を持つカードを選んでください");
+        }
+        List<String> snapshot = List.copyOf(revealed);
+        revealed.clear(); // 解決前にpendingを解消する(効果内で例外が起きても選択待ちのまま固まらないように)
+        effects.resolvePendingReveal(contextOf(room, state, player, null, null), snapshot, chosenIndex);
+    }
+
     // ---------------------------------------------------------------
     // 禁忌システム(総合ルール第3章)
     // ---------------------------------------------------------------
@@ -419,6 +449,13 @@ public class GameService {
         }
         if (master.type() == CardType.SPELL && !effects.isSpellImplemented(master.id())) {
             throw new IllegalStateException("このスペルの効果は未実装です");
+        }
+        // 光文明による使用の禁止(断罪の聖導者)。禁忌デッキ由来のスペルも封じられる(発注者確認済み)
+        if (master.type() == CardType.SPELL) {
+            String spellDenial = guards.spellDenial(state, player);
+            if (spellDenial != null) {
+                throw new IllegalStateException(spellDenial);
+            }
         }
 
         // 検証(状態を変えない)→ 支払い → ゾーンからの除去 → 解決、の順序は通常プレイと同じ。
@@ -607,6 +644,8 @@ public class GameService {
     private void equipWeapon(GameRoom room, PlayerState player, CardMaster master, boolean fromTaboo) {
         CardMaster old = player.getEquippedWeapon();
         if (old != null) {
+            // 詠唱の宝珠: 破壊(destroyOwnWeapon)だけでなく、付け替えで場を離れる場合も発動する
+            actions.onWeaponLeftPlay(player, old);
             if (player.isEquippedWeaponFromTaboo()) {
                 player.getLostZone().add(old.id());
                 room.addLog("【%s】は禁忌カードのため消滅しました".formatted(old.name()));
@@ -731,6 +770,12 @@ public class GameService {
                     target.setCannotAttackOnTurn(nextTurn);
                     room.addLog("【%s】は凍結しました(次のターン攻撃不可)".formatted(target.getMaster().name()));
                 }
+            }
+            case "QTE-0018" -> { // 聖剣エクスカリバー: 自分の【守護】ミニオンすべての体力を2回復
+                player.getMinionZone().stream()
+                        .filter(m -> m.hasKeyword(Keyword.GUARD))
+                        .forEach(m -> m.heal(2));
+                room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が2回復しました");
             }
             default -> {
             }
@@ -860,7 +905,8 @@ public class GameService {
             List<List<Integer>> handIndexes,
             List<List<ResolvedTargets.TargetedMinion>> minions,
             List<List<ManaCard>> mana,
-            List<List<String>> trashCardIds) {
+            List<List<String>> trashCardIds,
+            List<List<PlayerState>> weapons) {
     }
 
     /**
@@ -871,7 +917,7 @@ public class GameService {
             int playedHandIndex, TargetSpec spec, List<TargetChoice> choices) {
         List<TargetSpec.Requirement> reqs = spec.requirements();
         if (reqs.isEmpty()) {
-            return new ValidatedTargets(reqs, List.of(), List.of(), List.of(), List.of());
+            return new ValidatedTargets(reqs, List.of(), List.of(), List.of(), List.of(), List.of());
         }
         if (choices == null || choices.size() != reqs.size()) {
             throw new IllegalArgumentException("対象の指定が不足しています");
@@ -880,6 +926,7 @@ public class GameService {
         List<List<ResolvedTargets.TargetedMinion>> minionsPerReq = new ArrayList<>();
         List<List<ManaCard>> manaPerReq = new ArrayList<>();
         List<List<String>> trashPerReq = new ArrayList<>();
+        List<List<PlayerState>> weaponsPerReq = new ArrayList<>();
         Set<Integer> usedHandIndexes = new HashSet<>();
         Set<String> usedMinionIds = new HashSet<>();
 
@@ -900,12 +947,13 @@ public class GameService {
                         if (!usedHandIndexes.add(idx)) {
                             throw new IllegalArgumentException("同じカードを重複して選べません");
                         }
-                        checkFilter(req, cards.findById(player.getHand().get(idx)));
+                        checkFilter(state, player, req, cards.findById(player.getHand().get(idx)));
                     }
                     handPerReq.add(List.copyOf(indexes));
                     minionsPerReq.add(List.of());
                     manaPerReq.add(List.of());
                     trashPerReq.add(List.of());
+                    weaponsPerReq.add(List.of());
                 }
                 case MANA -> {
                     List<Integer> indexes = choice.manaIndexes();
@@ -922,6 +970,7 @@ public class GameService {
                     minionsPerReq.add(List.of());
                     manaPerReq.add(manaList);
                     trashPerReq.add(List.of());
+                    weaponsPerReq.add(List.of());
                 }
                 case MINION -> {
                     List<String> ids = choice.minionIds();
@@ -932,17 +981,21 @@ public class GameService {
                             throw new IllegalArgumentException("同じミニオンを重複して選べません");
                         }
                         ResolvedTargets.TargetedMinion tm = findOnSide(state, player, req.side(), id);
-                        // 【潜伏】: 相手のカードや能力の対象にならない(自分は対象にできる)
-                        if (tm.owner() != player && tm.minion().hasKeyword(Keyword.STEALTH)) {
+                        // 【潜伏】: 相手のカードや能力の対象にならない(自分は対象にできる)。
+                        // ホーリー・シグナルはテキストでこれを上書きするため、IGNORES_STEALTHがあれば通す
+                        boolean stealthBlocked = tm.owner() != player && tm.minion().hasKeyword(Keyword.STEALTH)
+                                && !req.filters().contains(TargetSpec.Filter.IGNORES_STEALTH);
+                        if (stealthBlocked) {
                             throw new IllegalArgumentException("【潜伏】持ちは相手の効果の対象になりません");
                         }
-                        checkFilter(req, tm.minion().getMaster(), tm.minion());
+                        checkFilter(state, player, req, tm.minion().getMaster(), tm.minion());
                         resolved.add(tm);
                     }
                     handPerReq.add(List.of());
                     minionsPerReq.add(resolved);
                     manaPerReq.add(List.of());
                     trashPerReq.add(List.of());
+                    weaponsPerReq.add(List.of());
                 }
                 case TRASH -> {
                     // 墓地は自分のものだけを対象にできる。選んだカードは墓地に残したまま渡し、
@@ -956,17 +1009,45 @@ public class GameService {
                             throw new IllegalArgumentException("不正な墓地の指定です");
                         }
                         String cardId = player.getTrash().get(idx);
-                        checkFilter(req, cards.findById(cardId));
+                        checkFilter(state, player, req, cards.findById(cardId));
                         trashIds.add(cardId);
                     }
                     handPerReq.add(List.of());
                     minionsPerReq.add(List.of());
                     manaPerReq.add(List.of());
                     trashPerReq.add(trashIds);
+                    weaponsPerReq.add(List.of());
+                }
+                case WEAPON -> {
+                    // ウェポンは1人1枚のため、選ぶのは「どちら側の装備ウェポンか」だけでよい
+                    // (聖光の武装解除。インスタンスIDを持たないKind.MINIONとの違い)
+                    List<String> sides = choice.weaponSides();
+                    requireCount(req, sides.size());
+                    List<PlayerState> resolved = new ArrayList<>();
+                    Set<String> seenSides = new HashSet<>();
+                    for (String side : sides) {
+                        if (!seenSides.add(side)) {
+                            throw new IllegalArgumentException("同じウェポンを重複して選べません");
+                        }
+                        PlayerState target = switch (side) {
+                            case "SELF" -> player;
+                            case "OPPONENT" -> state.opponentOf(player.getPlayerId());
+                            default -> throw new IllegalArgumentException("不正なウェポンの指定です");
+                        };
+                        if (target.getEquippedWeapon() == null) {
+                            throw new IllegalArgumentException("装備中のウェポンがありません");
+                        }
+                        resolved.add(target);
+                    }
+                    handPerReq.add(List.of());
+                    minionsPerReq.add(List.of());
+                    manaPerReq.add(List.of());
+                    trashPerReq.add(List.of());
+                    weaponsPerReq.add(resolved);
                 }
             }
         }
-        return new ValidatedTargets(reqs, handPerReq, minionsPerReq, manaPerReq, trashPerReq);
+        return new ValidatedTargets(reqs, handPerReq, minionsPerReq, manaPerReq, trashPerReq, weaponsPerReq);
     }
 
     private void requireCount(TargetSpec.Requirement req, int actual) {
@@ -979,15 +1060,17 @@ public class GameService {
     }
 
     /** 手札・禁忌など「カードそのもの」に対する絞り込み判定 */
-    private void checkFilter(TargetSpec.Requirement req, CardMaster master) {
-        checkFilter(req, master, null);
+    private void checkFilter(GameState state, PlayerState player, TargetSpec.Requirement req, CardMaster master) {
+        checkFilter(state, player, req, master, null);
     }
 
     /**
      * 絞り込み判定。複数条件はAND。
      * minionがnullでない場合(場のミニオン)は、印刷値ではなく現在の状態を見る条件も評価する。
+     * state/playerはHIGHEST_ATTACK_OPPONENTのように盤面全体を参照する条件のために必要。
      */
-    private void checkFilter(TargetSpec.Requirement req, CardMaster master, MinionInstance minion) {
+    private void checkFilter(GameState state, PlayerState player, TargetSpec.Requirement req,
+            CardMaster master, MinionInstance minion) {
         for (TargetSpec.Filter filter : req.filters()) {
             switch (filter) {
                 case KNOWLEDGE -> requireKeyword(master, minion, Keyword.KNOWLEDGE, "【知識】");
@@ -1019,6 +1102,32 @@ public class GameService {
                     if (master.type() != CardType.SPELL) {
                         throw new IllegalArgumentException("スペルカードを選んでください");
                     }
+                }
+                case LIGHT_CIVILIZATION -> {
+                    if (master.civilization() != com.example.qte.master.Civilization.LIGHT) {
+                        throw new IllegalArgumentException("光文明のカードを選んでください");
+                    }
+                }
+                case COST_7_OR_LESS -> {
+                    if (master.cost() == null || master.cost() > 7) {
+                        throw new IllegalArgumentException("コスト7以下のカードを選んでください");
+                    }
+                }
+                case HIGHEST_ATTACK_OPPONENT -> {
+                    // ホーリー・シグナル: 相手の場で現在攻撃力が最も高いミニオンだけを選べる
+                    PlayerState targetSide = state.opponentOf(player.getPlayerId());
+                    int max = targetSide.getMinionZone().stream()
+                            .mapToInt(m -> stats.effectiveAttack(state, targetSide, m))
+                            .max().orElse(Integer.MIN_VALUE);
+                    int thisAttack = minion != null ? stats.effectiveAttack(state, targetSide, minion)
+                            : Integer.MIN_VALUE;
+                    if (thisAttack < max) {
+                        throw new IllegalArgumentException("相手の場で最も攻撃力の高いミニオンを選んでください");
+                    }
+                }
+                case IGNORES_STEALTH -> {
+                    // 判定そのものはvalidateTargetsのMINION分岐で行う。ここではフィルタとして
+                    // 素通りさせるだけ(絞り込み条件ではなく、潜伏チェックの上書き指示のため)
                 }
             }
         }
@@ -1078,7 +1187,7 @@ public class GameService {
             List<String> handIds = validated.handIndexes().get(i).isEmpty()
                     ? List.of() : handIdsPerReq.get(i);
             selections.add(new ResolvedTargets.Selection(handIds, validated.minions().get(i),
-                    validated.mana().get(i), validated.trashCardIds().get(i)));
+                    validated.mana().get(i), validated.trashCardIds().get(i), validated.weapons().get(i)));
         }
         return new ResolvedTargets(selections);
     }
@@ -1136,6 +1245,12 @@ public class GameService {
     private void requireTurnPlayer(GameState state, String playerId) {
         if (!playerId.equals(state.getTurnPlayerId())) {
             throw new IllegalStateException("相手のターンです");
+        }
+        // 降臨の伝道師: 公開した4枚から場に出すミニオンを選び終えるまで、他の操作を受け付けない。
+        // ターンプレイヤー判定の直後に置くことで、10箇所ある呼び出し元を個別に触らずに済む
+        // (resolveRevealChoice自身はこのメソッドを経由しないため、選択操作そのものは塞がない)。
+        if (!state.playerOf(playerId).getPendingReveal().isEmpty()) {
+            throw new IllegalStateException("【降臨の伝道師】が公開した4枚から場に出すミニオンを選んでください");
         }
     }
 

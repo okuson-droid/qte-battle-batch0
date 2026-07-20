@@ -145,6 +145,14 @@ public class PlayerState {
      */
     private final List<PersistentAura> persistentAuras = new ArrayList<>();
 
+    /**
+     * 降臨の伝道師: 山札の上から表向きにした4枚。【守護】ミニオンが複数あり
+     * プレイヤーの選択待ちの間だけ中身を持つ(空なら選択待ちなし)。
+     * 既存の対象選択(手札・場・マナ・墓地)とは違い、山札の非公開情報を一時的に公開領域へ
+     * 出す新しい種類のUIのため、専用のフィールドとして持つ。
+     */
+    private final List<String> pendingReveal = new ArrayList<>();
+
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter
     private boolean leaderAbilityUsedThisTurn = false;

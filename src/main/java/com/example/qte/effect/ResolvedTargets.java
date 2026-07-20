@@ -27,11 +27,13 @@ public record ResolvedTargets(List<Selection> selections) {
      * @param minions     選ばれた場のミニオン(支配者付き)
      * @param mana        選ばれたマナ(マナゾーンには残ったまま渡される。移動は効果が行う)
      * @param trashCardIds 選ばれた墓地のカードID(墓地には残ったまま渡される。移動は効果が行う)
+     * @param weapons     選ばれたウェポンの持ち主(Kind.WEAPON。ウェポンは1人1枚のためPlayerStateで表す)
      */
     public record Selection(List<String> handCardIds, List<TargetedMinion> minions,
-            List<ManaCard> mana, List<String> trashCardIds) {
+            List<ManaCard> mana, List<String> trashCardIds, List<PlayerState> weapons) {
         public boolean isEmpty() {
-            return handCardIds.isEmpty() && minions.isEmpty() && mana.isEmpty() && trashCardIds.isEmpty();
+            return handCardIds.isEmpty() && minions.isEmpty() && mana.isEmpty()
+                    && trashCardIds.isEmpty() && weapons.isEmpty();
         }
     }
 

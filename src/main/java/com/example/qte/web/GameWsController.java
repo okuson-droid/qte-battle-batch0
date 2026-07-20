@@ -123,6 +123,16 @@ public class GameWsController {
                 room -> gameService.nextPhase(room, request.playerId()));
     }
 
+    /**
+     * 降臨の伝道師: 公開した4枚の中から場に出す【守護】ミニオンを選ぶ(新しいUI)。
+     * 複数の【守護】があるときだけ呼ばれる(0体/1体は召喚時に自動で解決される)。
+     */
+    @MessageMapping("/room/{roomId}/resolve-reveal")
+    public void resolveReveal(@DestinationVariable String roomId, RevealChoiceRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.resolveRevealChoice(
+                room, request.playerId(), request.chosenIndex()));
+    }
+
     /** ターン終了(残りフェイズを飛ばして相手にターンを渡す) */
     @MessageMapping("/room/{roomId}/end-turn")
     public void endTurn(@DestinationVariable String roomId, ActionRequest request) {
@@ -187,5 +197,8 @@ public class GameWsController {
     }
 
     public record AttackRequest(String playerId, String attackerInstanceId, String targetInstanceId) {
+    }
+
+    public record RevealChoiceRequest(String playerId, int chosenIndex) {
     }
 }

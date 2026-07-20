@@ -23,6 +23,7 @@ import java.util.List;
  * @param leaderCanAttack 今リーダーが攻撃宣言できるか(自分のビューでのみ意味を持つ)
  * @param leaderFrozen  リーダーが凍結中か
  * @param leaderAbility リーダー起動能力の状態(能力を持たないリーダーはnull)
+ * @param pendingReveal 降臨の伝道師: 選択待ちの公開カード(空リストなら選択待ちなし)
  */
 public record PlayerView(
         String displayName,
@@ -52,7 +53,8 @@ public record PlayerView(
         Integer weaponAttack,
         boolean leaderCanAttack,
         boolean leaderFrozen,
-        LeaderAbilityView leaderAbility) {
+        LeaderAbilityView leaderAbility,
+        List<RevealedCardView> pendingReveal) {
 
     /** リーダー起動能力のビュー */
     public record LeaderAbilityView(
@@ -60,5 +62,14 @@ public record PlayerView(
             int mpCost,
             String description,
             List<CardView.TargetReqView> targets) {
+    }
+
+    /**
+     * 降臨の伝道師: 公開した4枚のうち1枚のビュー。
+     *
+     * @param index    公開した束の中での位置(選択の送信に使う)
+     * @param guard    【守護】を持つか(選べるのはguard=trueのカードのみ)
+     */
+    public record RevealedCardView(int index, String name, List<String> keywords, boolean guard) {
     }
 }

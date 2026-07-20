@@ -12,7 +12,7 @@
 
 const FORMAT_VERSION = 1;
 /** 効果が実装済みの文明。未実装文明はデッキに入れられない(入れても何も起きないため) */
-const IMPLEMENTED_CIVS = ['WATER', 'FIRE'];
+const IMPLEMENTED_CIVS = ['WATER', 'FIRE', 'DARK', 'LIGHT'];
 
 let allCards = [];
 let leaders = [];

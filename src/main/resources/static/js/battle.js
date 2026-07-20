@@ -79,12 +79,19 @@ function chooseOrder(goFirst) { send('choose-order', { goFirst }); }
 function nextPhase() { send('next-phase', {}); }
 function endTurn() { send('end-turn', {}); }
 
+/** 降臨の伝道師の選択待ちがあるか。サーバ側も同じ状態の間は他の操作を拒否する */
+function hasPendingReveal() {
+    return !!(latestView && latestView.you && latestView.you.pendingReveal
+        && latestView.you.pendingReveal.length > 0);
+}
+
 // ---------------------------------------------------------------
 // 手札のプレイと対象選択
 // ---------------------------------------------------------------
 
 function onHandCardClick(index) {
     if (!latestView) return;
+    if (hasPendingReveal()) return; // 降臨の伝道師の選択を先に済ませる必要がある
     // マリガン中の手札クリックは引き直し対象のトグル
     if (latestView.mulligan) {
         const pos = mulliganPicks.indexOf(index);
@@ -129,7 +136,7 @@ function beginSelection(action, handIndex, specs, extra) {
     pending = {
         action, handIndex, specs, extra,
         collected: [],
-        current: { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [] },
+        current: { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [], weaponSides: [] },
     };
     render(latestView);
     maybeOpenTrashPicker();
@@ -175,7 +182,8 @@ function pickMinion(instanceId, isOwn) {
     const list = isOwn ? latestView.you.minions : latestView.opponent.minions;
     const minion = list.find(m => m.instanceId === instanceId);
     if (!matchesFilters(req, null, minion)) return;
-    if (!isOwn && minion.keywords.includes('潜伏')) {
+    const ignoresStealth = (req.filters || []).includes('IGNORES_STEALTH');
+    if (!isOwn && minion.keywords.includes('潜伏') && !ignoresStealth) {
         showMessage('【潜伏】持ちは相手の効果の対象になりません');
         return;
     }
@@ -206,6 +214,17 @@ function matchesFilters(req, card, minion) {
                 ok = (minion || card).cost != null && (minion || card).cost <= 3; break;
             case 'SPELL_CARD':
                 ok = card && card.type === 'SPELL'; break;
+            case 'LIGHT_CIVILIZATION':
+                ok = card && card.civilization === 'LIGHT'; break;
+            case 'COST_7_OR_LESS':
+                ok = (minion || card).cost != null && (minion || card).cost <= 7; break;
+            case 'HIGHEST_ATTACK_OPPONENT': {
+                const maxAtk = Math.max(0, ...latestView.opponent.minions.map(m => m.attack));
+                ok = !!minion && minion.attack === maxAtk;
+                break;
+            }
+            case 'IGNORES_STEALTH':
+                ok = true; break; // 絞り込みではなく潜伏チェックの上書き指示。pickMinion側で見る
         }
         if (!ok) {
             showMessage('このカードは選べません(条件: ' + (req.filters || []).join(', ') + ')');
@@ -228,7 +247,8 @@ function isPicked(kind, value) {
 function advanceIfComplete() {
     const req = currentRequirement();
     const picked = pending.current.handIndexes.length + pending.current.minionIds.length
-        + pending.current.manaIndexes.length + pending.current.trashIndexes.length;
+        + pending.current.manaIndexes.length + pending.current.trashIndexes.length
+        + pending.current.weaponSides.length;
     if (picked >= req.count) {
         commitRequirement();
     } else {
@@ -238,7 +258,7 @@ function advanceIfComplete() {
 
 function commitRequirement() {
     pending.collected.push(pending.current);
-    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [] };
+    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [], weaponSides: [] };
     if (pending.collected.length === pending.specs.length) {
         const { action, handIndex, collected, extra } = pending;
         pending = null;
@@ -255,7 +275,7 @@ function commitRequirement() {
 function skipRequirement() {
     const req = currentRequirement();
     if (!req || !req.optional) return;
-    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [] };
+    pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [], weaponSides: [] };
     commitRequirement();
 }
 
@@ -355,11 +375,24 @@ function pickMana(index) {
     advanceIfComplete();
 }
 
+/**
+ * ウェポンの選択(聖光の武装解除)。ウェポンは1人1枚のためインスタンスIDを持たず、
+ * 「自分」「相手」のどちら側かだけを選ぶ。マナ・墓地と同様に選択後は即座に確定に進める。
+ */
+function pickWeapon(side) {
+    const req = currentRequirement();
+    if (!req || req.kind !== 'WEAPON') return;
+    if (pending.current.weaponSides.includes(side)) return;
+    pending.current.weaponSides.push(side);
+    advanceIfComplete();
+}
+
 // ---------------------------------------------------------------
 // 禁忌カード
 // ---------------------------------------------------------------
 
 function onTabooCardClick(index) {
+    if (hasPendingReveal()) return;
     if (pending || tabooPay || !latestView || !latestView.myTurn) return;
     if (latestView.phase !== 'MAIN') {
         showMessage('禁忌カードはメインフェイズにのみ使用できます');
@@ -408,6 +441,7 @@ function cancelTabooPayment() {
 }
 
 function useLeaderAbility() {
+    if (hasPendingReveal()) return;
     const ability = latestView && latestView.you && latestView.you.leaderAbility;
     if (!ability || !ability.usable || pending) return;
     beginSelection('leader-ability', null, ability.targets);
@@ -548,6 +582,7 @@ function showLeaderInfo(isSelf) {
 // ---------------------------------------------------------------
 
 function onMyMinionClick(instanceId) {
+    if (hasPendingReveal()) return;
     if (pending) {
         pickMinion(instanceId, true);
         return;
@@ -558,6 +593,7 @@ function onMyMinionClick(instanceId) {
 }
 
 function onMyLeaderClick() {
+    if (hasPendingReveal()) return;
     if (pending) return;
     if (!latestView || !latestView.myTurn || latestView.phase !== 'BATTLE') return;
     if (!latestView.you.leaderCanAttack) return;
@@ -626,11 +662,35 @@ function render(view) {
     }
     renderOpponent(view.opponent, view);
     renderSelf(view.you, view);
+    renderRevealChoice(view);
 
     if (view.status === 'FINISHED') {
         showMessage('対戦終了: ' + view.winnerName + ' の勝利');
     }
     maybeAutoAdvance(view);
+}
+
+/**
+ * 降臨の伝道師: 公開した4枚からの選択UI。手札・場・マナ・墓地のどの対象選択とも違う、
+ * 公開領域からの一時的な選択のため、pending(既存の対象選択の仕組み)とは別に描画する。
+ */
+function renderRevealChoice(view) {
+    const area = document.getElementById('reveal-area');
+    const cards = (view.you && view.you.pendingReveal) || [];
+    area.classList.toggle('d-none', cards.length === 0);
+    const row = document.getElementById('reveal-cards');
+    row.innerHTML = '';
+    cards.forEach(card => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm ' + (card.guard ? 'btn-warning' : 'btn-outline-secondary');
+        btn.disabled = !card.guard;
+        btn.textContent = card.name + (card.keywords.length ? ` [${card.keywords.join(' ')}]` : '');
+        if (card.guard) {
+            btn.onclick = () => send('resolve-reveal', { chosenIndex: card.index });
+        }
+        row.appendChild(btn);
+    });
 }
 
 function renderMulligan(view) {
@@ -656,7 +716,8 @@ function renderHeader(view) {
 function renderControls(view) {
     document.getElementById('choose-order-area').classList.toggle('d-none', !view.chooseOrder);
     const controls = document.getElementById('turn-controls');
-    controls.classList.toggle('d-none', !(view.status === 'PLAYING' && view.myTurn));
+    const revealing = view.you && view.you.pendingReveal && view.you.pendingReveal.length > 0;
+    controls.classList.toggle('d-none', !(view.status === 'PLAYING' && view.myTurn) || revealing);
     // 墓地からの召喚は【黄泉の召喚主】のサブフェイズ限定(常在能力)
     const graveSummon = view.status === 'PLAYING' && view.myTurn && view.phase === 'SUB'
         && view.you.leaderCardId === 'QTE-L006';
@@ -679,7 +740,8 @@ function renderSelection() {
     area.classList.toggle('d-none', !req);
     if (!req) return;
     const picked = pending.current.handIndexes.length + pending.current.minionIds.length
-        + pending.current.manaIndexes.length + pending.current.trashIndexes.length;
+        + pending.current.manaIndexes.length + pending.current.trashIndexes.length
+        + pending.current.weaponSides.length;
     document.getElementById('selection-prompt').textContent =
         `${req.prompt} (${picked}/${req.count}${req.upTo ? 'まで' : ''})`;
     // upTo(好きな数)は0枚でも確定できるため「選ばない」ではなく「確定」を出す
@@ -706,8 +768,14 @@ function renderOpponent(opp, view) {
     document.getElementById('opp-deck-count').textContent = opp.deckCount;
     document.getElementById('opp-mp').textContent = opp.availableMp;
     document.getElementById('opp-mana-count').textContent = opp.totalMana;
-    document.getElementById('opp-weapon').textContent =
-        opp.weaponName ? `${opp.weaponName} ⚔${opp.weaponAttack}` : 'なし';
+    const oppWeaponEl = document.getElementById('opp-weapon');
+    oppWeaponEl.textContent = opp.weaponName ? `${opp.weaponName} ⚔${opp.weaponAttack}` : 'なし';
+    const weaponReqOpp = currentRequirement();
+    const oppWeaponPickable = weaponReqOpp && weaponReqOpp.kind === 'WEAPON' && opp.weaponName
+        && !pending.current.weaponSides.includes('OPPONENT');
+    oppWeaponEl.classList.toggle('text-warning', !!oppWeaponPickable);
+    oppWeaponEl.style.cursor = oppWeaponPickable ? 'pointer' : '';
+    oppWeaponEl.onclick = oppWeaponPickable ? () => pickWeapon('OPPONENT') : null;
     document.getElementById('opp-trash-count').textContent = opp.trashCount;
     document.getElementById('opp-lost-count').textContent = opp.lostCount;
     document.getElementById('opp-taboo-count').textContent = opp.tabooCount;
@@ -756,8 +824,14 @@ function renderSelf(you, view) {
     document.getElementById('my-deck-count').textContent = you.deckCount;
     document.getElementById('my-mp').textContent = you.availableMp;
     document.getElementById('my-mana-count').textContent = you.totalMana;
-    document.getElementById('my-weapon').textContent =
-        you.weaponName ? `${you.weaponName} ⚔${you.weaponAttack}` : 'なし';
+    const myWeaponEl = document.getElementById('my-weapon');
+    myWeaponEl.textContent = you.weaponName ? `${you.weaponName} ⚔${you.weaponAttack}` : 'なし';
+    const weaponReqSelf = currentRequirement();
+    const selfWeaponPickable = weaponReqSelf && weaponReqSelf.kind === 'WEAPON' && you.weaponName
+        && !pending.current.weaponSides.includes('SELF');
+    myWeaponEl.classList.toggle('text-warning', !!selfWeaponPickable);
+    myWeaponEl.style.cursor = selfWeaponPickable ? 'pointer' : '';
+    myWeaponEl.onclick = selfWeaponPickable ? () => pickWeapon('SELF') : null;
     document.getElementById('my-trash-count').textContent = you.trashCount;
     document.getElementById('my-lost-count').textContent = you.lostCount;
     document.getElementById('my-taboo-count').textContent = you.tabooCount;
@@ -891,6 +965,9 @@ function createHandCardEl(card, index, view) {
                     case 'MINION_CARD': return card.type === 'MINION';
                     case 'HP_5_OR_LESS': return card.hp != null && card.hp <= 5;
                     case 'COST_4_OR_LESS': return card.cost != null && card.cost <= 4;
+                    case 'COST_3_OR_LESS': return card.cost != null && card.cost <= 3;
+                    case 'COST_7_OR_LESS': return card.cost != null && card.cost <= 7;
+                    case 'LIGHT_CIVILIZATION': return card.civilization === 'LIGHT';
                     default: return true;
                 }
             });

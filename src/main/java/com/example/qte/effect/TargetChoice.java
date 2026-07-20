@@ -10,9 +10,10 @@ import java.util.List;
  * @param minionIds   選んだミニオンのinstanceId(Kind.MINIONの要求のとき)
  * @param manaIndexes 選んだマナゾーンの位置(Kind.MANAの要求のとき)
  * @param trashIndexes 選んだ墓地の位置(Kind.TRASHの要求のとき)
+ * @param weaponSides 選んだウェポンの所有側("SELF"/"OPPONENT"。Kind.WEAPONの要求のとき)
  */
 public record TargetChoice(List<Integer> handIndexes, List<String> minionIds,
-        List<Integer> manaIndexes, List<Integer> trashIndexes) {
+        List<Integer> manaIndexes, List<Integer> trashIndexes, List<String> weaponSides) {
 
     public List<Integer> handIndexes() {
         return handIndexes == null ? List.of() : handIndexes;
@@ -28,5 +29,9 @@ public record TargetChoice(List<Integer> handIndexes, List<String> minionIds,
 
     public List<Integer> trashIndexes() {
         return trashIndexes == null ? List.of() : trashIndexes;
+    }
+
+    public List<String> weaponSides() {
+        return weaponSides == null ? List.of() : weaponSides;
     }
 }

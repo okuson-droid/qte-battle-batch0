@@ -68,6 +68,10 @@
                         onclick="openTrashPicker()">墓地を開く</button>
                 <button class="btn btn-sm btn-outline-dark ms-2" onclick="cancelSelection()">キャンセル</button>
             </div>
+            <div id="reveal-area" class="alert alert-warning py-2 mb-2 d-none">
+                <div class="mb-1">【降臨の伝道師】: 公開した4枚から場に出す【守護】ミニオンを選んでください</div>
+                <div id="reveal-cards" class="d-flex gap-2 flex-wrap"></div>
+            </div>
             <div id="mulligan-area" class="alert alert-primary py-2 mb-2 d-none">
                 <span>マリガン: 引き直したいカードを手札からクリックで選択(<span id="mulligan-count">0</span>枚選択中)</span>
                 <button class="btn btn-sm btn-warning ms-2" onclick="submitMulligan()">この内容で確定</button>
@@ -136,6 +140,6 @@
     const PLAYER_ID = /*[[${playerId}]]*/ '';
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
-<script th:src="@{/js/battle.js(v=10)}"></script>
+<script th:src="@{/js/battle.js(v=11)}"></script>
 </body>
 </html>
