@@ -4,21 +4,19 @@ import java.util.List;
 
 import org.springframework.stereotype.Component;
 
+import com.example.qte.effect.CardEffectRegistry;
+import com.example.qte.effect.LeaderAbilitySpec;
+import com.example.qte.effect.RuleGuards;
+import com.example.qte.effect.SpecialSummonSpec;
+import com.example.qte.effect.StatCalculator;
+import com.example.qte.effect.TargetSpec;
 import com.example.qte.game.GameState;
 import com.example.qte.game.GameStatus;
 import com.example.qte.game.ManaCard;
 import com.example.qte.game.MinionInstance;
 import com.example.qte.game.PlayerState;
-import com.example.qte.game.TurnPhase;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
-import com.example.qte.effect.CardEffectRegistry;
-import com.example.qte.effect.RuleGuards;
-import com.example.qte.effect.LeaderAbilitySpec;
-import com.example.qte.effect.SpecialSummonSpec;
-import com.example.qte.effect.StatCalculator;
-import com.example.qte.effect.TargetSpec;
-import com.example.qte.master.CardMaster;
 import com.example.qte.master.Keyword;
 import com.example.qte.room.GameRoom;
 
@@ -208,6 +206,8 @@ public class GameViewBuilder {
 
     private MinionView toMinionView(GameState state, PlayerState owner, MinionInstance minion, boolean attackerSide) {
         CardMaster master = minion.getMaster();
+        // 凍結状態は攻撃可否とは別に、盤面に印を出すためだけに使う
+        boolean frozen = minion.getCannotAttackOnTurn() == state.getTurnNumber();  
         // UIハイライト用の攻撃可否。サーバ側の判定(RuleGuards)をそのまま呼ぶことで、
         // 「押せるのに弾かれる」「押せないはずが押せる」というズレが構造的に起きないようにする
         boolean canAttackMinion = attackerSide
