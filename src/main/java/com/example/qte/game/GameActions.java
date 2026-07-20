@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
+import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.TriggerType;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
@@ -40,6 +41,9 @@ public class GameActions {
      *  Registry側はGameActionsをBean依存しない(ラムダは実行時にctx経由で受け取る)ため循環しない */
     private final CardEffectRegistry effects;
 
+    /** 「できる/できない」「起きる/起きない」の判定層(光文明の置換・禁止効果) */
+    private final RuleGuards guards;
+
     /** ドロー。山札が空の状態で引こうとしたら敗北(発注者確認済み: デュエマ準拠) */
     public void drawCards(GameRoom room, PlayerState player, int count) {
         GameState state = room.getGameState();
@@ -49,6 +53,16 @@ public class GameActions {
                 room.addLog("%sの山札が尽きました".formatted(player.getDisplayName()));
                 finish(room, state.opponentOf(player.getPlayerId()));
                 return;
+            }
+            // 【断罪の大天使】: このターンの3枚目以降のドローは、引く代わりに墓地へ置く。
+            // 山札からカードを取り除く点は同じであり、行き先だけが変わる置換効果である
+            boolean replaced = guards.isDrawReplaced(state, player, player.getDrawnCountThisTurn());
+            player.setDrawnCountThisTurn(player.getDrawnCountThisTurn() + 1);
+            if (replaced) {
+                player.getTrash().add(cardId);
+                room.addLog("【断罪の大天使】により、%sのドローは墓地に置かれました"
+                        .formatted(player.getDisplayName()));
+                continue;
             }
             player.getHand().add(cardId);
         }
@@ -92,6 +106,14 @@ public class GameActions {
      *                     戦闘ダメージなどカード効果由来でない場合はnull。
      */
     public void damageLeader(GameRoom room, PlayerState player, int amount, String sourceCardId) {
+        // 【正義の御盾】などの軽減はここで一括して適用する。
+        // 軽減後が0なら「ダメージを受けなかった」ものとして扱い、被ダメージトリガーも発火しない
+        int reduced = guards.reduceLeaderDamage(room.getGameState(), player, amount);
+        if (reduced <= 0) {
+            room.addLog("%sのリーダーへのダメージは軽減されました".formatted(player.getDisplayName()));
+            return;
+        }
+        amount = reduced;
         player.setLp(player.getLp() - amount);
         player.setLeaderDamagedCountThisTurn(player.getLeaderDamagedCountThisTurn() + 1);
         room.addLog("%sのリーダーに%dダメージ(残りLP %d)"
@@ -120,6 +142,9 @@ public class GameActions {
             DestructionCause cause) {
         if (!owner.getMinionZone().contains(minion)) {
             return; // 連鎖的な破壊で既に場を離れている場合がある
+        }
+        if (preventDestruction(room, owner, minion, cause)) {
+            return;
         }
         leaveFieldByDestruction(room, owner, minion, cause);
     }
@@ -174,11 +199,25 @@ public class GameActions {
     /** 破壊原因を明示する版 */
     public void checkDestruction(GameRoom room, PlayerState owner, MinionInstance minion,
             DestructionCause cause) {
-        // 「戦闘では破壊されない」(ミカエル)のような破壊置換は光文明実装時にここへ差し込む
         if (minion.getCurrentHp() > 0 || !owner.getMinionZone().contains(minion)) {
             return;
         }
+        // 破壊の置換(大天使ミカエル・聖光の守護聖)。
+        // HPが0以下でも破壊されずに場へ残る点に注意(次の効果ダメージや効果破壊では処理される)
+        if (preventDestruction(room, owner, minion, cause)) {
+            return;
+        }
         leaveFieldByDestruction(room, owner, minion, cause);
+    }
+
+    /** 破壊が無効化されるかを判定し、無効化された場合はログを残してtrueを返す */
+    private boolean preventDestruction(GameRoom room, PlayerState owner, MinionInstance minion,
+            DestructionCause cause) {
+        if (!guards.isDestructionPrevented(room.getGameState(), owner, minion, cause)) {
+            return false;
+        }
+        room.addLog("【%s】は破壊されなかった".formatted(minion.getMaster().name()));
+        return true;
     }
 
     /**

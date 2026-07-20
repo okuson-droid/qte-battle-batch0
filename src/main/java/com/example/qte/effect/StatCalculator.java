@@ -81,6 +81,28 @@ public class StatCalculator {
         if (card.type() == CardType.MINION && owner.getThisTurnAuras().contains("QTE-0070")) {
             cost -= 4;
         }
+        // ---- 光文明: 場のミニオンによる常在のコスト軽減(累積する。下限は0) ----
+        // 唱導の聖騎士(QTE-0100)・戒律のガーディアン(QTE-0108): 自分のスペルのコスト-1
+        // 英知の水晶(QTE-0102): 自分の【知識】カードのコスト-1
+        // 戒律のガーディアン(QTE-0108): 【守護】を持つカードのコスト-1
+        for (MinionInstance minion : owner.getMinionZone()) {
+            String id = minion.getMaster().id();
+            boolean spellDiscounter = "QTE-0100".equals(id) || "QTE-0108".equals(id);
+            if (spellDiscounter && card.type() == CardType.SPELL) {
+                cost -= 1;
+            }
+            if ("QTE-0102".equals(id) && card.keywords().contains(Keyword.KNOWLEDGE)) {
+                cost -= 1;
+            }
+            if ("QTE-0108".equals(id) && card.keywords().contains(Keyword.GUARD)) {
+                cost -= 1;
+            }
+        }
+        // 詠唱の宝珠: 破壊された後、次に唱えるスペルのコスト-1(ターンをまたいで持続)
+        if (card.type() == CardType.SPELL && owner.getPersistentAuras().stream()
+                .anyMatch(aura -> "QTE-0106".equals(aura.cardId()))) {
+            cost -= 1;
+        }
         if ("QTE-0041".equals(card.id())) {
             long knowledgeOnBoard = java.util.stream.Stream
                     .of(state.getPlayer1(), state.getPlayer2())

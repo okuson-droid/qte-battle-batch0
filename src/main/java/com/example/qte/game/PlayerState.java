@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
+import com.example.qte.effect.PersistentAura;
 import com.example.qte.master.CardMaster;
 
 import lombok.Getter;
@@ -124,6 +125,26 @@ public class PlayerState {
     @Setter
     private int pendingSacrificeCount = 0;
 
+    /**
+     * このターンに引いた枚数。【断罪の大天使】が「3枚目以降のドロー」を数えるために使う。
+     * ターン開始時の通常ドローも1枚目として含む(発注者確認済み)。
+     */
+    @Setter
+    private int drawnCountThisTurn = 0;
+
+    /**
+     * このターン番号の間はスペルを唱えられない(【断罪の聖導者】)。0なら制限なし。
+     * 凍結(cannotAttackOnTurn)と同じく、効果を受けた時点で「次のターン番号」を記録する方式。
+     */
+    @Setter
+    private int spellSealedOnTurn = 0;
+
+    /**
+     * ターン終了で自動的には消えない持続効果。
+     * 「このターン中」の効果(thisTurnAuras)とは寿命の管理方法が異なるため別に持つ。
+     */
+    private final List<PersistentAura> persistentAuras = new ArrayList<>();
+
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter
     private boolean leaderAbilityUsedThisTurn = false;
@@ -171,6 +192,7 @@ public class PlayerState {
         leaderAbilityUsedThisTurn = false;
         leaderAttackedThisTurn = false;
         ownMinionDestroyedThisTurn = false;
+        drawnCountThisTurn = 0;
         pendingSacrificeCount = 0;
         minionsDestroyedThisTurn.clear();
     }

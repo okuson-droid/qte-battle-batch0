@@ -13,6 +13,7 @@ import com.example.qte.game.TurnPhase;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.effect.CardEffectRegistry;
+import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.LeaderAbilitySpec;
 import com.example.qte.effect.SpecialSummonSpec;
 import com.example.qte.effect.StatCalculator;
@@ -35,6 +36,9 @@ public class GameViewBuilder {
     private final CardMasterRepository cards;
     private final StatCalculator stats;
     private final CardEffectRegistry effects;
+
+    /** 攻撃可否の判定。サーバ側の検証と同じ判定をUI表示にも使う */
+    private final RuleGuards guards;
 
     /** viewerId のプレイヤーに配信するビューを組み立てる */
     public GameView build(GameRoom room, String viewerId) {
@@ -204,14 +208,12 @@ public class GameViewBuilder {
 
     private MinionView toMinionView(GameState state, PlayerState owner, MinionInstance minion, boolean attackerSide) {
         CardMaster master = minion.getMaster();
-        boolean sick = minion.getEnteredTurn() == state.getTurnNumber();
-        boolean frozen = minion.getCannotAttackOnTurn() == state.getTurnNumber();
-        boolean hasAttacksLeft = minion.getAttacksUsedThisTurn() < 1 && !frozen;
-        // UIハイライト用の攻撃可否(正当性の最終判定はGameService側)
-        boolean canAttackMinion = attackerSide && hasAttacksLeft
-                && (!sick || minion.hasKeyword(Keyword.HASTE) || minion.hasKeyword(Keyword.RUSH));
-        boolean canAttackLeader = attackerSide && hasAttacksLeft
-                && (!sick || minion.hasKeyword(Keyword.HASTE));
+        // UIハイライト用の攻撃可否。サーバ側の判定(RuleGuards)をそのまま呼ぶことで、
+        // 「押せるのに弾かれる」「押せないはずが押せる」というズレが構造的に起きないようにする
+        boolean canAttackMinion = attackerSide
+                && guards.minionAttackDenial(state, owner, minion, false) == null;
+        boolean canAttackLeader = attackerSide
+                && guards.minionAttackDenial(state, owner, minion, true) == null;
 
         List<String> keywords = java.util.stream.Stream.concat(
                         master.keywords().stream(),

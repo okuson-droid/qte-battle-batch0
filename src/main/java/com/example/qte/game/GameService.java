@@ -12,6 +12,8 @@ import java.util.Set;
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
 import com.example.qte.effect.LeaderAbilitySpec;
+import com.example.qte.effect.PersistentAura;
+import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.ResolvedTargets;
 import com.example.qte.effect.SpecialSummonSpec;
 import com.example.qte.effect.StatCalculator;
@@ -57,6 +59,9 @@ public class GameService {
     private final GameActions actions;
     private final CardEffectRegistry effects;
     private final StatCalculator stats;
+
+    /** 攻撃・破壊・ドロー・使用の可否を盤面から判定する層(光文明の置換・禁止効果) */
+    private final RuleGuards guards;
     private final Random random = new Random();
 
     // ---------------------------------------------------------------
@@ -210,7 +215,15 @@ public class GameService {
         switch (state.getPhase()) {
             case MANA_CHARGE -> state.setPhase(TurnPhase.MAIN);
             case MAIN -> state.setPhase(TurnPhase.BATTLE);
-            case BATTLE -> state.setPhase(TurnPhase.SUB);
+            case BATTLE -> {
+                // 【戒律の聖堂騎士】が相手の場にいる場合、サブフェイズを飛ばして終了へ進む
+                if (guards.canEnterSubPhase(state, state.playerOf(playerId))) {
+                    state.setPhase(TurnPhase.SUB);
+                } else {
+                    room.addLog("【戒律の聖堂騎士】の効果でサブフェイズを行えません");
+                    endTurn(room, playerId);
+                }
+            }
             case SUB -> endTurn(room, playerId);
             default -> throw new IllegalStateException("このフェイズは手動で進められません");
         }
@@ -234,6 +247,11 @@ public class GameService {
             }
             p.getMinionZone().forEach(MinionInstance::expireThisTurnModifiers);
             p.getThisTurnAuras().clear();
+            // 持続効果は「このターン中」とは寿命が違うため、期限を見て個別に落とす。
+            // ターン番号指定のものだけがここで切れる(スペル使用が条件のものは残る)
+            p.getPersistentAuras().removeIf(aura ->
+                    aura.expiry() == PersistentAura.Expiry.AFTER_TURN_NUMBER
+                            && state.getTurnNumber() >= aura.expiresAfterTurn());
 
             // ピュア・エレメントの一時マナはターンの終わりに消滅(Lost)ゾーンへ。
             // これも「マナが離れた」に該当するため水龍のトリガー対象になる
@@ -291,6 +309,13 @@ public class GameService {
         // 「代償を払えなければ使用できない」カード(禁忌の代償・絶望の連鎖など)。
         // コストを支払う前に判定する必要があるためここで見る
         effects.requirePlayable(master.id(), state, player);
+        // 光文明による使用の禁止(断罪の聖導者のスペル封じ)
+        if (master.type() == CardType.SPELL) {
+            String spellDenial = guards.spellDenial(state, player);
+            if (spellDenial != null) {
+                throw new IllegalStateException(spellDenial);
+            }
+        }
 
         switch (master.type()) {
             case MINION -> playMinion(room, state, player, handIndex, master, choices);
@@ -347,6 +372,10 @@ public class GameService {
             player.setPendingSacrificeCount(0); // MP不足で弾かれた場合も必ず戻す
         }
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
+        // 【詠唱の宝珠】のような「次に唱えるスペル」限定の効果は、ここで使い切る。
+        // コストの計算(effectiveCost)が終わった後に消すこと。順序を逆にすると軽減が乗らない
+        player.getPersistentAuras().removeIf(
+                aura -> aura.expiry() == PersistentAura.Expiry.ON_NEXT_SPELL);
         room.addLog("%sが【%s】を唱えました".formatted(player.getDisplayName(), master.name()));
 
         effects.resolveSpell(master.id(), contextOf(room, state, player, null, resolved));
@@ -475,6 +504,11 @@ public class GameService {
         PlayerState player = state.playerOf(playerId);
         if (player.isCannotUseCardsThisTurn()) {
             throw new IllegalStateException("このターンはカードを使用できません");
+        }
+        // 【秩序の執行官】は相手の特殊召喚そのものを封じる
+        String summonDenial = guards.specialSummonDenial(state, player);
+        if (summonDenial != null) {
+            throw new IllegalStateException(summonDenial);
         }
         CardMaster master = cards.findById(peekHand(player, handIndex));
         SpecialSummonSpec spec = effects.specialSummonOf(master.id());
@@ -628,6 +662,10 @@ public class GameService {
         if (player.getLeaderCannotAttackOnTurn() == state.getTurnNumber()) {
             throw new IllegalStateException("リーダーは凍結していて攻撃できません");
         }
+        String leaderDenial = guards.leaderAttackDenial(state, player);
+        if (leaderDenial != null) {
+            throw new IllegalStateException(leaderDenial);
+        }
         boolean targetIsLeader = targetInstanceId == null;
         MinionInstance target = targetIsLeader ? null : findMinion(opponent, targetInstanceId);
 
@@ -744,7 +782,7 @@ public class GameService {
         boolean targetIsLeader = targetInstanceId == null;
         MinionInstance target = targetIsLeader ? null : findMinion(opponent, targetInstanceId);
 
-        validateAttack(state, attacker, target, targetIsLeader, opponent);
+        validateAttack(state, player, attacker, target, targetIsLeader, opponent);
 
         attacker.countAttack();
         room.addLog("【%s】が攻撃を宣言".formatted(attacker.getMaster().name()));
@@ -778,23 +816,18 @@ public class GameService {
         }
     }
 
-    private void validateAttack(GameState state, MinionInstance attacker, MinionInstance target,
-            boolean targetIsLeader, PlayerState opponent) {
-        if (attacker.getAttacksUsedThisTurn() >= 1) {
-            throw new IllegalStateException("このミニオンはこのターン既に攻撃しています");
-        }
-        if (attacker.getCannotAttackOnTurn() == state.getTurnNumber()) {
-            throw new IllegalStateException("このミニオンは凍結していて攻撃できません");
-        }
-        boolean enteredThisTurn = attacker.getEnteredTurn() == state.getTurnNumber();
-        if (enteredThisTurn) {
-            boolean allowed = attacker.hasKeyword(Keyword.HASTE)
-                    || (attacker.hasKeyword(Keyword.RUSH) && !targetIsLeader);
-            if (!allowed) {
-                throw new IllegalStateException(targetIsLeader
-                        ? "出たターンにリーダーへ攻撃できるのは【速攻】持ちのみです"
-                        : "出たターンのミニオンは攻撃できません(【速攻】【突進】を除く)");
-            }
+    /**
+     * 攻撃宣言の検証。
+     *
+     * 「攻撃できるか」の判定(攻撃回数・凍結・召喚酔い・カードによる禁止)は
+     * RuleGuardsへ移した。ここに残っているのは「その対象を選べるか」の判定
+     * (威圧・守護)であり、攻撃者側の事情と対象側の事情を分けている。
+     */
+    private void validateAttack(GameState state, PlayerState player, MinionInstance attacker,
+            MinionInstance target, boolean targetIsLeader, PlayerState opponent) {
+        String denial = guards.minionAttackDenial(state, player, attacker, targetIsLeader);
+        if (denial != null) {
+            throw new IllegalStateException(denial);
         }
         if (target != null && target.hasKeyword(Keyword.INTIMIDATE)) {
             throw new IllegalStateException("【威圧】持ちは攻撃対象にできません");
