@@ -54,6 +54,12 @@ public class CardEffectRegistry {
     /** リーダー起動能力(リーダーカードID → 仕様) */
     private final Map<String, LeaderAbilitySpec> leaderAbilities = new HashMap<>();
 
+    /** ミニオンの起動能力(カードID → 仕様。a6。静空の風使いが初出) */
+    private final Map<String, MinionAbilitySpec> minionAbilities = new HashMap<>();
+
+    /** 追加コストによる強化使用(カードID → 仕様。a5。回帰の風穴・風弾の跳弾) */
+    private final Map<String, EnhancedCostSpec> enhancedCosts = new HashMap<>();
+
     /**
      * 「自分の他のミニオンが破壊された」ことを場から監視する効果
      * (カードID → 処理。第2引数は破壊されたミニオンのカードID)。
@@ -282,6 +288,46 @@ public class CardEffectRegistry {
 
     public LeaderAbilitySpec leaderAbilityOf(String leaderCardId) {
         return leaderAbilities.get(leaderCardId);
+    }
+
+    /** ミニオンの起動能力の仕様(持たないカードはnull) */
+    public MinionAbilitySpec minionAbilityOf(String cardId) {
+        return minionAbilities.get(cardId);
+    }
+
+    /** 追加コストによる強化使用の仕様(持たないカードはnull) */
+    public EnhancedCostSpec enhancedCostOf(String cardId) {
+        return enhancedCosts.get(cardId);
+    }
+
+    /**
+     * 「自分がカードを1枚使用し終えた」イベントの発火(a1)。
+     *
+     * GameService がカードの使用を数え終えた直後に呼ぶ。発火時点で場にいるミニオンと、
+     * 装備中のウェポンだけが反応する(後から出てきたミニオンに遡って効果が及ばないようにするため、
+     * カウンタの差分ではなくイベントで配る形にしている)。
+     *
+     * ウェポンは MinionInstance を持たないため source は null のまま発火する。
+     */
+    public void fireCardUsed(EffectContext ctx) {
+        PlayerState owner = ctx.owner();
+        // 効果の中で場が変化しても走査が壊れないように、発火時点の場を写してから回す
+        for (MinionInstance minion : List.copyOf(owner.getMinionZone())) {
+            Consumer<EffectContext> effect = triggers
+                    .getOrDefault(minion.getMaster().id(), Map.of())
+                    .get(TriggerType.ON_CARD_USED);
+            if (effect != null) {
+                effect.accept(ctx.withSource(minion));
+            }
+        }
+        if (owner.getEquippedWeapon() != null) {
+            Consumer<EffectContext> effect = triggers
+                    .getOrDefault(owner.getEquippedWeapon().id(), Map.of())
+                    .get(TriggerType.ON_CARD_USED);
+            if (effect != null) {
+                effect.accept(ctx);
+            }
+        }
     }
 
     /**
@@ -920,10 +966,16 @@ public class CardEffectRegistry {
                 resolveMissionaryChoice(ctx, revealed, guardIndexes.get(0));
                 return;
             }
-            // 【守護】が複数: プレイヤーの選択を待つ(手札・場・マナ・墓地のどれとも違う新しいUI)
-            ctx.owner().getPendingReveal().addAll(revealed);
-            ctx.room().addLog("%sは公開した%d枚から場に出す【守護】ミニオンを選んでください"
-                    .formatted(ctx.owner().getDisplayName(), revealed.size()));
+            // 【守護】が複数: プレイヤーの選択を待つ(a9の割り込み選択に載せている)。
+            // 公開されたカードの置き場(revealedZone)と、問い合わせ(pendingChoice)は別物である。
+            // 選べるのは【守護】を持つものだけなので、候補には守護の位置だけを入れる
+            ctx.owner().getRevealedZone().addAll(revealed);
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.REVEALED,
+                    guardIndexes.stream().map(String::valueOf).toList(),
+                    ResumePoint.MISSIONARY_SUMMON,
+                    "【降臨の伝道師】: 公開した%d枚から場に出す【守護】ミニオンを選んでください"
+                            .formatted(revealed.size())));
         });
 
         // ---- スペル ----
@@ -1022,7 +1074,7 @@ public class CardEffectRegistry {
 
     /**
      * 降臨の伝道師の解決を1箇所にまとめる。0体/1体の自動解決(registerLightCards内)と、
-     * 2体以上のときのプレイヤー選択(resolvePendingReveal)の両方から呼ばれる。
+     * 2体以上のときのプレイヤー選択(resolveChoiceのMISSIONARY_SUMMON分岐)の両方から呼ばれる。
      */
     private void resolveMissionaryChoice(EffectContext ctx, List<String> revealed, int chosenIndex) {
         String chosenId = revealed.get(chosenIndex);
@@ -1041,9 +1093,32 @@ public class CardEffectRegistry {
         ctx.actions().damageMinion(ctx.room(), ctx.owner(), summoned, 3);
     }
 
-    /** GameService.resolveRevealChoiceから呼ばれる: プレイヤーが選んだ結果で降臨の伝道師を解決する */
-    public void resolvePendingReveal(EffectContext ctx, List<String> revealed, int chosenIndex) {
-        resolveMissionaryChoice(ctx, revealed, chosenIndex);
+    /**
+     * 中断していた効果を、プレイヤーの選択結果で再開する(a9)。
+     *
+     * GameService.resolveChoice から呼ばれる。GameService 側は
+     * 「誰が・いくつ・正しい候補から選んだか」までを検証済みであり、
+     * ここは「その結果で何が起きるか」だけを担当する(GameServiceとRegistryの役割分担どおり)。
+     *
+     * 継続をラムダで保持せず列挙体+switchにした理由は {@link ResumePoint} を参照。
+     *
+     * @param choice  解決対象の選択(GameServiceが状態から取り除いた後の写し)
+     * @param chosen  選ばれた候補の識別子。choice.candidates() の部分集合
+     */
+    public void resolveChoice(EffectContext ctx, PendingChoice choice, List<String> chosen) {
+        switch (choice.resumeAt()) {
+            case MISSIONARY_SUMMON -> {
+                // 公開領域の中身を取り出して確定させる(選択待ちの間だけ置かれていたもの)
+                List<String> revealed = new ArrayList<>(ctx.owner().getRevealedZone());
+                ctx.owner().getRevealedZone().clear();
+                resolveMissionaryChoice(ctx, revealed, Integer.parseInt(chosen.get(0)));
+            }
+            // 以下5件は Batch 12b でカード効果と同時に実装する。
+            // 12a で用意したのは器(中断・再開の経路)までである
+            case TAILWIND_DISCARD, MANA_CONVERT_PUT, WINDHOLE_SECOND,
+                    GUARD_STAFF_TARGET, GALE_KNIGHT_RECOVER ->
+                throw new IllegalStateException("この選択の解決はまだ実装されていません(Batch 12b)");
+        }
     }
 
     // ---------------------------------------------------------------

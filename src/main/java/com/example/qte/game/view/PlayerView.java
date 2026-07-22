@@ -23,7 +23,8 @@ import java.util.List;
  * @param leaderCanAttack 今リーダーが攻撃宣言できるか(自分のビューでのみ意味を持つ)
  * @param leaderFrozen  リーダーが凍結中か
  * @param leaderAbility リーダー起動能力の状態(能力を持たないリーダーはnull)
- * @param pendingReveal 降臨の伝道師: 選択待ちの公開カード(空リストなら選択待ちなし)
+ * @param revealedCards 一時公開領域のカード(降臨の伝道師などが公開中の束。空なら公開なし)
+ * @param pendingChoice 割り込み選択の問い合わせ(a9)。選択待ちでなければnull
  */
 public record PlayerView(
         String displayName,
@@ -54,7 +55,8 @@ public record PlayerView(
         boolean leaderCanAttack,
         boolean leaderFrozen,
         LeaderAbilityView leaderAbility,
-        List<RevealedCardView> pendingReveal) {
+        List<RevealedCardView> revealedCards,
+        PendingChoiceView pendingChoice) {
 
     /** リーダー起動能力のビュー */
     public record LeaderAbilityView(
@@ -65,11 +67,39 @@ public record PlayerView(
     }
 
     /**
-     * 降臨の伝道師: 公開した4枚のうち1枚のビュー。
+     * 一時公開領域のカード1枚のビュー(降臨の伝道師などが公開中の束)。
      *
-     * @param index    公開した束の中での位置(選択の送信に使う)
-     * @param guard    【守護】を持つか(選べるのはguard=trueのカードのみ)
+     * @param index 公開した束の中での位置
+     * @param guard 【守護】を持つか(降臨の伝道師の表示補助)
      */
     public record RevealedCardView(int index, String name, List<String> keywords, boolean guard) {
+    }
+
+    /**
+     * 割り込み選択の問い合わせ(a9)。クライアントはこれを見て選択UIを出し、
+     * 選んだ候補の位置(candidatesの0起点)を resolve-choice で送り返す。
+     *
+     * @param kind       何の中から選ぶか(HAND/MINION/TRASH/REVEALED)
+     * @param candidates 選べる候補のビュー(選べないものは含まれない)
+     * @param min        最低選択数(0なら「選ばない」を許す)
+     * @param max        最大選択数
+     * @param prompt     案内文
+     */
+    public record PendingChoiceView(
+            String kind,
+            List<ChoiceCandidateView> candidates,
+            int min,
+            int max,
+            String prompt) {
+
+        /**
+         * 候補1件のビュー。
+         *
+         * @param index    PendingChoice.candidates 内での位置(送信に使う0起点の番号)
+         * @param label    画面に出す名前(カード名など)
+         * @param keywords 補助表示用のキーワード
+         */
+        public record ChoiceCandidateView(int index, String label, List<String> keywords) {
+        }
     }
 }

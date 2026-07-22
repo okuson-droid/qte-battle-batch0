@@ -1,13 +1,13 @@
 {
   "meta": {
     "game": "クイン・タブーエレメンタル",
-    "lastUpdated": "2026-07-19",
-    "transcribed": 119,
+    "lastUpdated": "2026-07-21",
+    "transcribed": 145,
     "counts": {
-      "LEADER": 8,
-      "MINION": 66,
-      "SPELL": 32,
-      "WEAPON": 13
+      "LEADER": 10,
+      "MINION": 77,
+      "SPELL": 42,
+      "WEAPON": 16
     },
     "civilizations": {
       "FIRE": "火(赤)",
@@ -25,7 +25,8 @@
       "キーワード定義は meta.keywordDefinitions、個別裁定は meta.rulings を参照。",
       "水文明28枚・火文明28枚を転記済み(いずれもリーダー2枚を含む)。",
       "闇文明28枚(リーダー2/ミニオン15/スペル8/ウェポン3)を転記済み。確認待ちはなし。",
-      "光文明28枚(リーダー2/ミニオン17/スペル6/ウェポン3)を転記済み。確認待ちはなし。"
+      "光文明28枚(リーダー2/ミニオン17/スペル6/ウェポン3)を転記済み。確認待ちはなし。",
+      "風文明28枚(リーダー2/ミニオン13/スペル10/ウェポン3)を転記済み。確認待ちはなし。"
     ],
     "keywordDefinitions": {
       "速攻": "出したターンから攻撃できる(対象制限なし)。",
@@ -1730,6 +1731,367 @@
       "text": "【守護】【召喚時】自分の山札の上から4枚を表向きにする。その中にある【守護】を持つミニオンを1体場に出す。残りを山札の下に置く。そのミニオンはダメージを3喰らう。",
       "confirmationPending": false,
       "notes": "山札を公開して選ぶ初のカード。めくった4枚に【守護】ミニオンが複数あればプレイヤーが選ぶ。0体の場合は4枚をそのまま山札の下に置く(発注者確認済み)。出したミニオンは場に出てから3ダメージを受けるため、それで破壊される場合は破壊トリガーも発動する。"
+    },
+    {
+      "id": "QTE-0113",
+      "name": "神風の大号令",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 4,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "このターン中に自分が使用したカードの枚数と同じだけ、自分のミニオンすべての攻撃力を+1。",
+      "confirmationPending": false,
+      "notes": "「このターン中に自分が使用したカードの枚数」にこの呪文自身は含めない(裁定1: 使用カウンタの加算は効果解決の後に行う)。したがってこのターン3枚目に唱えた場合、参照する枚数は2となり自分のミニオンすべての攻撃力は+2。解決時点の枚数で固定するスナップショット型であり、その後カードを使用しても増えない(裁定2)。"
+    },
+    {
+      "id": "QTE-0114",
+      "name": "詠唱の疾風騎士",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 6,
+      "attack": 3,
+      "hp": 3,
+      "keywords": [
+        "突進"
+      ],
+      "text": "自分がこのターン中にスペルを唱えるたびコスト-1。ターンエンド時このターン5回以上スペルを撃っていたら墓地にあるスペルを2枚まで手札に戻す。",
+      "confirmationPending": false,
+      "notes": "コスト-1は「このターン中」限定(発注者確認済み)。ターンをまたいで累積しない。下限0のコストは総則どおり適用する。"
+    },
+    {
+      "id": "QTE-0115",
+      "name": "風神ヴァーユ",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 9,
+      "attack": 5,
+      "hp": 5,
+      "keywords": [
+        "守護",
+        "特殊召喚"
+      ],
+      "text": "【特殊召喚】自分の墓地に【守護】を持つカードが4枚以上のときこのカードを手札から1コストで出せる。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0116",
+      "name": "回帰の風穴",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 2,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "ミニオンを1体手札に戻す。このカードのコストを+1してもよい。そうした場合このカードをもう一度墓地から唱え、その後山札の一番下に置く。",
+      "confirmationPending": false,
+      "notes": "再詠唱は1回のみ(発注者確認済み。無限ループにはならない)。基礎効果(ミニオンバウンス)に加え、コスト+1でこのカードを墓地から1回だけ再度唱え、その後は墓地に残らず山札の一番下に置かれる。"
+    },
+    {
+      "id": "QTE-0117",
+      "name": "ガイル・フォックス",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 3,
+      "attack": 2,
+      "hp": 2,
+      "keywords": [],
+      "text": "【召喚時】このターン中にカードを2枚以上使用しているなら【潜伏】。",
+      "confirmationPending": false,
+      "notes": "自己への条件付きキーワード付与(QTE-0050 赫灼の重戦士と同型)。"
+    },
+    {
+      "id": "QTE-0118",
+      "name": "ツイン・ストライク",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 2,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "このターン中、自分のミニオン1体に「1ターンに2回攻撃できる」を付与。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0119",
+      "name": "嵐の守り手",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 7,
+      "attack": 1,
+      "hp": 4,
+      "keywords": [
+        "守護",
+        "特殊召喚"
+      ],
+      "text": "【特殊召喚】自分の場に体力3以上のミニオンが3体以上のときこのカードを手札から0コストで出せる。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-L009",
+      "name": "疾風の導き手",
+      "type": "LEADER",
+      "civilization": "WIND",
+      "cost": null,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "起動能力(1ターンに1回): コスト1を支払う。このターン中に自分が使用したカードの枚数が3枚以上なら、自分のミニオン1体の攻撃力を+2。",
+      "confirmationPending": false,
+      "notes": "起動能力はメインフェイズ中のみ・1ターン1回(全リーダー共通)。"
+    },
+    {
+      "id": "QTE-0120",
+      "name": "ストーム・カイザー",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 5,
+      "attack": 3,
+      "hp": 4,
+      "keywords": [
+        "速攻",
+        "特殊召喚"
+      ],
+      "text": "【特殊召喚】このターン中に自分がカードを4枚以上使用している時、コストを支払わずに場に出せる。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0121",
+      "name": "風弾の跳弾",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 1,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "自分のミニオンを1体手札に戻す。そうしたら相手のミニオン1体に2ダメージ。このカードのコストを+3してもよい。そうした場合このカードを墓地に置く代わりに手札に戻す。",
+      "confirmationPending": false,
+      "notes": "基礎効果(自分のミニオンをバウンス→相手のミニオンに2ダメージ)に加え、コスト+3で解決後に墓地へ行かず手札に戻る(使い回せる)追加効果を持つ。回帰の風穴と違い自己再詠唱ではなく単純な手札回収のため、無限ループの懸念はない。"
+    },
+    {
+      "id": "QTE-0122",
+      "name": "突風の祝福",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 3,
+      "attack": null,
+      "hp": null,
+      "keywords": [
+        "還元"
+      ],
+      "text": "自分のミニオン1体の体力を+2する。【還元】",
+      "confirmationPending": false,
+      "notes": "対象は自分のミニオン1体(発注者確認済み)。"
+    },
+    {
+      "id": "QTE-0123",
+      "name": "風護の杖",
+      "type": "WEAPON",
+      "civilization": "WIND",
+      "cost": 3,
+      "attack": 1,
+      "hp": null,
+      "keywords": [
+        "知識"
+      ],
+      "text": "攻撃時自分のミニオンを1体選ぶ。そのミニオンの体力を+1し守護を与える。",
+      "confirmationPending": false,
+      "notes": "【知識】はウェポンでは装備時に発動する(既存ルーリングどおり)。攻撃時効果は装備者(リーダーまたはミニオン)の攻撃時に誘発する想定。"
+    },
+    {
+      "id": "QTE-0124",
+      "name": "結集する風の精",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 8,
+      "attack": 4,
+      "hp": 4,
+      "keywords": [
+        "知識",
+        "還元"
+      ],
+      "text": "自分の場にあるミニオンの合計コスト分コスト-1。",
+      "confirmationPending": false,
+      "notes": "手札にある間、自分の場のミニオンの合計コストぶん実効コストが下がる動的軽減(StatCalculator.effectiveCostに参照追加)。下限0は総則どおり。"
+    },
+    {
+      "id": "QTE-0125",
+      "name": "そよ風の加護",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 1,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "自分のミニオン1体の体力を+1し、【守護】を付与。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0126",
+      "name": "選択の追い風",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 2,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "カードを1枚引く。その後守護を持つカードを1枚捨てても良い。そうしたら追加でカードを1枚引く。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0127",
+      "name": "風のマナ変換",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 1,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "自分の表向きのマナを1枚手札に戻す。その後自分の手札から1枚を裏向きでマナに置く。",
+      "confirmationPending": false,
+      "notes": "表向きマナ1枚を裏向きマナ1枚に入れ替えるカード。裏向きマナは闇文明の参照資源だが、風文明側から生成する初のカード。マナの総枚数は変わらない。"
+    },
+    {
+      "id": "QTE-0128",
+      "name": "嵐の呼び手",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 2,
+      "attack": 2,
+      "hp": 2,
+      "keywords": [],
+      "text": "【召喚時】このターン中にカードを3枚以上使用しているなら、相手のミニオン1体を持ち主の手札に戻す。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0129",
+      "name": "スカイ・スワロー",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 1,
+      "attack": 1,
+      "hp": 1,
+      "keywords": [
+        "速攻"
+      ],
+      "text": "",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0130",
+      "name": "疾風のレイピア",
+      "type": "WEAPON",
+      "civilization": "WIND",
+      "cost": 3,
+      "attack": 2,
+      "hp": null,
+      "keywords": [],
+      "text": "1ターンに2回攻撃できる。",
+      "confirmationPending": false,
+      "notes": "装備者(リーダー想定)に「1ターンに2回攻撃できる」を付与する常在効果。ツイン・ストライク(QTE-0118)と同一の能力文言。"
+    },
+    {
+      "id": "QTE-L010",
+      "name": "詠唱の風詠士",
+      "type": "LEADER",
+      "civilization": "WIND",
+      "cost": null,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "そのターン中3枚目に使うミニオンかスペルのコスト-1。",
+      "confirmationPending": false,
+      "notes": "起動能力ではなく常在効果(1ターンに1回等の記載がない)。「3枚目」の判定は自分がこのターン使用したカードの累計枚数によるカウント(疾風の導き手・詠唱の疾風騎士と同系統のカードカウント参照)。"
+    },
+    {
+      "id": "QTE-0131",
+      "name": "サイクロン・リフレッシュ",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 1,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "場か手札のカードを2枚デッキに戻してシャッフルする。その後カードを2枚引く。",
+      "confirmationPending": false,
+      "notes": "戻す対象は自分の場・手札のカードで、ミニオンも含む(「場か手札のカード」であり「ミニオン」限定ではない)想定。"
+    },
+    {
+      "id": "QTE-0132",
+      "name": "追い風",
+      "type": "SPELL",
+      "civilization": "WIND",
+      "cost": 1,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "自分のミニオン1体の攻撃力を+1。カードを1枚引く。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0133",
+      "name": "サイクロン・フェンサー",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 2,
+      "attack": 1,
+      "hp": 1,
+      "keywords": [],
+      "text": "1ターンに2回攻撃できる。",
+      "confirmationPending": false,
+      "notes": "自身に「1ターンに2回攻撃できる」を持つ最初のミニオン(ツイン・ストライク/疾風のレイピアと同一文言を自前で持つ)。"
+    },
+    {
+      "id": "QTE-0134",
+      "name": "突風のまとめ役",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 3,
+      "attack": 1,
+      "hp": 3,
+      "keywords": [],
+      "text": "自分が他のカードを使用するたび、ターン終了時まで自分のミニオンすべての攻撃力を+1。",
+      "confirmationPending": false,
+      "notes": "Attack表記は「1+」。基礎値1に、このターン中自分がカードを使用するたび加算されるターン限定バフ。「他の」の有無は表記ゆれであり、暴風の双剣(QTE-0136)と実質同一の挙動。自分自身の使用(このミニオンの召喚)はカウントに含めず、召喚した瞬間にはバフが乗らない(裁定1)。カード使用カウントは起動能力の発動も含む(発注者確認済み、project-reference 2-9に反映)。バフは使用のたびに場のミニオンへ個別に積まれるため、このミニオンが破壊されても既に配られたバフはターン終了時まで残る。"
+    },
+    {
+      "id": "QTE-0135",
+      "name": "静空の風使い",
+      "type": "MINION",
+      "civilization": "WIND",
+      "cost": 4,
+      "attack": 1,
+      "hp": 1,
+      "keywords": [
+        "潜伏",
+        "守護"
+      ],
+      "text": "このカードが場にあるときこのカードをタップすることで自分のマナを1アンタップ状態にする。",
+      "confirmationPending": false,
+      "notes": "タップを起動コストとするマナ加速の起動型能力。回数制限の記載がないため1ターンに複数回使えるかは要注意(タップ状態自体が制約になる=アンタップフェイズまで再使用不可のため、実質1ターン1回)。"
+    },
+    {
+      "id": "QTE-0136",
+      "name": "暴風の双剣",
+      "type": "WEAPON",
+      "civilization": "WIND",
+      "cost": 2,
+      "attack": 0,
+      "hp": null,
+      "keywords": [],
+      "text": "自分がカードを使用するたび、このターンの間、このウェポンの攻撃力を+1。",
+      "confirmationPending": false,
+      "notes": "Attack表記は「0+」。自分がカードを使用するたび、このターン中攻撃力+1が累積するウェポン自身へのバフ。突風のまとめ役(QTE-0134)とは表記ゆれのみの違いで実質同一の挙動。自分自身の使用(このウェポンの装備)はカウントに含めず、装備した瞬間には+1されない(裁定1)。"
     }
   ]
 }

@@ -40,6 +40,22 @@ public class GameState {
     @Setter
     private String firstPlayerId;
 
+    /**
+     * ターンエンド処理が「次のターンの開始」を保留しているか(a9)。
+     *
+     * ターンエンド時効果(詠唱の疾風騎士)がプレイヤーへの問い合わせで中断した場合、
+     * その選択が解決するまで相手のターンを始めてはならない。endTurn は後始末までを行って
+     * このフラグを立て、選択が解決した後に advanceTurn が相手のターンを始める。
+     * 「ターンの終了」と「次のターンの開始」は総合ルール上も別の事象であるため、
+     * この分割は構造としてもむしろ正しい。
+     */
+    @Setter
+    private boolean turnHandoffPending = false;
+
+    /** turnHandoffPending が立っているとき、次に手番を渡す相手のplayerId */
+    @Setter
+    private String pendingNextPlayerId;
+
     public GameState(String roomId, PlayerState player1, PlayerState player2) {
         this.roomId = roomId;
         this.player1 = player1;

@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
+import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
 import com.example.qte.master.CardMaster;
 
@@ -84,6 +85,30 @@ public class PlayerState {
     private boolean playedCardThisTurn = false;
 
     /**
+     * このターンに自分が使用したカードの「枚数」(風文明が参照する)。
+     * リーダー・ミニオンの起動能力の発動もカードの使用として数える
+     * (発注者確認済みの横断ルール。qte-project-reference 2-9)。
+     *
+     * 加算は効果の解決が終わった後に行う。したがってこの値を参照する効果からは、
+     * 常に「自分より前に使ったカードの枚数」が見える(裁定1: 使用カウンタは自身を含まない)。
+     * 真偽値の playedCardThisTurn とは意味が異なるため統合していない。
+     */
+    @Setter
+    private int cardsUsedThisTurn = 0;
+
+    /** うちスペルを唱えた回数(詠唱の疾風騎士)。cardsUsedThisTurn の部分集合 */
+    @Setter
+    private int spellsCastThisTurn = 0;
+
+    /**
+     * このターンの間、装備中ウェポンの攻撃力に加算される値(暴風の双剣)。
+     * ウェポンは MinionInstance を持たないため StatModifier を積む先がなく、
+     * プレイヤー単位の一時値として保持する。ターン終了時とウェポンが場を離れたときに0に戻す。
+     */
+    @Setter
+    private int weaponAttackBonusThisTurn = 0;
+
+    /**
      * このターンに自分のリーダーがダメージを受けた「回数」(量ではない)。
      * 火文明の特殊召喚条件が参照する(極炎竜ヴォルカニクス4回・背水の炎壁3回)。
      */
@@ -126,6 +151,13 @@ public class PlayerState {
     private int pendingSacrificeCount = 0;
 
     /**
+     * 使用中のスペルの行き先の置換(a5)。nullなら通常どおり墓地(または【還元】でマナ)へ。
+     * 効果が書き込み、GameService.playSpell が読んで消費する。
+     */
+    @Setter
+    private SpellDisposition pendingSpellDisposition;
+
+    /**
      * このターンに引いた枚数。【断罪の大天使】が「3枚目以降のドロー」を数えるために使う。
      * ターン開始時の通常ドローも1枚目として含む(発注者確認済み)。
      */
@@ -146,20 +178,35 @@ public class PlayerState {
     private final List<PersistentAura> persistentAuras = new ArrayList<>();
 
     /**
-     * 降臨の伝道師: 山札の上から表向きにした4枚。【守護】ミニオンが複数あり
-     * プレイヤーの選択待ちの間だけ中身を持つ(空なら選択待ちなし)。
-     * 既存の対象選択(手札・場・マナ・墓地)とは違い、山札の非公開情報を一時的に公開領域へ
-     * 出す新しい種類のUIのため、専用のフィールドとして持つ。
+     * 一時的な公開領域。山札の上から表向きにしたカードが、行き先が決まるまでの間だけここに置かれる
+     * (降臨の伝道師)。手札・場・マナ・墓地のどのゾーンにも属さない一時的な置き場である。
+     *
+     * Batch 12a で「公開されているカードの置き場(このフィールド)」と
+     * 「プレイヤーへの問い合わせ(pendingChoice)」を分離した。
+     * 旧 pendingReveal は両方の役割を1つのリストで兼ねていたため、
+     * 公開を伴わない選択(手札から捨てる・墓地から回収する等)に流用できなかった。
      */
-    private final List<String> pendingReveal = new ArrayList<>();
+    private final List<String> revealedZone = new ArrayList<>();
+
+    /**
+     * 効果の解決を中断してプレイヤーに問い合わせている選択(a9)。nullなら中断していない。
+     * 1プレイヤーにつき同時に1つだけ存在しうる。
+     * これが非nullの間、そのプレイヤーは選択の解決以外の操作を行えない。
+     */
+    @Setter
+    private PendingChoice pendingChoice;
 
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter
     private boolean leaderAbilityUsedThisTurn = false;
 
-    /** リーダーの攻撃は1ターンに1回(暗黙ルール: ミニオンと同様) */
+    /**
+     * このターンにリーダーが攻撃した回数。上限は装備ウェポンによって変わる
+     * (通常1回・疾風のレイピアなら2回)ため、真偽値ではなく回数で持つ(設計判断7)。
+     * 上限の評価は StatCalculator.maxLeaderAttacks が行う。
+     */
     @Setter
-    private boolean leaderAttackedThisTurn = false;
+    private int leaderAttacksUsedThisTurn = 0;
 
     /** このターン番号の間リーダーは攻撃できない(氷結の杖の凍結)。0なら制限なし */
     @Setter
@@ -190,15 +237,22 @@ public class PlayerState {
     /** ターン開始処理(アンタップフェイズ相当)で呼ぶ: 全アンタップ+ターン内カウンタのリセット */
     public void startTurnReset() {
         manaZone.forEach(ManaCard::untap);
-        minionZone.forEach(MinionInstance::resetAttacksUsed);
+        // 総合ルール6章-2「自分の場・マナゾーンの全タップ状態カードをアンタップに戻す」。
+        // 場のミニオンのタップ状態は Batch 12a(静空の風使い)で導入された
+        minionZone.forEach(m -> {
+            m.resetAttacksUsed();
+            m.untap();
+        });
         manaChargedThisTurn = false;
         cannotUseCardsThisTurn = false;
         playedCardThisTurn = false;
+        cardsUsedThisTurn = 0;
+        spellsCastThisTurn = 0;
         leaderDamagedCountThisTurn = 0;
         healedCountThisTurn = 0;
         pendingFireMinionDiscount = 0;
         leaderAbilityUsedThisTurn = false;
-        leaderAttackedThisTurn = false;
+        leaderAttacksUsedThisTurn = 0;
         ownMinionDestroyedThisTurn = false;
         drawnCountThisTurn = 0;
         pendingSacrificeCount = 0;

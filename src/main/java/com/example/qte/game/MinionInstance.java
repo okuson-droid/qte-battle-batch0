@@ -36,8 +36,21 @@ public class MinionInstance {
      */
     private final boolean fromTaboo;
 
-    /** このターンに攻撃した回数。アンタップフェイズで0に戻す */
+    /** このターンに攻撃した回数。アンタップフェイズで0に戻す。上限はStatCalculator.maxAttacksが評価する */
     private int attacksUsedThisTurn = 0;
+
+    /**
+     * タップ状態(Batch 12a で追加)。ミニオンの起動能力(静空の風使い)のコストとして使う。
+     * 総合ルール6章-2は「自分の場・マナゾーンの全タップ状態カード」をアンタップすると定めており、
+     * 場のカードにタップ状態が無かったこれまでの実装のほうがルールから逸脱していた。
+     *
+     * 攻撃回数を tapped ではなく attacksUsedThisTurn で数えているのは、
+     * 「1ターンに2回攻撃できる」カード(ツイン・ストライク等)があるためである。
+     * 裁定4により、タップ中のミニオンは攻撃できない(判定は RuleGuards)一方、
+     * 【守護】【潜伏】はタップ中も機能する(キーワードの評価には手を入れない)。
+     */
+    @lombok.Setter
+    private boolean tapped = false;
 
     /**
      * ターンの終わりに自身を破壊するか(這い寄る生霊を特殊召喚で出した場合)。
@@ -69,16 +82,45 @@ public class MinionInstance {
         this.fromTaboo = fromTaboo;
     }
 
+    /**
+     * 最大体力。印刷値に体力修正(突風の祝福・そよ風の加護・風護の杖)を合成した値。
+     *
+     * 攻撃力・コストと違って StatCalculator に出していないのは、
+     * 現行の体力修正がすべて固定値(+1 / +2)であり、手札枚数や墓地枚数のような
+     * 盤面の参照を必要としないためである。MinionInstance 内で閉じることで、
+     * getCurrentHp の呼び出し元(破壊判定・ビュー・HP_5_OR_LESSフィルタ)を
+     * 1箇所も書き換えずに済む。盤面参照型の体力修正が出た時点で StatCalculator へ移す。
+     *
+     * 適用順序は攻撃力と同じく SET が先、ADD が後(設計判断12)。
+     */
+    public int getMaxHp() {
+        int hp = master.hp();
+        for (StatModifier m : modifiers) {
+            if (m.stat() == StatModifier.Stat.HP && m.operation() == StatModifier.Operation.SET) {
+                hp = m.value();
+            }
+        }
+        for (StatModifier m : modifiers) {
+            if (m.stat() == StatModifier.Stat.HP && m.operation() == StatModifier.Operation.ADD) {
+                hp += m.value();
+            }
+        }
+        return Math.max(0, hp);
+    }
+
     /** 現在HP。0以下かどうかの破壊「判定」はダメージ適用とは別ステップで行う(設計判断2) */
     public int getCurrentHp() {
-        return master.hp() - damage;
+        return getMaxHp() - damage;
     }
 
     public void takeDamage(int amount) {
         this.damage += amount;
     }
 
-    /** 回復。基礎HPを超えては回復しない */
+    /**
+     * 回復。受けているダメージを減らす形で表現しているため、
+     * 最大体力(修正込み)を超えて回復することは構造的に起こらない。
+     */
     public void heal(int amount) {
         this.damage = Math.max(0, this.damage - amount);
     }
@@ -135,5 +177,14 @@ public class MinionInstance {
 
     public void resetAttacksUsed() {
         this.attacksUsedThisTurn = 0;
+    }
+
+    /** アンタップフェイズ、および起動能力を使っていない状態への復帰 */
+    public void untap() {
+        this.tapped = false;
+    }
+
+    public void tap() {
+        this.tapped = true;
     }
 }

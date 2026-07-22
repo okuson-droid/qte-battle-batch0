@@ -8,12 +8,26 @@ import java.util.List;
  * 「何を選ばせるか」の定義は1箇所(CardEffectRegistry)にだけ存在し、
  * クライアントとサーバが同じ定義を共有する。
  *
- * @param requirements 要求の列。カードのテキストに書かれた順に選択させる
+ * @param requirements  要求の列。カードのテキストに書かれた順に選択させる
+ * @param combinedTotal 要求をまたいだ選択数の合計制約(0なら制約なし)。
+ *                      サイクロン・リフレッシュ「場か手札のカードを合計2枚」のように、
+ *                      1件の要求のなかで2つのゾーンから選ばせるカードのために使う。
+ *                      各要求を upTo(0〜2枚)で受け、最後に合計だけを検証する形にすることで、
+ *                      Kind も TargetChoice も増やさずに済む。
+ *                      Kind を増やすのが正しいのは「今まで指せなかったものを指す」場合に限られる。
  */
-public record TargetSpec(List<Requirement> requirements) {
+public record TargetSpec(List<Requirement> requirements, int combinedTotal) {
 
     public static TargetSpec of(Requirement... requirements) {
-        return new TargetSpec(List.of(requirements));
+        return new TargetSpec(List.of(requirements), 0);
+    }
+
+    /**
+     * 要求をまたいで「合計 total 枚」を選ばせる仕様を作る。
+     * 各要求は upTo で 0〜total 枚を受け付けるように書き、合計の一致はサーバが検証する。
+     */
+    public static TargetSpec combined(int total, Requirement... requirements) {
+        return new TargetSpec(List.of(requirements), total);
     }
 
     /**

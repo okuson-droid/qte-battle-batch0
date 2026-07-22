@@ -129,7 +129,44 @@ public class StatCalculator {
                     .filter(m -> m.hasKeyword(Keyword.STEALTH))
                     .count();
         }
-        return attack;
+        // 暴風の双剣: このターン中カードを使用するたびに累積した加算(ON_CARD_USEDが積む)。
+        // ウェポンはMinionInstanceを持たないため、修正はプレイヤー単位で保持している
+        attack += owner.getWeaponAttackBonusThisTurn();
+        return Math.max(0, attack);
+    }
+
+    // ---------------------------------------------------------------
+    // 攻撃回数(設計判断7: 攻撃回数は固定1ではなくカードごとの属性)
+    // ---------------------------------------------------------------
+
+    /**
+     * このミニオンが1ターンに攻撃できる回数。
+     *
+     * 攻撃力・コストと同じく「評価するたびに計算する動的な値」として扱う(設計判断4)。
+     * 印刷された性質(サイクロン・フェンサー)と、効果で与えられた一時的な追加
+     * (ツイン・ストライク)の両方がありうるためである。
+     * 後者は EXTRA_ATTACKS の修正としてインスタンスに積まれ、
+     * 期限の管理は既存の expireThisTurnModifiers がそのまま担う。
+     */
+    public int maxAttacks(GameState state, PlayerState owner, MinionInstance minion) {
+        int max = 1;
+        // 印刷された「1ターンに2回攻撃できる」を持つカードはBatch 12b以降でここに追加する
+        // (サイクロン・フェンサー QTE-0133 / 連撃の巨岩(土文明))
+        for (StatModifier m : minion.getModifiers()) {
+            if (m.stat() == StatModifier.Stat.EXTRA_ATTACKS) {
+                max += m.value();
+            }
+        }
+        return Math.max(1, max);
+    }
+
+    /**
+     * リーダーが1ターンに攻撃できる回数。上限は装備しているウェポンによって決まる
+     * (疾風のレイピア = 2回。それ以外 = 1回)。
+     */
+    public int maxLeaderAttacks(GameState state, PlayerState owner) {
+        // 複数回攻撃できるウェポンはBatch 12b以降でここに追加する(疾風のレイピア QTE-0130)
+        return 1;
     }
 
     public int effectiveAttack(GameState state, PlayerState owner, MinionInstance minion) {

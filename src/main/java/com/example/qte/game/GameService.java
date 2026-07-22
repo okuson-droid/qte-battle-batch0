@@ -11,7 +11,10 @@ import java.util.Set;
 
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
+import com.example.qte.effect.EnhancedCostSpec;
 import com.example.qte.effect.LeaderAbilitySpec;
+import com.example.qte.effect.MinionAbilitySpec;
+import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.ResolvedTargets;
@@ -26,7 +29,6 @@ import com.example.qte.master.CardType;
 import com.example.qte.master.Keyword;
 import com.example.qte.room.GameRoom;
 import com.example.qte.room.PlayerSlot;
-
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -229,14 +231,51 @@ public class GameService {
         }
     }
 
-    /** ターン終了処理: 期限付き効果の掃除 → 相手ターンの開始 */
+    /**
+     * ターン終了処理: 期限付き効果の掃除 → ターンエンドトリガー → 相手ターンの開始。
+     *
+     * Batch 12a で「ターンの終了」と「次のターンの開始」を分割した(a9)。
+     * ターンエンド時効果(詠唱の疾風騎士)がプレイヤーへの問い合わせで中断すると、
+     * その選択の解決を待たずに相手のターンが始まってしまうためである。
+     * 選択が保留された場合はここでは手番を渡さず、resolveChoice の末尾から advanceTurn を呼ぶ。
+     */
     public void endTurn(GameRoom room, String playerId) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
         state.setPhase(TurnPhase.END);
 
-        // 「このターン中」の効果を除去する(設計判断12)
+        // ターンエンドトリガー(詠唱の疾風騎士など)。「このターン5回以上スペルを撃っていたら」の
+        // ように、このターンのカウンタや修正が生きているうちに評価する必要があるため、
+        // 「このターン中」の効果を掃除するより前に発火する(a4)。
+        // 両者の場を回すが、ターンプレイヤー側から先に処理する
+        PlayerState turnPlayer = state.playerOf(playerId);
+        PlayerState other = state.opponentOf(playerId);
+        for (PlayerState p : new PlayerState[] { turnPlayer, other }) {
+            for (MinionInstance minion : List.copyOf(p.getMinionZone())) {
+                effects.fire(TriggerType.ON_TURN_END, minion,
+                        contextOf(room, state, p, minion, null));
+                if (state.getStatus() == GameStatus.FINISHED) {
+                    return;
+                }
+            }
+        }
+        // ターンエンド効果がプレイヤーの選択待ちになったら、掃除と手番の受け渡しを保留する。
+        // 選択が解決した後に advanceTurn がこの続き(掃除→次ターン)を行う
+        if (turnPlayer.getPendingChoice() != null || other.getPendingChoice() != null) {
+            state.setTurnHandoffPending(true);
+            state.setPendingNextPlayerId(other.getPlayerId());
+            return;
+        }
+        finishEndTurnCleanup(room, state);
+        advanceTurn(room, state, other.getPlayerId());
+    }
+
+    /**
+     * ターンエンドの後始末(「このターン中」の効果の除去・自壊ミニオン・一時マナの消滅)。
+     * endTurn 本体と、選択解決後の advanceTurnIfPending の両方から呼ばれる。
+     */
+    private void finishEndTurnCleanup(GameRoom room, GameState state) {
         for (PlayerState p : new PlayerState[] { state.getPlayer1(), state.getPlayer2() }) {
             // ターンの終わりに自壊するミニオン(特殊召喚された這い寄る生霊)。
             // 破壊トリガーを正しく発火させるため、リストから消すのではなく破壊処理を通す
@@ -247,6 +286,8 @@ public class GameService {
             }
             p.getMinionZone().forEach(MinionInstance::expireThisTurnModifiers);
             p.getThisTurnAuras().clear();
+            // 暴風の双剣がこのターン積み上げたウェポン攻撃力の加算も、ここで落とす(a1)
+            p.setWeaponAttackBonusThisTurn(0);
             // 持続効果は「このターン中」とは寿命が違うため、期限を見て個別に落とす。
             // ターン番号指定のものだけがここで切れる(スペル使用が条件のものは残る)
             p.getPersistentAuras().removeIf(aura ->
@@ -263,9 +304,30 @@ public class GameService {
                 actions.manaLeft(room, p);
             }
         }
-        // ターンエンドトリガー(連撃の巨岩など)は該当カード実装時にここで発火する
+    }
 
-        beginTurn(room, state.opponentOf(playerId).getPlayerId());
+    /** 次のターンを開始する(相手の手番へ)。ターン受け渡しの保留を解除する */
+    private void advanceTurn(GameRoom room, GameState state, String nextPlayerId) {
+        state.setTurnHandoffPending(false);
+        state.setPendingNextPlayerId(null);
+        beginTurn(room, nextPlayerId);
+    }
+
+    /**
+     * ターンエンド中の割り込みが解決した後、保留していたターンの受け渡しを行う(a9)。
+     * まだ選択待ちが残っていれば何もしない(複数段の割り込みに耐えるため)。
+     * メインフェイズ中の割り込みではフラグが立っていないため、この呼び出しは素通りする。
+     */
+    private void advanceTurnIfPending(GameRoom room, GameState state) {
+        if (!state.isTurnHandoffPending()) {
+            return;
+        }
+        if (state.getPlayer1().getPendingChoice() != null
+                || state.getPlayer2().getPendingChoice() != null) {
+            return; // まだ別の選択待ちがある
+        }
+        finishEndTurnCleanup(room, state);
+        advanceTurn(room, state, state.getPendingNextPlayerId());
     }
 
     // ---------------------------------------------------------------
@@ -297,7 +359,8 @@ public class GameService {
      * 対象指定を要するカードは、選択済みの対象(choices)を添えて呼び出される。
      * ウェポンとピュア・エレメントはBatch 4で対応する。
      */
-    public void playCard(GameRoom room, String playerId, int handIndex, List<TargetChoice> choices) {
+    public void playCard(GameRoom room, String playerId, int handIndex,
+            List<TargetChoice> choices, boolean enhanced) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -319,11 +382,15 @@ public class GameService {
 
         switch (master.type()) {
             case MINION -> playMinion(room, state, player, handIndex, master, choices);
-            case SPELL -> playSpell(room, state, player, handIndex, master, choices);
+            case SPELL -> playSpell(room, state, player, handIndex, master, choices, enhanced);
             case WEAPON -> playWeapon(room, state, player, handIndex, master);
             default -> throw new IllegalStateException("このカードはプレイできません");
         }
         player.setPlayedCardThisTurn(true);
+        // カード1枚の使用が「解決し終えた後」に数える(裁定1: 使用カウンタは自身を含まない)。
+        // 効果解決の途中で問い合わせ(pendingChoice)が発生した場合でも、
+        // 効果そのものは開始しているためここで数えてよい(2枚目以降の参照に間に合う)。
+        afterCardUsed(room, state, player, master.type() == CardType.SPELL);
     }
 
     private void playMinion(GameRoom room, GameState state, PlayerState player,
@@ -348,7 +415,7 @@ public class GameService {
     }
 
     private void playSpell(GameRoom room, GameState state, PlayerState player,
-            int handIndex, CardMaster master, List<TargetChoice> choices) {
+            int handIndex, CardMaster master, List<TargetChoice> choices, boolean enhanced) {
         if (state.getPhase() != TurnPhase.MAIN && state.getPhase() != TurnPhase.SUB) {
             throw new IllegalStateException("スペルはメイン/サブフェイズでのみ使用できます");
         }
@@ -359,6 +426,15 @@ public class GameService {
         if (!effects.isSpellImplemented(master.id())) {
             throw new IllegalStateException("このスペルの効果は未実装です");
         }
+        // 追加コストによる強化使用(a5: 回帰の風穴・風弾の跳弾)。
+        // モード選択は支払いより前に確定していなければならないため、a9(解決中の割り込み)ではなく
+        // 使用宣言に付随する真偽値として受け取る。強化を持たないカードにtrueが来たら弾く
+        EnhancedCostSpec enhancedSpec = effects.enhancedCostOf(master.id());
+        if (enhanced && enhancedSpec == null) {
+            throw new IllegalStateException("このカードは追加コストを支払えません");
+        }
+        int extraCost = enhanced ? enhancedSpec.extraCost() : 0;
+
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.targetSpecOf(master.id()), choices);
         // 【死者蘇生】は「生贄にした自分のミニオンの数だけコスト-1」であり、
@@ -367,7 +443,7 @@ public class GameService {
             player.setPendingSacrificeCount(validated.minions().get(0).size());
         }
         try {
-            payCost(player, stats.effectiveCost(state, player, master));
+            payCost(player, stats.effectiveCost(state, player, master) + extraCost);
         } finally {
             player.setPendingSacrificeCount(0); // MP不足で弾かれた場合も必ず戻す
         }
@@ -378,39 +454,76 @@ public class GameService {
                 aura -> aura.expiry() == PersistentAura.Expiry.ON_NEXT_SPELL);
         room.addLog("%sが【%s】を唱えました".formatted(player.getDisplayName(), master.name()));
 
-        effects.resolveSpell(master.id(), contextOf(room, state, player, null, resolved));
-        // 使用後の行き先: 通常は墓地、【還元】ならマナへ(GameActionsが判断する)
-        actions.disposeUsedSpell(room, player, master, false);
+        player.setPendingSpellDisposition(null);
+        effects.resolveSpell(master.id(),
+                contextOf(room, state, player, null, resolved, enhanced));
+        // 使用後の行き先。効果が pendingSpellDisposition を書いていればそれで置換する(a5)。
+        // 禁忌由来ではないため、置換がなければ通常どおり墓地(【還元】ならマナ)へ
+        SpellDisposition disposition = player.getPendingSpellDisposition();
+        player.setPendingSpellDisposition(null);
+        if (disposition == null) {
+            actions.disposeUsedSpell(room, player, master, false);
+        } else {
+            switch (disposition) {
+                case TO_HAND -> {
+                    player.getHand().add(master.id());
+                    room.addLog("【%s】は墓地に置かれる代わりに手札へ戻りました".formatted(master.name()));
+                }
+                case TO_DECK_BOTTOM -> {
+                    player.getDeck().addLast(master.id());
+                    room.addLog("【%s】は山札の一番下に置かれました".formatted(master.name()));
+                }
+            }
+        }
     }
 
     /**
-     * 降臨の伝道師(QTE-0112): 公開した4枚の中に【守護】ミニオンが複数あったとき、
-     * どれを場に出すかをプレイヤーが選ぶ(新しいUI: 手札・場・マナ・墓地のどれとも違う、
-     * 公開領域からの一時的な選択)。0体/1体のときはCardEffectRegistry側で即座に解決するため、
-     * ここに来るのは常に「複数の【守護】から選ぶ」場合のみ。
+     * 中断していた効果を、プレイヤーの選択結果で再開する(a9)。
+     *
+     * 降臨の伝道師の専用処理(旧 resolveRevealChoice)を一般化したもの。
+     * どの効果の続きなのかは pendingChoice.resumeAt が持つ。
+     *
+     * <b>ここが担う検証。</b> 誰が・いくつ・正しい候補から選んだか、までをここで確かめ、
+     * 「その結果で何が起きるか」は CardEffectRegistry.resolveChoice に委ねる
+     * (GameService=ルールの検証と進行、Registry=効果の中身、という役割分担どおり)。
+     *
+     * @param chosenIndexes pendingChoice.candidates() のうち選んだものの位置(0起点)
      */
-    public void resolveRevealChoice(GameRoom room, String playerId, int chosenIndex) {
+    public void resolveChoice(GameRoom room, String playerId, List<Integer> chosenIndexes) {
         GameState state = requireState(room);
-        // この操作自身がpendingRevealを解消するため、requireTurnPlayerは経由しない
+        // この操作自身が pendingChoice を解消するため、requireTurnPlayer は経由しない
         // (経由すると「選び終えるまで塞ぐ」判定に自分自身が引っかかってしまう)
         if (!playerId.equals(state.getTurnPlayerId())) {
             throw new IllegalStateException("相手のターンです");
         }
         requireStatus(state, GameStatus.PLAYING);
         PlayerState player = state.playerOf(playerId);
-        List<String> revealed = player.getPendingReveal();
-        if (revealed.isEmpty()) {
-            throw new IllegalStateException("選択待ちの公開カードがありません");
+        PendingChoice choice = player.getPendingChoice();
+        if (choice == null) {
+            throw new IllegalStateException("選択待ちの効果がありません");
         }
-        if (chosenIndex < 0 || chosenIndex >= revealed.size()) {
-            throw new IllegalArgumentException("不正な選択です");
+        List<Integer> indexes = chosenIndexes == null ? List.of() : chosenIndexes;
+        // 選択数が範囲内か
+        if (indexes.size() < choice.min() || indexes.size() > choice.max()) {
+            throw new IllegalArgumentException("選択の数が正しくありません");
         }
-        if (!cards.findById(revealed.get(chosenIndex)).hasKeyword(Keyword.GUARD)) {
-            throw new IllegalArgumentException("【守護】を持つカードを選んでください");
+        // 各インデックスが候補の範囲内で、重複していないか。候補IDへ写す
+        Set<Integer> seen = new HashSet<>();
+        List<String> chosen = new ArrayList<>();
+        for (int idx : indexes) {
+            if (idx < 0 || idx >= choice.candidates().size() || !seen.add(idx)) {
+                throw new IllegalArgumentException("不正な選択です");
+            }
+            chosen.add(choice.candidates().get(idx));
         }
-        List<String> snapshot = List.copyOf(revealed);
-        revealed.clear(); // 解決前にpendingを解消する(効果内で例外が起きても選択待ちのまま固まらないように)
-        effects.resolvePendingReveal(contextOf(room, state, player, null, null), snapshot, chosenIndex);
+        // 解決の前に pendingChoice を解消する(効果内で例外が起きても選択待ちのまま固まらないように)
+        player.setPendingChoice(null);
+        effects.resolveChoice(contextOf(room, state, player, null, null), choice, chosen);
+
+        // ターンエンド中の割り込み(詠唱の疾風騎士)だった場合、選択の解決後に
+        // 保留していたターンの受け渡しを行う。それ以外(メインフェイズ中の割り込み)では
+        // まだ手番が続くため、advanceTurn は呼ばれない(内部で保留フラグを見て判断する)
+        advanceTurnIfPending(room, state);
     }
 
     // ---------------------------------------------------------------
@@ -473,13 +586,21 @@ public class GameService {
         switch (master.type()) {
             case MINION -> summonToField(room, state, player, master, resolved, true);
             case SPELL -> {
+                // 禁忌由来のスペルは pendingSpellDisposition による行き先置換(a5)を受けない。
+                // 総合ルール3-6により、禁忌カードは使用され終わると消滅ゾーンへ行くことが
+                // 確定しているためである(disposeUsedSpell が fromTaboo=true で消滅へ送る)。
+                // 効果が誤って書き込んでも通常プレイに漏らさないよう、前後でクリアする
+                player.setPendingSpellDisposition(null);
                 effects.resolveSpell(master.id(), contextOf(room, state, player, null, resolved));
+                player.setPendingSpellDisposition(null);
                 // 使用され終わった禁忌カードは消滅ゾーンへ(3-6)。【還元】は機能しない
                 actions.disposeUsedSpell(room, player, master, true);
             }
             case WEAPON -> equipWeapon(room, player, master, true);
             default -> throw new IllegalStateException("このカードはプレイできません");
         }
+        // 禁忌カードの使用もカードの使用として数える(a1)
+        afterCardUsed(room, state, player, master.type() == CardType.SPELL);
     }
 
     /**
@@ -575,6 +696,8 @@ public class GameService {
         // 通常の【召喚時】とは別枠であり、出したミニオン自身をsourceとして渡す
         spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
         player.setPlayedCardThisTurn(true);
+        // 特殊召喚もカードの使用として数える(a1)。ミニオンのためスペルフラグはfalse
+        afterCardUsed(room, state, player, false);
     }
 
     /**
@@ -615,6 +738,8 @@ public class GameService {
         room.addLog("%sが墓地から【%s】を召喚".formatted(player.getDisplayName(), master.name()));
         summonToField(room, state, player, master, null, false);
         player.setPlayedCardThisTurn(true);
+        // 墓地からの召喚もカードの使用として数える(a1)
+        afterCardUsed(room, state, player, false);
     }
 
     /** 召喚の共通着地処理。ON_SUMMONとON_ENTERの両方が発動する(発注者確認済み裁定)。
@@ -692,15 +817,8 @@ public class GameService {
         PlayerState player = state.playerOf(playerId);
         PlayerState opponent = state.opponentOf(playerId);
         CardMaster weapon = player.getEquippedWeapon();
-        if (weapon == null) {
-            throw new IllegalStateException("戦闘を行えるのはウェポンを装備したリーダーのみです");
-        }
-        if (player.isLeaderAttackedThisTurn()) {
-            throw new IllegalStateException("リーダーはこのターン既に攻撃しています");
-        }
-        if (player.getLeaderCannotAttackOnTurn() == state.getTurnNumber()) {
-            throw new IllegalStateException("リーダーは凍結していて攻撃できません");
-        }
+        // 攻撃できるかの判定(未装備・攻撃済み回数・凍結・カードによる禁止)は判定層に集約した(a2)。
+        // ミニオン側が11aで判定層へ移されたとき取り残されていた判定をここで揃える(設計判断34)
         String leaderDenial = guards.leaderAttackDenial(state, player);
         if (leaderDenial != null) {
             throw new IllegalStateException(leaderDenial);
@@ -719,7 +837,7 @@ public class GameService {
             throw new IllegalStateException("相手の【守護】持ちを先に攻撃する必要があります");
         }
 
-        player.setLeaderAttackedThisTurn(true);
+        player.setLeaderAttacksUsedThisTurn(player.getLeaderAttacksUsedThisTurn() + 1);
         int damage = stats.effectiveWeaponAttack(state, player);
         room.addLog("リーダーが【%s】で攻撃(%dダメージ)".formatted(weapon.name(), damage));
 
@@ -809,6 +927,51 @@ public class GameService {
         player.setLeaderAbilityUsedThisTurn(true);
         room.addLog("%sがリーダー起動能力を使用".formatted(player.getDisplayName()));
         spec.effect().accept(contextOf(room, state, player, null, resolved));
+        // 起動能力の発動もカードの使用として数える(発注者確認済みの横断ルール。a1)
+        afterCardUsed(room, state, player, false);
+    }
+
+    /**
+     * ミニオンの起動能力(a6。静空の風使い)。メインフェイズ中・自身をタップして発動する。
+     *
+     * リーダーの起動能力と構造は似ているが、コスト体系(MP vs 自身のタップ)・使用制限
+     * (1ターン1回のフラグ vs タップ状態)・呼び出し経路(プレイヤー単位 vs インスタンス単位)が
+     * すべて異なるため、別のメソッド・別の仕様型(MinionAbilitySpec)で扱う。
+     *
+     * 使用制限はタップ状態そのものが担うため、回数フラグは持たせない。
+     */
+    public void useMinionAbility(GameRoom room, String playerId, String instanceId,
+            List<TargetChoice> choices) {
+        GameState state = requireState(room);
+        requireTurnPlayer(state, playerId);
+        requireStatus(state, GameStatus.PLAYING);
+        requirePhase(state, TurnPhase.MAIN);
+        PlayerState player = state.playerOf(playerId);
+        if (player.isCannotUseCardsThisTurn()) {
+            throw new IllegalStateException("このターンはカードを使用できません");
+        }
+        MinionInstance minion = findMinion(player, instanceId);
+        MinionAbilitySpec spec = effects.minionAbilityOf(minion.getMaster().id());
+        if (spec == null) {
+            throw new IllegalStateException("このミニオンは起動能力を持ちません");
+        }
+        if (minion.isTapped()) {
+            throw new IllegalStateException("このミニオンはすでにタップしています");
+        }
+        if (!spec.condition().test(state, player)) {
+            throw new IllegalStateException("この能力を使用する条件を満たしていません");
+        }
+        ValidatedTargets validated = validateTargets(state, player, -1, spec.targets(), choices);
+        payCost(player, spec.mpCost());
+        ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
+        // コストとしてのタップは効果の実行より前に行う(能力自身が「アンタップ状態のマナ」を
+        // 参照する場合に、自分のタップが先に反映されているべきという理由はないが、
+        // 「使ったら即タップ」という直感に合わせる)
+        minion.tap();
+        room.addLog("%sが【%s】の能力を使用".formatted(player.getDisplayName(), minion.getMaster().name()));
+        spec.effect().accept(contextOf(room, state, player, minion, resolved));
+        // 起動能力の発動もカードの使用として数える(a1)
+        afterCardUsed(room, state, player, false);
     }
 
     /**
@@ -893,6 +1056,33 @@ public class GameService {
             MinionInstance source, ResolvedTargets targets) {
         return new EffectContext(room, state, owner,
                 state.opponentOf(owner.getPlayerId()), source, targets, actions);
+    }
+
+    /** 強化使用(a5)の区別を持たせる文脈。回帰の風穴・風弾の跳弾のみ enhanced=true になりうる */
+    private EffectContext contextOf(GameRoom room, GameState state, PlayerState owner,
+            MinionInstance source, ResolvedTargets targets, boolean enhanced) {
+        return new EffectContext(room, state, owner,
+                state.opponentOf(owner.getPlayerId()), source, targets, actions, enhanced);
+    }
+
+    /**
+     * カード1枚(または起動能力1回)を使い終えた後の共通処理(a1)。
+     * ターン内の使用カウンタを進め、ON_CARD_USED を発火する。
+     *
+     * <b>加算を効果解決の後に置く理由(裁定1)。</b> この位置により、使用カウンタを参照する
+     * すべての効果が「自分より前に使ったカードの枚数」を見る。詠唱の風詠士の「3枚目」も、
+     * 神風の大号令の全体バフも、参照時点で自身を含まない値になる。
+     *
+     * <b>起動能力も数える。</b> リーダー・ミニオンの起動能力の発動もカードの使用として
+     * インクリメントする(発注者確認済みの横断ルール。qte-project-reference 2-9)。
+     * スペルを唱えた場合のみ spellsCastThisTurn も進める(詠唱の疾風騎士が参照)。
+     */
+    private void afterCardUsed(GameRoom room, GameState state, PlayerState player, boolean isSpell) {
+        player.setCardsUsedThisTurn(player.getCardsUsedThisTurn() + 1);
+        if (isSpell) {
+            player.setSpellsCastThisTurn(player.getSpellsCastThisTurn() + 1);
+        }
+        effects.fireCardUsed(contextOf(room, state, player, null, null));
     }
 
     // ---------------------------------------------------------------
@@ -1047,10 +1237,22 @@ public class GameService {
                 }
             }
         }
+        // 合計指定(a7: サイクロン・リフレッシュ)。各要求は upTo で 0〜N 枚を受けており、
+        // 「複数の要求を合わせてちょうど total 枚」という制約はここで最後にまとめて見る。
+        // Kind ごとの検証はすでに各分岐が済ませているため、ここでは枚数の合計だけを確かめる
+        if (spec.combinedTotal() > 0) {
+            int total = 0;
+            for (int i = 0; i < reqs.size(); i++) {
+                total += handPerReq.get(i).size() + minionsPerReq.get(i).size()
+                        + manaPerReq.get(i).size() + trashPerReq.get(i).size()
+                        + weaponsPerReq.get(i).size();
+            }
+            if (total != spec.combinedTotal()) {
+                throw new IllegalArgumentException(
+                        "対象は合計%d枚選ぶ必要があります".formatted(spec.combinedTotal()));
+            }
+        }
         return new ValidatedTargets(reqs, handPerReq, minionsPerReq, manaPerReq, trashPerReq, weaponsPerReq);
-    }
-
-    private void requireCount(TargetSpec.Requirement req, int actual) {
         // upTo(「好きな数」「あるだけ」)は0からcountまでのどれでもよい
         boolean ok = req.upTo() ? (actual >= 0 && actual <= req.count())
                 : actual == req.count() || (req.optional() && actual == 0);
@@ -1246,11 +1448,11 @@ public class GameService {
         if (!playerId.equals(state.getTurnPlayerId())) {
             throw new IllegalStateException("相手のターンです");
         }
-        // 降臨の伝道師: 公開した4枚から場に出すミニオンを選び終えるまで、他の操作を受け付けない。
-        // ターンプレイヤー判定の直後に置くことで、10箇所ある呼び出し元を個別に触らずに済む
-        // (resolveRevealChoice自身はこのメソッドを経由しないため、選択操作そのものは塞がない)。
-        if (!state.playerOf(playerId).getPendingReveal().isEmpty()) {
-            throw new IllegalStateException("【降臨の伝道師】が公開した4枚から場に出すミニオンを選んでください");
+        // 割り込み選択(a9)の解決待ちの間は、他の操作を受け付けない。
+        // ターンプレイヤー判定の直後に置くことで、多数ある呼び出し元を個別に触らずに済む
+        // (resolveChoice 自身はこのメソッドを経由しないため、選択操作そのものは塞がない)。
+        if (state.playerOf(playerId).getPendingChoice() != null) {
+            throw new IllegalStateException("先に選択を解決してください");
         }
     }
 

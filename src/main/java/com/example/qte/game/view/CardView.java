@@ -15,6 +15,9 @@ import com.example.qte.master.Keyword;
  * @param canSpecialSummon  今この瞬間、特殊召喚の条件を満たしているか(サーバ判定)
  * @param specialTargets    特殊召喚時に要求される対象選択
  * @param specialSummonText 特殊召喚の確認ダイアログ用の説明文
+ * @param combinedTotal     対象要求をまたいだ選択数の合計制約(0なら制約なし。サイクロン・リフレッシュ)
+ * @param enhancedCost      追加コストによる強化使用の追加コスト(0なら強化使用なし。回帰の風穴・風弾の跳弾)
+ * @param enhancedText      強化使用の確認ダイアログ用の説明文(強化使用がなければnull)
  */
 public record CardView(
         String cardId,
@@ -30,7 +33,10 @@ public record CardView(
         List<TargetReqView> targets,
         boolean canSpecialSummon,
         List<TargetReqView> specialTargets,
-        String specialSummonText) {
+        String specialSummonText,
+        int combinedTotal,
+        int enhancedCost,
+        String enhancedText) {
 
     public static List<String> keywordNames(CardMaster master) {
         return master.keywords().stream().map(Keyword::getDisplayName).toList();

@@ -95,10 +95,10 @@ public class GameViewBuilder {
                 .toList();
 
         boolean leaderFrozen = player.getLeaderCannotAttackOnTurn() == state.getTurnNumber();
+        // リーダーの攻撃可否も判定層(RuleGuards)に揃える。サーバの検証と同じ判断を通すことで
+        // ボタンの活性と実際の可否がずれない(a2で未装備・攻撃済み・凍結を判定層へ集約済み)
         boolean leaderCanAttack = attackerSide
-                && player.getEquippedWeapon() != null
-                && !player.isLeaderAttackedThisTurn()
-                && !leaderFrozen;
+                && guards.leaderAttackDenial(state, player) == null;
 
         // 禁忌デッキの中身は所有者のみ閲覧できる(総合ルール3-2)。相手には枚数だけを送る
         List<CardView> taboo = null;
@@ -140,12 +140,13 @@ public class GameViewBuilder {
                 leaderCanAttack,
                 leaderFrozen,
                 buildLeaderAbility(state, player, isSelf),
-                buildPendingReveal(player));
+                buildRevealedCards(player),
+                buildPendingChoice(player, isSelf));
     }
 
-    /** 降臨の伝道師: 選択待ちの公開カードのビュー(選択待ちでなければ空リスト) */
-    private List<PlayerView.RevealedCardView> buildPendingReveal(PlayerState player) {
-        List<String> revealed = player.getPendingReveal();
+    /** 一時公開領域のカード(降臨の伝道師などが公開中の束)。空なら公開なし */
+    private List<PlayerView.RevealedCardView> buildRevealedCards(PlayerState player) {
+        List<String> revealed = player.getRevealedZone();
         List<PlayerView.RevealedCardView> views = new java.util.ArrayList<>();
         for (int i = 0; i < revealed.size(); i++) {
             CardMaster m = cards.findById(revealed.get(i));
@@ -153,6 +154,57 @@ public class GameViewBuilder {
                     m.hasKeyword(Keyword.GUARD)));
         }
         return views;
+    }
+
+    /**
+     * 割り込み選択の問い合わせ(a9)。選択待ちでなければnull。
+     * 候補の識別子(手札の位置・instanceId・墓地の位置・公開領域の位置)を、
+     * 表示用のラベルに変換して届ける。クライアントは選んだ候補の位置を送り返す。
+     */
+    private PlayerView.PendingChoiceView buildPendingChoice(PlayerState player, boolean isSelf) {
+        // 選択の問い合わせは本人にしか見せない(相手のビューには出さない)
+        if (!isSelf) {
+            return null;
+        }
+        com.example.qte.effect.PendingChoice choice = player.getPendingChoice();
+        if (choice == null) {
+            return null;
+        }
+        List<PlayerView.PendingChoiceView.ChoiceCandidateView> candidates = new java.util.ArrayList<>();
+        for (int i = 0; i < choice.candidates().size(); i++) {
+            String id = choice.candidates().get(i);
+            String label;
+            List<String> keywords = List.of();
+            switch (choice.kind()) {
+                case HAND -> {
+                    int idx = Integer.parseInt(id);
+                    CardMaster m = cards.findById(player.getHand().get(idx));
+                    label = m.name();
+                    keywords = CardView.keywordNames(m);
+                }
+                case TRASH -> {
+                    int idx = Integer.parseInt(id);
+                    label = cards.findById(player.getTrash().get(idx)).name();
+                }
+                case REVEALED -> {
+                    int idx = Integer.parseInt(id);
+                    CardMaster m = cards.findById(player.getRevealedZone().get(idx));
+                    label = m.name();
+                    keywords = CardView.keywordNames(m);
+                }
+                case MINION -> {
+                    MinionInstance minion = player.getMinionZone().stream()
+                            .filter(mi -> mi.getInstanceId().equals(id))
+                            .findFirst().orElse(null);
+                    // 場を離れている場合(通常は起きない)は識別子をそのまま出す
+                    label = minion != null ? minion.getMaster().name() : id;
+                }
+                default -> label = id;
+            }
+            candidates.add(new PlayerView.PendingChoiceView.ChoiceCandidateView(i, label, keywords));
+        }
+        return new PlayerView.PendingChoiceView(choice.kind().name(), candidates,
+                choice.min(), choice.max(), choice.prompt());
     }
 
     /** リーダー起動能力の状態。使用可否はサーバで評価する(UIはボタンの活性に使うだけ) */
@@ -185,6 +237,8 @@ public class GameViewBuilder {
         SpecialSummonSpec special = handIndex < 0 ? null : effects.specialSummonOf(master.id());
         boolean canSpecial = special != null
                 && special.condition().test(state, player, handIndex);
+        TargetSpec spec = effects.targetSpecOf(master.id());
+        com.example.qte.effect.EnhancedCostSpec enhanced = effects.enhancedCostOf(master.id());
         return new CardView(
                 master.id(),
                 master.name(),
@@ -196,10 +250,13 @@ public class GameViewBuilder {
                 master.hp(),
                 CardView.keywordNames(master),
                 master.text(),
-                toReqViews(effects.targetSpecOf(master.id())),
+                toReqViews(spec),
                 canSpecial,
                 special == null ? List.of() : toReqViews(special.targets()),
-                special == null ? null : special.description());
+                special == null ? null : special.description(),
+                spec.combinedTotal(),
+                enhanced == null ? 0 : enhanced.extraCost(),
+                enhanced == null ? null : enhanced.prompt());
     }
 
     private List<CardView.TargetReqView> toReqViews(TargetSpec spec) {
@@ -236,16 +293,28 @@ public class GameViewBuilder {
                 .map(Keyword::getDisplayName)
                 .toList();
 
+        // ミニオンの起動能力(a6)。使えるかの判定はサーバに揃える(押せるのに弾かれるズレを防ぐ)。
+        // メインフェイズ・自分の手番・タップしていない・条件を満たす、が揃ってはじめて使える
+        com.example.qte.effect.MinionAbilitySpec ability = effects.minionAbilityOf(master.id());
+        boolean canUseAbility = ability != null
+                && attackerSide
+                && state.getPhase() == com.example.qte.game.TurnPhase.MAIN
+                && !owner.isCannotUseCardsThisTurn()
+                && ability.usableBy(state, owner, minion);
+
         return new MinionView(
                 minion.getInstanceId(),
                 master.id(),
                 master.name(),
                 stats.effectiveAttack(state, owner, minion),
                 minion.getCurrentHp(),
-                master.hp(),
+                minion.getMaxHp(),
                 keywords,
                 canAttackMinion,
                 canAttackLeader,
-                frozen);
+                frozen,
+                minion.isTapped(),
+                canUseAbility,
+                ability == null ? null : ability.description());
     }
 }

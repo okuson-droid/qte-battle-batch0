@@ -79,8 +79,13 @@ public class RuleGuards {
      */
     public String minionAttackDenial(GameState state, PlayerState owner, MinionInstance attacker,
             boolean targetIsLeader) {
-        if (attacker.getAttacksUsedThisTurn() >= 1) {
+        if (attacker.getAttacksUsedThisTurn() >= stats.maxAttacks(state, owner, attacker)) {
             return "このミニオンはこのターン既に攻撃しています";
+        }
+        // 起動能力でタップしたミニオンは攻撃できない(裁定4)。
+        // 【守護】【潜伏】はタップ中も機能するため、キーワードの評価には手を入れていない
+        if (attacker.isTapped()) {
+            return "このミニオンはタップ状態のため攻撃できません";
         }
         if (attacker.getCannotAttackOnTurn() == state.getTurnNumber()) {
             return "このミニオンは凍結していて攻撃できません";
@@ -112,8 +117,25 @@ public class RuleGuards {
         return null;
     }
 
-    /** リーダー(ウェポン)が攻撃できない理由を返す。攻撃できるならnull */
+    /**
+     * リーダー(ウェポン)が攻撃できない理由を返す。攻撃できるならnull。
+     *
+     * Batch 12a で、GameService.leaderAttack に直書きされていた3判定
+     * (未装備・攻撃済み・凍結)をここへ移した。ミニオン側が Batch 11a で判定層へ
+     * 移されたときに取り残されていたものであり、設計判断34の趣旨に反していた。
+     * ここへ集めたことで、ビュー(ボタンの活性判定)が検証と同じ判定を呼べるようになり、
+     * 「押せるのに弾かれる」ズレが構造的に起きなくなる。
+     */
     public String leaderAttackDenial(GameState state, PlayerState owner) {
+        if (owner.getEquippedWeapon() == null) {
+            return "戦闘を行えるのはウェポンを装備したリーダーのみです";
+        }
+        if (owner.getLeaderAttacksUsedThisTurn() >= stats.maxLeaderAttacks(state, owner)) {
+            return "リーダーはこのターン既に攻撃しています";
+        }
+        if (owner.getLeaderCannotAttackOnTurn() == state.getTurnNumber()) {
+            return "リーダーは凍結していて攻撃できません";
+        }
         if (hasOnField(state.opponentOf(owner.getPlayerId()), ZODIAC)) {
             return "【天界の守護神 ゾディアック】がいるためリーダーは攻撃できません";
         }

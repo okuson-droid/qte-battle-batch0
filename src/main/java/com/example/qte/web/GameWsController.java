@@ -60,7 +60,7 @@ public class GameWsController {
     @MessageMapping("/room/{roomId}/play-card")
     public void playCard(@DestinationVariable String roomId, PlayCardRequest request) {
         execute(roomId, request.playerId(), room -> gameService.playCard(
-                room, request.playerId(), request.handIndex(), request.targets()));
+                room, request.playerId(), request.handIndex(), request.targets(), request.enhanced()));
     }
 
     /** 禁忌カードの使用(メインフェイズのみ・マナで直接コストを支払う) */
@@ -106,6 +106,13 @@ public class GameWsController {
                 room, request.playerId(), request.targets()));
     }
 
+    /** ミニオンの起動能力(メインフェイズ・自身をタップ。a6) */
+    @MessageMapping("/room/{roomId}/minion-ability")
+    public void minionAbility(@DestinationVariable String roomId, MinionAbilityRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.useMinionAbility(
+                room, request.playerId(), request.instanceId(), request.targets()));
+    }
+
     /**
      * 墓地からのミニオン召喚(リーダー【黄泉の召喚主】のみ・サブフェイズ)。
      * UIからの呼び出しはBatch 10bで追加する。
@@ -124,13 +131,13 @@ public class GameWsController {
     }
 
     /**
-     * 降臨の伝道師: 公開した4枚の中から場に出す【守護】ミニオンを選ぶ(新しいUI)。
-     * 複数の【守護】があるときだけ呼ばれる(0体/1体は召喚時に自動で解決される)。
+     * 割り込み選択の解決(a9)。効果の途中でプレイヤーに問い合わせた選択の答えを受け取る。
+     * 降臨の伝道師をはじめ、風文明の各カードがこの1本の経路を共有する。
      */
-    @MessageMapping("/room/{roomId}/resolve-reveal")
-    public void resolveReveal(@DestinationVariable String roomId, RevealChoiceRequest request) {
-        execute(roomId, request.playerId(), room -> gameService.resolveRevealChoice(
-                room, request.playerId(), request.chosenIndex()));
+    @MessageMapping("/room/{roomId}/resolve-choice")
+    public void resolveChoice(@DestinationVariable String roomId, ResolveChoiceRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.resolveChoice(
+                room, request.playerId(), request.chosenIndexes()));
     }
 
     /** ターン終了(残りフェイズを飛ばして相手にターンを渡す) */
@@ -183,7 +190,8 @@ public class GameWsController {
     public record TrashActionRequest(String playerId, int trashIndex) {
     }
 
-    public record PlayCardRequest(String playerId, int handIndex, List<TargetChoice> targets) {
+    public record PlayCardRequest(String playerId, int handIndex,
+            List<TargetChoice> targets, boolean enhanced) {
     }
 
     public record LeaderAbilityRequest(String playerId, List<TargetChoice> targets) {
@@ -199,6 +207,10 @@ public class GameWsController {
     public record AttackRequest(String playerId, String attackerInstanceId, String targetInstanceId) {
     }
 
-    public record RevealChoiceRequest(String playerId, int chosenIndex) {
+    /** 割り込み選択の答え。選んだ候補の位置(PendingChoice.candidates内の0起点)の一覧 */
+    public record ResolveChoiceRequest(String playerId, List<Integer> chosenIndexes) {
+    }
+
+    public record MinionAbilityRequest(String playerId, String instanceId, List<TargetChoice> targets) {
     }
 }

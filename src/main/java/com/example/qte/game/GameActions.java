@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
+import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.TriggerType;
@@ -469,6 +470,8 @@ public class GameActions {
         if ("QTE-0106".equals(weapon.id())) {
             owner.getPersistentAuras().add(PersistentAura.untilNextSpell("QTE-0106"));
         }
+        // 暴風の双剣がこのターン積み上げた攻撃力の加算は、ウェポンが外れた時点で消える
+        owner.setWeaponAttackBonusThisTurn(0);
     }
 
     /**
@@ -492,6 +495,95 @@ public class GameActions {
     /** 公開した束を山札の下に、公開した順のまま戻す(降臨の伝道師) */
     public void returnToBottomOfDeck(PlayerState player, java.util.List<String> cardIds) {
         cardIds.forEach(id -> player.getDeck().addLast(id));
+    }
+
+    // ---------------------------------------------------------------
+    // 風文明の基本操作(Batch 12a)
+    // ---------------------------------------------------------------
+
+    /**
+     * 手札のカードを裏向きでマナゾーンに置く(a8。風のマナ変換)。
+     *
+     * マナチャージ(総合ルール6章-3)とは別の処理であり、1ターン1回の制限は立てない。
+     * マナ上限15枚の判定だけは行う。
+     *
+     * 裏向きマナは闇文明が参照する資源(禁忌の代償・不滅のネクロマンサー)であり、
+     * これは風から闇の資源を生成する初めての経路になる。
+     *
+     * @return 置けたらtrue(手札の指定が不正、またはマナが上限ならfalse)
+     */
+    public boolean putHandCardIntoManaFaceDown(GameRoom room, PlayerState owner, int handIndex) {
+        if (handIndex < 0 || handIndex >= owner.getHand().size()) {
+            return false;
+        }
+        if (owner.getManaZone().size() >= PlayerState.MAX_MANA) {
+            room.addLog("マナが15枚のため、これ以上マナに置けません");
+            return false;
+        }
+        String cardId = owner.getHand().remove(handIndex);
+        ManaCard mana = new ManaCard(cardId, false);
+        mana.turnFaceDown();
+        owner.getManaZone().add(mana);
+        room.addLog("%sが手札1枚を裏向きでマナに置きました(マナ%d枚)"
+                .formatted(owner.getDisplayName(), owner.getManaZone().size()));
+        return true;
+    }
+
+    /**
+     * 自分のマナをcount枚アンタップする(a6。静空の風使い)。
+     * タップ(支払い)と表裏の反転はあったが、アンタップする操作は存在しなかった
+     * (マナ加速のカードが既存カードプールに無かったため)。
+     *
+     * @return 実際にアンタップした枚数
+     */
+    public int untapMana(GameRoom room, PlayerState owner, int count) {
+        int done = 0;
+        for (ManaCard mana : owner.getManaZone()) {
+            if (done >= count) {
+                break;
+            }
+            if (mana.isTapped()) {
+                mana.untap();
+                done++;
+            }
+        }
+        if (done > 0) {
+            room.addLog("%sのマナが%d枚アンタップしました".formatted(owner.getDisplayName(), done));
+        }
+        return done;
+    }
+
+    /**
+     * カードを山札に戻してシャッフルする(a7。サイクロン・リフレッシュ)。
+     * 既存の returnToBottomOfDeck はシャッフルしないため別の操作である。
+     */
+    public void returnToDeckAndShuffle(GameRoom room, PlayerState owner, java.util.List<String> cardIds) {
+        if (cardIds.isEmpty()) {
+            return;
+        }
+        java.util.List<String> pool = new java.util.ArrayList<>(owner.getDeck());
+        pool.addAll(cardIds);
+        java.util.Collections.shuffle(pool);
+        owner.getDeck().clear();
+        owner.getDeck().addAll(pool);
+        room.addLog("%sがカード%d枚を山札に戻してシャッフルしました"
+                .formatted(owner.getDisplayName(), cardIds.size()));
+    }
+
+    /**
+     * 効果の解決を中断し、プレイヤーに選択を問い合わせる(a9)。
+     *
+     * これを呼んだ効果は、その場では続きを実行せずに戻る。
+     * 続きは GameService.resolveChoice → CardEffectRegistry.resolveChoice から
+     * PendingChoice.resumeAt に応じて再開される。
+     */
+    public void requestChoice(GameRoom room, PlayerState owner, PendingChoice choice) {
+        if (owner.getPendingChoice() != null) {
+            // 1プレイヤーにつき同時に1つまで。二重に発生する経路があれば設計の誤りである
+            throw new IllegalStateException("すでに選択待ちの効果があります");
+        }
+        owner.setPendingChoice(choice);
+        room.addLog("%s: %s".formatted(owner.getDisplayName(), choice.prompt()));
     }
 
     private EffectContext contextOf(GameRoom room, PlayerState owner, MinionInstance source) {

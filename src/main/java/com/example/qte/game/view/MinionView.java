@@ -9,6 +9,9 @@ import java.util.List;
  *
  * @param canAttackMinion 現時点でミニオンに攻撃宣言できるか
  * @param canAttackLeader 現時点でリーダーに攻撃宣言できるか(突進は召喚ターンここがfalse)
+ * @param tapped          タップ状態か(起動能力を使った後。攻撃できない)
+ * @param canUseAbility   今この瞬間、起動能力を発動できるか(能力を持たないミニオンはfalse)
+ * @param abilityText     起動能力の説明文(能力を持たないミニオンはnull)
  */
 public record MinionView(
         String instanceId,
@@ -20,5 +23,8 @@ public record MinionView(
         List<String> keywords,
         boolean canAttackMinion,
         boolean canAttackLeader,
-        boolean frozen) {
+        boolean frozen,
+        boolean tapped,
+        boolean canUseAbility,
+        String abilityText) {
 }

@@ -31,6 +31,9 @@ let lastAutoKey = null;
 /** マリガンで引き直しに選んだ手札インデックス */
 let mulliganPicks = [];
 
+// 割り込み選択(a9)で選んだ候補のindex群。選択の解決を送るまで保持する
+let choicePicks = [];
+
 /**
  * 禁忌コストの支払い進行状態。
  * { tabooIndex, cost, manaIndexes: [], specs: [対象要求...] }
@@ -79,10 +82,9 @@ function chooseOrder(goFirst) { send('choose-order', { goFirst }); }
 function nextPhase() { send('next-phase', {}); }
 function endTurn() { send('end-turn', {}); }
 
-/** 降臨の伝道師の選択待ちがあるか。サーバ側も同じ状態の間は他の操作を拒否する */
-function hasPendingReveal() {
-    return !!(latestView && latestView.you && latestView.you.pendingReveal
-        && latestView.you.pendingReveal.length > 0);
+/** 割り込み選択(a9)の待ちがあるか。サーバ側も同じ状態の間は他の操作を拒否する */
+function hasPendingChoice() {
+    return !!(latestView && latestView.you && latestView.you.pendingChoice);
 }
 
 // ---------------------------------------------------------------
@@ -91,7 +93,7 @@ function hasPendingReveal() {
 
 function onHandCardClick(index) {
     if (!latestView) return;
-    if (hasPendingReveal()) return; // 降臨の伝道師の選択を先に済ませる必要がある
+    if (hasPendingChoice()) return; // 割り込み選択を先に済ませる必要がある
     // マリガン中の手札クリックは引き直し対象のトグル
     if (latestView.mulligan) {
         const pos = mulliganPicks.indexOf(index);
@@ -118,13 +120,18 @@ function onHandCardClick(index) {
     // 特殊召喚が可能なら通常召喚とどちらにするか確認する
     let action = 'play-card';
     let specs = card.targets;
+    let enhanced = false;
     if (card.canSpecialSummon && latestView.phase === 'MAIN') {
         if (confirm(card.specialSummonText + '\n\nOK = 特殊召喚 / キャンセル = 通常プレイ')) {
             action = 'special-summon';
             specs = card.specialTargets;
         }
+    } else if (card.enhancedCost > 0) {
+        // 追加コストによる強化使用(a5: 回帰の風穴・風弾の跳弾)。
+        // コストに影響するモード選択のため、対象選択より前に確定させる
+        enhanced = confirm(card.enhancedText + `\n\nOK = 追加コスト+${card.enhancedCost}を払う / キャンセル = 通常使用`);
     }
-    beginSelection(action, index, specs);
+    beginSelection(action, index, specs, enhanced ? { enhanced: true } : { enhanced: false });
 }
 
 /** 対象選択を開始する。要求がなければ即送信 */
@@ -392,7 +399,7 @@ function pickWeapon(side) {
 // ---------------------------------------------------------------
 
 function onTabooCardClick(index) {
-    if (hasPendingReveal()) return;
+    if (hasPendingChoice()) return;
     if (pending || tabooPay || !latestView || !latestView.myTurn) return;
     if (latestView.phase !== 'MAIN') {
         showMessage('禁忌カードはメインフェイズにのみ使用できます');
@@ -441,7 +448,7 @@ function cancelTabooPayment() {
 }
 
 function useLeaderAbility() {
-    if (hasPendingReveal()) return;
+    if (hasPendingChoice()) return;
     const ability = latestView && latestView.you && latestView.you.leaderAbility;
     if (!ability || !ability.usable || pending) return;
     beginSelection('leader-ability', null, ability.targets);
@@ -582,18 +589,38 @@ function showLeaderInfo(isSelf) {
 // ---------------------------------------------------------------
 
 function onMyMinionClick(instanceId) {
-    if (hasPendingReveal()) return;
+    if (hasPendingChoice()) {
+        // 割り込み選択中で、ミニオンを選ばせる問い合わせなら選択として扱う
+        pickChoiceCandidateByMinion(instanceId);
+        return;
+    }
     if (pending) {
         pickMinion(instanceId, true);
         return;
     }
-    if (!latestView || !latestView.myTurn || latestView.phase !== 'BATTLE') return;
+    if (!latestView || !latestView.myTurn) return;
+    // メインフェイズ: 起動能力を持ちタップしていないミニオンのクリックは能力発動
+    const minion = (latestView.you.minions || []).find(m => m.instanceId === instanceId);
+    if (latestView.phase === 'MAIN' && minion && minion.canUseAbility) {
+        useMinionAbility(instanceId);
+        return;
+    }
+    if (latestView.phase !== 'BATTLE') return;
     selectedAttackerId = (selectedAttackerId === instanceId) ? null : instanceId;
     render(latestView);
 }
 
+/** ミニオンの起動能力を発動する(a6)。対象選択が要れば選択UIを開く */
+function useMinionAbility(instanceId) {
+    const minion = (latestView.you.minions || []).find(m => m.instanceId === instanceId);
+    if (!minion || !minion.canUseAbility) return;
+    // 起動能力の対象仕様はビューに載せていないため、まず対象なしで送る。
+    // 対象を要する能力が出た時点で MinionView に仕様を足す(現状の静空の風使いは対象なし)
+    send('minion-ability', { instanceId, targets: [] });
+}
+
 function onMyLeaderClick() {
-    if (hasPendingReveal()) return;
+    if (hasPendingChoice()) return;
     if (pending) return;
     if (!latestView || !latestView.myTurn || latestView.phase !== 'BATTLE') return;
     if (!latestView.you.leaderCanAttack) return;
@@ -644,6 +671,10 @@ function onMessage(frame) {
     if (!latestView.myTurn || latestView.phase !== 'BATTLE') {
         selectedAttackerId = null;
     }
+    // 割り込み選択が無くなった(解決済み)なら、選びかけの内容も捨てる
+    if (!latestView.you || !latestView.you.pendingChoice) {
+        choicePicks = [];
+    }
     pending = null;
     tabooPay = null;
     render(latestView);
@@ -662,7 +693,7 @@ function render(view) {
     }
     renderOpponent(view.opponent, view);
     renderSelf(view.you, view);
-    renderRevealChoice(view);
+    renderPendingChoice(view);
 
     if (view.status === 'FINISHED') {
         showMessage('対戦終了: ' + view.winnerName + ' の勝利');
@@ -671,26 +702,74 @@ function render(view) {
 }
 
 /**
- * 降臨の伝道師: 公開した4枚からの選択UI。手札・場・マナ・墓地のどの対象選択とも違う、
- * 公開領域からの一時的な選択のため、pending(既存の対象選択の仕組み)とは別に描画する。
+ * 割り込み選択(a9): 効果の解決中にサーバが問い合わせてきた選択のUI。
+ * 手札・場・墓地・公開領域のいずれからでも、候補の並び順の位置を選んで送り返す。
+ * 既存の対象選択(pending)とは別物(あちらは使用宣言時、こちらは解決の途中)。
  */
-function renderRevealChoice(view) {
+function renderPendingChoice(view) {
     const area = document.getElementById('reveal-area');
-    const cards = (view.you && view.you.pendingReveal) || [];
-    area.classList.toggle('d-none', cards.length === 0);
+    const choice = view.you && view.you.pendingChoice;
+    area.classList.toggle('d-none', !choice);
     const row = document.getElementById('reveal-cards');
+    const promptEl = document.getElementById('reveal-prompt');
     row.innerHTML = '';
-    cards.forEach(card => {
+    if (!choice) return;
+    promptEl.textContent = choice.prompt;
+    const multi = choice.max > 1 || choice.min === 0;
+    choice.candidates.forEach(cand => {
         const btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'btn btn-sm ' + (card.guard ? 'btn-warning' : 'btn-outline-secondary');
-        btn.disabled = !card.guard;
-        btn.textContent = card.name + (card.keywords.length ? ` [${card.keywords.join(' ')}]` : '');
-        if (card.guard) {
-            btn.onclick = () => send('resolve-reveal', { chosenIndex: card.index });
-        }
+        const picked = choicePicks.includes(cand.index);
+        btn.className = 'btn btn-sm ' + (picked ? 'btn-warning' : 'btn-outline-warning');
+        btn.textContent = cand.label
+            + (cand.keywords && cand.keywords.length ? ` [${cand.keywords.join(' ')}]` : '');
+        btn.onclick = () => toggleChoicePick(cand.index, choice);
         row.appendChild(btn);
     });
+    // 確定・キャンセルの制御。1つだけ選ぶ選択(min=max=1)はクリックで即確定するため、
+    // 「確定」ボタンは複数選択・任意選択のときだけ出す
+    const confirmBtn = document.getElementById('btn-confirm-choice');
+    confirmBtn.classList.toggle('d-none', !multi);
+    if (multi) {
+        confirmBtn.textContent = `この内容で確定 (${choicePicks.length}/${choice.max})`;
+    }
+}
+
+/** 候補のトグル(複数選択)または即確定(単一選択) */
+function toggleChoicePick(index, choice) {
+    if (choice.max === 1 && choice.min === 1) {
+        // 1つだけ選ぶ: クリックで即送信
+        send('resolve-choice', { chosenIndexes: [index] });
+        choicePicks = [];
+        return;
+    }
+    const pos = choicePicks.indexOf(index);
+    if (pos >= 0) {
+        choicePicks.splice(pos, 1);
+    } else if (choicePicks.length < choice.max) {
+        choicePicks.push(index);
+    }
+    render(latestView);
+}
+
+/**
+ * 割り込み選択中に場のミニオンを直接クリックしたときの処理。
+ * 現行カードの割り込みは候補が墓地・手札・公開領域であり、場のミニオンを選ばせるものは
+ * まだ無い(風護の杖・回帰の風穴の効果実装は Batch 12b)。そのため今は何もしない。
+ * MINION種別の割り込みが実装されたら、ここで候補のindexを引いて resolve-choice を送る。
+ */
+function pickChoiceCandidateByMinion(instanceId) {
+    // Batch 12b で実装する
+}
+function confirmChoice() {
+    const choice = latestView.you && latestView.you.pendingChoice;
+    if (!choice) return;
+    if (choicePicks.length < choice.min) {
+        showMessage(`最低${choice.min}枚選んでください`);
+        return;
+    }
+    send('resolve-choice', { chosenIndexes: choicePicks });
+    choicePicks = [];
 }
 
 function renderMulligan(view) {
@@ -716,8 +795,8 @@ function renderHeader(view) {
 function renderControls(view) {
     document.getElementById('choose-order-area').classList.toggle('d-none', !view.chooseOrder);
     const controls = document.getElementById('turn-controls');
-    const revealing = view.you && view.you.pendingReveal && view.you.pendingReveal.length > 0;
-    controls.classList.toggle('d-none', !(view.status === 'PLAYING' && view.myTurn) || revealing);
+    const choosing = !!(view.you && view.you.pendingChoice);
+    controls.classList.toggle('d-none', !(view.status === 'PLAYING' && view.myTurn) || choosing);
     // 墓地からの召喚は【黄泉の召喚主】のサブフェイズ限定(常在能力)
     const graveSummon = view.status === 'PLAYING' && view.myTurn && view.phase === 'SUB'
         && view.you.leaderCardId === 'QTE-L006';
@@ -886,7 +965,12 @@ function renderSelf(you, view) {
                 el.classList.add('can-attack');
                 el.onclick = () => onMyMinionClick(minion.instanceId);
             }
-            if (!minion.canAttackMinion && !minion.canAttackLeader) {
+            // メインフェイズ: 起動能力が使えるミニオンもクリック可能にする(a6)
+            if (view.myTurn && view.phase === 'MAIN' && minion.canUseAbility) {
+                el.classList.add('can-attack');
+                el.onclick = () => onMyMinionClick(minion.instanceId);
+            }
+            if (!minion.canAttackMinion && !minion.canAttackLeader && !minion.canUseAbility) {
                 el.classList.add('exhausted');
             }
             if (minion.instanceId === selectedAttackerId) {
@@ -937,11 +1021,15 @@ function createTabooCardEl(card, index, view) {
 function createMinionEl(minion) {
     const el = document.createElement('div');
     el.className = 'game-card';
+    if (minion.tapped) el.classList.add('tapped-minion');
     const frozenMark = minion.frozen ? '<div class="kw">❄凍結</div>' : '';
+    const tapMark = minion.tapped ? '<div class="kw">⟳タップ</div>' : '';
+    // 起動能力が使えるミニオンは印を出す(クリックで発動。対象選択が要る能力は選択UIへ)
+    const abilityMark = minion.canUseAbility ? '<div class="kw">⚡能力使用可</div>' : '';
     el.innerHTML = `
         <div class="card-name">${escapeHtml(minion.name)}</div>
         <div class="kw">${minion.keywords.map(escapeHtml).join(' ')}</div>
-        ${frozenMark}
+        ${frozenMark}${tapMark}${abilityMark}
         <div class="card-stats"><span>⚔${minion.attack}</span><span>♥${minion.currentHp}/${minion.maxHp}</span></div>`;
     return el;
 }

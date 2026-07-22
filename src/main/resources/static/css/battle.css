@@ -30,6 +30,13 @@
 .game-card.selected-attacker { border-color: #ff5722; box-shadow: 0 0 8px #ff5722; }
 .game-card.attack-target { border-color: #ef5350; cursor: crosshair; }
 .game-card.exhausted { opacity: 0.55; }
+/* 起動能力で自身をタップしたミニオン(a6)。マナのタップと同じ「傾ける」表現で揃えるが、
+   カードは横並びで場所を取るため回転角を浅くし、レイアウトを崩さないようにしている */
+.game-card.tapped-minion {
+    transform: rotate(8deg);
+    opacity: 0.7;
+    border-color: #78909c;
+}
 
 .mana-row { display: flex; gap: 3px; flex-wrap: wrap; }
 .mana-chip {

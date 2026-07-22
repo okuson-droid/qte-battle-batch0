@@ -19,7 +19,20 @@ public record StatModifier(
         String sourceCardId) {
 
     public enum Stat {
-        ATTACK, COST
+        ATTACK, COST,
+        /**
+         * 最大体力(風文明で追加)。攻撃力を上げる効果は水・火・闇にも多数あったが、
+         * 体力そのものを上げる効果は風が初めてである。
+         * 評価は MinionInstance.getMaxHp が行う(盤面を参照しない固定値のため
+         * StatCalculator には出していない)。
+         */
+        HP,
+        /**
+         * 1ターンに攻撃できる回数の追加分(ツイン・ストライク)。
+         * 専用フィールドを持たせず修正スタックに載せることで、
+         * 「このターン中だけ2回攻撃できる」の期限管理を expireThisTurnModifiers に任せられる。
+         */
+        EXTRA_ATTACKS
     }
 
     public enum Operation {
