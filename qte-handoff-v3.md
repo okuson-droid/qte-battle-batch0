@@ -1,6 +1,6 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-07-22 (Batch 12a 実装完了時点)
+最終更新: 2026-07-22 (Batch 12a 実装完了・ビルドエラー修正済み)
 次の作業: **Batch 12b(風文明28枚の登録)。Sonnet 5・拡張思考不要**
 
 このファイルは、新しいチャットで作業を再開するための最小限の情報をまとめたものである。
@@ -129,14 +129,16 @@ if (ctx.enhanced()) { ... }
 **`tools/` にスクリプトを置いてある。** 12a から、失われないようリポジトリで管理している。
 
 ```bash
+python3 tools/check_structure.py src/main/java                      # ★最優先(構造の破壊)
 python3 tools/check_all.py .                                        # 項目 1・3・5・6
 python3 tools/check_records.py src/main/java                        # 項目 4
 python3 tools/check_undeclared.py src/main/resources/static/js/*.js # 項目 8
 node --check src/main/resources/static/js/battle.js                 # 項目 7
 ```
 
-括弧の均衡(項目2)は `check_all.py` に含めていないため、置換編集をしたら目視するか
-簡易スクリプトを回すこと。
+**`check_structure.py` を必ず最初に回すこと。** 括弧の総数の均衡だけでは、
+開き括弧と閉じ括弧が同時に消えた場合(Batch 12a の事故)を検出できない。
+詳しくは `tools/README.md` を参照。
 
 `check_records.py` は次の2つを不一致として報告するが、いずれも誤検出である。
 **不一致が出たら必ず該当行を目視すること。**
@@ -152,12 +154,16 @@ node --check src/main/resources/static/js/battle.js                 # 項目 7
 | 存在しないアクセサを呼んだ | Batch 11a | `check_all.py` の項目5 |
 | 変数の宣言だけ消して使用箇所を残した | Batch 11a | `check_undeclared.py` |
 | チェックスクリプトを次チャットに引き継げず作り直し | Batch 12a | `tools/` としてリポジトリ管理 |
+| **メソッド宣言行を消し、括弧の総数が釣り合って素通り** | Batch 12a | **`check_structure.py`(呼び出し側から未解決メソッドを検出)** |
 
 ### コンテキスト効率
 
 - **ファイル全体の `view` を既定にしない。** まず `grep -n` で当たりをつける。
 - 横断編集が要る項目は、着手前に触るファイルを列挙する。
 - **チャットを中断・再開しない。**
+- **`str_replace` の `old_str` に「次のメソッドの宣言行」を含めない。**
+  含めざるをえない場合は `new_str` に必ず書き戻し、`check_structure.py` を回す。
+  Batch 12a はこれで Render のビルドを1回落としている。
 
 ### 発注者とのやりとり
 

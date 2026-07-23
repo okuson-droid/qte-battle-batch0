@@ -1253,6 +1253,9 @@ public class GameService {
             }
         }
         return new ValidatedTargets(reqs, handPerReq, minionsPerReq, manaPerReq, trashPerReq, weaponsPerReq);
+    }
+
+    private void requireCount(TargetSpec.Requirement req, int actual) {
         // upTo(「好きな数」「あるだけ」)は0からcountまでのどれでもよい
         boolean ok = req.upTo() ? (actual >= 0 && actual <= req.count())
                 : actual == req.count() || (req.optional() && actual == 0);
