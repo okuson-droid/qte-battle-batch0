@@ -18,6 +18,7 @@ import com.example.qte.effect.TargetSpec.Side;
 import com.example.qte.game.GameState;
 import com.example.qte.game.ManaCard;
 import com.example.qte.game.MinionInstance;
+import com.example.qte.game.SpellDisposition;
 import com.example.qte.game.TurnPhase;
 import com.example.qte.game.StatModifier;
 import com.example.qte.game.PlayerState;
@@ -90,6 +91,7 @@ public class CardEffectRegistry {
         registerFireCards();
         registerDarkCards();
         registerLightCards();
+        registerWindCards();
     }
 
     // ---------------------------------------------------------------
@@ -1062,6 +1064,342 @@ public class CardEffectRegistry {
         // 既存の6件と同じくGameService.leaderAttack内のswitchで解決する(11bでは移設しない)
     }
 
+    // ---------------------------------------------------------------
+    // 登録: 風文明(Batch 12b。土台のa1〜a9はBatch 12aで実装済み)
+    // ---------------------------------------------------------------
+
+    private void registerWindCards() {
+
+        // ---- 既存機構のみ(キーワードだけで完結するカードは登録不要) ----
+        // ウィンド・ペティ(0010)・疾風の先陣(0016)・スカイ・スワロー(0129)は
+        // 印刷キーワードのみで完結するため、このメソッドには登場しない。
+        // 結集する風の精(0124)・疾風のレイピア(0130)・サイクロン・フェンサー(0133)・
+        // 詠唱の風詠士(L010)はStatCalculatorの動的評価のみで完結するため、
+        // ここにも登場しない(効果テーブルへの登録が不要な理由は各設計解説を参照)。
+        // 風護の杖(0123)は攻撃時効果をGameService.leaderAttackに置いている(switchには足さない)ため、
+        // ここでの登録は resolveChoice の GUARD_STAFF_TARGET 分岐のみである。
+
+        // ---- リーダー ----
+
+        // 疾風の導き手: コスト1を支払う。このターン中に自分が使用したカードの枚数が3枚以上なら、
+        // 自分のミニオン1体の攻撃力を+2(永続。「このターン中」の指定はカウント条件のみに掛かる)
+        leaderAbilities.put("QTE-L009", new LeaderAbilitySpec(1,
+                TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(),
+                        "攻撃力を+2するミニオンを選んでください")),
+                ctx -> ctx.targets().get(0).minions().forEach(t -> t.minion().addModifier(
+                        new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD, 2,
+                                StatModifier.Duration.PERMANENT, "QTE-L009"))),
+                (state, player) -> player.getCardsUsedThisTurn() >= 3,
+                "コスト1を支払う: このターン3枚以上カードを使用していれば、自分のミニオン1体の攻撃力を+2"));
+
+        // ---- ミニオン ----
+
+        // ガイル・フォックス: 【召喚時】このターン中にカードを2枚以上使用しているなら【潜伏】。
+        // 使用カウンタは解決中に読むため自身を含まない(裁定1)
+        register("QTE-0117", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.owner().getCardsUsedThisTurn() >= 2 && ctx.source() != null) {
+                ctx.source().grantKeyword(Keyword.STEALTH);
+                ctx.room().addLog("【ガイル・フォックス】は【潜伏】を得ました");
+            }
+        });
+
+        // 風神ヴァーユ: 【特殊召喚】自分の墓地に【守護】を持つカードが4枚以上のとき、
+        // このカードを手札から1コストで出せる(代替コストなし。条件のみ)
+        specialSummons.put("QTE-0115", new SpecialSummonSpec(
+                (state, player, handIndex) -> player.getTrash().stream()
+                        .filter(id -> cards.findById(id).hasKeyword(Keyword.GUARD)).count() >= 4,
+                1,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                ctx -> {
+                },
+                "自分の墓地に【守護】を持つカードが4枚以上: コスト1で召喚します"));
+
+        // 嵐の守り手: 【特殊召喚】自分の場に体力3以上のミニオンが3体以上のとき、
+        // このカードを手札から0コストで出せる
+        specialSummons.put("QTE-0119", SpecialSummonSpec.of(
+                (state, player, handIndex) -> player.getMinionZone().stream()
+                        .filter(m -> m.getCurrentHp() >= 3).count() >= 3,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                "自分の場に体力3以上のミニオンが3体以上: コスト0で召喚します"));
+
+        // ストーム・カイザー: 【特殊召喚】このターン中に自分がカードを4枚以上使用している時、
+        // コストを支払わずに場に出せる
+        specialSummons.put("QTE-0120", SpecialSummonSpec.of(
+                (state, player, handIndex) -> player.getCardsUsedThisTurn() >= 4,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                "このターン中に自分がカードを4枚以上使用: コストを支払わず召喚します"));
+
+        // 嵐の呼び手: 【召喚時】このターン中にカードを3枚以上使用しているなら、
+        // 相手のミニオン1体を持ち主の手札に戻す(a1のカウンタのみで完結。対象は自動選択)
+        register("QTE-0128", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.owner().getCardsUsedThisTurn() < 3) {
+                return;
+            }
+            List<MinionInstance> opponentMinions = ctx.opponent().getMinionZone();
+            if (opponentMinions.isEmpty()) {
+                return;
+            }
+            MinionInstance target = AutoChoice.highestPrintedAttack(opponentMinions);
+            ctx.actions().bounceToHand(ctx.room(), ctx.opponent(), target);
+            ctx.room().addLog("【嵐の呼び手】: 【%s】を持ち主の手札に戻しました".formatted(target.getMaster().name()));
+        });
+
+        // 詠唱の疾風騎士: ターンエンド時、このターン5回以上スペルを撃っていたら
+        // 墓地にあるスペルを2枚まで手札に戻す(候補が2枚以下なら選ぶ余地がないため自動で全て回収し、
+        // 3枚以上ならa9でプレイヤーに選ばせる)。コスト軽減はStatCalculator.effectiveCostが担う
+        register("QTE-0114", TriggerType.ON_TURN_END, ctx -> {
+            if (ctx.owner().getSpellsCastThisTurn() < 5) {
+                return;
+            }
+            List<String> trash = ctx.owner().getTrash();
+            List<Integer> spellPositions = new ArrayList<>();
+            for (int i = 0; i < trash.size(); i++) {
+                if (cards.findById(trash.get(i)).type() == CardType.SPELL) {
+                    spellPositions.add(i);
+                }
+            }
+            if (spellPositions.isEmpty()) {
+                return;
+            }
+            if (spellPositions.size() <= 2) {
+                List<String> recovered = spellPositions.stream().map(trash::get).toList();
+                for (int i = spellPositions.size() - 1; i >= 0; i--) {
+                    trash.remove((int) spellPositions.get(i));
+                }
+                recovered.forEach(id -> {
+                    ctx.owner().getHand().add(id);
+                    ctx.room().addLog("【詠唱の疾風騎士】: 【%s】を墓地から手札に戻しました"
+                            .formatted(cards.findById(id).name()));
+                });
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.upTo(
+                    PendingChoice.Kind.TRASH,
+                    spellPositions.stream().map(String::valueOf).toList(),
+                    2, ResumePoint.GALE_KNIGHT_RECOVER,
+                    "【詠唱の疾風騎士】: 墓地から手札に戻すスペルを2枚まで選んでください"));
+        });
+
+        // 突風のまとめ役: 自分が他のカードを使用するたび、ターン終了時まで自分のミニオンすべての
+        // 攻撃力を+1(a1のON_CARD_USEDイベントで配る。期限管理は既存の修正スタックが担う)。
+        // ※既知の限界: このカード自身の召喚イベントも「使用」としてこのハンドラを1回だけ通るため、
+        // 召喚直後の自分自身にも+1が乗る(カード文言の「他の」を厳密に外すには、fireCardUsedが
+        // 参照する場のスナップショットを「この使用が始まる前」に取る改修が要る。b系の範囲を超えるため
+        // 本バッチでは着手せず、design-notesに明記して発注者に確認する)
+        register("QTE-0134", TriggerType.ON_CARD_USED, ctx -> {
+            for (MinionInstance m : ctx.owner().getMinionZone()) {
+                m.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD, 1,
+                        StatModifier.Duration.THIS_TURN, "QTE-0134"));
+            }
+            ctx.room().addLog("【突風のまとめ役】: 自分のミニオンすべての攻撃力が+1されました(このターン中)");
+        });
+
+        // 静空の風使い: このカードをタップすることで自分のマナを1アンタップ状態にする
+        minionAbilities.put("QTE-0135", MinionAbilitySpec.of(0, TargetSpec.of(),
+                ctx -> ctx.actions().untapMana(ctx.room(), ctx.owner(), 1),
+                "タップして、自分のマナを1枚アンタップします"));
+
+        // ---- スペル ----
+
+        // 神風の大号令: このターン中に自分が使用したカードの枚数と同じだけ、
+        // 自分のミニオンすべての攻撃力を+1(このターン限定)。解決時点でのスナップショットであり、
+        // 自身は含まない(裁定1)。0の場合(このターン最初のカードだった場合)は何も起きない
+        spellEffects.put("QTE-0113", ctx -> {
+            int amount = ctx.owner().getCardsUsedThisTurn();
+            if (amount <= 0) {
+                ctx.room().addLog("【神風の大号令】: このターンまだ他のカードを使用していないため、効果はありません");
+                return;
+            }
+            for (MinionInstance m : ctx.owner().getMinionZone()) {
+                m.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD, amount,
+                        StatModifier.Duration.THIS_TURN, "QTE-0113"));
+            }
+            ctx.room().addLog("【神風の大号令】: 自分のミニオンすべての攻撃力が+%dされました".formatted(amount));
+        });
+
+        // 回帰の風穴: ミニオンを1体手札に戻す(対象は自分・相手の両方: 記法規約どおり)。
+        // コスト+1してもよい。そうした場合もう一度墓地から唱え(2体目のバウンス対象を選ばせる)、
+        // その後山札の一番下に置く(a5の強化使用 + a9の割り込み)
+        targetSpecs.put("QTE-0116", TargetSpec.of(new Requirement(Kind.MINION, Side.ANY, 1, false, false,
+                List.of(), "手札に戻すミニオンを選んでください")));
+        enhancedCosts.put("QTE-0116", new EnhancedCostSpec(1,
+                "コストを+1して、このカードをもう一度墓地から唱え、その後山札の一番下に置きますか？"));
+        spellEffects.put("QTE-0116", ctx -> {
+            ctx.targets().get(0).minions().forEach(
+                    t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
+            if (!ctx.enhanced()) {
+                return;
+            }
+            ctx.owner().setPendingSpellDisposition(SpellDisposition.TO_DECK_BOTTOM);
+            resolveWindholeSecondTargets(ctx);
+        });
+
+        // ツイン・ストライク: このターン中、自分のミニオン1体に「1ターンに2回攻撃できる」を付与
+        targetSpecs.put("QTE-0118", TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false,
+                List.of(), "「1ターンに2回攻撃できる」を付与するミニオンを選んでください")));
+        spellEffects.put("QTE-0118", ctx -> ctx.targets().get(0).minions().forEach(
+                t -> t.minion().addModifier(new StatModifier(StatModifier.Stat.EXTRA_ATTACKS,
+                        StatModifier.Operation.ADD, 1, StatModifier.Duration.THIS_TURN, "QTE-0118"))));
+
+        // 風弾の跳弾: 自分のミニオンを1体手札に戻す。そうしたら相手のミニオン1体に2ダメージ。
+        // コストを+3してもよい。そうした場合、墓地に置く代わりに手札に戻す(使い回せる)
+        targetSpecs.put("QTE-0121", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(), "手札に戻す自分のミニオンを選んでください"),
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(), "2ダメージを与える相手のミニオンを選んでください")));
+        enhancedCosts.put("QTE-0121", new EnhancedCostSpec(3,
+                "コストを+3して、このカードを墓地に置く代わりに手札に戻しますか？"));
+        spellEffects.put("QTE-0121", ctx -> {
+            ctx.targets().get(0).minions().forEach(
+                    t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
+            ctx.targets().get(1).minions().forEach(
+                    t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 2));
+            if (ctx.enhanced()) {
+                ctx.owner().setPendingSpellDisposition(SpellDisposition.TO_HAND);
+            }
+        });
+
+        // 突風の祝福: 自分のミニオン1体の体力を+2する。【還元】(還元の処理は共通)
+        targetSpecs.put("QTE-0122", TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false,
+                List.of(), "体力を+2するミニオンを選んでください")));
+        spellEffects.put("QTE-0122", ctx -> ctx.targets().get(0).minions().forEach(
+                t -> t.minion().addModifier(new StatModifier(StatModifier.Stat.HP,
+                        StatModifier.Operation.ADD, 2, StatModifier.Duration.PERMANENT, "QTE-0122"))));
+
+        // そよ風の加護: 自分のミニオン1体の体力を+1し、【守護】を付与
+        targetSpecs.put("QTE-0125", TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false,
+                List.of(), "体力を+1し守護を与えるミニオンを選んでください")));
+        spellEffects.put("QTE-0125", ctx -> ctx.targets().get(0).minions().forEach(t -> {
+            t.minion().addModifier(new StatModifier(StatModifier.Stat.HP,
+                    StatModifier.Operation.ADD, 1, StatModifier.Duration.PERMANENT, "QTE-0125"));
+            t.minion().grantKeyword(Keyword.GUARD);
+        }));
+
+        // 選択の追い風: カードを1枚引く。その後守護を持つカードを1枚捨てても良い。
+        // そうしたら追加でカードを1枚引く(候補が無ければ問い合わせ自体を出さない)
+        spellEffects.put("QTE-0126", ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            List<String> guardPositions = new ArrayList<>();
+            List<String> hand = ctx.owner().getHand();
+            for (int i = 0; i < hand.size(); i++) {
+                if (cards.findById(hand.get(i)).hasKeyword(Keyword.GUARD)) {
+                    guardPositions.add(String.valueOf(i));
+                }
+            }
+            if (guardPositions.isEmpty()) {
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.upTo(
+                    PendingChoice.Kind.HAND, guardPositions, 1, ResumePoint.TAILWIND_DISCARD,
+                    "【選択の追い風】: 守護を持つカードを1枚捨てて、もう1枚引きますか？(任意)"));
+        });
+
+        // 風のマナ変換: 自分の表向きのマナを1枚手札に戻す。その後自分の手札から1枚を裏向きでマナに置く
+        spellEffects.put("QTE-0127", ctx -> {
+            boolean returned = ctx.actions().returnFaceUpManaToHand(ctx.room(), ctx.owner());
+            if (!returned) {
+                ctx.room().addLog("【風のマナ変換】: 表向きのマナが無いため、何も起こりませんでした");
+                return;
+            }
+            if (ctx.owner().getHand().isEmpty()) {
+                return;
+            }
+            List<String> handPositions = new ArrayList<>();
+            for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+                handPositions.add(String.valueOf(i));
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.HAND, handPositions, ResumePoint.MANA_CONVERT_PUT,
+                    "【風のマナ変換】: 裏向きでマナに置く手札を選んでください"));
+        });
+
+        // サイクロン・リフレッシュ: 場か手札のカードを合計2枚デッキに戻してシャッフルする。
+        // その後カードを2枚引く(a7: Kindを増やさず合計指定で解く。TargetSpecの本家サンプル)
+        targetSpecs.put("QTE-0131", TargetSpec.combined(2,
+                Requirement.upTo(Kind.HAND, Side.SELF, 2, "デッキに戻す手札を選んでください(合計2枚まで)"),
+                Requirement.upTo(Kind.MINION, Side.SELF, 2, "デッキに戻すミニオンを選んでください(合計2枚まで)")));
+        spellEffects.put("QTE-0131", ctx -> {
+            List<String> toDeck = new ArrayList<>(ctx.targets().get(0).handCardIds());
+            for (ResolvedTargets.TargetedMinion t : ctx.targets().get(1).minions()) {
+                t.owner().getMinionZone().remove(t.minion());
+                if (t.minion().isFromTaboo()) {
+                    t.owner().getLostZone().add(t.minion().getMaster().id());
+                    ctx.room().addLog("【%s】は禁忌カードのため消滅しました".formatted(t.minion().getMaster().name()));
+                } else {
+                    toDeck.add(t.minion().getMaster().id());
+                }
+            }
+            if (!toDeck.isEmpty()) {
+                ctx.actions().returnToDeckAndShuffle(ctx.room(), ctx.owner(), toDeck);
+            }
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+        });
+
+        // 追い風: 自分のミニオン1体の攻撃力を+1。カードを1枚引く
+        targetSpecs.put("QTE-0132", TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false,
+                List.of(), "攻撃力を+1するミニオンを選んでください")));
+        spellEffects.put("QTE-0132", ctx -> {
+            ctx.targets().get(0).minions().forEach(t -> t.minion().addModifier(
+                    new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD, 1,
+                            StatModifier.Duration.PERMANENT, "QTE-0132")));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+        });
+
+        // ---- ウェポン ----
+
+        // 暴風の双剣: 自分がカードを使用するたび、このターンの間、このウェポンの攻撃力を+1
+        // (a1のON_CARD_USEDイベント。0134と同じ既知の限界を持つ: 装備直後の自分自身の使用でも1回乗る)
+        register("QTE-0136", TriggerType.ON_CARD_USED, ctx ->
+                ctx.owner().setWeaponAttackBonusThisTurn(ctx.owner().getWeaponAttackBonusThisTurn() + 1));
+    }
+
+    /**
+     * 回帰の風穴の強化使用(a5)における2体目のバウンス対象を解決する。
+     * 候補は自分・相手両方の場のミニオン(記法規約どおり)。0体なら不発、1体なら自動決定、
+     * 2体以上ならプレイヤーの選択を待つ(a9。resolveChoiceのWINDHOLE_SECOND分岐が
+     * 選択結果を受けて bounceWindholeSecondById を呼び、続きを行う)。
+     */
+    private void resolveWindholeSecondTargets(EffectContext ctx) {
+        List<MinionInstance> board = new ArrayList<>();
+        board.addAll(ctx.owner().getMinionZone());
+        board.addAll(ctx.opponent().getMinionZone());
+        if (board.isEmpty()) {
+            return;
+        }
+        if (board.size() == 1) {
+            bounceWindholeSecond(ctx, board.get(0));
+            return;
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                PendingChoice.Kind.MINION,
+                board.stream().map(MinionInstance::getInstanceId).toList(),
+                ResumePoint.WINDHOLE_SECOND,
+                "【回帰の風穴】(2回目): 手札に戻すミニオンを選んでください"));
+    }
+
+    /** instanceIdから持ち主を特定してバウンスする(回帰の風穴2回目・resolveChoice双方から使う) */
+    private void bounceWindholeSecond(EffectContext ctx, MinionInstance minion) {
+        PlayerState owner = ctx.owner().getMinionZone().contains(minion) ? ctx.owner() : ctx.opponent();
+        ctx.actions().bounceToHand(ctx.room(), owner, minion);
+        ctx.room().addLog("【回帰の風穴】(2回目): 【%s】を手札に戻しました".formatted(minion.getMaster().name()));
+    }
+
+    private void bounceWindholeSecondById(EffectContext ctx, String instanceId) {
+        for (PlayerState p : List.of(ctx.owner(), ctx.opponent())) {
+            MinionInstance minion = p.getMinionZone().stream()
+                    .filter(m -> m.getInstanceId().equals(instanceId)).findFirst().orElse(null);
+            if (minion != null) {
+                bounceWindholeSecond(ctx, minion);
+                return;
+            }
+        }
+    }
+
     /** 運命のリセット: 手札をすべて山札に戻してシャッフルする(枚数はドローで別途戻す) */
     private void reshuffleHandIntoDeck(PlayerState player) {
         List<String> pool = new ArrayList<>(player.getDeck());
@@ -1113,11 +1451,50 @@ public class CardEffectRegistry {
                 ctx.owner().getRevealedZone().clear();
                 resolveMissionaryChoice(ctx, revealed, Integer.parseInt(chosen.get(0)));
             }
-            // 以下5件は Batch 12b でカード効果と同時に実装する。
-            // 12a で用意したのは器(中断・再開の経路)までである
-            case TAILWIND_DISCARD, MANA_CONVERT_PUT, WINDHOLE_SECOND,
-                    GUARD_STAFF_TARGET, GALE_KNIGHT_RECOVER ->
-                throw new IllegalStateException("この選択の解決はまだ実装されていません(Batch 12b)");
+            // 選択の追い風(QTE-0126): 「〜してもよい」の任意ディスカード。
+            // 選ばなかった(chosenが空)場合は何もしない
+            case TAILWIND_DISCARD -> {
+                if (!chosen.isEmpty()) {
+                    int idx = Integer.parseInt(chosen.get(0));
+                    String cardId = ctx.owner().getHand().remove(idx);
+                    ctx.owner().getTrash().add(cardId);
+                    ctx.room().addLog("【選択の追い風】: 【%s】を捨てました".formatted(cards.findById(cardId).name()));
+                    ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+                }
+            }
+            // 風のマナ変換(QTE-0127): 裏向きでマナに置く手札1枚を確定させる
+            case MANA_CONVERT_PUT -> {
+                int idx = Integer.parseInt(chosen.get(0));
+                ctx.actions().putHandCardIntoManaFaceDown(ctx.room(), ctx.owner(), idx);
+            }
+            // 回帰の風穴(QTE-0116)の強化使用: 2回目のバウンス対象を確定させる
+            case WINDHOLE_SECOND -> bounceWindholeSecondById(ctx, chosen.get(0));
+            // 風護の杖(QTE-0123): 攻撃時に体力+1・守護を与えるミニオンを確定させる
+            case GUARD_STAFF_TARGET -> {
+                MinionInstance minion = ctx.owner().getMinionZone().stream()
+                        .filter(m -> m.getInstanceId().equals(chosen.get(0)))
+                        .findFirst().orElse(null);
+                if (minion != null) {
+                    minion.addModifier(new StatModifier(StatModifier.Stat.HP, StatModifier.Operation.ADD, 1,
+                            StatModifier.Duration.PERMANENT, "QTE-0123"));
+                    minion.grantKeyword(Keyword.GUARD);
+                    ctx.room().addLog("【風護の杖】: 【%s】の体力が+1され、【守護】を得ました"
+                            .formatted(minion.getMaster().name()));
+                }
+            }
+            // 詠唱の疾風騎士(QTE-0114): ターンエンド時に墓地から回収するスペル(最大2枚)を確定させる。
+            // 複数選択なので位置がずれないよう降順に取り除く
+            case GALE_KNIGHT_RECOVER -> {
+                List<Integer> positions = new ArrayList<>();
+                chosen.forEach(s -> positions.add(Integer.parseInt(s)));
+                positions.sort(java.util.Comparator.reverseOrder());
+                for (int pos : positions) {
+                    String cardId = ctx.owner().getTrash().remove(pos);
+                    ctx.owner().getHand().add(cardId);
+                    ctx.room().addLog("【詠唱の疾風騎士】: 【%s】を墓地から手札に戻しました"
+                            .formatted(cards.findById(cardId).name()));
+                }
+            }
         }
     }
 

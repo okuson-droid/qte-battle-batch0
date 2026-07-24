@@ -111,6 +111,24 @@ public class StatCalculator {
                     .count();
             cost -= (int) knowledgeOnBoard;
         }
+        // ---- 風文明: ターン内カウンタ・盤面参照による動的コスト ----
+        // 詠唱の疾風騎士: 自分がこのターン中にスペルを唱えるたびコスト-1(このターン限定・下限0)
+        if ("QTE-0114".equals(card.id())) {
+            cost -= owner.getSpellsCastThisTurn();
+        }
+        // 結集する風の精: 自分の場にあるミニオンの合計コスト分コスト-1
+        if ("QTE-0124".equals(card.id())) {
+            cost -= owner.getMinionZone().stream()
+                    .mapToInt(m -> m.getMaster().cost() == null ? 0 : m.getMaster().cost())
+                    .sum();
+        }
+        // 詠唱の風詠士(リーダー): そのターン中3枚目に使うミニオンかスペルのコスト-1。
+        // 使用カウンタは自身を含まない(裁定1)ため、「3枚目」はcardsUsedThisTurn==2の瞬間に一致する
+        if ("QTE-L010".equals(owner.getLeader().id())
+                && (card.type() == CardType.MINION || card.type() == CardType.SPELL)
+                && owner.getCardsUsedThisTurn() == 2) {
+            cost -= 1;
+        }
         return Math.max(0, cost);
     }
 
@@ -150,8 +168,10 @@ public class StatCalculator {
      */
     public int maxAttacks(GameState state, PlayerState owner, MinionInstance minion) {
         int max = 1;
-        // 印刷された「1ターンに2回攻撃できる」を持つカードはBatch 12b以降でここに追加する
-        // (サイクロン・フェンサー QTE-0133 / 連撃の巨岩(土文明))
+        // 印刷された「1ターンに2回攻撃できる」を持つカード(Batch 12b)
+        if ("QTE-0133".equals(minion.getMaster().id())) { // サイクロン・フェンサー
+            max += 1;
+        }
         for (StatModifier m : minion.getModifiers()) {
             if (m.stat() == StatModifier.Stat.EXTRA_ATTACKS) {
                 max += m.value();
@@ -165,7 +185,10 @@ public class StatCalculator {
      * (疾風のレイピア = 2回。それ以外 = 1回)。
      */
     public int maxLeaderAttacks(GameState state, PlayerState owner) {
-        // 複数回攻撃できるウェポンはBatch 12b以降でここに追加する(疾風のレイピア QTE-0130)
+        CardMaster weapon = owner.getEquippedWeapon();
+        if (weapon != null && "QTE-0130".equals(weapon.id())) { // 疾風のレイピア
+            return 2;
+        }
         return 1;
     }
 

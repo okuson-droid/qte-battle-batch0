@@ -98,8 +98,12 @@ public record PlayerView(
          * @param index    PendingChoice.candidates 内での位置(送信に使う0起点の番号)
          * @param label    画面に出す名前(カード名など)
          * @param keywords 補助表示用のキーワード
+         * @param minionInstanceId kindがMINIONのときだけ入る、場のミニオンのインスタンスID。
+         *                 クライアントが場のミニオンを直接クリックしたとき、どの候補に対応するかを
+         *                 このIDで特定する(Batch 12b。風護の杖・回帰の風穴の2回目対象)
          */
-        public record ChoiceCandidateView(int index, String label, List<String> keywords) {
+        public record ChoiceCandidateView(int index, String label, List<String> keywords,
+                String minionInstanceId) {
         }
     }
 }

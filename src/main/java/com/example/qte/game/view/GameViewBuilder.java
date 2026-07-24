@@ -141,7 +141,7 @@ public class GameViewBuilder {
                 leaderFrozen,
                 buildLeaderAbility(state, player, isSelf),
                 buildRevealedCards(player),
-                buildPendingChoice(player, isSelf));
+                buildPendingChoice(state, player, isSelf));
     }
 
     /** 一時公開領域のカード(降臨の伝道師などが公開中の束)。空なら公開なし */
@@ -161,7 +161,7 @@ public class GameViewBuilder {
      * 候補の識別子(手札の位置・instanceId・墓地の位置・公開領域の位置)を、
      * 表示用のラベルに変換して届ける。クライアントは選んだ候補の位置を送り返す。
      */
-    private PlayerView.PendingChoiceView buildPendingChoice(PlayerState player, boolean isSelf) {
+    private PlayerView.PendingChoiceView buildPendingChoice(GameState state, PlayerState player, boolean isSelf) {
         // 選択の問い合わせは本人にしか見せない(相手のビューには出さない)
         if (!isSelf) {
             return null;
@@ -175,6 +175,7 @@ public class GameViewBuilder {
             String id = choice.candidates().get(i);
             String label;
             List<String> keywords = List.of();
+            String minionInstanceId = null;
             switch (choice.kind()) {
                 case HAND -> {
                     int idx = Integer.parseInt(id);
@@ -193,15 +194,20 @@ public class GameViewBuilder {
                     keywords = CardView.keywordNames(m);
                 }
                 case MINION -> {
-                    MinionInstance minion = player.getMinionZone().stream()
+                    // 候補は自分・相手どちらの場にもありうる(回帰の風穴の2回目対象など。
+                    // 記法規約により「ミニオン」に側の限定が無い効果は両者の場を参照するため)
+                    PlayerState opponent = state.opponentOf(player.getPlayerId());
+                    MinionInstance minion = java.util.stream.Stream
+                            .concat(player.getMinionZone().stream(), opponent.getMinionZone().stream())
                             .filter(mi -> mi.getInstanceId().equals(id))
                             .findFirst().orElse(null);
                     // 場を離れている場合(通常は起きない)は識別子をそのまま出す
                     label = minion != null ? minion.getMaster().name() : id;
+                    minionInstanceId = id;
                 }
                 default -> label = id;
             }
-            candidates.add(new PlayerView.PendingChoiceView.ChoiceCandidateView(i, label, keywords));
+            candidates.add(new PlayerView.PendingChoiceView.ChoiceCandidateView(i, label, keywords, minionInstanceId));
         }
         return new PlayerView.PendingChoiceView(choice.kind().name(), candidates,
                 choice.min(), choice.max(), choice.prompt());

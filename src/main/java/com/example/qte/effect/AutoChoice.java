@@ -3,6 +3,7 @@ package com.example.qte.effect;
 import java.util.Comparator;
 import java.util.List;
 
+import com.example.qte.game.MinionInstance;
 import com.example.qte.game.PlayerState;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
@@ -84,5 +85,17 @@ public final class AutoChoice {
 
     private static int costOf(CardMaster card) {
         return card.cost() == null ? 0 : card.cost();
+    }
+
+    /**
+     * 相手のミニオン1体を自動で選ぶ(嵐の呼び手 QTE-0128)。
+     * 印刷された攻撃力が最も高いものを選ぶ(手札に戻す価値が高いと推定できるため)。
+     * 同値なら盤面の並び順(先に出た方)で安定させる。
+     */
+    public static MinionInstance highestPrintedAttack(List<MinionInstance> candidates) {
+        return candidates.stream()
+                .max(Comparator.comparingInt((MinionInstance m) ->
+                        m.getMaster().attack() == null ? 0 : m.getMaster().attack()))
+                .orElse(null);
     }
 }

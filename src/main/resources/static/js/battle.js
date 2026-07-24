@@ -630,6 +630,11 @@ function onMyLeaderClick() {
 }
 
 function onOpponentMinionClick(instanceId) {
+    if (hasPendingChoice()) {
+        // 割り込み選択中で、相手のミニオンも候補になりうる(回帰の風穴の2回目対象など)
+        pickChoiceCandidateByMinion(instanceId);
+        return;
+    }
     if (pending) {
         pickMinion(instanceId, false);
         return;
@@ -753,13 +758,17 @@ function toggleChoicePick(index, choice) {
 }
 
 /**
- * 割り込み選択中に場のミニオンを直接クリックしたときの処理。
- * 現行カードの割り込みは候補が墓地・手札・公開領域であり、場のミニオンを選ばせるものは
- * まだ無い(風護の杖・回帰の風穴の効果実装は Batch 12b)。そのため今は何もしない。
- * MINION種別の割り込みが実装されたら、ここで候補のindexを引いて resolve-choice を送る。
+ * 割り込み選択中に場のミニオンを直接クリックしたときの処理(Batch 12b)。
+ * サーバから届く候補には minionInstanceId が入っているため(kindがMINIONのときのみ)、
+ * クリックされたインスタンスIDと一致する候補のindexを探して送り返す。
+ * 一致する候補が無い(選べない側のミニオンをクリックした等)場合は何もしない。
  */
 function pickChoiceCandidateByMinion(instanceId) {
-    // Batch 12b で実装する
+    const choice = latestView.you && latestView.you.pendingChoice;
+    if (!choice || choice.kind !== 'MINION') return;
+    const cand = choice.candidates.find(c => c.minionInstanceId === instanceId);
+    if (!cand) return;
+    toggleChoicePick(cand.index, choice);
 }
 function confirmChoice() {
     const choice = latestView.you && latestView.you.pendingChoice;

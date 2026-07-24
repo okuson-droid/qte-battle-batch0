@@ -530,6 +530,29 @@ public class GameActions {
     }
 
     /**
+     * 表向きのマナ1枚を手札に戻す(Batch 12b。風のマナ変換)。
+     * 既存の {@link #returnFaceDownManaToHand} は裏向き専用であり、表向き版が無かった。
+     * 戻す1枚は末尾(最後に置かれたもの)から探す。
+     *
+     * @return 戻せたらtrue(表向きのマナが1枚もなければfalse)
+     */
+    public boolean returnFaceUpManaToHand(GameRoom room, PlayerState owner) {
+        for (int i = owner.getManaZone().size() - 1; i >= 0; i--) {
+            ManaCard mana = owner.getManaZone().get(i);
+            if (!mana.isFaceUp()) {
+                continue;
+            }
+            owner.getManaZone().remove(i);
+            owner.getHand().add(mana.getCardId());
+            room.addLog("表向きのマナ【%s】が手札に戻りました"
+                    .formatted(cards.findById(mana.getCardId()).name()));
+            manaLeft(room, owner);
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * 自分のマナをcount枚アンタップする(a6。静空の風使い)。
      * タップ(支払い)と表裏の反転はあったが、アンタップする操作は存在しなかった
      * (マナ加速のカードが既存カードプールに無かったため)。

@@ -159,6 +159,41 @@ public class DeckFactory {
         LIGHT_STARTER.put("QTE-0097", 1); // 神の福音 (6) 光の守護を2体まで踏み倒し+その数だけドロー
     }
 
+    /** 風スターターデッキ: ミニオン23枚+ウェポン4枚+スペル13枚 */
+    private static final Map<String, Integer> WIND_STARTER = new LinkedHashMap<>();
+
+    static {
+        // ミニオン23枚
+        WIND_STARTER.put("QTE-0010", 3); // ウィンド・ペティ 1/1/1 知識
+        WIND_STARTER.put("QTE-0016", 3); // 疾風の先陣 1/1/1 守護・突進
+        WIND_STARTER.put("QTE-0129", 3); // スカイ・スワロー 1/1/1 速攻
+        WIND_STARTER.put("QTE-0133", 2); // サイクロン・フェンサー 2/1/1 1ターンに2回攻撃
+        WIND_STARTER.put("QTE-0128", 2); // 嵐の呼び手 2/2/2 召喚時:条件でバウンス
+        WIND_STARTER.put("QTE-0117", 2); // ガイル・フォックス 3/2/2 召喚時:条件で潜伏
+        WIND_STARTER.put("QTE-0134", 2); // 突風のまとめ役 3/1/3 使用のたび全体+1(このターン)
+        WIND_STARTER.put("QTE-0135", 1); // 静空の風使い 4/1/1 潜伏・守護・タップでマナ加速
+        WIND_STARTER.put("QTE-0120", 1); // ストーム・カイザー 5/3/4 速攻・特殊召喚
+        WIND_STARTER.put("QTE-0114", 1); // 詠唱の疾風騎士 6/3/3 突進・スペルで軽減
+        WIND_STARTER.put("QTE-0119", 1); // 嵐の守り手 7/1/4 守護・特殊召喚
+        WIND_STARTER.put("QTE-0124", 1); // 結集する風の精 8/4/4 知識・還元・動的コスト軽減
+        WIND_STARTER.put("QTE-0115", 1); // 風神ヴァーユ 9/5/5 守護・特殊召喚
+        // ウェポン4枚
+        WIND_STARTER.put("QTE-0136", 2); // 暴風の双剣 (2/⚔0+) 使用のたび攻撃+1(このターン)
+        WIND_STARTER.put("QTE-0130", 1); // 疾風のレイピア (3/⚔2) 1ターンに2回攻撃
+        WIND_STARTER.put("QTE-0123", 1); // 風護の杖 (3/⚔1) 知識・攻撃時:味方に体力+1と守護
+        // スペル13枚
+        WIND_STARTER.put("QTE-0125", 2); // そよ風の加護 (1) 体力+1・守護付与
+        WIND_STARTER.put("QTE-0132", 2); // 追い風 (1) 攻撃力+1・1ドロー
+        WIND_STARTER.put("QTE-0121", 1); // 風弾の跳弾 (1) バウンス+2ダメージ・強化使用可
+        WIND_STARTER.put("QTE-0127", 1); // 風のマナ変換 (1) 表向き→裏向きマナ入れ替え
+        WIND_STARTER.put("QTE-0131", 1); // サイクロン・リフレッシュ (1) 2枚デッキ戻し+2ドロー
+        WIND_STARTER.put("QTE-0126", 2); // 選択の追い風 (2) 1ドロー+任意で守護を捨てて追加ドロー
+        WIND_STARTER.put("QTE-0118", 1); // ツイン・ストライク (2) 1体戦闘攻撃を2回に
+        WIND_STARTER.put("QTE-0116", 1); // 回帰の風穴 (2) バウンス・強化使用で再詠唱
+        WIND_STARTER.put("QTE-0122", 1); // 突風の祝福 (3) 体力+2・還元
+        WIND_STARTER.put("QTE-0113", 1); // 神風の大号令 (4) 使用枚数分の全体攻撃力+
+    }
+
     private final CardMasterRepository cardMasterRepository;
 
     public DeckFactory(CardMasterRepository cardMasterRepository) {
@@ -167,6 +202,7 @@ public class DeckFactory {
         validate(FIRE_STARTER);
         validate(DARK_STARTER);
         validate(LIGHT_STARTER);
+        validate(WIND_STARTER);
     }
 
     /**
@@ -224,6 +260,7 @@ public class DeckFactory {
             case FIRE -> FIRE_STARTER;
             case DARK -> DARK_STARTER;
             case LIGHT -> LIGHT_STARTER;
+            case WIND -> WIND_STARTER;
             default -> throw new IllegalStateException(
                     leader.civilization().getDisplayName() + "文明のメインデッキは未実装です");
         };

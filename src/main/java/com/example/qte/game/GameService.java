@@ -16,6 +16,7 @@ import com.example.qte.effect.LeaderAbilitySpec;
 import com.example.qte.effect.MinionAbilitySpec;
 import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
+import com.example.qte.effect.ResumePoint;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.ResolvedTargets;
 import com.example.qte.effect.SpecialSummonSpec;
@@ -898,6 +899,44 @@ public class GameService {
             default -> {
             }
         }
+
+        // 風護の杖(QTE-0123): 攻撃時、自分のミニオンを1体選んでそのミニオンの体力+1・守護付与。
+        // 既存7件と違い、風文明では割り込み選択(a9)を経由させる方針のため、上のswitchには足さない
+        // (0体なら不発・1体なら自動決定・2体以上ならプレイヤーが選ぶ。降臨の伝道師と同じ流儀)
+        if ("QTE-0123".equals(weapon.id())) {
+            resolveGuardStaffAttack(room, player);
+        }
+    }
+
+    /**
+     * 風護の杖の攻撃時効果を解決する。候補が0体なら不発・1体なら自動決定・
+     * 2体以上ならプレイヤーの選択を待つ(a9)。選択結果の解決本体(体力+1・守護付与)は
+     * CardEffectRegistry.resolveChoice の GUARD_STAFF_TARGET 分岐に別途持たせている
+     * (GameServiceとCardEffectRegistryは相互に依存できないため、3行程度の小さな処理を
+     * 両側に置く形にした。処理内容は完全に同一)。
+     */
+    private void resolveGuardStaffAttack(GameRoom room, PlayerState player) {
+        List<MinionInstance> zone = player.getMinionZone();
+        if (zone.isEmpty()) {
+            return;
+        }
+        if (zone.size() == 1) {
+            applyGuardStaffBuff(room, zone.get(0));
+            return;
+        }
+        actions.requestChoice(room, player, PendingChoice.one(
+                PendingChoice.Kind.MINION,
+                zone.stream().map(MinionInstance::getInstanceId).toList(),
+                ResumePoint.GUARD_STAFF_TARGET,
+                "【風護の杖】: 体力+1・守護を与えるミニオンを選んでください"));
+    }
+
+    /** 風護の杖の効果本体(体力+1・守護付与)。GameServiceに置くのはminionZoneへの直接アクセスのため */
+    private void applyGuardStaffBuff(GameRoom room, MinionInstance minion) {
+        minion.addModifier(new StatModifier(StatModifier.Stat.HP, StatModifier.Operation.ADD, 1,
+                StatModifier.Duration.PERMANENT, "QTE-0123"));
+        minion.grantKeyword(Keyword.GUARD);
+        room.addLog("【風護の杖】: 【%s】の体力が+1され、【守護】を得ました".formatted(minion.getMaster().name()));
     }
 
     /**
