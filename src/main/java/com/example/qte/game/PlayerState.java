@@ -101,6 +101,15 @@ public class PlayerState {
     private int spellsCastThisTurn = 0;
 
     /**
+     * このターン中にマナゾーンへカードが置かれた回数(土文明の豊穣の地霊主が参照する)。
+     * マナチャージ(総合ルール6章-3)・カード効果によるマナ加速のいずれによる配置も含む。
+     * 配置経路は {@link GameActions#placeCardInManaFaceUp} の1箇所に集約されており、
+     * そこでこのカウンタを進める。
+     */
+    @Setter
+    private int cardsPutToManaThisTurn = 0;
+
+    /**
      * このターンの間、装備中ウェポンの攻撃力に加算される値(暴風の双剣)。
      * ウェポンは MinionInstance を持たないため StatModifier を積む先がなく、
      * プレイヤー単位の一時値として保持する。ターン終了時とウェポンが場を離れたときに0に戻す。
@@ -248,6 +257,7 @@ public class PlayerState {
         playedCardThisTurn = false;
         cardsUsedThisTurn = 0;
         spellsCastThisTurn = 0;
+        cardsPutToManaThisTurn = 0;
         leaderDamagedCountThisTurn = 0;
         healedCountThisTurn = 0;
         pendingFireMinionDiscount = 0;

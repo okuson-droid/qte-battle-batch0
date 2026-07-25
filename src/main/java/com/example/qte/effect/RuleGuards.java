@@ -45,6 +45,7 @@ public class RuleGuards {
     private static final String PEACE_BARRIER = "QTE-0095";   // 平和の結界(Attack3以上は攻撃不可)
     private static final String GLEAM_SHIELD = "QTE-0101";    // 煌めきの盾(自身は攻撃不可)
     private static final String GENESIS_IRIS = "QTE-0107";    // 創世神(自身はリーダーを攻撃不可)
+    private static final String ABSOLUTE_GAIA = "QTE-0150";   // 不動の絶対神ガイア(自身はリーダーを攻撃不可・土文明)
     private static final String ZODIAC = "QTE-0104";          // ゾディアック(相手リーダーは攻撃不可)
     // 破壊・ダメージ・ドローを置換するカード
     private static final String MICHAEL = "QTE-0004";         // 大天使ミカエル(戦闘では破壊されない)
@@ -105,6 +106,9 @@ public class RuleGuards {
         }
         if (targetIsLeader && GENESIS_IRIS.equals(attacker.getMaster().id())) {
             return "【創世神 ゾディアックアイリス】はリーダーを攻撃できません";
+        }
+        if (targetIsLeader && ABSOLUTE_GAIA.equals(attacker.getMaster().id())) {
+            return "【不動の絶対神ガイア】はリーダーを攻撃できません";
         }
         // 平和の結界は敵味方を問わず、Attack3以上の全てのミニオンを止める(自身も含む)
         if (isOnAnyField(state, PEACE_BARRIER)

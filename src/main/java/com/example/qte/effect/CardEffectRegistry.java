@@ -365,6 +365,38 @@ public class CardEffectRegistry {
         }
     }
 
+    /**
+     * 「自分のマナゾーンにカードが置かれた」イベントの処理(土文明)。
+     * GameActions.placeCardInManaFaceUp が配置1回ごとに呼ぶ(マナチャージ・カード効果を問わない)。
+     *
+     * 豊穣の地霊主(L012): マナにカードが置かれたとき、そのターン中それが2回目なら1ドロー。
+     * カウンタは配置イベントの発火前に加算済みのため、2回目の配置ではちょうど2を読む。
+     * fireManaLeft と同じく、リーダーの常在能力をカードIDの直書きで判定する。
+     */
+    public void fireManaPlaced(EffectContext ctx) {
+        PlayerState owner = ctx.owner();
+        if ("QTE-L012".equals(owner.getLeader().id())
+                && owner.getCardsPutToManaThisTurn() == 2) {
+            ctx.room().addLog("【豊穣の地霊主】: このターン2回目のマナ配置により1ドロー");
+            ctx.actions().drawCards(ctx.room(), owner, 1);
+        }
+    }
+
+    /**
+     * ウェポンの装備時効果(ON_EQUIP)の発火。GameService.equipWeapon が装備直後に呼ぶ。
+     * ガイア・ハンマー(装備時に山札の上から1枚を表向きでマナに置く)が使う。
+     * 【知識】の装備時ドローは GameService.equipWeapon が別途処理しているためここでは扱わない。
+     * ウェポンは MinionInstance を持たないため source は null のまま渡される。
+     */
+    public void fireEquip(String weaponId, EffectContext ctx) {
+        Consumer<EffectContext> effect = triggers
+                .getOrDefault(weaponId, Map.of())
+                .get(TriggerType.ON_EQUIP);
+        if (effect != null) {
+            effect.accept(ctx);
+        }
+    }
+
     private int countKnowledgeInHandExcluding(PlayerState player, int excludeIndex) {
         int count = 0;
         for (int i = 0; i < player.getHand().size(); i++) {

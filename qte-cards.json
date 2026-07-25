@@ -1,13 +1,13 @@
 {
   "meta": {
     "game": "クイン・タブーエレメンタル",
-    "lastUpdated": "2026-07-21",
-    "transcribed": 145,
+    "lastUpdated": "2026-07-22",
+    "transcribed": 169,
     "counts": {
-      "LEADER": 10,
-      "MINION": 77,
-      "SPELL": 42,
-      "WEAPON": 16
+      "LEADER": 12,
+      "MINION": 91,
+      "SPELL": 48,
+      "WEAPON": 18
     },
     "civilizations": {
       "FIRE": "火(赤)",
@@ -26,7 +26,8 @@
       "水文明28枚・火文明28枚を転記済み(いずれもリーダー2枚を含む)。",
       "闇文明28枚(リーダー2/ミニオン15/スペル8/ウェポン3)を転記済み。確認待ちはなし。",
       "光文明28枚(リーダー2/ミニオン17/スペル6/ウェポン3)を転記済み。確認待ちはなし。",
-      "風文明28枚(リーダー2/ミニオン13/スペル10/ウェポン3)を転記済み。確認待ちはなし。"
+      "風文明28枚(リーダー2/ミニオン13/スペル10/ウェポン3)を転記済み。確認待ちはなし。",
+      "土文明28枚を転記完了(リーダー2/ミニオン16/スペル7/ウェポン3)。確認事項はすべて解消済み。"
     ],
     "keywordDefinitions": {
       "速攻": "出したターンから攻撃できる(対象制限なし)。",
@@ -1743,7 +1744,7 @@
       "keywords": [],
       "text": "このターン中に自分が使用したカードの枚数と同じだけ、自分のミニオンすべての攻撃力を+1。",
       "confirmationPending": false,
-      "notes": "「このターン中に自分が使用したカードの枚数」にこの呪文自身は含めない(裁定1: 使用カウンタの加算は効果解決の後に行う)。したがってこのターン3枚目に唱えた場合、参照する枚数は2となり自分のミニオンすべての攻撃力は+2。解決時点の枚数で固定するスナップショット型であり、その後カードを使用しても増えない(裁定2)。"
+      "notes": "「使用したカードの枚数」はこの呪文自身の使用も含めて数える想定(解決時点で既に使用済みのため)。"
     },
     {
       "id": "QTE-0114",
@@ -2062,7 +2063,7 @@
       "keywords": [],
       "text": "自分が他のカードを使用するたび、ターン終了時まで自分のミニオンすべての攻撃力を+1。",
       "confirmationPending": false,
-      "notes": "Attack表記は「1+」。基礎値1に、このターン中自分がカードを使用するたび加算されるターン限定バフ。「他の」の有無は表記ゆれであり、暴風の双剣(QTE-0136)と実質同一の挙動。自分自身の使用(このミニオンの召喚)はカウントに含めず、召喚した瞬間にはバフが乗らない(裁定1)。カード使用カウントは起動能力の発動も含む(発注者確認済み、project-reference 2-9に反映)。バフは使用のたびに場のミニオンへ個別に積まれるため、このミニオンが破壊されても既に配られたバフはターン終了時まで残る。"
+      "notes": "Attack表記は「1+」。基礎値1に、このターン中自分がカードを使用するたび加算されるターン限定バフ(thisTurnAuras系)。「他の」の有無は表記ゆれであり、暴風の双剣(QTE-0136)と実質同一の挙動(自分自身の使用も含めてカウント)。カード使用カウントは起動能力の発動も含む(発注者確認済み、project-reference 2-9に反映)。"
     },
     {
       "id": "QTE-0135",
@@ -2091,7 +2092,340 @@
       "keywords": [],
       "text": "自分がカードを使用するたび、このターンの間、このウェポンの攻撃力を+1。",
       "confirmationPending": false,
-      "notes": "Attack表記は「0+」。自分がカードを使用するたび、このターン中攻撃力+1が累積するウェポン自身へのバフ。突風のまとめ役(QTE-0134)とは表記ゆれのみの違いで実質同一の挙動。自分自身の使用(このウェポンの装備)はカウントに含めず、装備した瞬間には+1されない(裁定1)。"
+      "notes": "Attack表記は「0+」。自分がカードを使用するたび、このターン中攻撃力+1が累積するウェポン自身へのバフ。突風のまとめ役(QTE-0134)とは表記ゆれのみの違いで、実質同一の挙動(どちらも自分自身の使用を含めてカウント)。"
+    },
+    {
+      "id": "QTE-0137",
+      "name": "大地の精霊グラン",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 5,
+      "attack": 4,
+      "hp": 4,
+      "keywords": [],
+      "text": "自分の山札の上から1枚を表向きでマナに置く。",
+      "confirmationPending": false,
+      "notes": "【召喚時】能力。ON_SUMMON型(通常召喚・特殊召喚でのみ発動、蘇生等の「出す」では発動しない)。"
+    },
+    {
+      "id": "QTE-0138",
+      "name": "創世神ガイア",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 9,
+      "attack": 6,
+      "hp": 7,
+      "keywords": [
+        "特殊召喚"
+      ],
+      "text": "このミニオン以外の、お互いの場のミニオンをすべて破壊。",
+      "confirmationPending": false,
+      "notes": "【召喚時】は自身を除く全体除去(自分・相手の両方)。【特殊召喚】条件は自分のマナ最大値10以上でコスト0(設計判断23、SpecialSummonSpecにコスト0を指定)。"
+    },
+    {
+      "id": "QTE-0139",
+      "name": "落石の罠",
+      "type": "SPELL",
+      "civilization": "EARTH",
+      "cost": 3,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "相手のミニオン1体に5ダメージ。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0140",
+      "name": "タイタン・ウォリアー",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 8,
+      "attack": 8,
+      "hp": 8,
+      "keywords": [
+        "突進"
+      ],
+      "text": "このミニオンが戦闘で相手ミニオンを破壊した時、相手のリーダーに4ダメージ。",
+      "confirmationPending": false,
+      "notes": "戦闘によるミニオン破壊をトリガーとした追加ダメージ。常在型トリガー(設計判断6の3分類目)として実装想定。"
+    },
+    {
+      "id": "QTE-0141",
+      "name": "不動の岩石竜",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 7,
+      "attack": 6,
+      "hp": 8,
+      "keywords": [
+        "守護",
+        "潜伏"
+      ],
+      "text": "",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0142",
+      "name": "ガイア・ハンマー",
+      "type": "WEAPON",
+      "civilization": "EARTH",
+      "cost": 4,
+      "attack": 4,
+      "hp": null,
+      "keywords": [],
+      "text": "自分の山札の上から1枚をマナに表向きで置く。",
+      "confirmationPending": false,
+      "notes": "召喚時ではなく装備時に発動(発注者確認済み)。ウェポン装備を「召喚」表記で扱うカードとして扱う。"
+    },
+    {
+      "id": "QTE-0143",
+      "name": "大地の狂戦士",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 4,
+      "attack": 3,
+      "hp": 1,
+      "keywords": [
+        "突進"
+      ],
+      "text": "自分のマナが7枚以上の時このカードのコストは1になる。",
+      "confirmationPending": false,
+      "notes": "動的コスト(設計判断5)。地脈の覚醒(QTE-0015)と同系統の条件だが、還元キーワードは持たない。"
+    },
+    {
+      "id": "QTE-0144",
+      "name": "疾風怒濤のベヒーモス",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 15,
+      "attack": 6,
+      "hp": 8,
+      "keywords": [
+        "速攻"
+      ],
+      "text": "ターンエンド時このカードを手札に戻す。",
+      "confirmationPending": false,
+      "notes": "連撃の巨岩(QTE-0017)と同じ強制バウンス処理(設計判断8)を使うが、攻撃回数の上書きは持たず速攻のみ。コスト15は現行最高コスト。"
+    },
+    {
+      "id": "QTE-0145",
+      "name": "天変地異のタイタン",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 10,
+      "attack": 7,
+      "hp": 7,
+      "keywords": [],
+      "text": "相手の場全てに7ダメージ。カードを2枚引く。",
+      "confirmationPending": false,
+      "notes": "【召喚時】。「相手の場全て」は相手ミニオン全体を指し、自分の場は含まない想定。"
+    },
+    {
+      "id": "QTE-L011",
+      "name": "大地の巨頭",
+      "type": "LEADER",
+      "civilization": "EARTH",
+      "cost": null,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "起動能力(1ターンに1回): コスト4を支払う。自分の手札からカードを1枚選び、表向きでマナゾーンに置く。",
+      "confirmationPending": false,
+      "notes": "起動能力はメインフェイズ中のみ・1ターン1回(全リーダー共通)。マナチャージ1回制限とは別枠の追加マナ加速。"
+    },
+    {
+      "id": "QTE-0146",
+      "name": "大地の守護盾",
+      "type": "WEAPON",
+      "civilization": "EARTH",
+      "cost": 2,
+      "attack": 0,
+      "hp": null,
+      "keywords": [],
+      "text": "自分のリーダーが攻撃されたとき、代わりにこのカードを破壊する。",
+      "confirmationPending": false,
+      "notes": "リーダーへの攻撃をウェポン自身の破壊で肩代わりする置換効果。ダメージそのものを防ぐため被ダメージトリガーは誘発しない想定。"
+    },
+    {
+      "id": "QTE-0147",
+      "name": "百獣の王ベヒーモス",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 9,
+      "attack": 10,
+      "hp": 10,
+      "keywords": [],
+      "text": "",
+      "confirmationPending": false,
+      "notes": "テキストなしのバニラミニオン。コストに対して攻撃力・体力が高水準。"
+    },
+    {
+      "id": "QTE-0148",
+      "name": "大地震",
+      "type": "SPELL",
+      "civilization": "EARTH",
+      "cost": 4,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "お互いのコスト3以下のミニオンをすべて破壊。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0149",
+      "name": "大地の開眼",
+      "type": "SPELL",
+      "civilization": "EARTH",
+      "cost": 1,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "カードを1枚引く。自分のマナが7枚以上の時さらに1枚引く。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0150",
+      "name": "不動の絶対神ガイア",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 14,
+      "attack": 10,
+      "hp": 10,
+      "keywords": [
+        "潜伏"
+      ],
+      "text": "リーダーを攻撃できない。攻撃時相手のリーダーに4ダメージ。",
+      "confirmationPending": false,
+      "notes": "「リーダーを攻撃できない」はこのミニオン自身がリーダーを攻撃対象に選べない(ミニオンにしか攻撃できない)という意味(発注者確認済み)。攻撃時には対象と無関係に相手リーダーへ追加4ダメージが入る。"
+    },
+    {
+      "id": "QTE-0151",
+      "name": "ガイア・リソース",
+      "type": "SPELL",
+      "civilization": "EARTH",
+      "cost": 4,
+      "attack": null,
+      "hp": null,
+      "keywords": [
+        "還元"
+      ],
+      "text": "山札の上から1枚をマナゾーンに置く。",
+      "confirmationPending": false,
+      "notes": "地脈の覚醒(QTE-0015)・大地の精霊グラン(QTE-0137)と同系統のマナ加速に還元を付与した版。"
+    },
+    {
+      "id": "QTE-L012",
+      "name": "豊穣の地霊主",
+      "type": "LEADER",
+      "civilization": "EARTH",
+      "cost": null,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "マナにカードが置かれたとき、そのターン中それが2回目なら、カードを1枚引く。",
+      "confirmationPending": false,
+      "notes": "常在型トリガー(起動能力ではない)。マナチャージ・カード効果いずれによるマナ配置も回数に含む想定。地脈の覚醒やガイア・リソース等のマナ加速カードと組み合わせると2回目以降が発生しやすい。"
+    },
+    {
+      "id": "QTE-0152",
+      "name": "安らぎのガーディアン",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 10,
+      "attack": 4,
+      "hp": 4,
+      "keywords": [
+        "守護"
+      ],
+      "text": "リーダーのHPを2回復。ターンエンド時リーダーのHPを4回復。",
+      "confirmationPending": false,
+      "notes": "【召喚時】でリーダーHP2回復、さらにターンエンド時トリガーで4回復。2つの独立した誘発効果を持つ守護ミニオン。"
+    },
+    {
+      "id": "QTE-0153",
+      "name": "アースクエイクジャイアント",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 6,
+      "attack": 6,
+      "hp": 3,
+      "keywords": [],
+      "text": "相手の場にいる【守護】を持つミニオンをすべて破壊。",
+      "confirmationPending": false,
+      "notes": "【召喚時】。守護ミニオンへのピンポイント全体除去。"
+    },
+    {
+      "id": "QTE-0154",
+      "name": "ゴーレム・ウォール",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 3,
+      "attack": 1,
+      "hp": 5,
+      "keywords": [
+        "守護"
+      ],
+      "text": "",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0155",
+      "name": "地砕きの突撃兵",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 3,
+      "attack": 3,
+      "hp": 1,
+      "keywords": [
+        "突進"
+      ],
+      "text": "攻撃時、自分のマナから1枚選び手札に戻す。破壊されたとき自分の山札の上から1枚を表向きでマナに置く。",
+      "confirmationPending": false,
+      "notes": "攻撃時のマナ回収(手札化)と、破壊時の山札からのマナ加速という2つの独立した誘発効果を持つ。"
+    },
+    {
+      "id": "QTE-0156",
+      "name": "苗木植えの精霊",
+      "type": "MINION",
+      "civilization": "EARTH",
+      "cost": 2,
+      "attack": 1,
+      "hp": 1,
+      "keywords": [],
+      "text": "自分の手札を1枚表向きでマナに置く。",
+      "confirmationPending": false,
+      "notes": "【召喚時】。山札からではなく手札を対価にするマナ加速。対象カードの選択が任意選択か自動(唯一の手札時など)かは他カード(地砕きの突撃兵の「1枚選び」表記)との比較で要検討だが、実装上はプレイヤー選択として扱う想定。"
+    },
+    {
+      "id": "QTE-0157",
+      "name": "豊穣の祈り",
+      "type": "SPELL",
+      "civilization": "EARTH",
+      "cost": 5,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "自分の山札の上から1枚を表向きでマナに置く。その後カードを2枚引く。",
+      "confirmationPending": false,
+      "notes": ""
+    },
+    {
+      "id": "QTE-0158",
+      "name": "大地の恵み",
+      "type": "SPELL",
+      "civilization": "EARTH",
+      "cost": 3,
+      "attack": null,
+      "hp": null,
+      "keywords": [],
+      "text": "自分の山札の上から1枚を表向きでマナに置く。",
+      "confirmationPending": false,
+      "notes": "ガイア・リソース(QTE-0151)と類似効果だが還元キーワードを持たずコストも異なる(3 vs 4)。"
     }
   ]
 }

@@ -552,6 +552,116 @@ public class GameActions {
         return false;
     }
 
+    // ---------------------------------------------------------------
+    // 土文明の基本操作(Batch 13a)
+    //
+    // 土のテーマは「マナ加速」であり、山札や手札のカードを表向きでマナゾーンへ置く
+    // カードが繰り返し登場する。既存のマナ配置ヘルパ(putHandCardIntoManaFaceDown 等)は
+    // すべて闇文明のための「裏向き」であり、表向きで置く経路が無かった。
+    //
+    // 配置の入口を placeCardInManaFaceUp の1箇所に集約する理由は2つある。
+    //   1. マナ上限15枚の判定を1箇所にまとめる。
+    //   2. 豊穣の地霊主(L012)が参照する「このターン何回マナに置かれたか」の計数と、
+    //      配置イベント(ON_MANA_PLACED相当)の発火を、配置経路すべてで漏れなく行う。
+    // マナチャージ(GameService.chargeMana)もこの入口を通す(発注者確認済み: マナチャージも
+    // 配置回数に含む)。
+    // ---------------------------------------------------------------
+
+    /**
+     * カード1枚を表向き・アンタップでマナゾーンに置く(土文明のマナ加速の唯一の入口)。
+     *
+     * マナが上限(15枚)に達している場合は置かず、計数もイベント発火もしない。
+     * 置けた場合はターン内のマナ配置カウンタを進め、fireManaPlaced を発火する
+     * (豊穣の地霊主が「2回目なら1ドロー」で反応する)。
+     *
+     * @return 置けたらtrue、マナ上限で置けなければfalse
+     */
+    public boolean placeCardInManaFaceUp(GameRoom room, PlayerState owner, String cardId) {
+        if (owner.getManaZone().size() >= PlayerState.MAX_MANA) {
+            room.addLog("マナが15枚のため、これ以上マナに置けません");
+            return false;
+        }
+        // ManaCard(cardId, temporary) の第2引数は「一時マナか」であり、faceUpは既定でtrue
+        owner.getManaZone().add(new ManaCard(cardId, false));
+        owner.setCardsPutToManaThisTurn(owner.getCardsPutToManaThisTurn() + 1);
+        effects.fireManaPlaced(contextOf(room, owner, null));
+        return true;
+    }
+
+    /**
+     * 自分の山札の上から1枚を表向きでマナゾーンに置く。
+     * 大地の精霊グラン・ガイア・リソース・豊穣の祈り・大地の恵み・ガイア・ハンマー・
+     * 地砕きの突撃兵(破壊時)が共通で使う。
+     *
+     * 山札が空の場合は何も置かない(placeCardInManaFaceUp と同様、配置が起きなければ計数もしない)。
+     * ドロー(空の山札からのドローは敗北)とは異なり、山札切れでマナに置けないだけでは敗北しない。
+     *
+     * @return 置けたらtrue
+     */
+    public boolean placeTopOfDeckInManaFaceUp(GameRoom room, PlayerState owner) {
+        String cardId = owner.getDeck().pollFirst();
+        if (cardId == null) {
+            room.addLog("%sの山札が空のため、マナに置けませんでした".formatted(owner.getDisplayName()));
+            return false;
+        }
+        boolean placed = placeCardInManaFaceUp(room, owner, cardId);
+        if (placed) {
+            room.addLog("%sが山札の上から1枚を表向きでマナに置きました(マナ%d枚)"
+                    .formatted(owner.getDisplayName(), owner.getManaZone().size()));
+        } else {
+            // マナ上限で置けなかった場合、引いてしまったカードを山札の上へ戻す
+            owner.getDeck().addFirst(cardId);
+        }
+        return placed;
+    }
+
+    /**
+     * 手札の指定カードを表向きでマナゾーンに置く。
+     * 苗木植えの精霊(【召喚時】)・大地の巨頭(リーダー起動能力)が使う。
+     * 既存の {@link #putHandCardIntoManaFaceDown} の表向き版にあたる。
+     *
+     * @return 置けたらtrue(手札の指定が不正、またはマナ上限ならfalse)
+     */
+    public boolean placeHandCardIntoManaFaceUp(GameRoom room, PlayerState owner, int handIndex) {
+        if (handIndex < 0 || handIndex >= owner.getHand().size()) {
+            return false;
+        }
+        if (owner.getManaZone().size() >= PlayerState.MAX_MANA) {
+            room.addLog("マナが15枚のため、これ以上マナに置けません");
+            return false;
+        }
+        String cardId = owner.getHand().remove(handIndex);
+        boolean placed = placeCardInManaFaceUp(room, owner, cardId);
+        if (placed) {
+            room.addLog("%sが手札1枚を表向きでマナに置きました(マナ%d枚)"
+                    .formatted(owner.getDisplayName(), owner.getManaZone().size()));
+        }
+        return placed;
+    }
+
+    /**
+     * 大地の守護盾(QTE-0146)による、リーダーへの攻撃の肩代わり(置換効果)。
+     *
+     * defender が大地の守護盾を装備している場合、リーダーへの攻撃ダメージの代わりに
+     * このウェポンを破壊し、ダメージそのものを無効化する。ダメージが発生しないため、
+     * 被ダメージトリガー(ON_LEADER_DAMAGED)は誘発しない(発注者確認済み)。
+     *
+     * ミニオンの攻撃(GameService.attack)・ウェポンでのリーダー攻撃(GameService.leaderAttack)の
+     * どちらの経路でも、リーダーへLPダメージを与える直前にこのメソッドで肩代わりを試みる。
+     * 攻撃宣言そのものは成立しているため、攻撃側の攻撃時効果は肩代わりの有無に関わらず発動する。
+     *
+     * @return 肩代わりが発生した(=リーダーへのダメージを無効化した)ならtrue
+     */
+    public boolean tryInterceptLeaderAttackWithShield(GameRoom room, PlayerState defender) {
+        CardMaster weapon = defender.getEquippedWeapon();
+        if (weapon == null || !"QTE-0146".equals(weapon.id())) {
+            return false;
+        }
+        room.addLog("【大地の守護盾】がリーダーへの攻撃を肩代わりしました");
+        destroyOwnWeapon(room, defender);
+        return true;
+    }
+
     /**
      * 自分のマナをcount枚アンタップする(a6。静空の風使い)。
      * タップ(支払い)と表裏の反転はあったが、アンタップする操作は存在しなかった

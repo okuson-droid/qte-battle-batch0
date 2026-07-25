@@ -348,7 +348,9 @@ public class GameService {
             throw new IllegalStateException("マナは15枚までです");
         }
         String cardId = takeFromHand(player, handIndex);
-        player.getManaZone().add(new ManaCard(cardId, false));
+        // 配置経路を GameActions に集約する(土文明: 配置回数の計数と豊穣の地霊主の発火のため)。
+        // マナチャージも「マナに置かれた回数」に含む(発注者確認済み)
+        actions.placeCardInManaFaceUp(room, player, cardId);
         player.setManaChargedThisTurn(true);
         room.addLog("%sがマナチャージしました(マナ%d枚)"
                 .formatted(player.getDisplayName(), player.getManaZone().size()));
@@ -789,6 +791,8 @@ public class GameService {
             actions.drawCards(room, player, 1);
             room.addLog("【知識】%sが1枚ドロー".formatted(player.getDisplayName()));
         }
+        // ウェポンの装備時効果(土文明のガイア・ハンマー等)。召喚時ではなく装備の瞬間に発動する
+        effects.fireEquip(master.id(), contextOf(room, room.getGameState(), player, null, null));
     }
 
     /**
@@ -843,11 +847,15 @@ public class GameService {
         room.addLog("リーダーが【%s】で攻撃(%dダメージ)".formatted(weapon.name(), damage));
 
         if (targetIsLeader) {
-            opponent.setLp(opponent.getLp() - damage);
-            room.addLog("相手リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
-            if (opponent.getLp() <= 0) {
-                actions.finish(room, player);
-                return;
+            // 大地の守護盾(土文明): リーダーへの攻撃をウェポンの破壊で肩代わりする(ダメージ無効)。
+            // 攻撃宣言は成立しているため、下のウェポン攻撃時効果は肩代わりの有無に関わらず発動する
+            if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)) {
+                opponent.setLp(opponent.getLp() - damage);
+                room.addLog("相手リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
+                if (opponent.getLp() <= 0) {
+                    actions.finish(room, player);
+                    return;
+                }
             }
         } else {
             // 一方的にダメージを与える(反撃なし: 4-3)
@@ -1041,11 +1049,14 @@ public class GameService {
         }
 
         if (targetIsLeader) {
-            int damage = stats.effectiveAttack(state, player, attacker);
-            opponent.setLp(opponent.getLp() - damage);
-            room.addLog("リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
-            if (opponent.getLp() <= 0) {
-                actions.finish(room, player);
+            // 大地の守護盾(土文明): リーダーへの攻撃をウェポンの破壊で肩代わりする(ダメージ無効)
+            if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)) {
+                int damage = stats.effectiveAttack(state, player, attacker);
+                opponent.setLp(opponent.getLp() - damage);
+                room.addLog("リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
+                if (opponent.getLp() <= 0) {
+                    actions.finish(room, player);
+                }
             }
         } else {
             // ミニオン同士: お互いのAttackを同時に与え合う(4-2)。
@@ -1060,6 +1071,19 @@ public class GameService {
             actions.dealCombatDamage(room, player, attacker, toAttacker);
             actions.checkDestruction(room, opponent, target, DestructionCause.COMBAT);
             actions.checkDestruction(room, player, attacker, DestructionCause.COMBAT);
+            // 戦闘での撃破トリガー(土文明のタイタン・ウォリアー)。破壊判定がすべて終わった後、
+            // 「相手が場を離れ、かつ自分が場に残っている」側にのみ ON_COMBAT_KILL を発火する。
+            // 攻撃側・防御側のどちらが撃破した場合も対称に扱う(設計判断31: トリガーには向きがある)
+            boolean targetGone = !opponent.getMinionZone().contains(target);
+            boolean attackerGone = !player.getMinionZone().contains(attacker);
+            if (targetGone && !attackerGone) {
+                effects.fire(TriggerType.ON_COMBAT_KILL, attacker,
+                        contextOf(room, state, player, attacker, null));
+            }
+            if (attackerGone && !targetGone) {
+                effects.fire(TriggerType.ON_COMBAT_KILL, target,
+                        contextOf(room, state, opponent, target, null));
+            }
         }
     }
 

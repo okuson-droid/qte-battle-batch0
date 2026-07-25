@@ -36,6 +36,23 @@ public enum TriggerType {
     ON_TURN_END,
 
     /**
+     * 戦闘で相手ミニオンを撃破したとき、撃破した側に発動する(土文明のタイタン・ウォリアー)。
+     * 被害者側に発動する {@link #ON_DESTROYED_BY_COMBAT} とは「向き」が逆であり(設計判断31)、
+     * 戦闘解決の破壊判定がすべて終わった後、
+     * 「相手が場を離れ、かつ自分が場に残っている」側にのみ発火する。
+     */
+    ON_COMBAT_KILL,
+
+    /**
+     * ウェポンを装備した瞬間に発動する(土文明のガイア・ハンマー)。
+     * ミニオンの召喚(ON_SUMMON/ON_ENTER)とは別のタイミングであり、
+     * ウェポンは MinionInstance を持たないため、専用の入口
+     * {@link com.example.qte.effect.CardEffectRegistry#fireEquip} から発火する。
+     * 【知識】の装備時ドローは GameService.equipWeapon が別途処理している。
+     */
+    ON_EQUIP,
+
+    /**
      * 自分がカードを1枚使用し終えたとき(風文明)。
      * 発火は効果の解決が終わった後であり、使用したカード自身の効果からは発火が見えない
      * (裁定1: 使用カウンタは自身を含まない)。
