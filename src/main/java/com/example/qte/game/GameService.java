@@ -904,6 +904,11 @@ public class GameService {
                         .forEach(m -> m.heal(2));
                 room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が2回復しました");
             }
+            case "QTE-0009" -> { // 地響きの槌: 攻撃時、相手のミニオン全てに2ダメージ
+                List.copyOf(opponent.getMinionZone()).forEach(
+                        m -> actions.damageMinion(room, opponent, m, 2));
+                room.addLog("【地響きの槌】: 相手のミニオン全てに2ダメージ");
+            }
             default -> {
             }
         }

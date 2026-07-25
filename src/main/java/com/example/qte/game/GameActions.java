@@ -583,7 +583,7 @@ public class GameActions {
         }
         // ManaCard(cardId, temporary) の第2引数は「一時マナか」であり、faceUpは既定でtrue
         owner.getManaZone().add(new ManaCard(cardId, false));
-        owner.setCardsPutToManaThisTurn(owner.getCardsPutToManaThisTurn() + 1);
+        owner.recordManaPlacement(room.getGameState().getTurnNumber());
         effects.fireManaPlaced(contextOf(room, owner, null));
         return true;
     }

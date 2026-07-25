@@ -92,6 +92,7 @@ public class CardEffectRegistry {
         registerDarkCards();
         registerLightCards();
         registerWindCards();
+        registerEarthCards();
     }
 
     // ---------------------------------------------------------------
@@ -1388,6 +1389,176 @@ public class CardEffectRegistry {
         // (a1のON_CARD_USEDイベント。0134と同じ既知の限界を持つ: 装備直後の自分自身の使用でも1回乗る)
         register("QTE-0136", TriggerType.ON_CARD_USED, ctx ->
                 ctx.owner().setWeaponAttackBonusThisTurn(ctx.owner().getWeaponAttackBonusThisTurn() + 1));
+    }
+
+    // ---------------------------------------------------------------
+    // 登録: 土文明(Batch 13b)
+    //
+    // 土のテーマは「マナ加速」。山札や手札のカードを表向きでマナに置く効果が多く、
+    // その配置は Batch 13a で集約した GameActions.placeTopOfDeckInManaFaceUp /
+    // placeCardInManaFaceUp を通す(マナ上限判定・配置回数の計数・豊穣の地霊主の発火を
+    // 一元化するため。manaZone に直接 add してはならない)。
+    //
+    // 13a で土台を実装済みのため、ここに登録が不要なカードがある:
+    //   - 豊穣の地霊主(L012): 常在トリガーは fireManaPlaced に実装済み
+    //   - 大地の守護盾(0146): 肩代わりは attack/leaderAttack の tryIntercept... に実装済み
+    //   - 不動の岩石竜(0141)・百獣の王ベヒーモス(0147)・ゴーレム・ウォール(0154):
+    //     キーワードのみのバニラ。効果登録は不要(キーワードは台帳から付与される)
+    // ---------------------------------------------------------------
+    private void registerEarthCards() {
+
+        // ---- リーダー起動能力 ----
+
+        // 大地の巨頭(L011): 起動能力(コスト4)。手札1枚を表向きでマナに置く。
+        // 手札の対象カードは検証時点で手札から除去済みで渡るため(ResolvedTargets の規約)、
+        // index 版の placeHandCardIntoManaFaceUp ではなく placeCardInManaFaceUp に cardId を渡す。
+        leaderAbilities.put("QTE-L011", LeaderAbilitySpec.of(4,
+                TargetSpec.of(Requirement.of(Kind.HAND, Side.SELF, 1, false,
+                        "マナに置く手札を選んでください")),
+                ctx -> ctx.targets().get(0).handCardIds().forEach(
+                        id -> ctx.actions().placeCardInManaFaceUp(ctx.room(), ctx.owner(), id)),
+                "コスト4: 手札1枚を表向きでマナに置く"));
+
+        // ---- ミニオン: 召喚時(ON_SUMMON) ----
+
+        // 大地の精霊グラン(0137): 【召喚時】山札の上から1枚を表向きでマナに置く
+        register("QTE-0137", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
+
+        // 苗木植えの精霊(0156): 【召喚時】手札を1枚表向きでマナに置く(手札は選択)
+        targetSpecs.put("QTE-0156", TargetSpec.of(Requirement.of(
+                Kind.HAND, Side.SELF, 1, false, "マナに置く手札を選んでください")));
+        register("QTE-0156", TriggerType.ON_SUMMON, ctx ->
+                ctx.targets().get(0).handCardIds().forEach(
+                        id -> ctx.actions().placeCardInManaFaceUp(ctx.room(), ctx.owner(), id)));
+
+        // 創世神ガイア(0138): 【召喚時】このミニオン以外の、お互いの場のミニオンをすべて破壊。
+        // 【特殊召喚】自分のマナ最大値(マナゾーンの枚数)10以上でコスト0(代替コストなし)。
+        specialSummons.put("QTE-0138", SpecialSummonSpec.of(
+                (state, player, handIndex) -> player.getManaZone().size() >= 10,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                "マナ10枚以上: 代替コストなしで0コスト召喚します"));
+        register("QTE-0138", TriggerType.ON_SUMMON, ctx -> {
+            MinionInstance self = ctx.source();
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                for (MinionInstance m : List.copyOf(side.getMinionZone())) {
+                    if (m != self) {
+                        ctx.actions().destroyMinion(ctx.room(), side, m);
+                    }
+                }
+            }
+            ctx.room().addLog("【創世神ガイア】: このミニオン以外の全ミニオンを破壊しました");
+        });
+
+        // 天変地異のタイタン(0145): 【召喚時】相手の場すべてに7ダメージ。カードを2枚引く
+        register("QTE-0145", TriggerType.ON_SUMMON, ctx -> {
+            List.copyOf(ctx.opponent().getMinionZone()).forEach(
+                    m -> ctx.actions().damageMinion(ctx.room(), ctx.opponent(), m, 7));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+        });
+
+        // アースクエイクジャイアント(0153): 【召喚時】相手の場の【守護】ミニオンをすべて破壊
+        register("QTE-0153", TriggerType.ON_SUMMON, ctx ->
+                List.copyOf(ctx.opponent().getMinionZone()).stream()
+                        .filter(m -> m.hasKeyword(Keyword.GUARD))
+                        .forEach(m -> ctx.actions().destroyMinion(ctx.room(), ctx.opponent(), m)));
+
+        // 安らぎのガーディアン(0152): 【召喚時】リーダーを2回復。【ターンエンド時】リーダーを4回復
+        register("QTE-0152", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 2));
+        register("QTE-0152", TriggerType.ON_TURN_END,
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 4));
+
+        // ---- ミニオン: その他トリガー ----
+
+        // 連撃の巨岩(0017): 2回攻撃(maxAttacks=StatCalculator)。【ターンエンド時】このカードを手札に戻す
+        register("QTE-0017", TriggerType.ON_TURN_END,
+                ctx -> ctx.actions().bounceToHand(ctx.room(), ctx.owner(), ctx.source()));
+
+        // 疾風怒濤のベヒーモス(0144): 【ターンエンド時】このカードを手札に戻す(速攻のみ、攻撃回数の上書きなし)
+        register("QTE-0144", TriggerType.ON_TURN_END,
+                ctx -> ctx.actions().bounceToHand(ctx.room(), ctx.owner(), ctx.source()));
+
+        // タイタン・ウォリアー(0140): 戦闘で相手ミニオンを破壊した時、相手リーダーに4ダメージ
+        // (ON_COMBAT_KILL は Batch 13a で新設。破壊された側ではなく撃破した側に発火する)
+        register("QTE-0140", TriggerType.ON_COMBAT_KILL,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 4, "QTE-0140"));
+
+        // 不動の絶対神ガイア(0150): リーダーを攻撃できない(RuleGuards=13a)。攻撃時、相手リーダーに4ダメージ
+        register("QTE-0150", TriggerType.ON_ATTACK,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 4, "QTE-0150"));
+
+        // 地砕きの突撃兵(0155): 攻撃時、自分のマナから1枚手札に戻す。破壊された時、山札の上から1枚を表向きでマナに置く。
+        // 攻撃時の「1枚選び」は、ON_ATTACK での対象選択機構が未整備のため、returnFaceUpManaToHand による
+        // 自動選択(最後に置かれた表向きマナ)で近似する(死霊の収鎌の AutoChoice と同じ割り切り。要確認事項)。
+        register("QTE-0155", TriggerType.ON_ATTACK, ctx -> {
+            boolean returned = ctx.actions().returnFaceUpManaToHand(ctx.room(), ctx.owner());
+            if (!returned) {
+                ctx.room().addLog("【地砕きの突撃兵】: 表向きのマナが無いため、手札に戻せませんでした");
+            }
+        });
+        register("QTE-0155", TriggerType.ON_DESTROYED,
+                ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
+
+        // ---- ウェポン: 装備時(ON_EQUIP=13a) ----
+
+        // ガイア・ハンマー(0142): 装備時、山札の上から1枚を表向きでマナに置く
+        register("QTE-0142", TriggerType.ON_EQUIP,
+                ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
+        // 地響きの槌(0009)の攻撃時効果(相手ミニオン全体2ダメージ)は GameService.leaderAttack の
+        // ウェポン攻撃時 switch に直書きする(既存のウェポン攻撃時効果と同じ扱い)。
+
+        // ---- スペル ----
+
+        // 落石の罠(0139): 相手のミニオン1体に5ダメージ
+        targetSpecs.put("QTE-0139", TargetSpec.of(Requirement.of(
+                Kind.MINION, Side.OPPONENT, 1, false, "5ダメージを与える相手のミニオンを選んでください")));
+        spellEffects.put("QTE-0139", ctx -> ctx.targets().get(0).minions().forEach(
+                t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 5)));
+
+        // 大地震(0148): お互いのコスト3以下のミニオンをすべて破壊(印刷コストで判定)
+        spellEffects.put("QTE-0148", ctx -> {
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                for (MinionInstance m : List.copyOf(side.getMinionZone())) {
+                    Integer c = m.getMaster().cost();
+                    if (c != null && c <= 3) {
+                        ctx.actions().destroyMinion(ctx.room(), side, m);
+                    }
+                }
+            }
+            ctx.room().addLog("【大地震】: お互いのコスト3以下のミニオンをすべて破壊しました");
+        });
+
+        // 大地の開眼(0149): カードを1枚引く。自分のマナが7枚以上ならさらに1枚引く
+        spellEffects.put("QTE-0149", ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            if (ctx.owner().getManaZone().size() >= 7) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            }
+        });
+
+        // 豊穣の祈り(0157): 山札の上から1枚を表向きでマナに置く。その後カードを2枚引く
+        spellEffects.put("QTE-0157", ctx -> {
+            ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner());
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+        });
+
+        // 大地の恵み(0158): 山札の上から1枚を表向きでマナに置く
+        spellEffects.put("QTE-0158",
+                ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
+
+        // ガイア・リソース(0151): 山札の上から1枚をマナに置く。【還元】(還元の処理は GameActions 側で共通)
+        spellEffects.put("QTE-0151",
+                ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
+
+        // 地脈の覚醒(0015): マナ7枚以上でコスト2(effectiveCost=StatCalculator)。【還元】。
+        // 解決時の固有処理はなく、還元によるマナ加速が本体(GameActions 側で共通処理)。
+        // isSpellImplemented を true にするため、空の効果を登録しておく。
+        spellEffects.put("QTE-0015", ctx -> {
+            // 固有の解決処理なし(マナ加速は【還元】が担う)
+        });
     }
 
     /**

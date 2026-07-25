@@ -155,7 +155,8 @@ public class LobbyController {
 
     /** 選択可能なリーダー。メインデッキを用意済みの文明(水・火・闇・光)に限る */
     private List<CardMaster> selectableLeaders() {
-        return java.util.stream.Stream.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK, Civilization.LIGHT)
+        return java.util.stream.Stream.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK,
+                Civilization.LIGHT, Civilization.EARTH)
                 .flatMap(civ -> cards.findByCivilization(civ).stream())
                 .filter(c -> c.type() == CardType.LEADER)
                 .toList();

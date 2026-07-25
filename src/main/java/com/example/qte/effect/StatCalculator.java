@@ -129,6 +129,14 @@ public class StatCalculator {
                 && owner.getCardsUsedThisTurn() == 2) {
             cost -= 1;
         }
+        // ---- 土文明: 自分のマナ枚数を参照する動的コスト(条件を満たすと固定値まで下がる) ----
+        // 減算型ではなく固定値セット型。土カードは他文明の軽減対象ではないため競合しない。
+        if ("QTE-0143".equals(card.id()) && owner.getManaZone().size() >= 7) {
+            cost = 1; // 大地の狂戦士: マナ7枚以上でコスト1
+        }
+        if ("QTE-0015".equals(card.id()) && owner.getManaZone().size() >= 7) {
+            cost = 2; // 地脈の覚醒: マナ7枚以上でコスト2
+        }
         return Math.max(0, cost);
     }
 
@@ -172,6 +180,9 @@ public class StatCalculator {
         if ("QTE-0133".equals(minion.getMaster().id())) { // サイクロン・フェンサー
             max += 1;
         }
+        if ("QTE-0017".equals(minion.getMaster().id())) { // 連撃の巨岩: 1ターンに2回攻撃できる
+            max += 1;
+        }
         for (StatModifier m : minion.getModifiers()) {
             if (m.stat() == StatModifier.Stat.EXTRA_ATTACKS) {
                 max += m.value();
@@ -199,6 +210,10 @@ public class StatCalculator {
         // ---- 動的SET(カード固有のルール) ----
         // 知識の守護者: 攻撃力は自分の手札の枚数と同じになる(常に連動)
         if ("QTE-0037".equals(cardId)) {
+            attack = owner.getHand().size();
+        }
+        // 無尽蔵の巨神: 攻撃力は自分の手札の枚数と同じ(基礎0 + 手札枚数)
+        if ("QTE-0008".equals(cardId)) {
             attack = owner.getHand().size();
         }
 

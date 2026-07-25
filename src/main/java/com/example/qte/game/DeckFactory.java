@@ -194,6 +194,42 @@ public class DeckFactory {
         WIND_STARTER.put("QTE-0113", 1); // 神風の大号令 (4) 使用枚数分の全体攻撃力+
     }
 
+    /** 土スターターデッキ(Batch 13b版=土文明完成): ミニオン28枚+ウェポン3枚+スペル9枚 */
+    private static final Map<String, Integer> EARTH_STARTER = new LinkedHashMap<>();
+    static {
+        // ミニオン(28枚)
+        EARTH_STARTER.put("QTE-0156", 3); // 苗木植えの精霊 2/1/1 召喚時:手札1枚をマナ加速
+        EARTH_STARTER.put("QTE-0155", 3); // 地砕きの突撃兵 3/3/1 突進・攻撃時マナ回収/破壊時マナ加速
+        EARTH_STARTER.put("QTE-0154", 2); // ゴーレム・ウォール 3/1/5 守護
+        EARTH_STARTER.put("QTE-0143", 3); // 大地の狂戦士 4/3/1 突進・動的コスト(マナ7+で1)
+        EARTH_STARTER.put("QTE-0137", 3); // 大地の精霊グラン 5/4/4 召喚時:山札からマナ加速
+        EARTH_STARTER.put("QTE-0153", 2); // アースクエイクジャイアント 6/6/3 召喚時:相手守護を全破壊
+        EARTH_STARTER.put("QTE-0017", 2); // 連撃の巨岩 6/3/8 突進・2回攻撃・エンド時バウンス
+        EARTH_STARTER.put("QTE-0141", 2); // 不動の岩石竜 7/6/8 守護・潜伏
+        EARTH_STARTER.put("QTE-0140", 1); // タイタン・ウォリアー 8/8/8 突進・戦闘破壊で相手リーダー4ダメージ
+        EARTH_STARTER.put("QTE-0147", 1); // 百獣の王ベヒーモス 9/10/10 バニラ
+        EARTH_STARTER.put("QTE-0138", 1); // 創世神ガイア 9/6/7 特殊召喚・召喚時:自身以外全破壊
+        EARTH_STARTER.put("QTE-0145", 1); // 天変地異のタイタン 10/7/7 召喚時:相手全体7ダメージ+2ドロー
+        EARTH_STARTER.put("QTE-0152", 1); // 安らぎのガーディアン 10/4/4 守護・召喚時2回復/エンド時4回復
+        EARTH_STARTER.put("QTE-0008", 1); // 無尽蔵の巨神 12/0+/8 速攻・攻撃力=手札枚数
+        EARTH_STARTER.put("QTE-0150", 1); // 不動の絶対神ガイア 14/10/10 潜伏・攻撃時リーダー4ダメージ
+        EARTH_STARTER.put("QTE-0144", 1); // 疾風怒濤のベヒーモス 15/6/8 速攻・エンド時バウンス
+
+        // ウェポン(3枚)
+        EARTH_STARTER.put("QTE-0146", 1); // 大地の守護盾 (2/⚔0) リーダーへの攻撃を肩代わり
+        EARTH_STARTER.put("QTE-0142", 1); // ガイア・ハンマー (4/⚔4) 装備時:山札からマナ加速
+        EARTH_STARTER.put("QTE-0009", 1); // 地響きの槌 (7/⚔2) 攻撃時:相手ミニオン全体2ダメージ
+
+        // スペル(9枚)
+        EARTH_STARTER.put("QTE-0149", 2); // 大地の開眼 (1) 1ドロー(マナ7+でさらに1)
+        EARTH_STARTER.put("QTE-0158", 2); // 大地の恵み (3) 山札からマナ加速
+        EARTH_STARTER.put("QTE-0139", 1); // 落石の罠 (3) 相手ミニオン1体に5ダメージ
+        EARTH_STARTER.put("QTE-0151", 1); // ガイア・リソース (4) 山札からマナ加速・還元
+        EARTH_STARTER.put("QTE-0148", 1); // 大地震 (4) お互いのコスト3以下を全破壊
+        EARTH_STARTER.put("QTE-0015", 1); // 地脈の覚醒 (5) 動的コスト・還元(マナ加速本体)
+        EARTH_STARTER.put("QTE-0157", 1); // 豊穣の祈り (5) 山札からマナ加速+2ドロー
+    }
+
     private final CardMasterRepository cardMasterRepository;
 
     public DeckFactory(CardMasterRepository cardMasterRepository) {
@@ -203,6 +239,7 @@ public class DeckFactory {
         validate(DARK_STARTER);
         validate(LIGHT_STARTER);
         validate(WIND_STARTER);
+        validate(EARTH_STARTER);
     }
 
     /**
@@ -261,6 +298,7 @@ public class DeckFactory {
             case DARK -> DARK_STARTER;
             case LIGHT -> LIGHT_STARTER;
             case WIND -> WIND_STARTER;
+            case EARTH -> EARTH_STARTER;
             default -> throw new IllegalStateException(
                     leader.civilization().getDisplayName() + "文明のメインデッキは未実装です");
         };

@@ -101,13 +101,37 @@ public class PlayerState {
     private int spellsCastThisTurn = 0;
 
     /**
-     * このターン中にマナゾーンへカードが置かれた回数(土文明の豊穣の地霊主が参照する)。
+     * 現在のターン中にマナゾーンへカードが置かれた回数(土文明の豊穣の地霊主が参照する)。
      * マナチャージ(総合ルール6章-3)・カード効果によるマナ加速のいずれによる配置も含む。
      * 配置経路は {@link GameActions#placeCardInManaFaceUp} の1箇所に集約されており、
-     * そこでこのカウンタを進める。
+     * そこから {@link #recordManaPlacement(int)} を通じて数える。
+     * <p>
+     * このカウンタは「自分のターン開始時にリセット」ではなく、配置のたびにターン番号を
+     * 照合して数え直す({@link #manaPlacedCountTurn} を参照)。これは相手のターン中に
+     * カード効果でマナ配置が起きた場合でも、そのターンの回数として正しく数えるためである。
      */
-    @Setter
     private int cardsPutToManaThisTurn = 0;
+
+    /**
+     * {@link #cardsPutToManaThisTurn} が記録しているターン番号。
+     * {@code GameState.getTurnNumber()} と食い違えば、別のターンの配置とみなして
+     * カウンタを 0 から数え直す。初期値 -1 はどのターンとも一致しない番兵。
+     */
+    private int manaPlacedCountTurn = -1;
+
+    /**
+     * 現在のターンにおけるマナ配置を1回記録し、そのターンでの累計回数を返す。
+     * 記録中のターンと {@code currentTurn} が異なれば、まずカウンタを 0 に戻してから
+     * 数え直す。豊穣の地霊主(L012)の「2回目のマナ配置」の判定に用いる。
+     */
+    public int recordManaPlacement(int currentTurn) {
+        if (manaPlacedCountTurn != currentTurn) {
+            manaPlacedCountTurn = currentTurn;
+            cardsPutToManaThisTurn = 0;
+        }
+        cardsPutToManaThisTurn++;
+        return cardsPutToManaThisTurn;
+    }
 
     /**
      * このターンの間、装備中ウェポンの攻撃力に加算される値(暴風の双剣)。
@@ -257,7 +281,8 @@ public class PlayerState {
         playedCardThisTurn = false;
         cardsUsedThisTurn = 0;
         spellsCastThisTurn = 0;
-        cardsPutToManaThisTurn = 0;
+        // cardsPutToManaThisTurn は startTurnReset では戻さない。
+        // 配置のたびにターン番号を照合して数え直す(recordManaPlacement を参照)。
         leaderDamagedCountThisTurn = 0;
         healedCountThisTurn = 0;
         pendingFireMinionDiscount = 0;
