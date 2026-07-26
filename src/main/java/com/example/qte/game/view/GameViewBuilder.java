@@ -205,6 +205,14 @@ public class GameViewBuilder {
                     label = minion != null ? minion.getMaster().name() : id;
                     minionInstanceId = id;
                 }
+                case MANA -> {
+                    // 候補は自分のマナゾーン内の位置。裏向きのマナも本人には中身が見えるため
+                    // (toManaView の contentVisible と同じ扱い)、カード名を出したうえで向きを添える
+                    int idx = Integer.parseInt(id);
+                    ManaCard mana = player.getManaZone().get(idx);
+                    CardMaster m = cards.findById(mana.getCardId());
+                    label = mana.isFaceUp() ? m.name() : m.name() + "(裏向き)";
+                }
                 default -> label = id;
             }
             candidates.add(new PlayerView.PendingChoiceView.ChoiceCandidateView(i, label, keywords, minionInstanceId));

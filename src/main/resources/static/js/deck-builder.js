@@ -11,8 +11,6 @@
  */
 
 const FORMAT_VERSION = 1;
-/** 効果が実装済みの文明。未実装文明はデッキに入れられない(入れても何も起きないため) */
-const IMPLEMENTED_CIVS = ['WATER', 'FIRE', 'DARK', 'LIGHT'];
 
 let allCards = [];
 let leaders = [];
@@ -26,10 +24,18 @@ let deck = { leaderCardId: null, main: {}, taboo: [] };
 // 初期化
 // ---------------------------------------------------------------
 
-fetch('/api/cards')
-    .then(res => res.json())
-    .then(data => {
-        allCards = data.filter(c => IMPLEMENTED_CIVS.includes(c.civilization));
+// 効果が実装済みの文明はサーバに問い合わせる(未実装文明はデッキに入れられない)。
+// 以前はこのファイルに文明コードを書き写していたが、文明を追加するたびに更新漏れが
+// 起きるため、サーバの DeckValidator を唯一の正とする。
+Promise.all([
+    fetch('/api/cards').then(res => res.json()),
+    fetch('/api/implemented-civilizations').then(res => res.json())
+])
+    .then(results => {
+        const cardData = results[0];
+        const civData = results[1];
+        const implemented = civData.map(c => c.code);
+        allCards = cardData.filter(c => implemented.includes(c.civilization));
         leaders = allCards.filter(c => c.type === 'LEADER');
         const select = document.getElementById('leader-select');
         select.innerHTML = leaders
@@ -209,7 +215,7 @@ function poolCardHtml(card, leader) {
     const stats = card.type === 'MINION' ? `⚔${card.attack} ♥${card.hp}`
         : (card.type === 'WEAPON' ? `⚔${card.attack}` : 'スペル');
     return `
-        <div class="pool-card ${card.civilization === 'FIRE' ? 'fire' : ''} ${full ? 'disabled' : ''}"
+        <div class="pool-card civ-${card.civilization.toLowerCase()} ${full ? 'disabled' : ''}"
              onclick="addCard('${card.id}')" title="${escapeHtml(card.text || '')}">
             ${count > 0 ? `<div class="in-deck">${count}</div>` : ''}
             <div class="nm">(${card.cost}) ${escapeHtml(card.name)}</div>

@@ -12,8 +12,19 @@
     padding: 5px; font-size: 11px; cursor: pointer; position: relative;
 }
 .pool-card:hover { background: #23507d; }
-.pool-card.fire { background: #4a1f1f; border-color: #8c4a4a; }
-.pool-card.fire:hover { background: #5f2828; }
+/* 文明ごとの配色。禁忌プールには複数文明が並ぶため、色で文明を見分けられるようにする */
+.pool-card.civ-fire { background: #4a1f1f; border-color: #8c4a4a; }
+.pool-card.civ-fire:hover { background: #5f2828; }
+.pool-card.civ-water { background: #1a3a5c; border-color: #4a6a8c; }
+.pool-card.civ-water:hover { background: #23507d; }
+.pool-card.civ-wind { background: #1f4a3d; border-color: #4a8c78; }
+.pool-card.civ-wind:hover { background: #285f4e; }
+.pool-card.civ-light { background: #4a431f; border-color: #8c8148; }
+.pool-card.civ-light:hover { background: #5f5628; }
+.pool-card.civ-dark { background: #33244a; border-color: #6a4a8c; }
+.pool-card.civ-dark:hover { background: #422e5f; }
+.pool-card.civ-earth { background: #40331f; border-color: #8c7148; }
+.pool-card.civ-earth:hover { background: #534128; }
 .pool-card.disabled { opacity: 0.4; cursor: not-allowed; }
 .pool-card .nm { font-weight: bold; line-height: 1.2; }
 .pool-card .kw { color: #ffd54f; }

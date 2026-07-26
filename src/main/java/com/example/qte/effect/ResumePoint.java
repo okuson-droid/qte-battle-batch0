@@ -34,5 +34,12 @@ public enum ResumePoint {
     GUARD_STAFF_TARGET,
 
     /** 詠唱の疾風騎士(QTE-0114): ターンエンド時に墓地から回収するスペルを選ぶ。Batch 12b */
-    GALE_KNIGHT_RECOVER
+    GALE_KNIGHT_RECOVER,
+
+    /**
+     * 地砕きの突撃兵(QTE-0155): 攻撃時に手札へ戻す自分のマナを選ぶ。Batch 13c。
+     * ミニオンの攻撃時(ON_ATTACK)から発生する初めての割り込みである
+     * (それまでの攻撃時の割り込みは風護の杖=ウェポンのみだった)。
+     */
+    EARTHBREAKER_MANA_RETURN
 }

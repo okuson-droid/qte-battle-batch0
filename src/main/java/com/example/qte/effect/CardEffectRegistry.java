@@ -1490,15 +1490,9 @@ public class CardEffectRegistry {
         register("QTE-0150", TriggerType.ON_ATTACK,
                 ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 4, "QTE-0150"));
 
-        // 地砕きの突撃兵(0155): 攻撃時、自分のマナから1枚手札に戻す。破壊された時、山札の上から1枚を表向きでマナに置く。
-        // 攻撃時の「1枚選び」は、ON_ATTACK での対象選択機構が未整備のため、returnFaceUpManaToHand による
-        // 自動選択(最後に置かれた表向きマナ)で近似する(死霊の収鎌の AutoChoice と同じ割り切り。要確認事項)。
-        register("QTE-0155", TriggerType.ON_ATTACK, ctx -> {
-            boolean returned = ctx.actions().returnFaceUpManaToHand(ctx.room(), ctx.owner());
-            if (!returned) {
-                ctx.room().addLog("【地砕きの突撃兵】: 表向きのマナが無いため、手札に戻せませんでした");
-            }
-        });
+        // 地砕きの突撃兵(0155): 攻撃時、自分のマナから1枚選び手札に戻す。破壊された時、山札の上から1枚を表向きでマナに置く。
+        // 攻撃時の「1枚選び」は割り込み選択(a9)で本人に選ばせる(Batch 13c で自動選択から移行)。
+        register("QTE-0155", TriggerType.ON_ATTACK, this::requestEarthbreakerManaReturn);
         register("QTE-0155", TriggerType.ON_DESTROYED,
                 ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
 
@@ -1559,6 +1553,37 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-0015", ctx -> {
             // 固有の解決処理なし(マナ加速は【還元】が担う)
         });
+    }
+
+    /**
+     * 地砕きの突撃兵(QTE-0155)の攻撃時効果: 自分のマナから1枚選び手札に戻す。
+     *
+     * 候補が0枚なら不発、1枚なら自動決定、2枚以上なら本人に選ばせる(降臨の伝道師・風護の杖と同じ流儀)。
+     * 候補はマナゾーン内の位置(0起点)で表す。表向き・裏向きを問わず候補に含めるのは、
+     * カードテキストが向きを限定していないためである(流転の智者の Kind.MANA と同じ扱い)。
+     *
+     * <b>候補の位置がずれない根拠。</b> 選択待ちの間、そのプレイヤーは他の操作を行えない
+     * (GameService.requireTurnPlayer が塞ぐ)。この攻撃の続きで起きうるマナゾーンの変化は、
+     * 自身が戦闘破壊されたときの ON_DESTROYED による末尾への追加だけであり、
+     * 既存の位置は動かない。
+     */
+    private void requestEarthbreakerManaReturn(EffectContext ctx) {
+        int size = ctx.owner().getManaZone().size();
+        if (size == 0) {
+            ctx.room().addLog("【地砕きの突撃兵】: マナが無いため、手札に戻せませんでした");
+            return;
+        }
+        if (size == 1) {
+            ctx.actions().returnManaToHandAt(ctx.room(), ctx.owner(), 0);
+            return;
+        }
+        List<String> positions = new ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            positions.add(String.valueOf(i));
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                PendingChoice.Kind.MANA, positions, ResumePoint.EARTHBREAKER_MANA_RETURN,
+                "【地砕きの突撃兵】: 手札に戻すマナを1枚選んでください"));
     }
 
     /**
@@ -1697,6 +1722,12 @@ public class CardEffectRegistry {
                     ctx.room().addLog("【詠唱の疾風騎士】: 【%s】を墓地から手札に戻しました"
                             .formatted(cards.findById(cardId).name()));
                 }
+            }
+            // 地砕きの突撃兵(QTE-0155): 攻撃時に手札へ戻すマナを確定させる。
+            // 候補はマナゾーン内の位置。返却とゾーン横断トリガーの発火は GameActions が担う
+            case EARTHBREAKER_MANA_RETURN -> {
+                int idx = Integer.parseInt(chosen.get(0));
+                ctx.actions().returnManaToHandAt(ctx.room(), ctx.owner(), idx);
             }
         }
     }

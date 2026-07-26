@@ -64,6 +64,12 @@ public record PendingChoice(
         /** 自分の墓地 */
         TRASH,
         /** 一時公開領域(PlayerState.revealedZone) */
-        REVEALED
+        REVEALED,
+        /**
+         * 自分のマナゾーン(候補は manaZone 内の位置)。
+         * 表向き・裏向きのどちらも候補になりうる(地砕きの突撃兵の「自分のマナから1枚選び」は
+         * 向きを限定していないため。流転の智者の TargetSpec.Kind.MANA と同じ扱い)。
+         */
+        MANA
     }
 }

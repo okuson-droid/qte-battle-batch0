@@ -552,6 +552,30 @@ public class GameActions {
         return false;
     }
 
+    /**
+     * マナゾーンの指定位置のカード1枚を手札に戻す(Batch 13c。地砕きの突撃兵の攻撃時効果)。
+     *
+     * 表向き・裏向きのどちらでも戻せる({@link #returnFaceUpManaToHand} は「向きで自動選択する」
+     * 用途、こちらは「プレイヤーが選んだ1枚を戻す」用途であり役割が異なる)。
+     *
+     * マナがマナゾーンを離れるため、ゾーン横断トリガー({@link #manaLeft})の発火まで
+     * このメソッドの中で行う。呼び出し側で発火を書くと漏れるため、ここに閉じている。
+     *
+     * @param index マナゾーン内の位置(0起点)
+     * @return 戻せたらtrue(位置が範囲外ならfalse)
+     */
+    public boolean returnManaToHandAt(GameRoom room, PlayerState owner, int index) {
+        if (index < 0 || index >= owner.getManaZone().size()) {
+            return false;
+        }
+        ManaCard mana = owner.getManaZone().remove(index);
+        owner.getHand().add(mana.getCardId());
+        room.addLog("%sのマナ【%s】が手札に戻りました"
+                .formatted(owner.getDisplayName(), cards.findById(mana.getCardId()).name()));
+        manaLeft(room, owner);
+        return true;
+    }
+
     // ---------------------------------------------------------------
     // 土文明の基本操作(Batch 13a)
     //

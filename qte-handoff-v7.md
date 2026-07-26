@@ -1,11 +1,12 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-07-25 (Batch 13b 実装完了・土文明28枚の登録 + 豊穣の地霊主の数え直し方式化)
+最終更新: 2026-07-25 (Batch 13c 実装完了・攻撃時の割り込み選択 + 全6文明の解禁)
 次の作業: **全6文明168枚の整合チェック**（または 2 章の候補）
 
 このファイルは、新しいチャットで作業を再開するための最小限の情報をまとめたものである。
 ゲームルール・設計判断の詳細は `qte-project-reference.md`、カードの詳細は `qte-cards.json`、
-土のカード登録の設計は `設計解説/batch13b-design-notes.md`、
+割り込み選択と文明解禁は `設計解説/batch13c-design-notes.md`、
+土のカード登録は `設計解説/batch13b-design-notes.md`、
 土の土台は `設計解説/batch13a-design-notes.md` を参照する。
 
 ---
@@ -31,45 +32,48 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 | 項目 | 状態 |
 |---|---|
-| 完了バッチ | Batch 0〜13b |
+| 完了バッチ | Batch 0〜13c |
 | 実装済み文明 | 水28 / 火28 / 闇28 / 光28 / 風28 / **土28** = **168枚(全6文明完成)** |
 | 転記済み総数 | 169枚(6文明×28枚 + 文明なし1) |
 | 台帳(resources) | 169枚(`src/main/resources/cards/qte-cards.json`) |
 | 公開URL | https://qte-battle-batch0.onrender.com/ |
-| 静的ファイルのバージョン | `battle.js(v=13)` / `battle.css(v=10)`(13a/13bとも変更なし) |
+| 静的ファイルのバージョン | `battle.js(v=13)` / `battle.css(v=10)`(13a〜13cとも変更なし)<br>`deck-builder.js(v=10)` / `deck-builder.css(v=10)`(13cで変更) |
+| 選択可能なリーダー | **全6文明12体**(13cで風を解禁) |
 
-### 直近の内容(前チャット: Batch 13b — 土文明28枚の登録)
+### 直近の内容(前チャット: Batch 13c — 割り込み選択と全6文明の解禁)
 
-土文明 28 枚の効果を登録し、全 6 文明が実装済みとなった。編集は 8 ファイル。
+1. **地砕きの突撃兵(0155)の攻撃時マナ回収を、自動選択から割り込み選択(a9)へ移行した。**
+   - 割り込みの器は 12b で完成済みだったため、追加したのは選択の種類
+     `PendingChoice.Kind.MANA` と再開先 `ResumePoint.EARTHBREAKER_MANA_RETURN` の2つだけ。
+   - 候補は**マナゾーン内の位置**。表向き・裏向きの両方を候補に含める(テキストが向きを限定していない)。
+   - **フロントエンドは無変更。** `renderPendingChoice` は候補を汎用のラベルボタンとして描画しており、
+     種類ごとの分岐を持たないため、サーバ側でラベルを付けるだけで動く。
+   - 位置を指定して1枚戻す `GameActions.returnManaToHandAt` を新設(`manaLeft` の発火まで内包)。
+2. **リーダー選択画面とデッキビルダーで全6文明を選べるようにした。**
+   - 実装済み文明の定義が3か所(DeckValidator / LobbyController / deck-builder.js)に散っており、
+     風と土がその同期漏れで選べなくなっていた。**`DeckValidator` を唯一の正に一本化**し、
+     `LobbyController` は直接参照、クライアントへは新設した `/api/implemented-civilizations` で配信する。
+   - 並び順が安定するよう `Set.of` → `EnumSet` に変更(列挙体の宣言順: 火水風光闇土)。
+   - デッキビルダーのプール配色を6文明ぶんに拡張(`civ-water` 等)。`deck-builder` の `?v=` を10へ。
 
-- **カード効果の登録** — `CardEffectRegistry.registerEarthCards()` を新設し、コンストラクタから呼ぶ。
-  スペル・召喚時・その他トリガー(ON_TURN_END/ON_COMBAT_KILL/ON_ATTACK/ON_DESTROYED/ON_EQUIP)・
-  特殊召喚・リーダー起動能力・対象選択をすべてここに集約。
-- **動的ステータス** — `StatCalculator` に無尽蔵の巨神(0008・攻撃力=手札枚数)、大地の狂戦士
-  (0143・マナ7枚以上でコスト1)、地脈の覚醒(0015・マナ7枚以上でコスト2)、連撃の巨岩(0017・2回攻撃)。
-- **ウェポン攻撃時** — 地響きの槌(0009)を `GameService.leaderAttack` のウェポン switch に追加。
-- **デッキ** — `DeckFactory` に `EARTH_STARTER`(40枚)を追加し、validate と createMainDeck に配線。
-- **★見落としやすい配線** — `DeckValidator.IMPLEMENTED` と `LobbyController.selectableLeaders()` に
-  `Civilization.EARTH` を追加(これが無いと土デッキが弾かれ、土リーダーが選択画面に出ない)。
-- **豊穣の地霊主の数え直し方式化** — 下記の「既知の限界」に挙がっていたカウンタ問題を解消。
-  詳細は `batch13b-design-notes.md` 1 章。
-
-登録不要だったカード: 不動の岩石竜・百獣の王ベヒーモス・ゴーレム・ウォール(バニラ)、
-豊穣の地霊主・大地の守護盾(13a 実装済み)。
+編集ファイル: `PendingChoice` / `ResumePoint` / `GameActions` / `CardEffectRegistry` /
+`GameViewBuilder` / `DeckValidator` / `LobbyController` / `CardApiController` /
+`deck-builder.js` / `deck-builder.css` / `deck-builder.html`
 
 ### ★既知の限界(要確認・未対応)
 
-- **地砕きの突撃兵(0155)の攻撃時マナ回収は自動選択で近似している。** 仕様は「マナから1枚**選び**
-  手札に戻す」だが、ON_ATTACK での対象選択機構が無いため、最後に置かれた表向きマナを自動で戻す形
-  (死霊の収鎌の AutoChoice と同じ割り切り)。**厳密な選択にするか、割り込み選択(a9)の導入まで待つか
-  が発注者確認事項。**
-- **`selectableLeaders()` に WIND が含まれていない。** 現在は WATER/FIRE/DARK/LIGHT/EARTH の5文明。
-  風文明のリーダー選択を解禁するかは風バッチ側の判断に委ねている。
+- **割り込み選択で戻すマナは、戦闘解決の後に手札へ戻る。** 攻撃処理を途中で止める仕組み(継続)が
+  無いため、`requestChoice` は選択待ちにするだけで攻撃は最後まで進む(風護の杖と同じ挙動)。
+  戻すマナは戦闘の数値に関与しないため戦闘結果は変わらないが、厳密な順序ではない。
+- **`AutoChoice` による自動決定が闇文明5枚と風の嵐の呼び手に残っている。** 割り込み選択への移行は
+  独立バッチで行う(地砕きの突撃兵は 13c で移行済み)。
 - **突風のまとめ役・暴風の双剣の自己バフ問題(12bからの持ち越し)** は未対応。詳細は
   `batch12b-design-notes.md` 3章。
 
 > 解消済み: 豊穣の地霊主のマナ配置カウンタが自ターン開始時リセットだった件は、13b で数え直し方式
 > (`PlayerState.recordManaPlacement`)に改めて解消した。
+> 解消済み: 地砕きの突撃兵の攻撃時マナ回収の自動選択近似、および風がリーダー選択に出ない件は、
+> 13c で解消した。
 
 ---
 
@@ -77,13 +81,11 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 1. **★全6文明168枚の整合チェック**(Fable 5・拡張思考)。文明をまたぐ相互作用(相手の還元マナを
    風のマナ変換が扱う、光のコスト軽減が土スペルに乗る、土の全体除去と守護の噛み合い、など)の通し確認。
-2. 地砕きの突撃兵の攻撃時マナ回収の厳密化(割り込み選択 a9 を土へ適用するか)。
+2. `AutoChoice` の残り(闇文明5枚+風の嵐の呼び手)の割り込み選択(a9)への移行(独立バッチ)。
+   13c で `PendingChoice.Kind.MANA` が増えたため、必要な種類はほぼ揃っている。
 3. ウェポン攻撃時効果9件(既存8件+地響きの槌)の `CardEffectRegistry` への移設(独立バッチ)。
-4. 闇文明5枚+風の嵐の呼び手+地砕きの突撃兵の `AutoChoice` → 割り込み選択(a9)への移行(独立バッチ)。
-5. 突風のまとめ役・暴風の双剣の自己バフ問題への対応(a1のシグネチャ変更を伴う)。
-6. 風文明のリーダー選択解禁(`selectableLeaders()` への WIND 追加の要否確認)。
-
----
+4. 突風のまとめ役・暴風の双剣の自己バフ問題への対応(a1のシグネチャ変更を伴う)。
+5. リーダーへの戦闘ダメージがトリガーを通らない件(Batch 8からの持ち越し)。
 
 ## 3. 作業のルール
 
@@ -138,7 +140,8 @@ node --check src/main/resources/static/js/battle.js                 # 項目 7(J
 | 変数の宣言だけ消して使用箇所を残した | Batch 11a | `check_undeclared.py` |
 | メソッド宣言行を消し括弧が釣り合って素通り | Batch 12a | `check_structure.py` |
 | アプリが読む台帳(resources)が旧版のままで土が4枚 | Batch 13a | 台帳更新時は resources 側も差し替える |
-| 文明の効果を登録したのに遊べない | Batch 13b | **新文明は `DeckValidator.IMPLEMENTED` と `LobbyController.selectableLeaders()` にも追加する** |
+| 文明の効果を登録したのに遊べない | Batch 13b | 新文明は `DeckValidator.IMPLEMENTED` に追加する |
+| 同じ列挙を3か所に書き写して2か所が漏れた | Batch 13c | 実装済み文明は `DeckValidator` を唯一の正とし、APIで配信する |
 
 ### コンテキスト効率
 
@@ -158,8 +161,11 @@ node --check src/main/resources/static/js/battle.js                 # 項目 7(J
 
 - **アプリが読む台帳は `src/main/resources/cards/qte-cards.json`。** プロジェクトフォルダ側の
   台帳とは別ファイル。台帳を更新したら resources 側を必ず差し替える。
-- **新しい文明を実装したら、効果登録だけでなく `DeckValidator.IMPLEMENTED` と
-  `LobbyController.selectableLeaders()` にも文明を追加する。** 片方でも欠けると遊べない。
+- **新しい文明を実装したら `DeckValidator.IMPLEMENTED` に1行足す。** 13c でここが唯一の正になり、
+  リーダー選択画面もデッキビルダーもここを参照する(以前は3か所に書き写していて風と土が漏れた)。
+- **割り込み選択(a9)を足すときは、種類(`PendingChoice.Kind`)と再開先(`ResumePoint`)と
+  `resolveChoice` の分岐、そして `GameViewBuilder.buildPendingChoice` のラベル生成の4点。**
+  フロントエンドは汎用描画のため通常は無変更でよい。
 - **表向きマナ配置は `GameActions.placeCardInManaFaceUp` の1本に集約されている。** `manaZone.add` を
   直書きしないこと(配置回数の計数と豊穣の地霊主の発火が漏れる)。
 - **手札をマナに置くときは cardId を `placeCardInManaFaceUp` に渡す。** 対象に選ばれた手札は検証時点で

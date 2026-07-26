@@ -1,5 +1,6 @@
 package com.example.qte.deck;
 
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -29,10 +30,26 @@ public class DeckValidator {
     public static final int TABOO_DECK_SIZE = 8;
     public static final int MAX_SAME_NAME = 4;
 
-    /** 効果を実装済みの文明。未実装文明のカードは「入れられるのに何も起きない」ため禁止する */
+    /**
+     * 効果を実装済みの文明。未実装文明のカードは「入れられるのに何も起きない」ため禁止する。
+     * Batch 13c で全6文明がそろった。
+     *
+     * <b>順序が定まる集合を使う理由。</b> この集合はリーダー選択画面の並び順にも使われる
+     * ({@link #implementedCivilizations()})。{@code Set.of} は反復順が保証されないため、
+     * 画面のリーダーの並びが実行のたびに変わってしまう。{@code EnumSet} は列挙体の宣言順で
+     * 反復するため、並びが安定する。
+     */
     private static final Set<Civilization> IMPLEMENTED =
-            Set.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK, Civilization.LIGHT,
+            EnumSet.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK, Civilization.LIGHT,
                     Civilization.WIND, Civilization.EARTH);
+
+    /**
+     * 効果を実装済みの文明(列挙体の宣言順)。
+     * 「どの文明が遊べるか」の判断はこのクラスを唯一の正とし、画面側で列挙を書き写さない。
+     */
+    public static Set<Civilization> implementedCivilizations() {
+        return java.util.Collections.unmodifiableSet(IMPLEMENTED);
+    }
 
     /**
      * 同名4枚制限をカードテキストで上書きしているカード(ゾンストライカー)。

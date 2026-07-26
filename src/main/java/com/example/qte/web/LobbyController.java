@@ -154,9 +154,14 @@ public class LobbyController {
     }
 
     /** 選択可能なリーダー。メインデッキを用意済みの文明(水・火・闇・光)に限る */
+    /**
+     * 選択画面に出すリーダー。効果を実装済みの文明のみを出す
+     * (未実装文明のリーダーを選べると、デッキが組めても何も起きない対戦になるため)。
+     * Batch 13c で全6文明がそろった。判定の重複を避けるため、実装済みの集合は
+     * {@link DeckValidator#implementedCivilizations()} を唯一の正とする。
+     */
     private List<CardMaster> selectableLeaders() {
-        return java.util.stream.Stream.of(Civilization.WATER, Civilization.FIRE, Civilization.DARK,
-                Civilization.LIGHT, Civilization.EARTH)
+        return DeckValidator.implementedCivilizations().stream()
                 .flatMap(civ -> cards.findByCivilization(civ).stream())
                 .filter(c -> c.type() == CardType.LEADER)
                 .toList();
