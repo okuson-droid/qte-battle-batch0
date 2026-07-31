@@ -64,5 +64,29 @@ public enum TriggerType {
      * 「その瞬間に場にいるミニオンへ修正を積む」形にすることで、期限の管理は
      * 既存の修正スタック(THIS_TURN)がそのまま担う。
      */
-    ON_CARD_USED
+    ON_CARD_USED,
+
+    /**
+     * 自分のミニオンが攻撃を宣言したとき(Ver.0.4の魔剣レーヴァテイン)。
+     *
+     * 反応するのは攻撃したミニオン自身ではなく、その持ち主が装備しているウェポンである。
+     * {@link #ON_ATTACK} が「攻撃した本人に起きたこと」であるのに対し、
+     * こちらは「味方に起きたこと」を横から見ている(設計判断31: トリガーには向きがある)。
+     * 発火は攻撃宣言ごとであり、1体が2回攻撃すれば2回発火する(発注者確認済み)。
+     *
+     * 発火は {@link CardEffectRegistry#fireAllyMinionEvent} が専用の入口として行う。
+     * ウェポンは MinionInstance を持たないため、ミニオン単位の {@code fire()} では拾えない。
+     */
+    ON_ALLY_MINION_ATTACK,
+
+    /**
+     * 自分のミニオンが場に出たとき(Ver.0.4の禁忌の冥魔剣)。
+     *
+     * {@link #ON_ALLY_MINION_ATTACK} と同じくウェポンが反応するトリガーである。
+     * 「場に出たとき」であって【召喚時】ではないため、
+     * 召喚・特殊召喚に加えて蘇生や効果による「出す」でも発動する(発注者確認済み)。
+     * したがって発火箇所は {@link #ON_ENTER} と完全に同じ2箇所になる
+     * (GameService.summonToField と GameActions.putIntoFieldByEffect)。
+     */
+    ON_ALLY_MINION_ENTER
 }

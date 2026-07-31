@@ -22,8 +22,10 @@ import com.example.qte.game.SpellDisposition;
 import com.example.qte.game.TurnPhase;
 import com.example.qte.game.StatModifier;
 import com.example.qte.game.PlayerState;
+import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
+import com.example.qte.master.Civilization;
 import com.example.qte.master.Keyword;
 
 /**
@@ -108,7 +110,7 @@ public class CardEffectRegistry {
 
         spellEffects.put("QTE-0002", // 恵みの雨: リーダーを4回復。1枚引く
                 ctx -> {
-                    ctx.actions().healLeader(ctx.room(), ctx.owner(), 4);
+                    ctx.actions().healLeader(ctx.room(), ctx.owner(), 4, "QTE-0002");
                     ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
                 });
 
@@ -151,7 +153,7 @@ public class CardEffectRegistry {
         register("QTE-0029", TriggerType.ON_SUMMON, // 潮流の魔導士: 手札5枚以上ならリーダーを3回復
                 ctx -> {
                     if (ctx.owner().getHand().size() >= 5) {
-                        ctx.actions().healLeader(ctx.room(), ctx.owner(), 3);
+                        ctx.actions().healLeader(ctx.room(), ctx.owner(), 3, "QTE-0029");
                     }
                 });
 
@@ -267,7 +269,7 @@ public class CardEffectRegistry {
                         1, false, false, List.of(), "山札の一番下に戻すカードを選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getDeck().addLast(id));
-                    ctx.actions().healLeader(ctx.room(), ctx.owner(), 2);
+                    ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-L002");
                 },
                 "手札1枚を山札の下に戻し、リーダーを2回復"));
 
@@ -398,6 +400,33 @@ public class CardEffectRegistry {
         }
     }
 
+    /**
+     * 「自分のミニオンが攻撃した/場に出た」イベントに対する、装備中ウェポンの反応(Ver.0.4)。
+     * 魔剣レーヴァテイン(ON_ALLY_MINION_ATTACK)・禁忌の冥魔剣(ON_ALLY_MINION_ENTER)が使う。
+     *
+     * ウェポンの既存の発火口は「装備時(ON_EQUIP)」と「リーダー攻撃時(GameService.leaderAttack の
+     * switch)」の2つだけで、味方ミニオンのイベントを拾う経路が無かった。ここを
+     * leaderAttack と同じくカードIDのswitchで書かずトリガー型として起こしたのは、
+     * 発火の判断(誰が反応するか)と効果の中身(何が起きるか)を分けるという台帳の原則を、
+     * ウェポンにも通すためである。効果の中身は各文明の登録メソッドに置ける。
+     *
+     * @param ctx イベントの持ち主(ctx.owner())は、攻撃した/場に出たミニオンの持ち主である。
+     *            ctx.source() にはそのミニオンが入る(現行2枚は参照しないが、
+     *            「出たミニオンのコスト分」のような効果に備えて渡している)
+     */
+    public void fireAllyMinionEvent(TriggerType trigger, EffectContext ctx) {
+        CardMaster weapon = ctx.owner().getEquippedWeapon();
+        if (weapon == null) {
+            return;
+        }
+        Consumer<EffectContext> effect = triggers
+                .getOrDefault(weapon.id(), Map.of())
+                .get(trigger);
+        if (effect != null) {
+            effect.accept(ctx);
+        }
+    }
+
     private int countKnowledgeInHandExcluding(PlayerState player, int excludeIndex) {
         int count = 0;
         for (int i = 0; i < player.getHand().size(); i++) {
@@ -465,7 +494,7 @@ public class CardEffectRegistry {
 
         // 背水の炎壁: 【召喚時】1回復(特殊召喚で出した場合の追加1回復は下のspecで別途)
         register("QTE-0057", TriggerType.ON_SUMMON,
-                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1));
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-0057"));
 
         // 逆境の猛火者: 体力10以下なら手札からコスト4以下のミニオンを1体場に出す。
         // 条件を満たさないときのために選択は任意(optional)としている
@@ -493,7 +522,7 @@ public class CardEffectRegistry {
         // 武具昇華の炎: 自分のウェポンを1枚破壊する。そうしたら自分のリーダーを2回復
         spellEffects.put("QTE-0043", ctx -> {
             if (ctx.actions().destroyOwnWeapon(ctx.room(), ctx.owner())) {
-                ctx.actions().healLeader(ctx.room(), ctx.owner(), 2);
+                ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-0043");
             } else {
                 ctx.room().addLog("破壊するウェポンがなかった");
             }
@@ -532,7 +561,7 @@ public class CardEffectRegistry {
                 return;
             }
             selection.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
-            ctx.actions().healLeader(ctx.room(), ctx.owner(), 3);
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 3, "QTE-0065");
         });
 
         // 捨て身の猛進: このターン中、自分のミニオンすべての攻撃力+1、および【突進】付与
@@ -566,6 +595,19 @@ public class CardEffectRegistry {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
         });
 
+        // ---- ウェポン ----
+
+        // 魔剣 レーヴァテイン(QTE-0061): 自分のミニオンが攻撃した時、自分のリーダーに1ダメージ。
+        // Ver.0.4 で発火元が「自分のリーダーの攻撃」から「自分のミニオンの攻撃」へ移り、
+        // ダメージも3から1になった。攻撃宣言ごとに1ダメージであり、
+        // 連撃の巨岩のように2回攻撃するミニオンでは2回発動する(発注者確認済み)。
+        // 火文明の自傷テーマの加速装置として働く(被ダメージ回数のカウンタも同時に増える)
+        register("QTE-0061", TriggerType.ON_ALLY_MINION_ATTACK,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0061"));
+
+        // 真珠の三叉槍(QTE-0030)などの「リーダーが攻撃した時」のウェポンは、
+        // 従来どおり GameService.leaderAttack の switch で解決する
+
         // ---- 【特殊召喚】 ----
 
         // 極炎竜 ヴォルカニクス: ターン中に自分のリーダーが4回以上ダメージを受けている時、コスト1で出せる
@@ -581,15 +623,19 @@ public class CardEffectRegistry {
                 (state, player, handIndex) -> player.getLeaderDamagedCountThisTurn() >= 3,
                 0, TargetSpec.of(), ctx -> {
                 },
-                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1),
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-0057"),
                 "このターン3回以上ダメージを受けている: 0コストで召喚し、追加で1回復します"));
 
-        // 鳳凰神 ヴォルカニクスレヴォ: このターン5回以上回復したとき0コストで出せる
+        // 鳳凰神 ヴォルカニクスレヴォ: このターン、火文明のカードで累計5以上回復したとき0コストで出せる。
+        // Ver.0.4 で判定基準が「回復した回数」から「累計回復量」に変わり、
+        // さらに発生源が火文明のカードに限定された(発注者確認済み)。
+        // 火文明は自傷でLPを削る文明であり、回復の上限20に頭打ちされにくいため、
+        // 「実際に回復した量」を数える方式(GameActions.healLeader)と噛み合う
         specialSummons.put("QTE-0058", SpecialSummonSpec.of(
-                (state, player, handIndex) -> player.getHealedCountThisTurn() >= 5,
+                (state, player, handIndex) -> player.getHealedAmountThisTurn(Civilization.FIRE) >= 5,
                 TargetSpec.of(), ctx -> {
                 },
-                "このターン5回以上回復している: 0コストで召喚します"));
+                "このターン火文明のカードで累計5以上回復している: 0コストで召喚します"));
 
         // 覚醒の炎童: 自分のリーダーの体力が10以下のときコスト0にする
         specialSummons.put("QTE-0062", SpecialSummonSpec.of(
@@ -639,7 +685,7 @@ public class CardEffectRegistry {
         if (mirrorEquipped && ownTurn && byOtherCard) {
             ctx.room().addLog("【反転の炎鏡】が反応した");
             ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0048");
-            ctx.actions().healLeader(ctx.room(), ctx.owner(), 1);
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-0048");
         }
     }
 
@@ -876,7 +922,11 @@ public class CardEffectRegistry {
         playConditions.put("QTE-0080", (state, player) -> !player.getMinionZone().isEmpty()
                 || player.getTrash().stream().anyMatch(id -> cards.findById(id).type() == CardType.MINION));
         targetSpecs.put("QTE-0080", TargetSpec.of(
-                Requirement.upTo(Kind.MINION, Side.SELF, PlayerState.MAX_MINIONS,
+                // 上限は「今の自分のゾーン上限」ではなく到達しうる天井(8体)にする。
+                // TargetSpec は起動時に静的に組み立てるためプレイヤーごとの値を持てず、
+                // 6のままだと大地の巨頭のプレイヤーが8体並べたときに生贄を選び切れなくなる
+                // (禁忌デッキ経由で土のリーダーが闇のスペルを使う組み合わせが存在する)
+                Requirement.upTo(Kind.MINION, Side.SELF, PlayerState.MAX_MINION_ZONE_LIMIT,
                         "生贄にする自分のミニオンを選んでください(1体につきコスト-1)")));
         spellEffects.put("QTE-0080", ctx -> {
             ctx.targets().get(0).minions()
@@ -921,8 +971,15 @@ public class CardEffectRegistry {
                 .forEach(id -> ctx.actions().putTrashCardIntoManaFaceDown(ctx.room(), ctx.owner(), id)));
 
         // ---- ウェポン ----
-        // 禁忌の冥魔剣(QTE-0073)・死神の大鎌(QTE-0086)・死霊の収鎌(QTE-0089)は
-        // 「リーダーが攻撃した時」の効果であり、GameService.leaderAttack内で解決する
+
+        // 禁忌の冥魔剣(QTE-0073): 自分のミニオンが場に出たとき、相手のリーダーに1ダメージ。
+        // Ver.0.4 で旧効果(リーダー攻撃時に裏向きマナを表に戻して1ダメージ)を全面置換した。
+        // 「場に出たとき」であって【召喚時】ではないため、蘇生や効果による「出す」でも発動する
+        register("QTE-0073", TriggerType.ON_ALLY_MINION_ENTER,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-0073"));
+
+        // 死神の大鎌(QTE-0086)・死霊の収鎌(QTE-0089)は「リーダーが攻撃した時」の効果であり、
+        // GameService.leaderAttack内で解決する
     }
 
     // ---------------------------------------------------------------
@@ -1409,15 +1466,11 @@ public class CardEffectRegistry {
 
         // ---- リーダー起動能力 ----
 
-        // 大地の巨頭(L011): 起動能力(コスト4)。手札1枚を表向きでマナに置く。
-        // 手札の対象カードは検証時点で手札から除去済みで渡るため(ResolvedTargets の規約)、
-        // index 版の placeHandCardIntoManaFaceUp ではなく placeCardInManaFaceUp に cardId を渡す。
-        leaderAbilities.put("QTE-L011", LeaderAbilitySpec.of(4,
-                TargetSpec.of(Requirement.of(Kind.HAND, Side.SELF, 1, false,
-                        "マナに置く手札を選んでください")),
-                ctx -> ctx.targets().get(0).handCardIds().forEach(
-                        id -> ctx.actions().placeCardInManaFaceUp(ctx.room(), ctx.owner(), id)),
-                "コスト4: 手札1枚を表向きでマナに置く"));
+        // 大地の巨頭(L011)は Ver.0.4 で起動能力(コスト4で手札1枚をマナに置く)を失い、
+        // 「自分のミニオンは8体まで場に出せる」という常在効果だけを持つリーダーになった。
+        // 常在効果の実体は PlayerState.getMinionZoneLimit() にあり、ここには登録を持たない。
+        // leaderAbilities に残しておくと、存在しないはずの能力ボタンが盤面に出てしまう
+        // (GameViewBuilder.buildLeaderAbility は spec が null かどうかだけを見ている)。
 
         // ---- ミニオン: 召喚時(ON_SUMMON) ----
 
@@ -1467,9 +1520,9 @@ public class CardEffectRegistry {
 
         // 安らぎのガーディアン(0152): 【召喚時】リーダーを2回復。【ターンエンド時】リーダーを4回復
         register("QTE-0152", TriggerType.ON_SUMMON,
-                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 2));
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-0152"));
         register("QTE-0152", TriggerType.ON_TURN_END,
-                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 4));
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 4, "QTE-0152"));
 
         // ---- ミニオン: その他トリガー ----
 

@@ -8,6 +8,7 @@ import java.util.List;
 import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
 import com.example.qte.master.CardMaster;
+import com.example.qte.master.Civilization;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -23,7 +24,19 @@ public class PlayerState {
 
     public static final int INITIAL_LP = 20;
     public static final int MAX_MANA = 15;
-    public static final int MAX_MINIONS = 6;
+
+    /** ミニオンゾーンの既定の上限(総合ルール2-2)。リーダーの常在能力で上書きされうる */
+    public static final int DEFAULT_MINION_ZONE_LIMIT = 6;
+
+    /**
+     * ミニオンゾーンの上限として現行カードプールで到達しうる最大値(大地の巨頭)。
+     * 「実際の上限」ではなく「上限の上限」であり、選択仕様(TargetSpec)のように
+     * 静的に組み立てる必要がある箇所で、取りこぼしのない天井として使う。
+     */
+    public static final int MAX_MINION_ZONE_LIMIT = 8;
+
+    /** 大地の巨頭。常在能力でミニオンゾーンの上限を8体に引き上げる(Ver.0.4) */
+    private static final String EARTH_COLOSSUS_LEADER_ID = "QTE-L011";
 
     private final String playerId;
     private final String displayName;
@@ -51,7 +64,7 @@ public class PlayerState {
     /** マナゾーン(上限15枚) */
     private final List<ManaCard> manaZone = new ArrayList<>();
 
-    /** ミニオンゾーン(上限6体) */
+    /** ミニオンゾーン(上限はリーダーによって変わる。{@link #getMinionZoneLimit()}) */
     private final List<MinionInstance> minionZone = new ArrayList<>();
 
     /** リーダーに装備中のウェポン。1枚まで(付け替え時は旧ウェポンが墓地へ) */
@@ -142,15 +155,66 @@ public class PlayerState {
     private int weaponAttackBonusThisTurn = 0;
 
     /**
+     * 現在装備中のウェポンが、このターンに攻撃したか(Ver.0.4の総則変更)。
+     * 「ウェポンは攻撃したらそのターンの終わりに破壊される(禁忌の場合消滅する)」を実装するための
+     * 唯一の状態である。ウェポンは MinionInstance を持たず個体状態を置く先が無いため、
+     * 攻撃回数(leaderAttacksUsedThisTurn)と同じくプレイヤー単位で持つ。
+     *
+     * 「攻撃した」の意味はリーダーの攻撃に限る(ミニオンの攻撃では立たない。発注者確認済み)。
+     * ウェポンが場を離れた時点で false に戻る({@link GameActions#onWeaponLeftPlay})。
+     * これにより「攻撃した後に別のウェポンへ付け替えた場合、新しいウェポンは壊れない」が成立する。
+     */
+    @Setter
+    private boolean weaponAttackedThisTurn = false;
+
+    /**
      * このターンに自分のリーダーがダメージを受けた「回数」(量ではない)。
      * 火文明の特殊召喚条件が参照する(極炎竜ヴォルカニクス4回・背水の炎壁3回)。
      */
     @Setter
     private int leaderDamagedCountThisTurn = 0;
 
-    /** このターンに回復した「回数」。鳳凰神ヴォルカニクスレヴォ(5回)が参照する */
+    /**
+     * このターンに回復した「回数」。
+     * Ver.0.4 で鳳凰神ヴォルカニクスレヴォが累計量による判定へ移ったため、
+     * 現在この値を参照するカードは存在しない。回数を条件にするカードは他文明にも現れうるので、
+     * 被ダメージ回数(leaderDamagedCountThisTurn)と対になる計数として残している。
+     */
     @Setter
     private int healedCountThisTurn = 0;
+
+    /**
+     * このターンにリーダーが回復した「累計量」を、回復させたカードの文明ごとに集計したもの
+     * (鳳凰神ヴォルカニクスレヴォ: 火文明のカードで累計5以上)。
+     *
+     * 回数(healedCountThisTurn)と別に持つ理由は、量と回数が別の条件だからである
+     * (1回で5回復と、1回復を5回は、どちらか一方しか満たさない条件がありうる)。
+     * 文明ごとに分けて持つのは、「火文明のカードで」のような発生源の限定を、
+     * 参照する側が加算後に絞り込めないためである。
+     *
+     * 発生源が不明な回復(発生源カードIDを渡していない呼び出し)はどの文明にも計上されない。
+     */
+    private final java.util.Map<Civilization, Integer> healedAmountByCivilizationThisTurn =
+            new java.util.EnumMap<>(Civilization.class);
+
+    /**
+     * リーダーの回復を1件記録する。実際にLPが増えた分だけを計上する
+     * (LP上限20で頭打ちになった分は「回復した」に数えない)。
+     *
+     * @param amount              実際に回復した量。0以下なら何も記録しない
+     * @param sourceCivilization  回復させたカードの文明。不明ならnull(どの文明にも計上しない)
+     */
+    public void recordHealedAmount(int amount, Civilization sourceCivilization) {
+        if (amount <= 0 || sourceCivilization == null) {
+            return;
+        }
+        healedAmountByCivilizationThisTurn.merge(sourceCivilization, amount, Integer::sum);
+    }
+
+    /** このターン、指定した文明のカードの効果でリーダーが回復した累計量 */
+    public int getHealedAmountThisTurn(Civilization civilization) {
+        return healedAmountByCivilizationThisTurn.getOrDefault(civilization, 0);
+    }
 
     /**
      * 【剛火の将】の起動能力で得た割引の残り回数。
@@ -263,8 +327,29 @@ public class PlayerState {
         return (int) manaZone.stream().filter(m -> !m.isTapped()).count();
     }
 
+    /**
+     * このプレイヤーのミニオンゾーンの上限。相手の上限とは独立している(Ver.0.4)。
+     *
+     * 値を初期化時に確定させて保持するのではなく、参照のたびにリーダーから算出する。
+     * 大地の巨頭の新テキストは起動能力ではなく常在能力であり、常在能力は
+     * 「その瞬間に評価される」のが本プロジェクトの一貫した扱いだからである
+     * (動的ステータスを毎回再計算する設計判断4と同じ理由)。保持方式だと、
+     * 将来ミニオンやウェポンが上限を動かすカードが出たときに、
+     * 加算・減算の取り消し漏れという形でしか壊れない。
+     *
+     * リーダーIDの直書きは、リーダーの常在能力に対する既存の扱いに揃えたものである
+     * (StatCalculator の詠唱の風詠士、CardEffectRegistry.fireManaPlaced の豊穣の地霊主、
+     * GameService の黄泉の召喚主と同じ形)。
+     */
+    public int getMinionZoneLimit() {
+        if (EARTH_COLOSSUS_LEADER_ID.equals(leader.id())) {
+            return MAX_MINION_ZONE_LIMIT;
+        }
+        return DEFAULT_MINION_ZONE_LIMIT;
+    }
+
     public boolean isMinionZoneFull() {
-        return minionZone.size() >= MAX_MINIONS;
+        return minionZone.size() >= getMinionZoneLimit();
     }
 
     /** ターン開始処理(アンタップフェイズ相当)で呼ぶ: 全アンタップ+ターン内カウンタのリセット */
@@ -285,6 +370,11 @@ public class PlayerState {
         // 配置のたびにターン番号を照合して数え直す(recordManaPlacement を参照)。
         leaderDamagedCountThisTurn = 0;
         healedCountThisTurn = 0;
+        healedAmountByCivilizationThisTurn.clear();
+        // 通常はターン終了時の破壊処理(GameService.finishEndTurnCleanup)で既に落ちている。
+        // ここで戻すのは、ターン内フラグは自ターン開始時に必ず初期状態へ揃えるという
+        // このメソッドの約束を、ウェポンだけ例外にしないためである
+        weaponAttackedThisTurn = false;
         pendingFireMinionDiscount = 0;
         leaderAbilityUsedThisTurn = false;
         leaderAttacksUsedThisTurn = 0;

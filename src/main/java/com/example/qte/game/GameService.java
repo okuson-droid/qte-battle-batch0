@@ -278,6 +278,17 @@ public class GameService {
      */
     private void finishEndTurnCleanup(GameRoom room, GameState state) {
         for (PlayerState p : new PlayerState[] { state.getPlayer1(), state.getPlayer2() }) {
+            // ウェポンの寿命(Ver.0.4の総則変更): このターン攻撃したウェポンはここで破壊される。
+            // 禁忌由来なら墓地ではなく消滅ゾーンへ行くが、その判断は destroyOwnWeapon が呼ぶ
+            // sendToTrashOrRestore が既に持っているため、ここでは区別せず破壊するだけでよい。
+            // フラグは destroyOwnWeapon → onWeaponLeftPlay の中で落ちる。
+            // 相手プレイヤー側のフラグは立ちようがない(リーダーの攻撃は自ターンのみ)が、
+            // 掃除は両者に対して行うというこのメソッドの形はそのまま守っている
+            if (p.isWeaponAttackedThisTurn() && p.getEquippedWeapon() != null) {
+                room.addLog("【%s】は攻撃したためターンの終わりに破壊されます"
+                        .formatted(p.getEquippedWeapon().name()));
+                actions.destroyOwnWeapon(room, p);
+            }
             // ターンの終わりに自壊するミニオン(特殊召喚された這い寄る生霊)。
             // 破壊トリガーを正しく発火させるため、リストから消すのではなく破壊処理を通す
             for (MinionInstance dying : List.copyOf(p.getMinionZone())) {
@@ -400,7 +411,7 @@ public class GameService {
             int handIndex, CardMaster master, List<TargetChoice> choices) {
         requirePhase(state, TurnPhase.MAIN);
         if (player.isMinionZoneFull()) {
-            throw new IllegalStateException("ミニオンは6体までです");
+            throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
         // 検証(状態を変えない)→ 支払い → 手札除去 → 場に出す → 効果、の順を守る。
         // 検証で弾かれた場合に状態が一切変わっていないことを保証するため
@@ -561,7 +572,7 @@ public class GameService {
         CardMaster master = cards.findById(player.getTabooDeck().get(tabooIndex));
 
         if (master.type() == CardType.MINION && player.isMinionZoneFull()) {
-            throw new IllegalStateException("ミニオンは6体までです");
+            throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
         if (master.type() == CardType.SPELL && !effects.isSpellImplemented(master.id())) {
             throw new IllegalStateException("このスペルの効果は未実装です");
@@ -684,7 +695,7 @@ public class GameService {
         boolean costFreesZone = spec.targets().requirements().stream()
                 .anyMatch(r -> r.kind() == TargetSpec.Kind.MINION && r.side() == TargetSpec.Side.SELF);
         if (player.isMinionZoneFull() && !costFreesZone) {
-            throw new IllegalStateException("ミニオンは6体までです");
+            throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
 
         ValidatedTargets validated = validateTargets(state, player, handIndex, spec.targets(), choices);
@@ -734,7 +745,7 @@ public class GameService {
             throw new IllegalStateException("墓地から召喚できるのはミニオンのみです");
         }
         if (player.isMinionZoneFull()) {
-            throw new IllegalStateException("ミニオンは6体までです");
+            throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
         payCost(player, stats.effectiveCost(state, player, master));
         player.getTrash().remove(trashIndex);
@@ -756,6 +767,10 @@ public class GameService {
         EffectContext ctx = contextOf(room, state, player, minion, resolved);
         effects.fire(TriggerType.ON_SUMMON, minion, ctx);
         effects.fire(TriggerType.ON_ENTER, minion, ctx);
+        // 装備中のウェポンが「自分のミニオンが場に出た」に反応する(禁忌の冥魔剣)。
+        // ON_ENTER と同じ扱いのため、効果による「出す」を行う
+        // GameActions.putIntoFieldByEffect にも同じ発火が置いてある
+        effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
         return minion;
     }
 
@@ -843,6 +858,10 @@ public class GameService {
         }
 
         player.setLeaderAttacksUsedThisTurn(player.getLeaderAttacksUsedThisTurn() + 1);
+        // ウェポンの寿命(Ver.0.4の総則変更)。攻撃宣言が成立した時点で記録し、
+        // 実際の破壊はターン終了時(finishEndTurnCleanup)に行う。
+        // 記録するのはリーダーの攻撃だけであり、ミニオンの攻撃では立てない(発注者確認済み)
+        player.setWeaponAttackedThisTurn(true);
         int damage = stats.effectiveWeaponAttack(state, player);
         room.addLog("リーダーが【%s】で攻撃(%dダメージ)".formatted(weapon.name(), damage));
 
@@ -868,14 +887,10 @@ public class GameService {
             case "QTE-0030" -> { // 真珠の三叉槍: 自分のリーダーが攻撃した時、カードを1枚引く
                 actions.drawCards(room, player, 1);
             }
-            case "QTE-0061" -> { // 魔剣 レーヴァテイン: 自分のリーダーが攻撃した時、自分のリーダーに3ダメージ
-                actions.damageLeader(room, player, 3);
-            }
-            case "QTE-0073" -> { // 禁忌の冥魔剣: 裏向きマナが1枚表に戻り、相手リーダーに1ダメージ
-                if (actions.turnManaFaceUp(room, player, 1) > 0) {
-                    actions.damageLeader(room, opponent, 1, "QTE-0073");
-                }
-            }
+            // 魔剣レーヴァテイン(QTE-0061)・禁忌の冥魔剣(QTE-0073)は Ver.0.4 で発火元が
+            // 「自分のリーダーの攻撃」から「自分のミニオンの攻撃/登場」へ移ったため、
+            // このswitchから外して CardEffectRegistry のトリガー登録に移設した
+            // (ON_ALLY_MINION_ATTACK / ON_ALLY_MINION_ENTER)
             case "QTE-0089" -> { // 死霊の収鎌: 自分の墓地からカードを1枚手札に戻す
                 // どの1枚かは自動選択(AutoChoice: 最後に墓地へ置かれたカード)
                 String recovered = com.example.qte.effect.AutoChoice.recoverFromTrash(player);
@@ -1046,9 +1061,13 @@ public class GameService {
 
         attacker.countAttack();
         room.addLog("【%s】が攻撃を宣言".formatted(attacker.getMaster().name()));
-        effects.fire(TriggerType.ON_ATTACK, attacker, contextOf(room, state, player, attacker, null));
+        EffectContext attackCtx = contextOf(room, state, player, attacker, null);
+        effects.fire(TriggerType.ON_ATTACK, attacker, attackCtx);
+        // 装備中のウェポンが「自分のミニオンが攻撃した」に反応する(魔剣レーヴァテイン)。
+        // 攻撃宣言ごとに発火するため、2回攻撃するミニオンでは2回発動する(発注者確認済み)
+        effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ATTACK, attackCtx);
 
-        // 攻撃時効果でゲームが決着した場合(山札切れ等)は戦闘を解決しない
+        // 攻撃時効果でゲームが決着した場合(山札切れ・自傷でのLP0等)は戦闘を解決しない
         if (state.getStatus() == GameStatus.FINISHED) {
             return;
         }

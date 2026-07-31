@@ -70,11 +70,29 @@ public class GameActions {
         }
     }
 
-    /** リーダーの回復(上限20)。回復「回数」はターン内カウンタとして数える(鳳凰神の条件) */
+    /** 発生源を明示しない回復。文明別の累計量には計上されない */
     public void healLeader(GameRoom room, PlayerState player, int amount) {
+        healLeader(room, player, amount, null);
+    }
+
+    /**
+     * リーダーの回復(上限20)。回復の「回数」と、発生源の文明ごとの「累計量」の両方を数える。
+     *
+     * 累計量は、要求された量ではなく実際にLPが増えた量で数える(Ver.0.4)。
+     * 「回復した」の素直な読みであり、体力が満タンの状態で回復を撃つだけで
+     * 鳳凰神ヴォルカニクスレヴォの条件が貯まってしまうのを避けるためでもある。
+     *
+     * @param sourceCardId 回復させたカードのID。damageLeader の発生源引数と同じ役割で、
+     *                     カードの文明を引くために使う。不明ならnull(文明別の集計に入らない)
+     */
+    public void healLeader(GameRoom room, PlayerState player, int amount, String sourceCardId) {
         int before = player.getLp();
         player.setLp(Math.min(MAX_LP, before + amount));
+        int healed = player.getLp() - before;
         player.setHealedCountThisTurn(player.getHealedCountThisTurn() + 1);
+        if (sourceCardId != null) {
+            player.recordHealedAmount(healed, cards.findById(sourceCardId).civilization());
+        }
         room.addLog("%sのリーダーが%d回復(LP %d → %d)"
                 .formatted(player.getDisplayName(), amount, before, player.getLp()));
     }
@@ -282,7 +300,7 @@ public class GameActions {
     /**
      * 効果によってミニオンを場に「出す」(召喚ではない)。
      * 発注者確認済み裁定により【召喚時】(ON_SUMMON)は発動せず、
-     * 登場時(ON_ENTER: 知識など)のみ発動する。ゾーン上限6体なら出せない。
+     * 登場時(ON_ENTER: 知識など)のみ発動する。ミニオンゾーンが上限なら出せない。
      */
     public void putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId) {
         if (owner.isMinionZoneFull() || NO_CHEAT_INTO_FIELD.contains(cardId)) {
@@ -293,7 +311,11 @@ public class GameActions {
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber());
         owner.getMinionZone().add(minion);
         room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));
-        effects.fire(TriggerType.ON_ENTER, minion, contextOf(room, owner, minion));
+        EffectContext ctx = contextOf(room, owner, minion);
+        effects.fire(TriggerType.ON_ENTER, minion, ctx);
+        // 装備中のウェポンが「自分のミニオンが場に出た」に反応する(禁忌の冥魔剣)。
+        // 蘇生・効果による「出す」でも発動するため、ON_ENTER の隣に置く(発注者確認済み)
+        effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
     }
 
     // ---------------------------------------------------------------
@@ -472,6 +494,11 @@ public class GameActions {
         }
         // 暴風の双剣がこのターン積み上げた攻撃力の加算は、ウェポンが外れた時点で消える
         owner.setWeaponAttackBonusThisTurn(0);
+        // 「このターン攻撃した」の記録は、あくまで今場にあるウェポンについてのものである(Ver.0.4)。
+        // ここで落とすことで「攻撃した後に別のウェポンへ付け替えたら、新しいウェポンは
+        // (攻撃していないため)ターン終了時に壊れない」という裁定が成立する。
+        // 破壊・付け替えの両経路がこのメソッドを必ず通るため、落とす場所はここ1箇所でよい
+        owner.setWeaponAttackedThisTurn(false);
     }
 
     /**

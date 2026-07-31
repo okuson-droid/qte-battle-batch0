@@ -134,9 +134,9 @@ public class StatCalculator {
         if ("QTE-0143".equals(card.id()) && owner.getManaZone().size() >= 7) {
             cost = 1; // 大地の狂戦士: マナ7枚以上でコスト1
         }
-        if ("QTE-0015".equals(card.id()) && owner.getManaZone().size() >= 7) {
-            cost = 2; // 地脈の覚醒: マナ7枚以上でコスト2
-        }
+        // 地脈の覚醒(QTE-0015)の「マナ7枚以上でコスト2」は Ver.0.4 で撤廃された。
+        // 基礎コストそのものが2に下がったため、条件を残すと常に真の分岐(=死んだコード)になる。
+        // 大地の狂戦士(上の分岐)は同系統の条件だが Ver.0.4 でも変更されておらず、存続する
         return Math.max(0, cost);
     }
 
