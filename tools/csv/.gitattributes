@@ -1,0 +1,3 @@
+# CSV 原本は Shift_JIS である。git の text=auto による改行正規化・文字コード推測を止める。
+# (リポジトリ直下の .gitattributes が `* text=auto` を指定しているため、ここで打ち消す)
+*.csv -text

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QTE Battle - 手動モード カード確認</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* 目視確認のためだけの画面なので、CSSはここに閉じる(battle.css を汚さない)。 */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: .75rem;
+        }
+        .card-cell img {
+            width: 100%;
+            aspect-ratio: 5 / 7;
+            object-fit: contain;
+            background: #e9ecef;
+            border-radius: .25rem;
+        }
+        .card-cell .cap {
+            font-size: .7rem;
+            line-height: 1.25;
+            word-break: break-all;
+        }
+        .card-cell .imgid {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: .6rem;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body class="bg-light">
+<div class="container-fluid py-4" style="max-width: 1400px">
+
+    <h1 class="mb-1 h3">手動モード カード確認</h1>
+    <p class="text-muted mb-3">
+        Batch 17a の目視確認用。<strong>画像の欠け</strong>と<strong>ピュア・エレメントの画像</strong>だけを見る画面である。
+    </p>
+
+    <!-- 検算。設計書 1-2 の表と突き合わせる -->
+    <div class="card mb-4">
+        <div class="card-body py-3">
+            <div class="d-flex flex-wrap gap-3 align-items-center">
+                <span class="badge text-bg-dark fs-6">
+                    合計 <span th:text="${totalCards}">0</span> 枚
+                </span>
+                <span th:each="entry : ${typeCounts}" class="badge text-bg-secondary">
+                    <span th:text="${entry.key}">TYPE</span>
+                    <span th:text="${entry.value}">0</span>
+                </span>
+                <span class="badge text-bg-info">
+                    台帳と対応 <span th:text="${linkedCount}">0</span> 枚
+                </span>
+            </div>
+            <div class="small text-muted mt-2">
+                期待値: 合計 235 / LEADER 18 / MINION 119 / EVOLUTION 18 / SPELL 61(60 + ピュア・エレメント) /
+                WEAPON 19 / 台帳と対応 169
+            </div>
+            <div class="small text-muted mt-1">
+                裏面画像ID: <code th:text="${backImageId}">-</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- 画像が実在しないカード。0件が正常 -->
+    <div th:if="${!#sets.isEmpty(missingImageIds)}" class="alert alert-danger">
+        <strong>★画像ファイルが見つからない画像IDがある</strong>
+        <ul class="mb-0 small">
+            <li th:each="id : ${missingImageIds}" th:text="${id}">id</li>
+        </ul>
+        <div class="small mt-2">
+            画像IDは内容ハッシュである。カードを作り直すと必ず変わるため、
+            CSV を新しい画像IDに更新して <code>tools/convert_manual_cards.py</code> を再実行すること。
+        </div>
+    </div>
+    <div th:if="${#sets.isEmpty(missingImageIds)}" class="alert alert-success py-2">
+        画像の欠けは無い(全 <span th:text="${totalCards}">0</span> 枚が実在する)。
+    </div>
+
+    <div th:each="entry : ${cardsByCivilization}" class="card mb-4">
+        <div class="card-header">
+            <strong th:text="${entry.key.displayName} + '文明'">文明</strong>
+            <span class="badge bg-secondary" th:text="${#lists.size(entry.value)} + '枚'">0枚</span>
+            <span th:if="${entry.key.name() == 'NONE'}" class="badge text-bg-warning">
+                ★ピュア・エレメント。画像がこのカードで正しいかを目視すること
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="card-grid">
+                <div th:each="card : ${entry.value}" class="card-cell">
+                    <img th:src="@{'/cards/' + ${card.imageId} + '.png'}"
+                         th:alt="${card.name}" loading="lazy">
+                    <div class="cap mt-1">
+                        <span th:text="${card.id}">QTE-M-XXXX-0</span>
+                        <span class="text-muted" th:text="'/ ' + ${card.type}">/ MINION</span>
+                        <br>
+                        <span th:text="${card.name}">名前</span>
+                        <br>
+                        <span class="text-muted">
+                            C<span th:text="${card.cost}">0</span>
+                            <span th:if="${card.attack != null}">
+                                / A<span th:text="${card.attack}">0</span>
+                            </span>
+                            <span th:if="${card.hp != null}">
+                                / H<span th:text="${card.hp}">0</span>
+                            </span>
+                        </span>
+                        <span th:if="${card.ledgerCardId != null}" class="text-muted"
+                              th:text="'/ ' + ${card.ledgerCardId}">/ QTE-0000</span>
+                        <span th:if="${card.ledgerCardId == null}" class="badge text-bg-light">新</span>
+                        <br>
+                        <span class="imgid" th:text="${#strings.substring(card.imageId, 0, 16)} + '…'">img</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header"><strong>裏面</strong></div>
+        <div class="card-body">
+            <div class="card-grid">
+                <div class="card-cell" style="max-width: 200px">
+                    <img th:src="@{'/cards/' + ${backImageId} + '.png'}" alt="裏面" loading="lazy">
+                    <div class="cap mt-1">
+                        裏面(全カード共通)<br>
+                        <span class="imgid" th:text="${#strings.substring(backImageId, 0, 16)} + '…'">img</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+</body>
+</html>
