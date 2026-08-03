@@ -41,6 +41,10 @@ class ManualCardMasterLoadTest {
         assertThat(countType(ManualCardType.SPELL)).isEqualTo(61);
     }
 
+    private long countType(ManualCardType type) {
+        return repository.getAllCards().stream().filter(c -> c.type() == type).count();
+    }
+
     @Test
     void 各文明は39枚で文明なしは1枚() {
         for (ManualCivilization civ : ManualCivilization.values()) {
