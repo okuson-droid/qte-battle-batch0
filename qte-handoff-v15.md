@@ -1,7 +1,7 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-04 (Batch 18b 完了。手動モードの盤面の画面)
-次の作業: **Batch 18c(b系・Sonnet 5) — ゾーンを開く画面(帯・全面表示・検索・スタック帯)**
+最終更新: 2026-08-04 (Batch 18c 完了。ゾーンを開く画面)
+次の作業: **Batch 19a(b系・Sonnet 5) — 入口の作り替え・リセット・ログ書き出し・切断復帰・仕上げ**
 
 **★新しいチャットを始めるときは 5章「チャット開始テンプレート」を使うこと。**
 
@@ -12,7 +12,7 @@
 
 | 系統 | 前提ドキュメント |
 |---|---|
-| **手動モード**(17a〜19a) | `batch16-manual-mode-design-v2_4.md`(唯一の正) + `notes/batch18b-design-notes.md` |
+| **手動モード**(17a〜19a) | `batch16-manual-mode-design-v2_4.md`(唯一の正) + `notes/batch18c-design-notes.md` |
 | **Ver.0.4 対応**(15c/15d/15e) | `notes/ver0.4-transcription-notes.md` + `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` |
 
 ---
@@ -30,16 +30,17 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 4. **★「反映済み」という記述を信じず、直近バッチで変更したはずの箇所を実際に読んで照合する。**
    台帳だけでなく**コードにも適用すること**。
 
-## 18cの確認項目(次チャットで照合すること)
+## 19aの確認項目(次チャットで照合すること)
 
-- `src/main/resources/static/js/manual-battle.js` に `notYetImplemented` の空振りが
-  4箇所(山札全面表示・進化スタック帯・自席ゾーンパイル・相手席小型ゾーンバー)残っていること
-- `src/main/resources/static/css/battle.css` に `/* Batch 18b: 手動モード盤面 */` の
-  セクションが存在すること(v10→v11)
-- `src/main/java/com/example/qte/manual/web/ManualBattleController.java` が存在し、
-  `GET /manual/battle/{roomId}` を持つこと(19aで正式なロビーに置き換わるまでの暫定入口)
-- `cardLocation` 索引(`manual-battle.js`)が最上段のカードのみを対象にしていること
-  (18cで進化スタックの下段も対象に含める拡張が必要)
+- `src/main/resources/static/js/manual-battle.js` に `openZoneBand` / `openEvolutionBand` /
+  `openDeckFullscreen` が実装されており、`notYetImplemented` が0件であること
+  (grep して確認する。18cで完全に削除済みのはず)。
+- `src/main/resources/static/css/battle.css` に `/* Batch 18c: 帯・全面表示 */` の
+  セクションが存在すること(v11→v12)。
+- `src/main/resources/templates/manual-battle.html` が
+  `battle.css(v=12)` / `manual-battle.js(v=2)` を参照していること。
+- **相手席(B席)の小型ゾーンバーは18cでもスコープ外のまま**であり、クリックしても
+  何も起きない状態が正しい(マスター確認済み。19aでも扱う予定は無い)。
 
 ---
 
@@ -47,52 +48,46 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 | 項目 | 状態 |
 |---|---|
-| 完了バッチ | Batch 0〜13c + Ver.0.4転記 + 15a + 15b + 16(設計) + 17a + 17b + 18a + **18b** |
-| **★リポジトリの状態** | 15bを含めてすべて反映済み(18aで確認)。18bで新規追加分も確認済み |
+| 完了バッチ | Batch 0〜13c + Ver.0.4転記 + 15a + 15b + 16(設計) + 17a + 17b + 18a + 18b + **18c** |
+| **★リポジトリの状態** | 18bまで反映済み確認済み。18cで新規追加分(帯・全面表示)も反映済み |
 | 台帳の状態 | Ver.0.4反映済み(52枚更新)。2つの台帳は内容一致・確認待ち0件 |
 | 効果の実装状況 | 15aで5枚 + 15bで16枚 = 21枚完了。残り31枚(うちL004は基盤待ち) |
 | 実装済み文明 | 水28 / 火28 / 闇28 / 光28 / 風28 / 土28 = 168枚(全6文明完成) |
 | 転記済み総数 | 169枚(6文明×28枚 + 文明なし1) |
 | 手動モードのカード | 235枚(CSV 234 + ピュア・エレメント1)。`manual-cards.json` |
-| **手動モードの基盤** | 状態モデル・部屋・配信・デッキ取り込み(17b)<br>+ 操作13項目・進化スタック・Undo/Redo(18a)<br>**+ 盤面の画面(タイル・手札・拡大画像・操作規約・DnD)(18b)** |
+| **手動モードの基盤** | 状態モデル・部屋・配信・デッキ取り込み(17b)<br>+ 操作13項目・進化スタック・Undo/Redo(18a)<br>+ 盤面の画面(タイル・手札・拡大画像・操作規約・DnD)(18b)<br>**+ ゾーンを開く画面(帯・全面表示・検索)(18c)** |
 | 公開URL | https://qte-battle-batch0.onrender.com/ |
-| 静的ファイルのバージョン | `battle.js(v=13)` / `battle.css(v=11)`(**18bでv10→v11**)<br>`deck-builder.js(v=10)` / `deck-builder.css(v=10)`<br>`manual-battle.js(v=1)` ★18bで新設 |
+| 静的ファイルのバージョン | `battle.js(v=13)` / `battle.css(v=12)`(**18cでv11→v12**)<br>`deck-builder.js(v=10)` / `deck-builder.css(v=10)`<br>`manual-battle.js(v=2)`(**18cでv1→v2**) |
 | 選択可能なリーダー | 全6文明12体(通常モード) |
 
-### 直近の内容(前チャット: Batch 18b — 手動モードの盤面の画面)
+### 直近の内容(前チャット: Batch 18c — ゾーンを開く画面)
 
-**既存ファイルの変更は `battle.css` のみ(末尾に追記)。** 新規ファイルは3つ
-(`ManualBattleController.java` / `manual-battle.html` / `manual-battle.js`)。
-詳細は `notes/batch18b-design-notes.md` を参照。
+**変更したファイルは3つ**(`manual-battle.js` / `battle.css` / `manual-battle.html`)。
+Java ファイルは1つも変更していない(17b・18aの時点で必要な操作がすべて揃っていたため)。
+詳細は `notes/batch18c-design-notes.md` を参照。
 
-- 盤面への暫定入口: `GET /manual/battle/new`(部屋作成)、
-  `GET /manual/battle/{roomId}`(occupantIdが無ければ自動入室してリダイレクト)。
-  19aの正式なロビーに置き換わるまでの繋ぎであり、`LobbyController` には触れていない。
-- 画面: 3列レイアウト(左110px ゾーンバー / 中700px 盤面 / 右350px ログ+拡大画像)。
-  場のタイルはタイル表示(画像を使わない)、手札はカード画像。文明色の文字色は
-  コントラスト比計算で決める(直書きしない)。
-- 操作: ドラッグ&ドロップで `move` / `evolve` を自動判定
-  (埋まっているFIELDタイルへの落下 = 進化、埋まっているWEAPON枠 = 拒否)。
-  クリック規約(タップ・数値編集・札の着脱・Shift表裏・Ctrl複数選択・山札左右非対称)を
-  設計書4-4のとおり実装。
-- **★18cとの境界を4箇所で空振りにした**(山札全面表示・進化スタック帯表示・
-  自席ゾーンパイルを開く・相手席小型ゾーンバーを開く)。押すとログ欄に案内が出るだけ。
-- デッキ読み込みUIを含めた(17bの既存エンドポイントを呼ぶだけ)。
-  「リセットして引き直す」は19a送りのため入れていない。
+- 山札の右クリックで**全面表示**(検索・ドラッグ並べ替え・一番上へ/一番下へ/手札へ/場へ)。
+- 墓地・消滅・禁忌・一時公開の**左クリックで帯を開く**(最上段の拡大は右クリックへ移動)。
+  検索は墓地・消滅・禁忌のみ(一時公開は対象外)。
+- 進化スタックの `+n` バッジで**帯を開き**、素材を任意ゾーンへ直接ドラッグできる
+  (素材が0枚になると自動で閉じる)。
+- **相手席(B席)の小型ゾーンバーは今回スコープ外**(マスター確認により飾りのまま)。
+- `cardLocation` 索引に進化スタックの素材も含めた(18bの既知の限界を解消)。
+- サーバ側の操作追加は無い。`move` 操作の instanceId 指定・任意 `toIndex` が
+  17b/18aの時点で既に対応していたため、今回はすべてクライアント側の作業だった。
 
 ### ★既知の限界(要確認・未対応)
 
-- **`tools/check_undeclared.py` の `BUILTINS` に `OCCUPANT_ID` / `DEFAULT_LABELS` が無い。**
-  `ROOM_ID` / `PLAYER_ID` と同じ形(Thymeleafが注入するグローバル定数)だが検出対象外で、
-  実行すると偽陽性が2件出る。`check_records.py` の `TARGETS` 固定リストと同種のギャップ。
-  実害は無いが `tools/` 改修時にまとめて直すこと。
-- **相手席の手札・マナ・リーダーは無い。** 設計書4-1のとおり(LP+ミニオンゾーン+
-  小型ゾーンバーのみ)であり欠落ではない。
-- **LPの編集は `prompt()` のみ。** ATK/HP用の数値編集モーダルとは統一していない。
-- **`cardLocation` 索引は最上段のみ対象。** 進化スタックの下段は18cで帯表示を実装する際に
-  同じ索引へ含める拡張が必要。
+- **山札全面表示のドラッグ並べ替えは単一カードのみ。** 複数選択したままの並べ替えは
+  添字補正ロジックが単一カード前提のため未対応。
+- **検索中は山札のドラッグ並べ替えを無効化している。** フィルタで隠れた行を挟むと
+  表示上の位置と実配列の添字がずれるため。ボタン操作(一番上へ等)は検索中も使える。
+- **相手席の小型ゾーンバーはクリックしても何も起きない。** 18bから状態不変
+  (マスター確認済み。自分のカードを相手側へ送るカードが存在しないため飾りでよい)。
 - 18a由来の既知の限界(`CardMasterLoadTest` の `hasSize(72)`、`check_records.py` の
   `TARGETS` 未登録、`check_structure.py` の `src/test` 未対応)は変わらず残っている。
+- `tools/check_undeclared.py` の `BUILTINS` に `OCCUPANT_ID` / `DEFAULT_LABELS` が無い
+  (18bから継続。実害無し。`tools/` 改修時にまとめて追加)。
 
 ---
 
@@ -105,9 +100,9 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 | ~~17a~~ | a系 | データ変換・カードマスタ・確認画面 | なし | 完了 |
 | ~~17b~~ | a系 | 状態モデル・部屋・在室者・個別宛先配信・デッキ取り込み | なし | 完了 |
 | ~~18a~~ | a系 | 操作13項目・進化スタックの分解・Undo | なし | 完了 |
-| ~~18b~~ | b系 | 盤面の画面(タイル・手札・拡大画像・操作規約) | `battle.css` | **完了** |
-| **18c** | **b系** | **ゾーンを開く画面(帯・全面・検索・スタック帯)** | なし | **次** |
-| 19a | b系 | 入口の作り替え・リセット・ログ書き出し・切断復帰・仕上げ | `LobbyController` | 未着手 |
+| ~~18b~~ | b系 | 盤面の画面(タイル・手札・拡大画像・操作規約) | `battle.css` | 完了 |
+| ~~18c~~ | b系 | ゾーンを開く画面(帯・全面・検索・スタック帯) | `battle.css` | **完了** |
+| **19a** | **b系** | **入口の作り替え・リセット・ログ書き出し・切断復帰・仕上げ** | `LobbyController` | **次** |
 
 ### Ver.0.4 対応(手動モードとファイルが重ならない)
 
@@ -130,6 +125,8 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
 ## 4. 既知の落とし穴
 
 - **★「反映済み」という記述を信じない。** 台帳だけでなくコードも実データで照合する。
+  18bのdesign-notesが「相手席の小型ゾーンバーも空振り対象」と書いていたが実際には
+  クリックリスナー自体が無かった、という実例が18cの着手時に出ている。
 - **数値はコードに埋まっていることがある。** 台帳が持つのは cost/attack/hp/keywords だけ。
 - **実装済み文明リストの唯一の正は `DeckValidator.IMPLEMENTED`。** 手動モードはこの判定を
   一切使わない。
@@ -143,6 +140,9 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
   だけである(設計書5-1)。コスト支払い・戦闘解決・攻撃可否・フェイズ強制・勝敗判定・
   デッキ切れはすべて切る。
 - **★MPを直接増減する操作を作らない。** マナのアンタップ枚数からの派生値である。
+- **★帯・全面表示からのドラッグは、instanceId さえ渡せばサーバの `move` が
+  ゾーン直下でも進化スタックの素材でも透過的に見つけてくれる。** クライアント側で
+  「これは素材だから」という特別扱いを増やさないこと(18c 2-6参照)。
 
 ---
 
@@ -153,28 +153,28 @@ QTE Battle の開発を継続する。以下の手順で作業を始めてほし
 
 1. プロジェクトナレッジ内の `qte-project-reference.md` を読む
    (ゲームルール・設計判断の唯一の正)。
-2. プロジェクトナレッジ内の `qte-handoff-v14.md` を読む
+2. プロジェクトナレッジ内の `qte-handoff-v15.md` を読む
    (直近の状態・次の作業・既知の落とし穴)。
 3. プロジェクトナレッジ内の `batch16-manual-mode-design-v2_4.md`
-   (手動モードの唯一の正)と `notes/batch18b-design-notes.md`
-   (盤面の画面の設計判断。18cとの境界を4箇所で空振りにした理由を含む)を読む。
+   (手動モードの唯一の正)と `notes/batch18c-design-notes.md`
+   (ゾーンを開く画面の設計判断)を読む。
 4. ソースコードを取得する(zipのアップロードは不要)。
 
 https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
-5. ★取得したコードで Batch 18b が反映されているかを確認し、結果を報告すること。
+5. ★取得したコードで Batch 18c が反映されているかを確認し、結果を報告すること。
    「反映済み」という記述を信じないこと。次の4点を実際に読んで照合する。
-   - `ManualBattleController.java` が存在し `GET /manual/battle/{roomId}` を持つこと
-   - `manual-battle.html` / `manual-battle.js` が存在すること
-   - `battle.css` に `/* Batch 18b: 手動モード盤面 */` のセクションがあること
-   - `manual-battle.js` に `notYetImplemented` の空振りが4箇所残っていること
-     (18cで実装に置き換える対象)
+   - `manual-battle.js` に `openZoneBand` / `openEvolutionBand` / `openDeckFullscreen`
+     が実装されており、`notYetImplemented` が0件であること
+   - `battle.css` に `/* Batch 18c: 帯・全面表示 */` のセクションがあること(v11→v12)
+   - `manual-battle.html` が `battle.css(v=12)` / `manual-battle.js(v=2)` を
+     参照していること
+   - 相手席(B席)の小型ゾーンバーはクリックしても何も起きない状態のままであること
+     (18cでもスコープ外。マスター確認済みであり、欠陥ではない)
 
-次の作業は Batch 18c(b系)で、ゾーンを開く画面(帯・全面表示・検索・進化スタックの帯)を作る。
-
-このバッチでは 18b が空振りにした4箇所を実装で埋めることと、設計書のスコープに明記された
-検索機能のみを行う。基盤の新設が必要だと判明した項目はその場で実装せず、飛ばして記録し、
-バッチの最後にまとめて報告すること。
+次の作業は Batch 19a(b系)で、入口の作り替え・リセット・ログ書き出し・切断復帰・仕上げを
+行う。既存ファイルへの変更は `LobbyController`(設計書 6-2 の正式なロビーへの置き換え)。
+`ManualBattleController` の暫定入口をここで置き換える。
 
 b系バッチのため Sonnet で作業してほしい。
 
@@ -189,8 +189,7 @@ b系バッチのため Sonnet で作業してほしい。
 
 | 次のバッチ | 前提ドキュメント |
 |---|---|
-| **18c** | `batch16-manual-mode-design-v2_4.md` + `notes/batch18b-design-notes.md` |
-| 19a | 同上 + `notes/batch18c-design-notes.md` |
+| **19a** | `batch16-manual-mode-design-v2_4.md` + `notes/batch18c-design-notes.md` |
 | 15c / 15d | `ver0.4-transcription-notes.md` + `batch15a-design-notes.md` + `batch15b-design-notes.md` |
 | 15e(基盤) | `batch15b-design-notes.md` 6章 + `batch15a-design-notes.md` |
 | 整合チェック | 全文明の設計解説 + `qte-cards.json` |
@@ -199,7 +198,7 @@ b系バッチのため Sonnet で作業してほしい。
 
 ## 6. この先の予定
 
-手動モードを 18c → 19a の順に進め、フェイズ1(一人回し)を完成させる。
+手動モードを 19a まで進め、フェイズ1(一人回し)を完成させる。
 フェイズ2(ソロ対戦・対戦・観戦)はその後であり、着手前にUI詰めのセッションを
 もう1回行う(設計書11章)。
 

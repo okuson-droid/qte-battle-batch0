@@ -146,3 +146,48 @@
 
 .manual-drop-hover { outline: 2px solid #4caf50; outline-offset: 1px; }
 .manual-drop-reject { outline: 2px solid #dc3545; outline-offset: 1px; background: rgba(220, 53, 69, 0.35) !important; }
+
+/* Batch 18c: 帯・全面表示(設計書 4-6)。
+   帯(manual-band)はBootstrapのモーダル(z-index 1050)より下、全面表示(manual-fullscreen)は
+   盤面を完全に覆うため最前面に置く。★このバッチは既存ファイルを一切変更しない予定だったが
+   (18b design-notes 6章の見込み)、多数のJS生成要素に同じスタイルをinlineで繰り返すより
+   ここにまとめるほうが安全と判断し、18bに続いてbattle.cssへ追記する形にした
+   (詳細はbatch18c-design-notes.mdを参照)。 */
+
+.manual-band-backdrop { position: fixed; inset: 0; z-index: 1040; background: transparent; }
+.manual-band {
+    position: fixed; left: 50%; top: 90px; transform: translateX(-50%);
+    width: 700px; max-width: 95vw; z-index: 1041;
+    background: #212529; border: 1px solid #495057; border-radius: 6px;
+    padding: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.manual-band-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.manual-band-header span:first-child { font-weight: bold; flex: 1; }
+.manual-band-search { width: 200px; }
+.manual-band-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; min-height: 90px; }
+
+.manual-band-card { flex: 0 0 auto; width: 64px; cursor: pointer; border-radius: 4px; overflow: hidden; }
+.manual-band-card img { display: block; width: 100%; border-radius: 4px; }
+.manual-band-card-blank {
+    width: 64px; height: 90px; background: #495057; display: flex; align-items: center;
+    justify-content: center; text-align: center; font-size: 9px; border-radius: 4px; padding: 2px;
+}
+
+.manual-fullscreen {
+    position: fixed; inset: 0; z-index: 1050; background: #17191c; color: #f8f9fa;
+    display: flex; flex-direction: column; padding: 12px;
+}
+.manual-fullscreen-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.manual-fullscreen-header span:first-child { font-weight: bold; flex: 1; }
+.manual-deck-list { flex: 1; overflow-y: auto; }
+.manual-deck-row {
+    display: flex; align-items: center; gap: 8px; padding: 4px; border-bottom: 1px solid #343a40;
+    cursor: grab;
+}
+.manual-deck-row img { width: 40px; border-radius: 3px; }
+.manual-deck-row-blank {
+    width: 40px; height: 56px; background: #495057; font-size: 8px; display: flex;
+    align-items: center; justify-content: center; text-align: center; border-radius: 3px;
+}
+.manual-deck-row-name { flex: 1; font-size: 13px; }
+.manual-deck-row-buttons { display: flex; gap: 4px; }

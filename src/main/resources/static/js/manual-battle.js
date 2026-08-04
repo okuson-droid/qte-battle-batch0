@@ -6,17 +6,18 @@
  *   2) 送信: 操作 → /app/manual/{roomId}/{action} へメッセージ送信
  *   3) 受信: サーバから届いたビュー(ManualGameView)で画面を全描画し直す
  *
- * ★このバッチは画面のみを作る(設計書 4-1〜4-4)。18aが作った18本の宛先を呼ぶだけで、
- * 新しい判断ロジックは追加しない。ゾーンを開く画面(帯・全面表示)は18cで扱うため、
- * 山札の全面表示・進化スタックの+nバッジの帯表示はこの画面では未実装(ログに案内を出すのみ)。
+ * ★18bは画面の骨組み(設計書 4-1〜4-4)のみを作った。本バッチ(18c)はそこに
+ * ゾーンを開く画面(帯・全面表示・検索。設計書 4-6)を足す。既存の操作は無変更。
  *
  * クライアントが自分で持つ状態:
  *   - latestView: サーバから届いた最新のビュー(ManualGameView)。再描画の元になる
  *   - selected: 進化の素材や複数移動のために Ctrl/Cmd+クリックで選んだ instanceId の集合
  *   - cardLocation: instanceId -> {seatId, zone} の索引。直近の描画から作り直す。
- *     ドロップ判定(進化か移動か)に使う。18bで対話できるのは各ゾーンの最上段のみ
- *     (進化スタックの下段は18cの帯表示で扱う)
+ *     ドロップ判定(進化か移動か)に使う。★18cで進化スタックの下段(素材)も含めるよう拡張した
+ *     (renderStackRowが最上段と一緒に登録する)。
  *   - pinnedZoom: 右下に固定表示中のカード
+ *   - activeOverlay: 帯・全面表示のうち現在開いているものの種別と対象(12章)。
+ *     null なら何も開いていない。renderAll の最後で毎回このオーバーレイを描き直す。
  */
 
 let latestView = null;
@@ -80,9 +81,9 @@ function showTransientError(message) {
     }, 4000);
 }
 
-/** 18cで扱う機能(帯・全面表示)の入口をログ欄に案内するだけの空振り */
-function notYetImplemented(label) {
-    showTransientError(label + ' は Batch 18c で実装予定');
+/** ゾーンが空のときなど、操作できないことをログ欄で軽く案内する */
+function showTransientNotice(message) {
+    showTransientError(message);
 }
 
 // ---------------------------------------------------------------
@@ -123,6 +124,7 @@ function renderAll(view) {
     if (pinnedZoom) {
         renderZoom(pinnedZoom, view.backImageId);
     }
+    refreshOverlay();
 }
 
 function renderHeader(view) {
@@ -174,8 +176,8 @@ function renderZoneBar(containerId, seatView, isSelf) {
 
         if (zoneName === 'DECK') {
             box.addEventListener('click', () => send('draw', { seat: seatView.id, count: 1 }));
-            box.addEventListener('contextmenu', (e) => { e.preventDefault(); notYetImplemented('山札の全面表示'); });
-            box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示(18c)';
+            box.addEventListener('contextmenu', (e) => { e.preventDefault(); openDeckFullscreen(seatView.id); });
+            box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示';
 
             const shuffleBtn = document.createElement('button');
             shuffleBtn.className = 'btn btn-sm btn-outline-secondary w-100 mt-1 py-0';
@@ -200,14 +202,17 @@ function renderZoneBar(containerId, seatView, isSelf) {
             dropRow.appendChild(bottom1);
             box.appendChild(dropRow);
         } else {
-            box.addEventListener('click', () => {
+            // ★18c: 左クリックで帯を開く(4-6)。最上段の拡大は右クリックへ寄せた
+            // (場のカードの右クリック規約と揃える。マスター確認済み)。
+            box.addEventListener('click', () => openZoneBand(seatView.id, zoneName));
+            box.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
                 if (pile.length > 0) {
                     setZoom(pile[pile.length - 1]);
                 } else {
-                    notYetImplemented(ZONE_LABELS[zoneName] + 'の中身表示');
+                    showTransientNotice(ZONE_LABELS[zoneName] + 'は空です');
                 }
             });
-            box.addEventListener('contextmenu', (e) => { e.preventDefault(); notYetImplemented(ZONE_LABELS[zoneName] + 'の全面表示'); });
         }
 
         el.appendChild(box);
@@ -284,6 +289,11 @@ function renderStackRow(container, seatView, zoneName, minSlots) {
     for (const card of cards) {
         container.appendChild(createFieldTile(card, seatView.id, zoneName));
         cardLocation.set(card.instanceId, { seatId: seatView.id, zone: zoneName });
+        // ★18c: 進化スタックの下段(素材)も索引に含める。帯を開いていなくても
+        // Ctrl/Cmd選択→別の進化ドラッグの組み合わせで参照されうるため、常に登録する。
+        for (const material of (card.materials || [])) {
+            cardLocation.set(material.instanceId, { seatId: seatView.id, zone: zoneName });
+        }
     }
     // ★常に最低1枠は空きを見せる(ドロップ先として)。FIELDはminSlots(7)まで埋める
     const emptyCount = Math.max(minSlots - cards.length, 1);
@@ -436,7 +446,7 @@ function createFieldTile(card, seatId, zone) {
         const badge = document.createElement('div');
         badge.className = 'manual-tile-badge';
         badge.textContent = '+' + (card.stackSize - 1);
-        badge.addEventListener('click', (e) => { e.stopPropagation(); notYetImplemented('進化スタックの帯表示'); });
+        badge.addEventListener('click', (e) => { e.stopPropagation(); openEvolutionBand(card, seatId); });
         tile.appendChild(badge);
     }
 
@@ -850,4 +860,390 @@ for (const seatSel of ['deck-file-a', 'deck-file-b']) {
             showTransientError('デッキの読み込みに失敗しました: ' + err.message);
         }
     });
+}
+
+// ---------------------------------------------------------------
+// 12) 帯・全面表示(Batch 18c。設計書 4-6)
+// ---------------------------------------------------------------
+//
+// ★このバッチはサーバに新しい判断ロジックを足していない。素材を instanceId で
+// 直接動かす経路(move操作)と任意位置への挿入(toIndex)は17b/18aの時点で既に
+// 用意されており(ManualBoardIndex.detach / ManualOperationService.move)、
+// ここで作るのはその経路を画面から呼べるようにするUIだけである。
+//
+// activeOverlay = { kind: 'zone' | 'evolution' | 'deck', seatId, zoneName?,
+//                    evolutionCardId?, searchQuery }
+// null なら何も開いていない。renderAll の最後で毎回 refreshOverlay() を呼び、
+// 開いていれば最新の view で描き直す(サーバからの再配信のたびに帯・全面表示も
+// 追従する)。
+
+let activeOverlay = null;
+
+function refreshOverlay() {
+    if (!activeOverlay) return;
+    if (activeOverlay.kind === 'zone') {
+        renderZoneBand();
+    } else if (activeOverlay.kind === 'evolution') {
+        renderEvolutionBand();
+    } else if (activeOverlay.kind === 'deck') {
+        renderDeckFullscreen();
+    }
+}
+
+function closeOverlay() {
+    activeOverlay = null;
+    const root = document.getElementById('manual-overlay-root');
+    if (root) root.remove();
+}
+
+function overlayRoot() {
+    let root = document.getElementById('manual-overlay-root');
+    if (!root) {
+        root = document.createElement('div');
+        root.id = 'manual-overlay-root';
+        document.body.appendChild(root);
+    }
+    return root;
+}
+
+function findCardByInstanceId(list, instanceId) {
+    for (const card of (list || [])) {
+        if (card.instanceId === instanceId) return card;
+    }
+    return null;
+}
+
+// ---- 帯: 墓地・消滅・禁忌・一時公開(自席のみ。相手席は飾りのため対象外。マスター確認済み) ----
+
+function openZoneBand(seatId, zoneName) {
+    activeOverlay = { kind: 'zone', seatId, zoneName, searchQuery: '' };
+    renderZoneBand();
+}
+
+function renderZoneBand() {
+    if (!latestView) return;
+    const seatView = activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB;
+    const items = seatView.zones[activeOverlay.zoneName] || [];
+    // ★検索対象は山札・墓地・消滅・禁忌のみ(設計書4-6)。一時公開は対象外(マスター確認済み)。
+    const showSearch = ['TRASH', 'LOST', 'TABOO'].includes(activeOverlay.zoneName);
+    renderBandDom({
+        title: `${ZONE_LABELS[activeOverlay.zoneName]}(${items.length}枚)`,
+        seatId: activeOverlay.seatId,
+        zoneName: activeOverlay.zoneName,
+        items,
+        showSearch,
+    });
+}
+
+// ---- 帯: 進化スタック(+nバッジ) ----
+
+function openEvolutionBand(card, seatId) {
+    activeOverlay = { kind: 'evolution', seatId, evolutionCardId: card.instanceId };
+    renderEvolutionBand();
+}
+
+function renderEvolutionBand() {
+    if (!latestView) return;
+    const seatView = activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB;
+    const top = findCardByInstanceId(seatView.zones['FIELD'], activeOverlay.evolutionCardId)
+        || findCardByInstanceId(seatView.zones['WEAPON'], activeOverlay.evolutionCardId);
+    if (!top || !top.materials || top.materials.length === 0) {
+        // ★束が解消された(素材を全部抜き出した等)。開いたままにする意味が無いので自動で閉じる。
+        closeOverlay();
+        return;
+    }
+    renderBandDom({
+        title: `${top.name || '(不明)'} の進化スタック(素材 ${top.materials.length}枚)`,
+        seatId: activeOverlay.seatId,
+        zoneName: 'FIELD',
+        items: top.materials,
+        showSearch: false, // 検索対象は設計書4-6の4ゾーンのみ。進化スタックは対象外
+    });
+}
+
+/** 帯の共通DOM。検索欄は入力のたびに一覧行だけを再描画し、入力欄自体は作り直さない(フォーカス維持)。 */
+function renderBandDom({ title, seatId, zoneName, items, showSearch }) {
+    const root = overlayRoot();
+    root.innerHTML = '';
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'manual-band-backdrop';
+    backdrop.addEventListener('click', () => closeOverlay());
+    root.appendChild(backdrop);
+
+    const band = document.createElement('div');
+    band.className = 'manual-band';
+    band.addEventListener('click', (e) => e.stopPropagation());
+
+    const header = document.createElement('div');
+    header.className = 'manual-band-header';
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = title;
+    header.appendChild(titleSpan);
+
+    let search = null;
+    if (showSearch) {
+        search = document.createElement('input');
+        search.type = 'text';
+        search.className = 'form-control form-control-sm manual-band-search';
+        search.placeholder = 'カード名で検索';
+        search.value = activeOverlay.searchQuery || '';
+        header.appendChild(search);
+    }
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn btn-sm btn-outline-light';
+    closeBtn.textContent = '閉じる';
+    closeBtn.addEventListener('click', () => closeOverlay());
+    header.appendChild(closeBtn);
+
+    band.appendChild(header);
+
+    const row = document.createElement('div');
+    row.className = 'manual-band-row';
+    band.appendChild(row);
+    root.appendChild(band);
+
+    function renderRow() {
+        row.innerHTML = '';
+        const query = (activeOverlay.searchQuery || '').trim().toLowerCase();
+        const filtered = query ? items.filter((c) => (c.name || '').toLowerCase().includes(query)) : items;
+        if (filtered.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'text-muted small p-2';
+            empty.textContent = items.length === 0 ? '(なし)' : '(該当なし)';
+            row.appendChild(empty);
+            return;
+        }
+        for (const card of filtered) {
+            row.appendChild(createBandItem(card, seatId, zoneName));
+        }
+    }
+    renderRow();
+
+    if (search) {
+        search.addEventListener('input', () => {
+            activeOverlay.searchQuery = search.value;
+            renderRow();
+        });
+    }
+}
+
+/**
+ * 帯の中の1枚。設計書4-4「左クリック 開いたゾーンの中身 → 拡大」のとおり、
+ * 手札カードと同じ挙動(拡大 / Shift+表裏 / Ctrl,Cmd+複数選択)にする。
+ * ドラッグは onDragStart 経由でそのまま盤面へ渡す(進化スタックの素材でも、
+ * instanceId 指定であれば ManualBoardIndex が透過的に探してくれるため、
+ * クライアント側で特別扱いは要らない)。
+ */
+function createBandItem(card, seatId, zoneName) {
+    const wrap = document.createElement('div');
+    wrap.className = 'manual-band-card';
+    wrap.dataset.instanceId = card.instanceId;
+    wrap.draggable = true;
+
+    if (card.imageId && !card.faceDown) {
+        const img = document.createElement('img');
+        img.src = `/cards/${card.imageId}.png`;
+        img.loading = 'lazy';
+        wrap.appendChild(img);
+    } else {
+        wrap.classList.add('manual-band-card-blank');
+        wrap.textContent = card.faceDown ? '(裏向き)' : (card.name || '(不明)');
+    }
+    if (selected.has(card.instanceId)) {
+        wrap.classList.add('manual-tile-selected');
+    }
+
+    wrap.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, zoneName));
+    wrap.addEventListener('click', (e) => {
+        if (e.shiftKey) {
+            send('flip', { cardIds: [card.instanceId] });
+            return;
+        }
+        if (e.ctrlKey || e.metaKey) {
+            toggleSelect(card.instanceId);
+            return;
+        }
+        setZoom(card);
+    });
+    wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    return wrap;
+}
+
+// ---- 全面表示: 山札 ----
+
+function openDeckFullscreen(seatId) {
+    activeOverlay = { kind: 'deck', seatId, searchQuery: '' };
+    renderDeckFullscreen();
+}
+
+/**
+ * 山札の全面表示(設計書4-6)。並びは常に山札の順序そのまま(index 0 = 一番上 =
+ * 次にドローされる1枚。ManualGameService.drawCards が deck.remove(0) で引くのと揃える)。
+ * 表示用の並べ替えは提供しない。ドラッグでの並べ替えのみ、検索中は無効にする
+ * (フィルタで隠れた行を挟んで index がずれるのを避けるため。マスター確認済み)。
+ */
+function renderDeckFullscreen() {
+    if (!latestView) return;
+    const seatView = activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB;
+    const deck = seatView.zones['DECK'] || [];
+
+    const root = overlayRoot();
+    root.innerHTML = '';
+
+    const screen = document.createElement('div');
+    screen.className = 'manual-fullscreen';
+
+    const header = document.createElement('div');
+    header.className = 'manual-fullscreen-header';
+    const title = document.createElement('span');
+    title.textContent = `山札(${deck.length}枚) — 席${activeOverlay.seatId}`;
+    header.appendChild(title);
+
+    const search = document.createElement('input');
+    search.type = 'text';
+    search.className = 'form-control form-control-sm manual-band-search';
+    search.placeholder = 'カード名で検索';
+    search.value = activeOverlay.searchQuery || '';
+    header.appendChild(search);
+
+    const shuffleBtn = document.createElement('button');
+    shuffleBtn.type = 'button';
+    shuffleBtn.className = 'btn btn-sm btn-outline-secondary';
+    shuffleBtn.textContent = 'シャッフル';
+    shuffleBtn.addEventListener('click', () => send('shuffle', { seat: activeOverlay.seatId }));
+    header.appendChild(shuffleBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn btn-sm btn-outline-light';
+    closeBtn.textContent = '閉じる';
+    closeBtn.addEventListener('click', () => closeOverlay());
+    header.appendChild(closeBtn);
+
+    screen.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'manual-deck-list';
+    screen.appendChild(list);
+    root.appendChild(screen);
+
+    function renderList() {
+        list.innerHTML = '';
+        const query = (activeOverlay.searchQuery || '').trim().toLowerCase();
+        const filtering = query.length > 0;
+        if (filtering) {
+            const note = document.createElement('div');
+            note.className = 'text-muted small mb-2';
+            note.textContent = '検索中は並べ替えを無効にします(手札へ/場へ/一番上へ/一番下へは使えます)';
+            list.appendChild(note);
+        }
+        let shown = 0;
+        deck.forEach((card, index) => {
+            if (filtering && !(card.name || '').toLowerCase().includes(query)) return;
+            list.appendChild(createDeckRow(card, index, activeOverlay.seatId, filtering));
+            shown++;
+        });
+        if (shown === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'text-muted small p-2';
+            empty.textContent = deck.length === 0 ? '(山札が空です)' : '(該当なし)';
+            list.appendChild(empty);
+        }
+    }
+    renderList();
+
+    search.addEventListener('input', () => {
+        activeOverlay.searchQuery = search.value;
+        renderList();
+    });
+}
+
+/**
+ * 全面表示1行。★並べ替えのドロップ判定:
+ * カード1枚を index i から drop先の行(現在 index j)の上半分/下半分どちらに
+ * 落としたかで挿入位置(j または j+1)を決め、i より後ろならその挿入位置を
+ * 1つ詰める(move操作は「外してから数える」ため、外した分だけ後続の添字が
+ * 1つずつ前へ詰まることを送信側で先取りして補正する)。
+ */
+function createDeckRow(card, index, seatId, dragDisabled) {
+    const row = document.createElement('div');
+    row.className = 'manual-deck-row';
+    row.dataset.index = index;
+    row.draggable = !dragDisabled;
+
+    if (card.imageId && !card.faceDown) {
+        const img = document.createElement('img');
+        img.src = `/cards/${card.imageId}.png`;
+        img.loading = 'lazy';
+        row.appendChild(img);
+    } else {
+        const blank = document.createElement('div');
+        blank.className = 'manual-deck-row-blank';
+        blank.textContent = card.faceDown ? '(裏向き)' : (card.name || '(不明)');
+        row.appendChild(blank);
+    }
+
+    const name = document.createElement('div');
+    name.className = 'manual-deck-row-name';
+    name.textContent = card.name || '(不明)';
+    row.appendChild(name);
+
+    const btns = document.createElement('div');
+    btns.className = 'manual-deck-row-buttons';
+    btns.appendChild(deckRowButton('一番上へ', () => sendDeckMove(card.instanceId, seatId, 'DECK', 0)));
+    btns.appendChild(deckRowButton('一番下へ', () => sendDeckMove(card.instanceId, seatId, 'DECK', 999999)));
+    btns.appendChild(deckRowButton('手札へ', () => sendDeckMove(card.instanceId, seatId, 'HAND', null)));
+    btns.appendChild(deckRowButton('場へ', () => sendDeckMove(card.instanceId, seatId, 'FIELD', null)));
+    row.appendChild(btns);
+
+    if (!dragDisabled) {
+        row.addEventListener('dragstart', (e) => {
+            e.dataTransfer.setData('text/plain',
+                JSON.stringify({ cardIds: [card.instanceId], seatId, zone: 'DECK', sourceIndex: index }));
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        row.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            row.classList.add('manual-drop-hover');
+        });
+        row.addEventListener('dragleave', () => row.classList.remove('manual-drop-hover'));
+        row.addEventListener('drop', (e) => {
+            e.preventDefault();
+            row.classList.remove('manual-drop-hover');
+            let data;
+            try {
+                data = JSON.parse(e.dataTransfer.getData('text/plain'));
+            } catch (err) {
+                return;
+            }
+            if (!data || data.zone !== 'DECK' || data.seatId !== seatId || data.sourceIndex === undefined) {
+                return;
+            }
+            const rect = row.getBoundingClientRect();
+            const dropBeforeThisRow = (e.clientY - rect.top) < rect.height / 2;
+            let target = dropBeforeThisRow ? index : index + 1;
+            if (target > data.sourceIndex) {
+                target -= 1;
+            }
+            send('move', { cardIds: data.cardIds, toSeat: seatId, toZone: 'DECK', toIndex: target, faceDown: null });
+        });
+    }
+
+    return row;
+}
+
+function deckRowButton(label, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm btn-outline-light py-0';
+    btn.textContent = label;
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+function sendDeckMove(cardId, seatId, toZone, toIndex) {
+    send('move', { cardIds: [cardId], toSeat: seatId, toZone, toIndex, faceDown: null });
 }
