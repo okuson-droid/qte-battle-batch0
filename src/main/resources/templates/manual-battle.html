@@ -68,11 +68,8 @@
             <!-- マナ行(設計書2-3) -->
             <div id="seat-self-mana-row" class="board-side my-side p-2 mb-1"></div>
 
-            <!-- 手札 -->
-            <div class="board-side p-2">
-                <div class="small text-muted">手札</div>
-                <div id="hand-row" class="hand-row" data-seat="A" data-zone="HAND"></div>
-            </div>
+            <!-- 手札(ラベル・カード行は renderHand が生成する。18c以前と同じプレーンな入れ物に戻す) -->
+            <div id="hand-row" class="board-side p-2"></div>
         </div>
 
         <!-- 右列 224px -->

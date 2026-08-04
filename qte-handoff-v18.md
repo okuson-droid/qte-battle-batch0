@@ -1,7 +1,7 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-04(Batch 19b 完了。盤面レイアウトの再設計 v2.1)
-**★手動モード フェーズ1(一人回し)は19aで完成済み。本バッチはそのUI改善。**
+最終更新: 2026-08-04(Batch 19b hotfix1 完了。手札ドロップ不具合の修正)
+**★手動モード フェーズ1(一人回し)は19aで完成済み。19b・hotfix1はUI改善とその修正。**
 
 **★新しいチャットを始めるときは 5章「チャット開始テンプレート」を使うこと。**
 
@@ -12,7 +12,7 @@
 
 | 系統 | 前提ドキュメント |
 |---|---|
-| **手動モード**(17a〜19b・フェーズ1完成) | `batch16-manual-mode-design-v2_4.md`(唯一の正)+ `notes/batch19b-ui-design.md`(v2.1・唯一の正)+ `notes/batch19b-design-notes.md` |
+| **手動モード**(17a〜19b・フェーズ1完成) | `batch16-manual-mode-design-v2_4.md`(唯一の正)+ `notes/batch19b-ui-design.md`(v2.1・唯一の正)+ `notes/batch19b-design-notes.md` + `notes/batch19b-hotfix1-notes.md` |
 | **Ver.0.4 対応**(15c/15d/15e) | `notes/ver0.4-transcription-notes.md` + `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` |
 
 ---
@@ -33,7 +33,7 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 4. **★「反映済み」という記述を信じず、直近バッチで変更したはずの箇所を実際に読んで照合する。**
    台帳だけでなく**コードにも適用すること**。
 
-## 19bの確認項目(次チャットで照合すること)
+## 19b(+hotfix1)の確認項目(次チャットで照合すること)
 
 - `src/main/resources/templates/manual-battle.html` が2列構成(左のゾーンバー列が無い)で
   あり、`battle.css(v=13)` / `manual-battle.js(v=4)` を参照していること。
@@ -44,10 +44,13 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 - `onDragStart` 内に `manual-drag-active` クラスの付け外しがあること
   (`battle.css` 側に `body.manual-drag-active .manual-band-backdrop` のルールがあること)。
 - `renderZoom` が `backImageId` 引数を取らず、`card.imageId` を常に表示する実装であること。
-- `grep -rn クイン・タブーエレメンタル .` が**0件**であること(8箇所を修正済み。
-  0-3参照)。
-- Java ファイルに変更が無いこと(`git diff` 相当の確認が無い環境のため、19a時点の
-  ファイル一覧と比較して増減が無いことを確認する)。
+- **★hotfix1: `manual-battle.html` の `#hand-row` が `<div id="hand-row" class="board-side p-2"></div>`
+  というプレーンな入れ物であり、`class="hand-row"` や `data-seat`/`data-zone` を
+  重ねて持っていないこと。** これらは `renderHand`(JS側、無変更)が内部で生成する
+  要素だけが持つべき属性であり、外側の入れ物に重複させると手札へのドロップが効かなくなる
+  (3章参照)。
+- `grep -rn クイン・タブーエレメンタル .` が**0件**であること(8箇所を修正済み)。
+- Java ファイルに変更が無いこと(19a時点のファイル一覧と比較して増減が無いことを確認する)。
 
 ---
 
@@ -58,7 +61,8 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 | バッチ | 種別 | 範囲 | 既存変更 | 状態 |
 |---|---|---|---|---|
 | ~~17a~~〜~~19a~~ | a系/b系 | データ変換〜切断復帰・仕上げ | 各種 | 完了 |
-| ~~19b~~ | b系 | 盤面レイアウトの再設計(UI改善) | `battle.css` | **完了** |
+| ~~19b~~ | b系 | 盤面レイアウトの再設計(UI改善) | `battle.css` | 完了 |
+| ~~19b hotfix1~~ | 修正 | 手札(`#hand-row`)へのドロップ不具合 | `manual-battle.html` | **完了** |
 
 ### フェーズ2(ソロ対戦・対戦・観戦)— 次の候補
 
@@ -121,6 +125,21 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
   設計書6-3の裁定を確認してから。
 - **★ゲームの正式名称は「クイン・タブーエレメント」である。** 「クイン・タブーエレメンタル」
   は誤記(19bで8箇所を修正)。以後クロエが作成する文書はすべて正式名称を用いる。
+- **★HTMLテンプレートを書き換えるときは、対応するJS描画関数が「入れ物への追記」を
+  前提にしているか「入れ物ごと使う」ことを前提にしているかを、関数の中身を読んで
+  確認してから書く。** 19bで `#hand-row` に `renderHand` が内部生成する要素と同じ
+  `class="hand-row"`/`data-seat`/`data-zone` を誤って重ねてしまい、実際にドロップ登録される
+  内側の行とラベル分だけ位置がずれて、手札へのドロップだけが効かなくなった
+  (hotfix1で修正。`notes/batch19b-hotfix1-notes.md` 参照)。「帯からドラッグできない」という
+  報告文言だけで原因を1つに決め打ちせず、ドロップ先ごとに切り分けて検証したことで発見できた。
+- **★この環境にはPlaywright(Chromiumヘッドレス)が用意されており、実ファイル
+  (`battle.css`/`manual-battle.js`)を読み込んだ検証用HTMLを作って、実際のCSS判定・
+  DOM操作・合成DragEventによるドラッグ&ドロップの一連の流れを検証できる。**
+  DOM構造やドラッグ&ドロップが絡む不具合報告を受けたときは、まずこの手段で
+  実機検証してから修正すること(推測だけで直さない)。外部CDN(Bootstrap等)は
+  このサンドボックスのネットワーク制限で読み込めないため、検証用HTMLではCDN依存箇所を
+  スタブするか影響のない形に調整する必要がある(`.d-none` に頼るモーダルは
+  インラインstyleで代替するなど)。
 
 ---
 
@@ -133,28 +152,31 @@ zip(変更・新規ファイルのみ。削除したファイルはzipに含め�
 マシンチェックスクリプト群(`tools/check_all.py`, `tools/check_records.py`,
 `tools/check_undeclared.py`, `tools/check_structure.py`)をパッケージング前に必ず実行する。
 19bはこれに加えて `node --check` を全JSファイルへ実行し、`grep -rn クイン・タブーエレメンタル .`
-で名称修正の漏れが無いことも確認した。
+で名称修正の漏れが無いことも確認した。**DOM構造・ドラッグ&ドロップが絡む変更は、
+Playwright(Chromiumヘッドレス。このサンドボックスに用意済み)で実ファイルを読み込んだ
+検証用HTMLを作り、実際に合成DragEventを流して確認すること(19b hotfix1参照)。**
 
 ---
 
 ## 5. チャット開始テンプレート
 
 次の作業(フェーズ2 UI詰め、または Ver.0.4対応)に応じて、テンプレートの3行目以降を
-書き換えて使うこと。19b向けの確認項目は次のチャットで一度だけ照合すればよい。
+書き換えて使うこと。19b・hotfix1向けの確認項目は次のチャットで一度だけ照合すればよい。
 
 ```
 QTE Battle の開発を継続する。以下の手順で作業を始めてほしい。
 
 1. プロジェクトナレッジ内の `qte-project-reference.md` を読む
    (ゲームルール・設計判断の唯一の正)。
-2. プロジェクトナレッジ内の `qte-handoff-v17.md` を読む
+2. プロジェクトナレッジ内の `qte-handoff-v18.md` を読む
    (直近の状態・次の作業・既知の落とし穴)。
 3. ソースコードを取得する(zipのアップロードは不要)。
 
 https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
-4. ★取得したコードで Batch 19b が反映されているかを確認し、結果を報告すること。
-   「反映済み」という記述を信じないこと。「19bの確認項目」(本ファイル0章)を実際に読んで照合する。
+4. ★取得したコードで Batch 19b(hotfix1含む)が反映されているかを確認し、結果を報告すること。
+   「反映済み」という記述を信じないこと。「19b(+hotfix1)の確認項目」(本ファイル0章)を
+   実際に読んで照合する。
 
 次の作業は [フェーズ2のUI詰めセッション / Ver.0.4対応 15c] のどちらか(要相談)。
 
