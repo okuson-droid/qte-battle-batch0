@@ -102,8 +102,24 @@ public class CardEffectRegistry {
     // ---------------------------------------------------------------
 
     private void registerSpells() {
-        spellEffects.put("QTE-0028", // アクア・サーチ: カードを1枚引く
-                ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 1));
+        // アクア・サーチ: カードを2枚引く。その後手札のカードを1枚捨てる。
+        // Ver.0.4 で 1ドロー から「2ドロー+1枚捨て」に変わった。捨てる対象は引いた後の手札から
+        // 選ぶため、使用宣言時に選び終える TargetSpec では表現できない。解決を中断して
+        // 問い合わせる a9(割り込み選択)を使う。捨てるのは必須なので one(min=1)である
+        spellEffects.put("QTE-0028", ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+            if (ctx.owner().getHand().isEmpty()) {
+                // 山札が尽きている等で手札が空なら捨てようがない(敗北判定はdrawCards側が持つ)
+                return;
+            }
+            List<String> handPositions = new ArrayList<>();
+            for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+                handPositions.add(String.valueOf(i));
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.HAND, handPositions, ResumePoint.AQUA_SEARCH_DISCARD,
+                    "【アクア・サーチ】: 捨てる手札を1枚選んでください"));
+        });
 
         spellEffects.put("QTE-0025", // スプラッシュ・ドロー: カードを2枚引く
                 ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2));
@@ -117,6 +133,12 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-0036", // 流転の書: 1枚引く(【還元】の処理はGameActions側で共通)
                 ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 1));
 
+        // 静寂の瞑想: このカードはメインフェーズの最初にしか使えない(Ver.0.4で追加)。
+        // 「最初」は海皇ポセイドン(0038)の【特殊召喚】条件と同じ近似で表す。すなわち
+        // 「メインフェイズであり、かつこのターンまだ1枚もカードを使っていない」である。
+        // playedCardThisTurn は解決後に立つため、このカード自身の使用では条件が壊れない
+        playConditions.put("QTE-0033",
+                (state, player) -> state.getPhase() == TurnPhase.MAIN && !player.isPlayedCardThisTurn());
         spellEffects.put("QTE-0033", // 静寂の瞑想: 3枚引く。このターンカードを使用できない
                 ctx -> {
                     ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
@@ -125,11 +147,14 @@ public class CardEffectRegistry {
                             .formatted(ctx.owner().getDisplayName()));
                 });
 
-        spellEffects.put("QTE-0024", // 溢れ出る英知: 3枚引く。ターン中、手札枚数分だけ全ミニオン攻撃+1
+        // 溢れ出る英知: 2枚引く。ターン中、手札枚数分だけ自分の「水文明」ミニオンの攻撃+1。
+        // Ver.0.4 でドローが 3 → 2 に減り、バフ対象が自分の全ミニオンから水文明に限定された。
+        // 限定の判定は評価側(StatCalculator.effectiveAttack)にあり、ここはオーラを立てるだけである
+        spellEffects.put("QTE-0024",
                 ctx -> {
-                    ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
+                    ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
                     ctx.owner().getThisTurnAuras().add("QTE-0024");
-                    ctx.room().addLog("このターン中、%sのミニオンは手札の枚数分攻撃力が上がります"
+                    ctx.room().addLog("このターン中、%sの水文明ミニオンは手札の枚数分攻撃力が上がります"
                             .formatted(ctx.owner().getDisplayName()));
                 });
 
@@ -167,13 +192,24 @@ public class CardEffectRegistry {
 
     private void registerTargetedCards() {
 
-        // 手札を喰らう大蟹: 【召喚時】自分の手札を1枚捨てる。相手のミニオン1体を持ち主の手札に戻す
+        // 手札を喰らう大蟹: 【召喚時】自分の手札を1枚捨てる。そうしたらミニオン1体を持ち主の手札に戻す。
+        // Ver.0.4 で2点変わった。
+        //  1. バウンス対象が「相手のミニオン」から側の限定なしになった(記法規約により両者参照)
+        //  2. 「そうしたら」が入り、手札を捨てられた場合にのみバウンスが発動するようになった
+        // 「そうしたら」型は再起の炎陣(0052)・血の対価(0065)と同じ形で表現する。すなわち
+        // 手札の要求を optional にし、選択が空なら後続を実行しない。捨てる手札が無い場面でも
+        // 召喚そのものは通す必要があるため、必須指定のままにはできない
         targetSpecs.put("QTE-0034", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, false, false, List.of(), "捨てるカードを選んでください"),
-                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(), "手札に戻す相手のミニオンを選んでください")));
+                new Requirement(Kind.HAND, Side.SELF, 1, true, false, List.of(), "捨てるカードを選んでください"),
+                new Requirement(Kind.MINION, Side.ANY, 1, true, false, List.of(), "手札に戻すミニオンを選んでください")));
         register("QTE-0034", TriggerType.ON_SUMMON, ctx -> {
+            var discarded = ctx.targets().get(0);
+            if (discarded.isEmpty()) {
+                ctx.room().addLog("捨てる手札が無かったため【手札を喰らう大蟹】の効果は発動しませんでした");
+                return; // 「そうしたら」: 捨てが成立しなければバウンスもしない
+            }
             // 選択済み手札は除去済みで届くため、行き先(墓地)を決めるだけでよい
-            ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            discarded.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
             ctx.room().addLog("%sが手札を1枚捨てました".formatted(ctx.owner().getDisplayName()));
             ctx.targets().get(1).minions().forEach(
                     t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
@@ -194,10 +230,12 @@ public class CardEffectRegistry {
             ctx.room().addLog("【知識】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));
         });
 
-        // 双流の幻術師: 場に居る知識の数Cost-1。【召喚時】ミニオンを2体選び持ち主の手札に戻す
-        // (数え方・対象とも両者の場を参照する: 発注者確認済み)
+        // 双流の幻術師: 場に居るミニオンの数Cost-1。【召喚時】ミニオンを3体選び持ち主の手札に戻す
+        // (数え方・対象とも両者の場を参照する: 発注者確認済み)。
+        // Ver.0.4 でコスト参照が「知識の数」から「ミニオンの数」に、バウンスが2体から3体になった。
+        // コスト側の変更は StatCalculator.effectiveCost にある
         targetSpecs.put("QTE-0041", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.ANY, 2, false, false, List.of(), "手札に戻すミニオンを2体選んでください")));
+                new Requirement(Kind.MINION, Side.ANY, 3, false, false, List.of(), "手札に戻すミニオンを3体選んでください")));
         register("QTE-0041", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions().forEach(
                 t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion())));
     }
@@ -492,9 +530,11 @@ public class CardEffectRegistry {
             ctx.room().addLog("%sは手札%d枚をすべて捨てた".formatted(ctx.owner().getDisplayName(), count));
         });
 
-        // 背水の炎壁: 【召喚時】1回復(特殊召喚で出した場合の追加1回復は下のspecで別途)
+        // 背水の炎壁: 【召喚時】2回復(特殊召喚で出した場合の追加1回復は下のspecで別途)。
+        // Ver.0.4 で【召喚時】の回復量が 1 → 2 に増えた。特殊召喚の追加分(1)は据え置きのため、
+        // 特殊召喚で出した場合の合計は 3 になる(【特殊召喚】も召喚でありON_SUMMONを通る)
         register("QTE-0057", TriggerType.ON_SUMMON,
-                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-0057"));
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-0057"));
 
         // 逆境の猛火者: 体力10以下なら手札からコスト4以下のミニオンを1体場に出す。
         // 条件を満たさないときのために選択は任意(optional)としている
@@ -534,9 +574,11 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-0046", ctx -> ctx.targets().get(0).minions().forEach(
                 t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3)));
 
-        // イグニッション・バースト: 自分のリーダーに1ダメージ。カードを2枚引く
+        // イグニッション・バースト: 自分のリーダーに2ダメージ。カードを2枚引く
+        // (Ver.0.4 で自傷が1から2に増えた。自傷は火文明の解放条件を進めるため、
+        //  ヴォルカニクス(4回)・背水の炎壁(3回)の回数カウンタには影響しない量の変更である)
         spellEffects.put("QTE-0064", ctx -> {
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-0064");
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-0064");
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
         });
 
@@ -1781,6 +1823,15 @@ public class CardEffectRegistry {
             case EARTHBREAKER_MANA_RETURN -> {
                 int idx = Integer.parseInt(chosen.get(0));
                 ctx.actions().returnManaToHandAt(ctx.room(), ctx.owner(), idx);
+            }
+            // アクア・サーチ(QTE-0028): 2枚引いた後に捨てる手札を確定させる。
+            // TAILWIND_DISCARD と違い必須(min=1)のため、chosen が空になることはない
+            case AQUA_SEARCH_DISCARD -> {
+                int idx = Integer.parseInt(chosen.get(0));
+                String cardId = ctx.owner().getHand().remove(idx);
+                ctx.owner().getTrash().add(cardId);
+                ctx.room().addLog("【アクア・サーチ】: 【%s】を捨てました"
+                        .formatted(cards.findById(cardId).name()));
             }
         }
     }

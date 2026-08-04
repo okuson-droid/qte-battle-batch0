@@ -41,5 +41,12 @@ public enum ResumePoint {
      * ミニオンの攻撃時(ON_ATTACK)から発生する初めての割り込みである
      * (それまでの攻撃時の割り込みは風護の杖=ウェポンのみだった)。
      */
-    EARTHBREAKER_MANA_RETURN
+    EARTHBREAKER_MANA_RETURN,
+
+    /**
+     * アクア・サーチ(QTE-0028): 2枚引いた後に捨てる手札を1枚選ぶ。Batch 15b(Ver.0.4)。
+     * 選択の追い風(TAILWIND_DISCARD)と形は同じだが、あちらが「捨ててもよい」の任意
+     * (min=0)であるのに対し、こちらは捨てることが必須(min=1)である点が異なる。
+     */
+    AQUA_SEARCH_DISCARD
 }

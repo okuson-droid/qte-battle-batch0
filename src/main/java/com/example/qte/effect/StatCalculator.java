@@ -9,6 +9,7 @@ import com.example.qte.game.StatModifier;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
+import com.example.qte.master.Civilization;
 import com.example.qte.master.Keyword;
 
 /**
@@ -103,13 +104,15 @@ public class StatCalculator {
                 .anyMatch(aura -> "QTE-0106".equals(aura.cardId()))) {
             cost -= 1;
         }
+        // 双流の幻術師: 場に居るミニオンの数だけコスト-1。
+        // Ver.0.4 で参照が「【知識】を持つミニオンの数」から「ミニオンの数」全体に広がった。
+        // 側の限定が無いため両者の場を数える(記法規約。従来と同じ)
         if ("QTE-0041".equals(card.id())) {
-            long knowledgeOnBoard = java.util.stream.Stream
+            long minionsOnBoard = java.util.stream.Stream
                     .of(state.getPlayer1(), state.getPlayer2())
-                    .flatMap(p -> p.getMinionZone().stream())
-                    .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE))
-                    .count();
-            cost -= (int) knowledgeOnBoard;
+                    .mapToLong(p -> p.getMinionZone().size())
+                    .sum();
+            cost -= (int) minionsOnBoard;
         }
         // ---- 風文明: ターン内カウンタ・盤面参照による動的コスト ----
         // 詠唱の疾風騎士: 自分がこのターン中にスペルを唱えるたびコスト-1(このターン限定・下限0)
@@ -232,9 +235,13 @@ public class StatCalculator {
         }
 
         // ---- 動的ADD(オーラ) ----
-        // 溢れ出る英知: このターン中、手札の枚数分すべての自ミニオンの攻撃力+1(常に連動)
+        // 溢れ出る英知: このターン中、手札の枚数分だけ自分の「水文明」ミニオンの攻撃力+1(常に連動)。
+        // Ver.0.4 で対象が「自分のミニオンすべて」から水文明に限定された。
+        // 判定を評価側に置いているのは、オーラ適用後に出たミニオンにも同じ基準を効かせるためである
+        // (オーラは付与時点のスナップショットではなく、評価のたびに場を見る)
         for (String aura : owner.getThisTurnAuras()) {
-            if ("QTE-0024".equals(aura)) {
+            if ("QTE-0024".equals(aura)
+                    && minion.getMaster().civilization() == Civilization.WATER) {
                 attack += owner.getHand().size();
             }
         }

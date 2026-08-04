@@ -31,32 +31,32 @@ public class DeckFactory {
         // ミニオン30枚
         WATER_STARTER.put("QTE-0026", 2); // アクア・ジェリー 1/1/1 知識
         WATER_STARTER.put("QTE-0039", 2); // 急流の狙撃手 2/2/1 知識・貫通
-        WATER_STARTER.put("QTE-0029", 2); // 潮流の魔導士 2/2/2 召喚時:条件回復
+        WATER_STARTER.put("QTE-0029", 2); // 潮流の魔導士 2/2/2 守護・召喚時:条件回復
         WATER_STARTER.put("QTE-0003", 3); // 波濤の突撃兵 3/3/1 突進・攻撃時1ドロー
         WATER_STARTER.put("QTE-0027", 2); // 知識の守り手 3/1/1 知識・還元・守護
-        WATER_STARTER.put("QTE-0034", 2); // 手札を喰らう大蟹 3/3/2 召喚時:手札1枚捨て+バウンス
+        WATER_STARTER.put("QTE-0034", 2); // 手札を喰らう大蟹 3/3/2 守護・召喚時:手札1枚捨て+バウンス(両者)
         WATER_STARTER.put("QTE-0011", 2); // ディープシー・シャーク 4/4/3 突進・威圧
         WATER_STARTER.put("QTE-0037", 2); // 知識の守護者 4/0+/5 守護・攻撃力=手札枚数
-        WATER_STARTER.put("QTE-0021", 2); // 英知の継承者 4/2/2 知識・召喚時:任意捨てドロー
-        WATER_STARTER.put("QTE-0042", 2); // 水鏡の幻術師 5/5/3 召喚時2ドロー
+        WATER_STARTER.put("QTE-0021", 2); // 英知の継承者 4/2/2 知識・守護・召喚時:任意捨てドロー
+        WATER_STARTER.put("QTE-0042", 2); // 水鏡の幻術師 5/5/3 突進・守護・召喚時2ドロー
         WATER_STARTER.put("QTE-0040", 1); // 黄泉還る水龍 5/4/4 突進・潜伏(墓地トリガーはBatch 4)
-        WATER_STARTER.put("QTE-0041", 1); // 双流の幻術師 7/3/2 知識・動的コスト・召喚時2体バウンス
-        WATER_STARTER.put("QTE-0032", 1); // 知恵の双翼 8/3/3 知識・特殊召喚
+        WATER_STARTER.put("QTE-0041", 1); // 双流の幻術師 7/3/2 知識・動的コスト・召喚時3体バウンス
+        WATER_STARTER.put("QTE-0032", 1); // 知恵の双翼 8/4/4 知識・守護・特殊召喚
         WATER_STARTER.put("QTE-0038", 1); // 海皇 ポセイドン 8/6/5 特殊召喚
-        WATER_STARTER.put("QTE-0035", 1); // 智将 ポセイドン・コア 9/5/5 知識・特殊召喚・突進付与
+        WATER_STARTER.put("QTE-0035", 1); // 智将 ポセイドン・コア 9/5/5 知識・守護・特殊召喚・突進付与
         WATER_STARTER.put("QTE-0020", 1); // 深海神 プレサージュ 10/6/6 知識・特殊召喚
         // ウェポン3枚
         WATER_STARTER.put("QTE-0030", 1); // 真珠の三叉槍 (3/⚔2) リーダー攻撃時1ドロー
-        WATER_STARTER.put("QTE-0031", 1); // 氷結の杖 (2/⚔1) 攻撃対象を凍結
+        WATER_STARTER.put("QTE-0031", 1); // 氷結の杖 (2/⚔1) 知識・攻撃対象を凍結
         WATER_STARTER.put("QTE-0022", 1); // 影潜む水刺客 (1/⚔0+) 貫通・潜伏の数だけ攻撃+1
         // スペル10枚
-        WATER_STARTER.put("QTE-0028", 2); // アクア・サーチ (1) 1ドロー
+        WATER_STARTER.put("QTE-0028", 2); // アクア・サーチ (1) 2ドロー+1枚捨て
         WATER_STARTER.put("QTE-0025", 2); // スプラッシュ・ドロー (2) 2ドロー
         WATER_STARTER.put("QTE-0002", 2); // 恵みの雨 (2) 4回復+1ドロー
-        WATER_STARTER.put("QTE-0033", 1); // 静寂の瞑想 (1) 3ドロー+使用制限
+        WATER_STARTER.put("QTE-0033", 1); // 静寂の瞑想 (2) 3ドロー+使用制限・メイン最初のみ
         WATER_STARTER.put("QTE-0036", 1); // 流転の書 (2) 1ドロー・還元
-        WATER_STARTER.put("QTE-0024", 1); // 溢れ出る英知 (5) 3ドロー+全体バフ
-        WATER_STARTER.put("QTE-0023", 1); // タイダルウェーブ (4) 相手コスト4以下全バウンス
+        WATER_STARTER.put("QTE-0024", 1); // 溢れ出る英知 (5) 2ドロー+水文明バフ
+        WATER_STARTER.put("QTE-0023", 1); // タイダルウェーブ (3) 相手コスト4以下全バウンス
     }
 
     /** 火文明スターターデッキ: ミニオン28枚+ウェポン3枚+スペル9枚 */
@@ -74,8 +74,8 @@ public class DeckFactory {
         FIRE_STARTER.put("QTE-0050", 2); // 赫灼の重戦士 4/4/4 召喚時:条件で速攻
         FIRE_STARTER.put("QTE-0059", 2); // 相打ちの咎人 4/2/2 召喚時:相互2ダメージ
         FIRE_STARTER.put("QTE-0062", 1); // 覚醒の炎童 4/1/1 知識・特殊召喚
-        FIRE_STARTER.put("QTE-0063", 1); // 背水の烈火使い 4/8/8 召喚時:手札全捨て
-        FIRE_STARTER.put("QTE-0057", 1); // 背水の炎壁 6/5/3 守護・特殊召喚
+        FIRE_STARTER.put("QTE-0063", 1); // 背水の烈火使い 4/3/5 守護・召喚時:手札全捨て
+        FIRE_STARTER.put("QTE-0057", 1); // 背水の炎壁 7/5/3 守護・特殊召喚
         FIRE_STARTER.put("QTE-0051", 1); // 極炎竜 ヴォルカニクス 7/6/2 速攻・特殊召喚
         FIRE_STARTER.put("QTE-0058", 1); // 鳳凰神 ヴォルカニクスレヴォ 13/3/8 速攻・特殊召喚
         // ウェポン3枚
@@ -83,12 +83,12 @@ public class DeckFactory {
         FIRE_STARTER.put("QTE-0061", 1); // 魔剣 レーヴァテイン (3/⚔5) 攻撃時:自傷3
         FIRE_STARTER.put("QTE-0048", 1); // 反転の炎鏡 (3/⚔1) 自傷を水増しする
         // スペル9枚
-        FIRE_STARTER.put("QTE-0064", 2); // イグニッション・バースト (1) 自傷1+2ドロー
+        FIRE_STARTER.put("QTE-0064", 2); // イグニッション・バースト (1) 自傷2+2ドロー
         FIRE_STARTER.put("QTE-0054", 1); // フレイム・スナイプ (1) 守護HP5以下を破壊
         FIRE_STARTER.put("QTE-0046", 2); // マグマ・ストレート (2) ミニオン1体に3ダメージ
         FIRE_STARTER.put("QTE-0053", 1); // 捨て身の猛進 (3) 全体+1攻撃と突進
         FIRE_STARTER.put("QTE-0056", 1); // 命を削る烈火 (3) 自傷3+相手全体2ダメージ
-        FIRE_STARTER.put("QTE-0060", 1); // 命喰いの火種 (3) 自傷3+2ドロー・還元
+        FIRE_STARTER.put("QTE-0060", 1); // 命喰いの火種 (2) 自傷3+2ドロー・還元
         FIRE_STARTER.put("QTE-0052", 1); // 再起の炎陣 (3) 1捨て1ドロー・還元
     }
 
@@ -250,7 +250,7 @@ public class DeckFactory {
     private static final List<String> FIRE_TABOO = List.of(
             "QTE-0047", // フレア・ポーン 1/2/1
             "QTE-0044", // 血誓のバーサーカー 1/2/2 召喚時:自傷1(+条件で2)
-            "QTE-0064", // イグニッション・バースト (1) 自傷1+2ドロー
+            "QTE-0064", // イグニッション・バースト (1) 自傷2+2ドロー
             "QTE-0055", // ブラッドレイジの突撃兵 2/3/3 召喚時:自傷2
             "QTE-0046", // マグマ・ストレート (2) ミニオン1体に3ダメージ
             "QTE-0061", // 魔剣 レーヴァテイン (3/⚔5) リーダー攻撃時:自傷3
@@ -260,12 +260,12 @@ public class DeckFactory {
 
     /** 水リーダー用の禁忌デッキ(火リーダーが使う。1-3: リーダーと異なる文明) */
     private static final List<String> WATER_TABOO = List.of(
-            "QTE-0028", // アクア・サーチ (1) 1ドロー
+            "QTE-0028", // アクア・サーチ (1) 2ドロー+1枚捨て
             "QTE-0026", // アクア・ジェリー 1/1/1 知識
             "QTE-0025", // スプラッシュ・ドロー (2) 2ドロー
             "QTE-0002", // 恵みの雨 (2) 4回復+1ドロー
-            "QTE-0029", // 潮流の魔導士 2/2/2 召喚時:条件回復
-            "QTE-0031", // 氷結の杖 (2/⚔1) 凍結
+            "QTE-0029", // 潮流の魔導士 2/2/2 守護・召喚時:条件回復
+            "QTE-0031", // 氷結の杖 (2/⚔1) 知識・凍結
             "QTE-0003", // 波濤の突撃兵 3/3/1 突進・攻撃時1ドロー
             "QTE-0011"  // ディープシー・シャーク 4/4/3 突進・威圧
     );
