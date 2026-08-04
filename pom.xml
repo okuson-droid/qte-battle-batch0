@@ -15,7 +15,7 @@
     <artifactId>qte-battle</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>qte-battle</name>
-    <description>クイン・タブーエレメンタル Web対戦アプリ</description>
+    <description>クイン・タブーエレメント Web対戦アプリ</description>
 
     <properties>
         <java.version>21</java.version>

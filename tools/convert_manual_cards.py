@@ -387,7 +387,7 @@ def convert(root, out_path, csv_dir):
 
     payload = {
         "meta": {
-            "game": "クイン・タブーエレメンタル",
+            "game": "クイン・タブーエレメント",
             "purpose": "手動モード(一人回し)用のカード定義。効果テキストとキーワードは持たない",
             "generatedBy": "tools/convert_manual_cards.py",
             "generatedAt": datetime.date.today().isoformat(),

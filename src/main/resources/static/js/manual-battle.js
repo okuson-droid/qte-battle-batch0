@@ -186,14 +186,15 @@ function civColor(civ) {
 function renderAll(view) {
     cardLocation = new Map();
     renderHeader(view);
-    renderZoneBar('zone-bar-self', view.seatA, true);
-    renderOpponent(view);
-    renderSelfField(view);
-    renderLeaderAndMana(view);
+    renderOpponentTop(view);
+    renderOpponentMinions(view);
+    renderSelfMinions(view);
+    renderLeaderRow(view);
+    renderManaRow(view);
     renderHand(view);
     renderLog(view.log);
     if (pinnedZoom) {
-        renderZoom(pinnedZoom, view.backImageId);
+        renderZoom(pinnedZoom);
     }
     refreshOverlay();
 }
@@ -232,96 +233,14 @@ const ZONE_LABELS = {
     TRASH: '墓地', LOST: '消滅', TABOO: '禁忌', REVEAL: '一時公開',
 };
 
-/** 自席ゾーンバー(左110px)。山札・墓地・消滅・禁忌・一時公開を縦に並べる */
-function renderZoneBar(containerId, seatView, isSelf) {
-    const el = document.getElementById(containerId);
-    el.innerHTML = '';
-    const zones = ['DECK', 'TRASH', 'LOST', 'TABOO', 'REVEAL'];
-    for (const zoneName of zones) {
-        const pile = seatView.zones[zoneName] || [];
-        const box = document.createElement('div');
-        box.className = 'zone-pile mb-2';
-        box.dataset.seat = seatView.id;
-        box.dataset.zone = zoneName;
-
-        const header = document.createElement('div');
-        header.className = 'small text-muted d-flex justify-content-between';
-        header.innerHTML = `<span>${ZONE_LABELS[zoneName]}</span><span>${pile.length}</span>`;
-        box.appendChild(header);
-
-        const face = document.createElement('div');
-        face.className = 'zone-pile-face';
-        if (pile.length > 0) {
-            const top = pile[pile.length - 1];
-            face.textContent = top.name || '(名前なし)';
-            face.title = top.name || '';
-        }
-        box.appendChild(face);
-
-        // ドロップ対象として登録
-        registerDropTarget(box, seatView.id, zoneName);
-
-        if (zoneName === 'DECK') {
-            box.addEventListener('click', () => send('draw', { seat: seatView.id, count: 1 }));
-            box.addEventListener('contextmenu', (e) => { e.preventDefault(); openDeckFullscreen(seatView.id); });
-            box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示';
-
-            const shuffleBtn = document.createElement('button');
-            shuffleBtn.className = 'btn btn-sm btn-outline-secondary w-100 mt-1 py-0';
-            shuffleBtn.textContent = 'シャッフル';
-            shuffleBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                send('shuffle', { seat: seatView.id });
-            });
-            box.appendChild(shuffleBtn);
-
-            const dropRow = document.createElement('div');
-            dropRow.className = 'd-flex gap-1 mt-1';
-            const top1 = document.createElement('div');
-            top1.className = 'zone-drop-mini';
-            top1.textContent = '上へ';
-            registerDropTarget(top1, seatView.id, 'DECK', 0);
-            const bottom1 = document.createElement('div');
-            bottom1.className = 'zone-drop-mini';
-            bottom1.textContent = '下へ';
-            registerDropTarget(bottom1, seatView.id, 'DECK', 999999);
-            dropRow.appendChild(top1);
-            dropRow.appendChild(bottom1);
-            box.appendChild(dropRow);
-        } else {
-            // ★18c: 左クリックで帯を開く(4-6)。最上段の拡大は右クリックへ寄せた
-            // (場のカードの右クリック規約と揃える。マスター確認済み)。
-            box.addEventListener('click', () => openZoneBand(seatView.id, zoneName));
-            box.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                if (pile.length > 0) {
-                    setZoom(pile[pile.length - 1]);
-                } else {
-                    showTransientNotice(ZONE_LABELS[zoneName] + 'は空です');
-                }
-            });
-        }
-
-        el.appendChild(box);
-    }
-}
-
-/** 相手席(B席)。LP + ミニオンゾーン + 小型ゾーンバー(枚数のみ) */
-function renderOpponent(view) {
-    const el = document.getElementById('seat-opponent');
+/** B席上段: リーダー + 小型ゾーンバー(枚数のみ・クリック無効の飾り。設計書2-7) */
+function renderOpponentTop(view) {
+    const el = document.getElementById('seat-opponent-top');
     el.innerHTML = '';
     const seat = view.seatB;
 
-    const top = document.createElement('div');
-    top.className = 'd-flex align-items-center gap-2 mb-1';
-    top.appendChild(createLeaderTile(seat));
-
-    const fieldRow = document.createElement('div');
-    fieldRow.className = 'minion-row flex-grow-1';
-    fieldRow.dataset.seat = 'B';
-    fieldRow.dataset.zone = 'FIELD';
-    renderStackRow(fieldRow, seat, 'FIELD', 7);
-    top.appendChild(fieldRow);
+    el.appendChild(createLeaderTile(seat));
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'B', zone: 'LEADER' });
 
     const bar = document.createElement('div');
     bar.className = 'd-flex gap-1';
@@ -334,40 +253,31 @@ function renderOpponent(view) {
         registerDropTarget(chip, 'B', zoneName);
         bar.appendChild(chip);
     }
-    top.appendChild(bar);
-
-    el.appendChild(top);
+    el.appendChild(bar);
 }
 
-/** 自席ミニオン + ウェポン */
-function renderSelfField(view) {
-    const el = document.getElementById('seat-self-field');
+/** Bミニオン行(折り返し解消。設計書0の指摘2) */
+function renderOpponentMinions(view) {
+    const el = document.getElementById('seat-opponent-minions');
     el.innerHTML = '';
-    const seat = view.seatA;
+    const fieldRow = document.createElement('div');
+    fieldRow.className = 'minion-row';
+    fieldRow.dataset.seat = 'B';
+    fieldRow.dataset.zone = 'FIELD';
+    renderStackRow(fieldRow, view.seatB, 'FIELD', 6); // ★2-9: 7→6
+    el.appendChild(fieldRow);
+}
 
+/** Aミニオン行 */
+function renderSelfMinions(view) {
+    const el = document.getElementById('seat-self-minions');
+    el.innerHTML = '';
     const fieldRow = document.createElement('div');
     fieldRow.className = 'minion-row';
     fieldRow.dataset.seat = 'A';
     fieldRow.dataset.zone = 'FIELD';
-    renderStackRow(fieldRow, seat, 'FIELD', 7);
-
-    const weaponRow = document.createElement('div');
-    weaponRow.className = 'minion-row mt-1';
-    weaponRow.dataset.seat = 'A';
-    weaponRow.dataset.zone = 'WEAPON';
-    renderStackRow(weaponRow, seat, 'WEAPON', 1);
-
-    const label1 = document.createElement('div');
-    label1.className = 'small text-muted';
-    label1.textContent = 'ミニオン';
-    const label2 = document.createElement('div');
-    label2.className = 'small text-muted mt-1';
-    label2.textContent = 'ウェポン';
-
-    el.appendChild(label1);
+    renderStackRow(fieldRow, view.seatA, 'FIELD', 6); // ★2-9: 7→6
     el.appendChild(fieldRow);
-    el.appendChild(label2);
-    el.appendChild(weaponRow);
 }
 
 /** ゾーン1つぶんのタイル列を描画する。最小枠数(minSlots)まで空き枠を用意する */
@@ -382,7 +292,7 @@ function renderStackRow(container, seatView, zoneName, minSlots) {
             cardLocation.set(material.instanceId, { seatId: seatView.id, zone: zoneName });
         }
     }
-    // ★常に最低1枠は空きを見せる(ドロップ先として)。FIELDはminSlots(7)まで埋める
+    // ★常に最低1枠は空きを見せる(ドロップ先として)。FIELDはminSlots(既定6)まで埋める
     const emptyCount = Math.max(minSlots - cards.length, 1);
     for (let i = 0; i < emptyCount; i++) {
         const slot = document.createElement('div');
@@ -392,57 +302,215 @@ function renderStackRow(container, seatView, zoneName, minSlots) {
     }
 }
 
-/** リーダーとマナ */
-function renderLeaderAndMana(view) {
-    const el = document.getElementById('seat-self-leader-mana');
+/**
+ * リーダー行(設計書2-1・2-2): [ウェポン][リーダー][禁忌][山札][公開][墓地][消滅]。
+ * ウェポンは既存のタイル方式(renderStackRow)、残り5ゾーンはカード型パイル(createCardPile)。
+ */
+function renderLeaderRow(view) {
+    const el = document.getElementById('seat-self-leader-row');
     el.innerHTML = '';
     const seat = view.seatA;
 
-    const row = document.createElement('div');
-    row.className = 'd-flex align-items-center gap-2';
-    row.appendChild(createLeaderTile(seat));
+    const weaponWrap = document.createElement('div');
+    weaponWrap.className = 'manual-weapon-slot';
+    weaponWrap.dataset.seat = 'A';
+    weaponWrap.dataset.zone = 'WEAPON';
+    renderStackRow(weaponWrap, seat, 'WEAPON', 1);
+    el.appendChild(weaponWrap);
 
-    const manaWrap = document.createElement('div');
-    manaWrap.className = 'flex-grow-1';
-    const manaHeader = document.createElement('div');
-    manaHeader.className = 'small text-muted';
-    manaHeader.textContent = `MP ${seat.mp}`;
-    manaWrap.appendChild(manaHeader);
+    el.appendChild(createLeaderTile(seat));
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
 
-    const manaRow = document.createElement('div');
-    manaRow.className = 'mana-row';
-    for (const card of (seat.zones.MANA || [])) {
-        const chip = document.createElement('div');
-        chip.className = 'mana-chip' + (card.tapped ? ' tapped' : '') + (card.faceDown ? ' face-down' : '');
-        chip.title = card.faceDown ? '裏向き' : (card.name || '');
-        chip.draggable = true;
-        chip.addEventListener('dragstart', (e) => onDragStart(e, card, 'A', 'MANA'));
-        chip.addEventListener('click', (e) => onCardClick(e, card, 'A', 'MANA'));
-        chip.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
-        manaRow.appendChild(chip);
+    // ★2-1: 禁忌・山札・公開・墓地・消滅の並び順で固定
+    for (const zoneName of ['TABOO', 'DECK', 'REVEAL', 'TRASH', 'LOST']) {
+        const pile = seat.zones[zoneName] || [];
+        el.appendChild(createCardPile('A', zoneName, pile));
     }
-    manaWrap.appendChild(manaRow);
+}
 
-    const dropRow = document.createElement('div');
-    dropRow.className = 'd-flex gap-1 mt-1';
-    const faceUpDrop = document.createElement('div');
-    faceUpDrop.className = 'zone-drop-mini';
-    faceUpDrop.textContent = 'マナ(表)へ';
-    registerDropTarget(faceUpDrop, 'A', 'MANA', null, false);
-    const faceDownDrop = document.createElement('div');
-    faceDownDrop.className = 'zone-drop-mini';
-    faceDownDrop.textContent = 'マナ(裏)へ';
-    registerDropTarget(faceDownDrop, 'A', 'MANA', null, true);
-    dropRow.appendChild(faceUpDrop);
-    dropRow.appendChild(faceDownDrop);
-    manaWrap.appendChild(dropRow);
+/** ★非公開ゾーンの集合(2-2)。山札・禁忌は一番上のカード名を表示しない */
+const PRIVATE_PILE_ZONES = new Set(['DECK', 'TABOO']);
 
-    row.appendChild(manaWrap);
-    el.appendChild(row);
+/** カード型パイル(禁忌・山札・公開・墓地・消滅。設計書2-2) */
+function createCardPile(seatId, zoneName, pile) {
+    const box = document.createElement('div');
+    box.className = 'manual-pile';
+    box.dataset.seat = seatId;
+    box.dataset.zone = zoneName;
 
-    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: seat.id, zone: 'LEADER' });
-    for (const card of (seat.zones.MANA || [])) {
+    const header = document.createElement('div');
+    header.className = 'manual-pile-label';
+    header.textContent = ZONE_LABELS[zoneName];
+    box.appendChild(header);
+
+    const count = document.createElement('div');
+    count.className = 'manual-pile-count';
+    count.textContent = pile.length;
+    box.appendChild(count);
+
+    // ★公開ゾーン(墓地・消滅・公開)のみ一番上のカード名を出す。非公開は枚数だけ
+    if (!PRIVATE_PILE_ZONES.has(zoneName) && pile.length > 0) {
+        const top = pile[pile.length - 1];
+        const face = document.createElement('div');
+        face.className = 'manual-pile-face';
+        face.textContent = top.name || '(名前なし)';
+        face.title = top.name || '';
+        box.appendChild(face);
+    }
+
+    registerDropTarget(box, seatId, zoneName);
+
+    if (zoneName === 'DECK') {
+        box.addEventListener('click', () => send('draw', { seat: seatId, count: 1 }));
+        box.addEventListener('contextmenu', (e) => { e.preventDefault(); openDeckFullscreen(seatId); });
+        box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示';
+
+        const shuffleBtn = document.createElement('button');
+        shuffleBtn.className = 'btn btn-sm btn-outline-secondary w-100 mt-1 py-0';
+        shuffleBtn.textContent = 'シャッフル';
+        shuffleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            send('shuffle', { seat: seatId });
+        });
+        box.appendChild(shuffleBtn);
+
+        const dropRow = document.createElement('div');
+        dropRow.className = 'd-flex gap-1 mt-1';
+        const top1 = document.createElement('div');
+        top1.className = 'zone-drop-mini';
+        top1.textContent = '上へ';
+        registerDropTarget(top1, seatId, 'DECK', 0);
+        const bottom1 = document.createElement('div');
+        bottom1.className = 'zone-drop-mini';
+        bottom1.textContent = '下へ';
+        registerDropTarget(bottom1, seatId, 'DECK', 999999);
+        dropRow.appendChild(top1);
+        dropRow.appendChild(bottom1);
+        box.appendChild(dropRow);
+    } else {
+        // ★18c: 左クリックで帯を開く(4-6)。最上段の拡大は右クリックへ寄せた
+        // (場のカードの右クリック規約と揃える。マスター確認済み)。
+        box.addEventListener('click', () => openZoneBand(seatId, zoneName));
+        box.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (pile.length > 0) {
+                setZoom(pile[pile.length - 1]);
+            } else {
+                showTransientNotice(ZONE_LABELS[zoneName] + 'は空です');
+            }
+        });
+    }
+
+    return box;
+}
+
+/** マナ行(リーダー行の直下の独立行。設計書2-3) */
+function renderManaRow(view) {
+    const el = document.getElementById('seat-self-mana-row');
+    el.innerHTML = '';
+    const seat = view.seatA;
+
+    const header = document.createElement('div');
+    header.className = 'small text-muted mb-1';
+    header.textContent = `マナ MP ${seat.mp}`;
+    el.appendChild(header);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'mana-strips';
+
+    const manaCards = seat.zones.MANA || [];
+    const faceUpCards = manaCards.filter((c) => !c.faceDown);
+    const faceDownCards = manaCards.filter((c) => c.faceDown);
+
+    wrap.appendChild(createManaStrip('表', faceUpCards, 'A', false));
+    wrap.appendChild(createManaStrip('裏', faceDownCards, 'A', true));
+
+    el.appendChild(wrap);
+
+    for (const card of manaCards) {
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
+    }
+
+    // ★重ね表示は実測幅で計算するため、DOMに載ってから最後に適用する(2-3)
+    applyManaOverlap(wrap);
+}
+
+/** マナのストリップ1つ(表 or 裏)。ストリップ全体がドロップ対象(設計書2-3) */
+function createManaStrip(label, cards, seatId, faceDown) {
+    const strip = document.createElement('div');
+    strip.className = 'mana-strip' + (faceDown ? ' mana-strip-down' : ' mana-strip-up');
+
+    const label_ = document.createElement('div');
+    label_.className = 'mana-strip-label small text-muted';
+    label_.textContent = label;
+    strip.appendChild(label_);
+
+    const track = document.createElement('div');
+    track.className = 'mana-strip-track';
+    registerDropTarget(track, seatId, 'MANA', null, faceDown);
+
+    for (const card of cards) {
+        track.appendChild(createManaTile(card, seatId));
+    }
+
+    strip.appendChild(track);
+    return strip;
+}
+
+/** マナのミニタイル(64×88。文明色+カード名。設計書2-3) */
+function createManaTile(card, seatId) {
+    const chip = document.createElement('div');
+    chip.className = 'mana-tile' + (card.tapped ? ' tapped' : '') + (card.faceDown ? ' face-down' : '');
+    chip.dataset.instanceId = card.instanceId;
+    chip.draggable = true;
+
+    if (card.civilization && !card.faceDown) {
+        const bg = civColor(card.civilization);
+        chip.style.background = bg;
+        chip.style.color = textColorFor(bg);
+    }
+
+    const name = document.createElement('div');
+    name.className = 'mana-tile-name';
+    name.textContent = card.faceDown ? '' : (card.name || '');
+    chip.appendChild(name);
+    chip.title = card.faceDown ? '裏向き' : (card.name || '');
+
+    if (selected.has(card.instanceId)) {
+        chip.classList.add('manual-tile-selected');
+    }
+
+    chip.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, 'MANA'));
+    chip.addEventListener('click', (e) => onCardClick(e, card, seatId, 'MANA'));
+    chip.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    return chip;
+}
+
+/**
+ * マナストリップの重ね表示(設計書2-3)。「はみ出す場合のみ負のマージンを計算して
+ * 均等に重ねる」ため、DOMに実際に載せた後の実測幅(clientWidth)を使う。
+ * 1枚あたり最小約28pxは露出させる(タイル幅64pxに対し最大重なり36px)。
+ */
+function applyManaOverlap(wrap) {
+    for (const track of wrap.querySelectorAll('.mana-strip-track')) {
+        const tiles = [...track.children];
+        for (const tile of tiles) {
+            tile.style.marginLeft = '';
+            tile.style.zIndex = '';
+        }
+        if (tiles.length <= 1) continue;
+        const trackWidth = track.clientWidth;
+        const tileWidth = 64;
+        const minExposure = 28;
+        const naturalWidth = tiles.length * tileWidth;
+        if (naturalWidth <= trackWidth) continue;
+        const maxOverlap = tileWidth - minExposure;
+        const neededOverlapTotal = naturalWidth - trackWidth;
+        const perTileOverlap = Math.min(maxOverlap, neededOverlapTotal / (tiles.length - 1));
+        tiles.forEach((tile, i) => {
+            if (i > 0) tile.style.marginLeft = `-${perTileOverlap}px`;
+            tile.style.zIndex = String(i + 1);
+        });
     }
 }
 
@@ -696,22 +764,30 @@ function toggleSelect(instanceId) {
 
 function setZoom(card) {
     pinnedZoom = card;
-    if (latestView) {
-        renderZoom(card, latestView.backImageId);
-    }
+    renderZoom(card);
 }
 
-function renderZoom(card, backImageId) {
+/**
+ * ★2-4: 拡大表示は常に表面画像を出し、裏向きなら「裏向き」バッジを重ねる。
+ * フェイズ1は全公開であり、持ち主が自分の裏向きマナ・山札上のカードを確認できる
+ * べきである(裏面画像では確認の用をなさなかった)。フェイズ2では相手の非公開カードの
+ * imageId 自体がビューに載らない設計(11-3)のため、この変更が情報漏えいの経路にはならない。
+ */
+function renderZoom(card) {
     const panel = document.getElementById('zoom-panel');
     panel.innerHTML = '';
-    const showBack = card.faceDown && card.imageId;
-    const src = showBack ? backImageId : card.imageId;
-    if (src) {
+    if (card.imageId) {
         const img = document.createElement('img');
-        img.src = `/cards/${src}.png`;
+        img.src = `/cards/${card.imageId}.png`;
         img.style.maxWidth = '100%';
         img.style.maxHeight = '100%';
         panel.appendChild(img);
+        if (card.faceDown) {
+            const badge = document.createElement('div');
+            badge.className = 'manual-facedown-badge';
+            badge.textContent = '裏向き';
+            panel.appendChild(badge);
+        }
     } else {
         const span = document.createElement('span');
         span.className = 'text-muted small';
@@ -724,6 +800,12 @@ function renderZoom(card, backImageId) {
 // 8) ドラッグ&ドロップ(設計書 4-5)
 // ---------------------------------------------------------------
 
+/**
+ * ★2-5(バグ修正): 帯を開いている間は manual-band-backdrop(全画面・z-index 1040)が
+ * dragover/drop を遮断し、帯から盤面へのドラッグが一度も機能していなかった(0章の指摘3)。
+ * dragstart で <body> に manual-drag-active を付け、帯・バックドロップの pointer-events を
+ * 切ることで着地点を復活させる。dragend で必ず外す(一度きりのリスナーで後始末不要)。
+ */
 function onDragStart(e, card, seatId, zone) {
     let ids;
     if (selected.has(card.instanceId) && selected.size > 1) {
@@ -733,6 +815,11 @@ function onDragStart(e, card, seatId, zone) {
     }
     e.dataTransfer.setData('text/plain', JSON.stringify({ cardIds: ids, seatId, zone }));
     e.dataTransfer.effectAllowed = 'move';
+
+    document.body.classList.add('manual-drag-active');
+    e.target.addEventListener('dragend', () => {
+        document.body.classList.remove('manual-drag-active');
+    }, { once: true });
 }
 
 /**
@@ -914,6 +1001,14 @@ document.getElementById('btn-leave').addEventListener('click', () => {
         forgetOccupant();
         location.href = '/';
     }
+});
+
+// ★2-6: 操作説明モーダル
+document.getElementById('btn-help').addEventListener('click', () => {
+    document.getElementById('help-modal').classList.remove('d-none');
+});
+document.getElementById('help-modal-close').addEventListener('click', () => {
+    document.getElementById('help-modal').classList.add('d-none');
 });
 
 document.getElementById('note-form').addEventListener('submit', (e) => {

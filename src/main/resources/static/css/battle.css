@@ -77,7 +77,7 @@
    文明ごとに計算して inline style で当てるため、ここでは箱の形だけを持つ。 */
 
 .manual-tile, .tile-slot-empty {
-    width: 110px; height: 110px; border-radius: 6px; position: relative;
+    width: 110px; height: 120px; border-radius: 6px; position: relative;
     padding: 4px; font-size: 11px; box-sizing: border-box; cursor: pointer;
     display: flex; flex-direction: column; justify-content: space-between;
 }
@@ -119,7 +119,9 @@
 .manual-tile-facedown { filter: brightness(0.5); }
 .manual-tile-selected { outline: 3px solid #ffca28; outline-offset: 1px; }
 
-.manual-leader-tile { cursor: pointer; }
+/* ★19b: 通常モードと共有する .leader-card(110×80)は変更せず、
+   手動モードだけこのクラスで上書きする(設計書2-1: 110→90px)。 */
+.manual-leader-tile { cursor: pointer; width: 90px; height: 120px; }
 
 .manual-hand-card {
     cursor: pointer; border-radius: 4px; overflow: hidden; border: 2px solid transparent;
@@ -130,18 +132,66 @@
     text-align: center; font-size: 11px; border-radius: 4px; padding: 4px;
 }
 
-.zone-pile {
-    border: 1px solid #495057; border-radius: 4px; padding: 4px; background: rgba(255, 255, 255, 0.03);
-    cursor: pointer; font-size: 11px;
-}
-.zone-pile-face { min-height: 1.2em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* ★19b: 相手席(B席)の小型ゾーンバー。クリック無効の飾りのまま、
+   ドロップ受けの面積だけ 32×24 → 44×32px に拡大(設計書2-7)。 */
 .zone-pile-mini {
-    width: 32px; height: 24px; font-size: 10px; border: 1px solid #495057; border-radius: 3px;
-    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    width: 44px; height: 32px; font-size: 10px; border: 1px solid #495057; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center; cursor: default;
 }
 .zone-drop-mini {
     flex: 1; border: 1px dashed #6c757d; border-radius: 3px; font-size: 9px; text-align: center;
     padding: 2px 0; color: #adb5bd;
+}
+
+/* ★19b: リーダー行のカード型パイル(禁忌・山札・公開・墓地・消滅。設計書2-1・2-2)。
+   90×120px で場タイル・リーダーと高さを揃える。ドロップ対象面積は箱全体(旧比 約4倍)。 */
+/* ★min-heightとする(heightで固定しない)。山札のみシャッフル/上下ボタンぶん
+   他のパイルより縦に伸びる(設計書2-2の図。山札の枠だけ下に長い)。 */
+.manual-pile {
+    width: 90px; min-height: 120px; box-sizing: border-box; border-radius: 6px;
+    border: 1px solid #495057; background: rgba(255, 255, 255, 0.03);
+    padding: 4px; font-size: 11px; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center;
+}
+.manual-pile-label { font-weight: bold; font-size: 13px; }
+.manual-pile-count { font-weight: bold; font-size: 20px; line-height: 1.3; }
+.manual-pile-face {
+    width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    text-align: center; font-size: 10px; color: #adb5bd;
+}
+
+/* ウェポン枠(設計書2-1)。場タイルと同幅の .manual-tile をそのまま並べるための入れ物。
+   未装備時は renderStackRow が空き枠(.tile-slot-empty)を差し込む。複数装備は右に伸びる。 */
+.manual-weapon-slot { display: flex; gap: 6px; }
+
+/* ★19b: マナ行(リーダー行の直下。設計書2-3)。表(約6割)/裏(約4割)の2ストリップを横に並べる。 */
+.mana-strips { display: flex; gap: 12px; }
+.mana-strip { display: flex; flex-direction: column; }
+.mana-strip-up { flex: 6; min-width: 0; }
+.mana-strip-down { flex: 4; min-width: 0; }
+.mana-strip-label { margin-bottom: 2px; }
+.mana-strip-track {
+    display: flex; align-items: flex-end; min-height: 92px;
+    border: 1px dashed #495057; border-radius: 4px; padding: 4px;
+}
+.mana-tile {
+    flex: 0 0 auto; width: 64px; height: 88px; border-radius: 4px;
+    background: #26a69a; border: 1px solid #80cbc4; box-sizing: border-box;
+    padding: 3px; font-size: 10px; color: #fff; cursor: pointer;
+    display: flex; align-items: flex-end;
+}
+.mana-tile-name {
+    line-height: 1.15; max-height: 3.4em; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.mana-tile.tapped { transform: rotate(90deg); }
+.mana-tile.face-down { background: #455a64; border-color: #78909c; }
+
+/* ★2-4: 拡大表示(裏向きは常に表面+バッジ) */
+.manual-facedown-badge {
+    position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.7); color: #fff; font-size: 11px;
+    padding: 2px 8px; border-radius: 3px;
 }
 
 .manual-drop-hover { outline: 2px solid #4caf50; outline-offset: 1px; }
@@ -155,6 +205,14 @@
    (詳細はbatch18c-design-notes.mdを参照)。 */
 
 .manual-band-backdrop { position: fixed; inset: 0; z-index: 1040; background: transparent; }
+
+/* ★19b(バグ修正・設計書2-5): 帯を開いたままドラッグすると、backdropが dragover/drop を
+   遮断して一度も盤面へ落とせていなかった(0章の指摘3)。ドラッグ中だけ両方を透過させる。
+   帯自身も透過させるのは、帯の背後(B席行など)へも落とせるようにするため。 */
+body.manual-drag-active .manual-band-backdrop,
+body.manual-drag-active .manual-band {
+    pointer-events: none;
+}
 .manual-band {
     position: fixed; left: 50%; top: 90px; transform: translateX(-50%);
     width: 700px; max-width: 95vw; z-index: 1041;
