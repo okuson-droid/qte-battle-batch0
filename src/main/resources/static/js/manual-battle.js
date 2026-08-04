@@ -802,9 +802,19 @@ function renderZoom(card) {
 
 /**
  * ★2-5(バグ修正): 帯を開いている間は manual-band-backdrop(全画面・z-index 1040)が
- * dragover/drop を遮断し、帯から盤面へのドラッグが一度も機能していなかった(0章の指摘3)。
- * dragstart で <body> に manual-drag-active を付け、帯・バックドロップの pointer-events を
- * 切ることで着地点を復活させる。dragend で必ず外す(一度きりのリスナーで後始末不要)。
+ * dragover/drop を遮断し、帯から盤面へのドラッグが機能していなかった。
+ * <body> に manual-drag-active を付け、帯・バックドロップの pointer-events を切ることで
+ * 着地点を復活させる。
+ *
+ * ★hotfix2: このクラス付与は dragstart ハンドラ内で同期的に行ってはならない。
+ * `.manual-band` はドラッグ元カードの祖先であり、dragstart の処理中にその
+ * pointer-events を変えると、Chromium はドラッグ操作自体を中断する
+ * (dragstart の直後に dragend が来て、dragover も drop も一切発火しない)。
+ * setTimeout(0) でドラッグ確立後まで遅らせることで、帯の背後(B席行など)への
+ * ドロップも含めて正しく動作する。検証の詳細は batch19b-hotfix2-notes.md を参照。
+ *
+ * dragend は document で受ける(ドラッグ元が内側の <img> になる場合でも確実に届く)。
+ * 付与前に dragend が来た場合に備え、clearTimeout で取り消す。
  */
 function onDragStart(e, card, seatId, zone) {
     let ids;
@@ -816,8 +826,11 @@ function onDragStart(e, card, seatId, zone) {
     e.dataTransfer.setData('text/plain', JSON.stringify({ cardIds: ids, seatId, zone }));
     e.dataTransfer.effectAllowed = 'move';
 
-    document.body.classList.add('manual-drag-active');
-    e.target.addEventListener('dragend', () => {
+    const timer = setTimeout(() => {
+        document.body.classList.add('manual-drag-active');
+    }, 0);
+    document.addEventListener('dragend', () => {
+        clearTimeout(timer);
         document.body.classList.remove('manual-drag-active');
     }, { once: true });
 }

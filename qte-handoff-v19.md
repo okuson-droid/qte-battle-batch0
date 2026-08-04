@@ -1,6 +1,6 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-04(Batch 19b hotfix1 完了。手札ドロップ不具合の修正)
+最終更新: 2026-08-04(Batch 19b hotfix2 完了。帯からのドラッグ不具合の真因修正)
 **★手動モード フェーズ1(一人回し)は19aで完成済み。19b・hotfix1はUI改善とその修正。**
 
 **★新しいチャットを始めるときは 5章「チャット開始テンプレート」を使うこと。**
@@ -12,7 +12,7 @@
 
 | 系統 | 前提ドキュメント |
 |---|---|
-| **手動モード**(17a〜19b・フェーズ1完成) | `batch16-manual-mode-design-v2_4.md`(唯一の正)+ `notes/batch19b-ui-design.md`(v2.1・唯一の正)+ `notes/batch19b-design-notes.md` + `notes/batch19b-hotfix1-notes.md` |
+| **手動モード**(17a〜19b・フェーズ1完成) | `batch16-manual-mode-design-v2_4.md`(唯一の正)+ `notes/batch19b-ui-design.md`(v2.1・唯一の正)+ `notes/batch19b-design-notes.md` + `notes/batch19b-hotfix1-notes.md` + `notes/batch19b-hotfix2-notes.md` |
 | **Ver.0.4 対応**(15c/15d/15e) | `notes/ver0.4-transcription-notes.md` + `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` |
 
 ---
@@ -33,7 +33,7 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 4. **★「反映済み」という記述を信じず、直近バッチで変更したはずの箇所を実際に読んで照合する。**
    台帳だけでなく**コードにも適用すること**。
 
-## 19b(+hotfix1)の確認項目(次チャットで照合すること)
+## 19b(+hotfix)の確認項目(次チャットで照合すること)
 
 - `src/main/resources/templates/manual-battle.html` が2列構成(左のゾーンバー列が無い)で
   あり、`battle.css(v=13)` / `manual-battle.js(v=4)` を参照していること。
@@ -41,8 +41,11 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
   (`createCardPile` に置き換えられている)。
 - 同ファイルの `renderOpponentMinions` / `renderSelfMinions` の `renderStackRow` 呼び出しが
   第4引数 `6`(7ではない)であること。
-- `onDragStart` 内に `manual-drag-active` クラスの付け外しがあること
-  (`battle.css` 側に `body.manual-drag-active .manual-band-backdrop` のルールがあること)。
+- **★hotfix2: `onDragStart` 内の `manual-drag-active` の付与が `setTimeout(..., 0)` で
+  非同期化されていること。** 同期的に付与するとChromiumがドラッグを中断し、帯からの
+  ドラッグが一切効かなくなる(3章参照)。あわせて `dragend` を `document` で受け、
+  `clearTimeout(timer)` を行っていること。
+- `manual-battle.html` が `manual-battle.js(v=5)` を参照していること(hotfix2でJSを変更)。
 - `renderZoom` が `backImageId` 引数を取らず、`card.imageId` を常に表示する実装であること。
 - **★hotfix1: `manual-battle.html` の `#hand-row` が `<div id="hand-row" class="board-side p-2"></div>`
   というプレーンな入れ物であり、`class="hand-row"` や `data-seat`/`data-zone` を
@@ -62,7 +65,8 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 |---|---|---|---|---|
 | ~~17a~~〜~~19a~~ | a系/b系 | データ変換〜切断復帰・仕上げ | 各種 | 完了 |
 | ~~19b~~ | b系 | 盤面レイアウトの再設計(UI改善) | `battle.css` | 完了 |
-| ~~19b hotfix1~~ | 修正 | 手札(`#hand-row`)へのドロップ不具合 | `manual-battle.html` | **完了** |
+| ~~19b hotfix1~~ | 修正 | 手札(`#hand-row`)へのドロップ不具合 | `manual-battle.html` | 完了 |
+| ~~19b hotfix2~~ | 修正 | 帯からのドラッグ不具合(真因) | `manual-battle.js` | **完了** |
 
 ### フェーズ2(ソロ対戦・対戦・観戦)— 次の候補
 
@@ -132,6 +136,19 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
   内側の行とラベル分だけ位置がずれて、手札へのドロップだけが効かなくなった
   (hotfix1で修正。`notes/batch19b-hotfix1-notes.md` 参照)。「帯からドラッグできない」という
   報告文言だけで原因を1つに決め打ちせず、ドロップ先ごとに切り分けて検証したことで発見できた。
+- **★ドラッグ&ドロップの検証に合成 `DragEvent`(`new DragEvent` + `dispatchEvent`)を
+  使ってはならない。** 合成イベントはブラウザ本来のドラッグ機構を通らないため、
+  「ブラウザがドラッグを中断する」種類の不具合を原理的に再現できない。必ず
+  `page.mouse.down/move/up` による実操作で検証する(hotfix2はこれを怠って2回見落とした)。
+- **★`dragstart` ハンドラの中で、ドラッグ元やその祖先の `pointer-events`・`display` などを
+  同期的に変更しないこと。** Chromiumはドラッグ操作自体を中断し、`dragstart` の直後に
+  `dragend` が来て `dragover`・`drop` が一切発火しなくなる。変更が必要なら
+  `setTimeout(..., 0)` でドラッグ確立後まで遅らせる(`notes/batch19b-hotfix2-notes.md`)。
+- **★自分が直前に入れた修正を、不具合の容疑者から外さないこと。** hotfix2の真因は
+  19bで加えた修正そのものだった。「修正したはずの箇所」は最初に疑う。
+- **★観測結果を環境の制約だと決めつけないこと。** 19bの時点で `dragstart -> dragend` という
+  中断の証拠は出ていたが、ヘッドレス環境の限界と解釈して合成イベントに逃げたため、
+  2回の納品を無駄にした。
 - **★この環境にはPlaywright(Chromiumヘッドレス)が用意されており、実ファイル
   (`battle.css`/`manual-battle.js`)を読み込んだ検証用HTMLを作って、実際のCSS判定・
   DOM操作・合成DragEventによるドラッグ&ドロップの一連の流れを検証できる。**
@@ -161,21 +178,21 @@ Playwright(Chromiumヘッドレス。このサンドボックスに用意済み)
 ## 5. チャット開始テンプレート
 
 次の作業(フェーズ2 UI詰め、または Ver.0.4対応)に応じて、テンプレートの3行目以降を
-書き換えて使うこと。19b・hotfix1向けの確認項目は次のチャットで一度だけ照合すればよい。
+書き換えて使うこと。19b・hotfixの確認項目は次のチャットで一度だけ照合すればよい。
 
 ```
 QTE Battle の開発を継続する。以下の手順で作業を始めてほしい。
 
 1. プロジェクトナレッジ内の `qte-project-reference.md` を読む
    (ゲームルール・設計判断の唯一の正)。
-2. プロジェクトナレッジ内の `qte-handoff-v18.md` を読む
+2. プロジェクトナレッジ内の `qte-handoff-v19.md` を読む
    (直近の状態・次の作業・既知の落とし穴)。
 3. ソースコードを取得する(zipのアップロードは不要)。
 
 https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
-4. ★取得したコードで Batch 19b(hotfix1含む)が反映されているかを確認し、結果を報告すること。
-   「反映済み」という記述を信じないこと。「19b(+hotfix1)の確認項目」(本ファイル0章)を
+4. ★取得したコードで Batch 19b(hotfix1・hotfix2含む)が反映されているかを確認し、結果を報告すること。
+   「反映済み」という記述を信じないこと。「19b(+hotfix)の確認項目」(本ファイル0章)を
    実際に読んで照合する。
 
 次の作業は [フェーズ2のUI詰めセッション / Ver.0.4対応 15c] のどちらか(要相談)。
