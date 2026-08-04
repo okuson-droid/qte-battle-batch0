@@ -1,7 +1,7 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-04 (Batch 17b 完了。手動モードの状態モデル・部屋・配信・デッキ取り込み)
-次の作業: **Batch 18a(a系・Opus + 拡張思考) — 手動モードの操作13項目・進化スタックの分解・Undo**
+最終更新: 2026-08-04 (Batch 18a 完了。手動モードの操作13項目・進化スタックの分解・Undo)
+次の作業: **Batch 18b(b系・Sonnet 5) — 手動モードの盤面の画面(タイル・手札・拡大画像・操作規約)**
 
 **★新しいチャットを始めるときは 5章「チャット開始テンプレート」を使うこと。**
 
@@ -12,7 +12,7 @@
 
 | 系統 | 前提ドキュメント |
 |---|---|
-| **手動モード**(17a〜19a) | `batch16-manual-mode-design-v2_2.md`(唯一の正) + `notes/batch17b-design-notes.md` |
+| **手動モード**(17a〜19a) | `batch16-manual-mode-design-v2_2.md`(唯一の正) + `notes/batch18a-design-notes.md` |
 | **Ver.0.4 対応**(15c/15d/15e) | `notes/ver0.4-transcription-notes.md` + `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` |
 
 ---
@@ -29,9 +29,14 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 4. **★「反映済み」という記述を信じず、直近バッチで変更したはずの箇所を実際に読んで照合する。**
    台帳だけでなく**コードにも適用すること**。15a では台帳が push されていない事故が起き、
-   **16・17a・17b では 15b の Java 4ファイルが push されていないことを3回続けて検出**している。
+   16・17a・17b では 15b の Java 4ファイルが push されていないことを3回続けて検出したが、
+   **18a の時点で 15b は反映されている**(1章)。
 5. この環境では **Maven ビルドができない**(Maven Central が到達不可)。納品前の検証は `tools/` の
    機械チェックで行い、型エラーは発注者の手元のビルドで拾う。
+   **★ただし 18a では別の手段で型検査と実行検証まで通せた。**
+   `apt` から JDK を入れ、既存クラスの公開APIを写したスタブと Spring / JUnit / AssertJ の
+   最小スタブを手で書いて `javac` を通す。手順は `notes/batch18a-design-notes.md` 3-2 にある。
+   **手間はかかるが、a系バッチでは費用対効果が高い。**
 
 ---
 
@@ -39,43 +44,43 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 | 項目 | 状態 |
 |---|---|
-| 完了バッチ | Batch 0〜13c + Ver.0.4転記 + 15a + 15b + 16(設計) + 17a + **17b** |
-| **★リポジトリの状態** | **15b の Java 4ファイルが未 push(3回連続で検出)。台帳とそれ以外は最新** |
+| 完了バッチ | Batch 0〜13c + Ver.0.4転記 + 15a + 15b + 16(設計) + 17a + 17b + **18a** |
+| **★リポジトリの状態** | **15b を含めてすべて反映済み**(18a で確認)。3回続いた未 push は解消した |
 | 台帳の状態 | Ver.0.4反映済み(52枚更新)。2つの台帳は内容一致・確認待ち0件 |
 | 効果の実装状況 | 15a で5枚 + 15b で16枚 = 21枚完了。残り31枚(うちL004は基盤待ち) |
 | 実装済み文明 | 水28 / 火28 / 闇28 / 光28 / 風28 / 土28 = **168枚(全6文明完成)** |
 | 転記済み総数 | 169枚(6文明×28枚 + 文明なし1) |
 | 手動モードのカード | 235枚(CSV 234 + ピュア・エレメント1)。`manual-cards.json` |
-| **手動モードの基盤** | **状態モデル・部屋・在室者・個別宛先配信・デッキ取り込みまで完成(17b)** |
+| **手動モードの基盤** | 状態モデル・部屋・配信・デッキ取り込み(17b)<br>**+ 操作13項目・進化スタック・Undo/Redo まで完成(18a)** |
 | 公開URL | https://qte-battle-batch0.onrender.com/ |
-| 静的ファイルのバージョン | `battle.js(v=13)` / `battle.css(v=10)`(**17a・17b とも静的ファイル無変更**)<br>`deck-builder.js(v=10)` / `deck-builder.css(v=10)` |
+| 静的ファイルのバージョン | `battle.js(v=13)` / `battle.css(v=10)`(**17a・17b・18a とも静的ファイル無変更**)<br>`deck-builder.js(v=10)` / `deck-builder.css(v=10)` |
 | 選択可能なリーダー | 全6文明12体(通常モード) |
 
-### 直近の内容(前チャット: Batch 17b — 手動モードの状態モデル・部屋・配信・デッキ取り込み)
+### 直近の内容(前チャット: Batch 18a — 手動モードの操作・進化スタックの分解・Undo)
 
-**既存ファイルを1行も変更していない。29ファイルすべてが新規である。**
-詳細は `notes/batch17b-design-notes.md` を参照。
+**既存ファイルを1行も変更していない。8ファイルすべてが新規である。**
+詳細は `notes/batch18a-design-notes.md` を参照。
 
-- 状態モデル: `ManualCardInstance` / `ManualSeat` / `ManualGameState` / `ManualHistory` と、
-  列挙型4本(`ManualZone` / `ManualSeatId` / `ManualPhase` / `ManualOccupantRole`)。
-- 部屋: `ManualRoom` / `ManualRoomManager` / `ManualOccupant` / `ManualLogEntry`。
-  部屋ID生成は新設の `room/RoomIds`。
-- 配信: `manual/view/` の DTO 5本 + `ManualViewBuilder`、
-  `manual/web/ManualBroadcaster` / `ManualWsController` / `ManualLobbyController`。
-- デッキ取り込み: `ManualDeckImporter` / `ManualDeckImport` / `ManualGameService`。
-- 確認画面 `/manual/deck-check` を追加した(目視確認専用。作り込んでいない)。
-- 実サンプル49枚が**すべてカード定義に解決し、警告0件**であることをテストで固定した。
+- 操作: `ManualOperationService`(設計書 5-3 の13項目 + 進化 + Undo/Redo)。
+  補助として `ManualCardRef` / `ManualBoardIndex` / `ManualLabels` / `ManualDeclaration` /
+  `ManualOpRequest`。
+- 入口: `manual/web/ManualOpsWsController` に `@MessageMapping` を18本。
+- テスト: `ManualOperationTest` 26件。
+- **★設計書 5-3 の13項目のうち5項目が `move` 1本に収まった**
+  (ゾーン間移動 / ウェポンの装備・解除 / 進化スタックの分解 / マリガン / 素材を場へ戻す)。
 
-### ★★ 17b から送った作業
+### ★★ 18a から送った作業
 
 | 項目 | 送り先 |
 |---|---|
-| **Batch 15b の push** | 発注者。15c 着手前に必須。**3回連続で未反映** |
-| **デッキ取り込みの目視確認** | 発注者。`/manual/deck-check` に zip を投入し、緑の帯が出ることを見る |
-| `GameRoomManager` の `RoomIds` 化 | Batch 19a(既存ファイル変更が許されるバッチ) |
+| **操作の疎通確認** | 発注者。画面が無いためコンソールから WebSocket を叩く<br>(`notes/batch18a-design-notes.md` 4-4 に手順あり) |
+| **`ManualWsController` との統合** | Batch 19a。`execute` 相当が二重になっている |
+| **ログの視点フィルタ** | フェイズ2。裏向きカードの名前がログに出る |
+| **既定9種の札の配信口** | Batch 18b。`ManualLabels.DEFAULTS` はサーバ定数として置いただけである |
+| `GameRoomManager` の `RoomIds` 化 | Batch 19a(17b から継続) |
 | `CardMasterLoadTest` の `hasSize(72)` 修正 | 既存ファイル変更が許されるバッチ |
 
-### ★手動モードの設計の要点(18a で必ず守ること)
+### ★手動モードの設計の要点(18b 以降で必ず守ること)
 
 - **ゾーンは `seat.zone(ManualZone)` で引く。** 全ゾーンが `EnumMap` の1本に入っており、
   移動は `zone(from).remove(i)` → `zone(to).add(j, card)` の2行で書ける。
@@ -90,6 +95,16 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
   `synchronized (room.getLock())` の中で呼ぶ。
 - **他人の occupantId をビューに載せない。** 宛先の一部であり、知ることが受信の権利になる。
 - **MP を直接増減する操作を作らない。** マナのアンタップ枚数からの派生値である。
+- **★操作は `ManualOperationService` に足し、`ManualOpsWsController` から呼ぶ。**
+  個々の操作は「状態を変えてログ本文を返す」だけの関数であり、
+  `push` も `addLog` も書かない。それを行うのは `apply()` の1箇所だけである。
+- **★`move` は数値に触らない。** 印刷値への初期化は
+  デッキ読み込み時の `ManualCardInstance.of(master)` で既に済んでいる。
+  戻したいときは明示的に `/stat-reset` を送る。**画面が勝手に初期化しない。**
+- **★進化はミニオン枠を N → 1 に減らす。** 画面の枠計算は配信ビューから毎回やり直すこと。
+- **★履歴に積むのは盤面を変える操作だけ。** 自由メモ・勝敗の宣言・Undo・Redo は積まない。
+- **★失敗した操作は盤面もログも履歴も変えない。** 失敗時とUndo/Redo のときだけ
+  `ManualGameState` のオブジェクトが差し替わる。参照を持ち回らないこと。
 
 ### ★既知の限界(要確認・未対応)
 
@@ -99,11 +114,12 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 - **`tools/check_all.py` の項目3 は手動モードIDを偽陽性にする。**
   **手動モードのカードIDを Java にリテラルで書かないこと。** 性質(文明・種別)で引く。
 - **`tools/check_records.py` の `TARGETS` が固定リスト**であり、
-  手動モードの record 16個を見ない。17b では同じロジックで手動検算した(design-notes 3-3)。
+  手動モードの record 30個(17b で16個 + 18a で14個)を見ない。
+  17b・18a とも同じロジックで手動検算した(それぞれ design-notes 3-3 / 3-1)。
   なお `ManualDeckImport.Entry` は `DeckDefinition.Entry` と名前が衝突し、
   検算時に★が1件出るが**偽陽性**である(3コンポーネント / 3引数で一致している)。
 - **★`check_structure.py` は `src/main/java` しか見ない。`src/test` は無防備である。**
-  17b では B 検査を `src/test` 向けに調整したものを別途走らせ、0件を確認した。
+  17b・18a とも B 検査を `src/test` 向けに調整したものを別途走らせ、0件を確認した。
 - **★画像IDは不透明なキーである。** `sha256(file) == filename` を検査に使ってはならない。
 - **カードIDに CSV の行番号を使っている。** カードは末尾に足すこと。
 - **手動モードの部屋は掃除されない。** `removeRoom()` はあるが誰も呼んでいない(19a)。
@@ -120,8 +136,8 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 |---|---|---|---|---|
 | ~~17a~~ | a系 | データ変換・カードマスタ・確認画面 | なし | **完了** |
 | ~~17b~~ | a系 | 状態モデル・部屋・在室者・個別宛先配信・デッキ取り込み | なし | **完了** |
-| **18a** | **a系** | **操作13項目(設計書5-3)・進化スタックの分解・Undo** | **なし** | **次** |
-| 18b | b系 | 盤面の画面(タイル・手札・拡大画像・操作規約) | `battle.css` | 未着手 |
+| ~~18a~~ | a系 | 操作13項目(設計書5-3)・進化スタックの分解・Undo | なし | **完了** |
+| **18b** | **b系** | **盤面の画面(タイル・手札・拡大画像・操作規約)** | **`battle.css`** | **次** |
 | 18c | b系 | ゾーンを開く画面(帯・全面・検索・スタック帯) | なし | 未着手 |
 | 19a | b系 | 入口の作り替え・リセット・ログ書き出し・切断復帰・仕上げ | `LobbyController` | 未着手 |
 
@@ -129,8 +145,9 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 ### Ver.0.4 対応(手動モードとファイルが重ならない)
 
-1. **★Batch 15b の成果物を GitHub に push する。15c 着手前に必須。**
+1. ~~Batch 15b の push~~ **完了。18a で反映を確認した(3回続いた未 push は解消)。**
 2. **Batch 15c / 15d(Sonnet 5)。** Ver.0.4 の残り30枚の効果を文明ごとに反映する。
+   **★着手条件は満たされている。**
 
    | バッチ | 文明 | 枚数 | 対象ID | 状態 |
    |---|---|---|---|---|
@@ -194,7 +211,7 @@ node --check src/main/resources/static/js/battle.js                  # 項目 7
 **テストを新設・変更したバッチでは、テストクラス内の素呼び出しを目視で追うこと。**
 
 **`check_records.py` の★3件(`GameActions.java:775` / `GameService.java:1144` /
-`CardEffectRegistry.java:706`)は既知の偽陽性である**(スクリプト自身が注記している)。
+`CardEffectRegistry.java:748`)は既知の偽陽性である**(スクリプト自身が注記している)。
 新しく★が出たら必ず該当行を目視すること。
 **手動モードの record は `TARGETS` に無いため検査されない。** 増やしたら手動で検算すること。
 
@@ -253,7 +270,7 @@ QTE Battle の開発を継続する。以下の手順で作業を始めてほし
 
 1. プロジェクトナレッジ内の `qte-project-reference.md` を読む
    (ゲームルール・設計判断の唯一の正)。
-2. プロジェクトナレッジ内の `qte-handoff-v12.md` を読む
+2. プロジェクトナレッジ内の `qte-handoff-v13.md` を読む
    (直近の状態・次の作業・既知の落とし穴)。
 3. プロジェクトナレッジ内の `<今回のバッチの前提ドキュメント>` を読む。
 4. ソースコードを取得する(zipのアップロードは不要)。
@@ -285,28 +302,31 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 
 | 次のバッチ | 前提ドキュメント |
 |---|---|
-| **18a** | `batch16-manual-mode-design-v2_2.md` + `notes/batch17b-design-notes.md` |
-| 18b | 同上 + `notes/batch18a-design-notes.md` |
+| **18b** | `batch16-manual-mode-design-v2_2.md` + `notes/batch18a-design-notes.md` |
+| 18c | 同上 + `notes/batch18b-design-notes.md` |
+| 19a | 同上 + `notes/batch18c-design-notes.md` |
 | 15c / 15d | `ver0.4-transcription-notes.md` + `batch15a-design-notes.md` + `batch15b-design-notes.md` |
 | 15e(基盤) | `batch15b-design-notes.md` 6章 + `batch15a-design-notes.md` |
 | 整合チェック | 全文明の設計解説 + `qte-cards.json` |
 
-### 18a の確認項目(次チャットで照合すること)
+### 18b の確認項目(次チャットで照合すること)
 
-- `ManualCardInstance` に `materials`(進化スタック)と `stackSize()` があること
-- `ManualSeat.zone(ManualZone)` が `EnumMap` を引く形になっていること
-- `ManualHistory` に `MAX_DEPTH = 200` と `undo` / `redo` があること
-- `src/test/resources/decks/sample-deck.zip` が存在すること
+- `src/main/java/com/example/qte/manual/ManualOperationService.java` に
+  `apply` / `move` / `evolve` / `undo` / `redo` があること
+- `manual/web/ManualOpsWsController.java` に `@MessageMapping("/manual/{roomId}/move")` を含む
+  18本の宛先があること
+- `ManualBoardIndex.detach` が「素材」と「ゾーン直下」を分岐していること
+- `src/test/java/com/example/qte/ManualOperationTest.java` が存在すること
 
 ---
 
 ## 6. この先の予定
 
-手動モードを 18a → 18b → 18c → 19a の順に進め、フェイズ1(一人回し)を完成させる。
+手動モードを 18b → 18c → 19a の順に進め、フェイズ1(一人回し)を完成させる。
 フェイズ2(ソロ対戦・対戦・観戦)はその後であり、
 **着手前に UI 詰めのセッションをもう1回行う**(設計書11章)。
 
-Ver.0.4 対応は 15b の push を済ませてから 15c・15d・15e を進める。
+Ver.0.4 対応は 15b の push が済んだため、15c・15d・15e をいつでも進められる。
 その後に全6文明168枚の整合チェックを行う。
 
 **2系統はファイルが重ならない。** どちらを先に進めてもよいが、混ぜないこと。
