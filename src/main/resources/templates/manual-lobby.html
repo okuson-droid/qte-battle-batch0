@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QTE Battle - 手動モード ロビー</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+<div class="container py-4" style="max-width: 760px">
+    <h1 class="mb-1">クイン・タブーエレメンタル — 手動モード</h1>
+    <p class="text-muted mb-3">
+        1人で盤面を動かし、対戦の検証やソロプレイに使うモードです。効果の判定はアプリが行いません。
+        <a th:href="@{/manual/cards}">カード一覧</a> /
+        <a th:href="@{/auto}">通常対戦(未完成)</a>
+    </p>
+
+    <div id="status" class="alert alert-danger d-none"></div>
+
+    <div class="card mb-4">
+        <div class="card-header"><strong>部屋を作る</strong></div>
+        <div class="card-body">
+            <form id="create-form" class="row g-3" onsubmit="return false">
+                <div class="col-md-8">
+                    <label class="form-label">名前(省略可)</label>
+                    <input type="text" id="create-name" class="form-control" placeholder="例: オクソン">
+                </div>
+                <div class="col-12">
+                    <button type="submit" id="create-submit" class="btn btn-primary">部屋を作成して入室</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><strong>部屋に入る</strong></div>
+        <div class="card-body">
+            <form id="join-form" class="row g-3" onsubmit="return false">
+                <div class="col-md-4">
+                    <label class="form-label">部屋コード</label>
+                    <input type="text" id="join-room" class="form-control text-uppercase" placeholder="ABC123" required>
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">名前(省略可)</label>
+                    <input type="text" id="join-name" class="form-control">
+                </div>
+                <div class="col-12">
+                    <button type="submit" id="join-submit" class="btn btn-success">入室する</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 部屋の作成・入室はJSON APIを直接叩く(通常モードのようなフォーム送信は使わない)。
+    // occupantIdはURLに載せず、localStorageへ保存してから盤面画面へ遷移する(設計書6-3)。
+    function showError(message) {
+        const box = document.getElementById('status');
+        box.textContent = message;
+        box.classList.remove('d-none');
+    }
+
+    function saveOccupant(roomId, occupantId, displayName) {
+        localStorage.setItem('qte-manual-occupant-' + roomId,
+            JSON.stringify({ occupantId, displayName }));
+    }
+
+    document.getElementById('create-form').addEventListener('submit', async () => {
+        const button = document.getElementById('create-submit');
+        button.disabled = true;
+        try {
+            const name = document.getElementById('create-name').value.trim();
+            const res = await fetch('/manual/api/rooms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ displayName: name || null }),
+            });
+            if (!res.ok) throw new Error((await res.json()).message || '部屋を作成できませんでした');
+            const data = await res.json();
+            saveOccupant(data.roomId, data.occupantId, data.displayName);
+            location.href = '/manual/battle/' + data.roomId;
+        } catch (e) {
+            showError(e.message);
+            button.disabled = false;
+        }
+    });
+
+    document.getElementById('join-form').addEventListener('submit', async () => {
+        const button = document.getElementById('join-submit');
+        button.disabled = true;
+        try {
+            const roomId = document.getElementById('join-room').value.trim().toUpperCase();
+            const name = document.getElementById('join-name').value.trim();
+            const res = await fetch('/manual/api/rooms/' + roomId + '/occupants', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ displayName: name || null }),
+            });
+            if (!res.ok) throw new Error((await res.json()).message || '入室できませんでした');
+            const data = await res.json();
+            saveOccupant(data.roomId, data.occupantId, data.displayName);
+            location.href = '/manual/battle/' + data.roomId;
+        } catch (e) {
+            showError(e.message);
+            button.disabled = false;
+        }
+    });
+</script>
+</body>
+</html>

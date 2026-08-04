@@ -12,7 +12,8 @@
     <p class="text-muted mb-3">
         部屋を作って、表示された部屋コードを対戦相手に伝えてください。
         <a th:href="@{/deck-builder}">デッキビルダー</a> /
-        <a th:href="@{/cards}">カード一覧</a>
+        <a th:href="@{/cards}">カード一覧</a> /
+        <a th:href="@{/}">手動モード</a>
     </p>
 
     <div class="alert alert-danger" th:if="${errorMessage}" th:text="${errorMessage}"></div>

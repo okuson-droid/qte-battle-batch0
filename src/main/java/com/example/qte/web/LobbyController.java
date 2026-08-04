@@ -42,10 +42,25 @@ public class LobbyController {
     private final DeckValidator deckValidator;
     private final ObjectMapper objectMapper;
 
-    @GetMapping("/")
+    /**
+     * ★Batch 19a: {@code /} は手動モードの新ロビーになった(設計書 6-2)。
+     * このメソッドは通常モードのロビーそのものであり、内容(lobby.html)は無変更のまま
+     * {@code /auto} へ移設しただけである。未完成の対戦システムはリンクからしか到達できない。
+     */
+    @GetMapping("/auto")
     public String lobby(Model model) {
         model.addAttribute("leaders", selectableLeaders());
         return "lobby";
+    }
+
+    /**
+     * 手動モードの新ロビー(設計書 6-2)。部屋作成・入室は {@code manual-lobby.html} の JS が
+     * {@code ManualLobbyController} の JSON API を叩く形であり、このメソッド自体は
+     * ビュー名を返すだけの薄い入口である(手動モードの依存をこのクラスへ持ち込まない)。
+     */
+    @GetMapping("/")
+    public String manualLobby() {
+        return "manual-lobby";
     }
 
     /** 部屋を作成し、作成者をプレイヤー1として登録する */

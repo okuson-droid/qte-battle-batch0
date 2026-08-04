@@ -39,6 +39,18 @@ public class ManualSeat {
     @Setter
     private String deckName;
 
+    /**
+     * 直近に読み込んだデッキの突合結果(Batch 19a)。
+     *
+     * ★「リセットして引き直す」(設計書 7-1)を zip の再アップロード無しで行うために保持する。
+     * {@link ManualGameState#copy()} には含めない。Undo 履歴に積む対象ではなく、
+     * 「今このデッキが読み込まれている」という部屋の設定に近い情報だからである。
+     * 巻き戻っても消えてはならないので、{@link #copy()} でも複製ではなく参照をそのまま渡す
+     * (imported の中身である {@code ManualCardMaster} 等は不変ならば共有して問題ない)。
+     */
+    @Setter
+    private ManualDeckImport lastImport;
+
     public ManualSeat(ManualSeatId id) {
         this.id = id;
         for (ManualZone z : ManualZone.values()) {
@@ -89,6 +101,7 @@ public class ManualSeat {
         clone.leader = leader == null ? null : leader.copy();
         clone.lp = lp;
         clone.deckName = deckName;
+        clone.lastImport = lastImport;
         return clone;
     }
 }

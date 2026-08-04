@@ -69,6 +69,14 @@ public class ManualRoom {
         return occupants.stream().filter(o -> o.getOccupantId().equals(occupantId)).findFirst();
     }
 
+    /** WebSocketセッションIDから在室者を引く(Batch 19a。切断検知で使う)。 */
+    public Optional<ManualOccupant> findOccupantBySession(String sessionId) {
+        if (sessionId == null) {
+            return Optional.empty();
+        }
+        return occupants.stream().filter(o -> sessionId.equals(o.getSessionId())).findFirst();
+    }
+
     /** 在室者を引く。いなければ入室していない旨の例外を投げる。 */
     public ManualOccupant requireOccupant(String occupantId) {
         return findOccupant(occupantId)

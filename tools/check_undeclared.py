@@ -29,7 +29,7 @@ BUILTINS = {
     'navigator', 'history', 'CustomEvent', 'Event', 'Element', 'Node',
     'Blob', 'File', 'FileReader', 'URL', 'FormData', 'XMLHttpRequest',
     # 外部ライブラリ・Thymeleafが埋め込むグローバル
-    'StompJs', 'ROOM_ID', 'PLAYER_ID',
+    'StompJs', 'ROOM_ID', 'PLAYER_ID', 'DEFAULT_LABELS',
 }
 
 KEYWORDS = {

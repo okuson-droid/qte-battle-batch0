@@ -1,20 +1,24 @@
 /**
- * 手動モード盤面のクライアント処理(Batch 18b)。
+ * 手動モード盤面のクライアント処理(Batch 18b〜)。
  *
  * 構造は通常モードの battle.js と同じ3層。
+ *   0) 在室: occupantId を localStorage から復元するか、無ければ入室APIで新規取得する
  *   1) 接続: STOMPで /ws に接続し、自分専用の宛先を購読する
  *   2) 送信: 操作 → /app/manual/{roomId}/{action} へメッセージ送信
  *   3) 受信: サーバから届いたビュー(ManualGameView)で画面を全描画し直す
  *
- * ★18bは画面の骨組み(設計書 4-1〜4-4)のみを作った。本バッチ(18c)はそこに
- * ゾーンを開く画面(帯・全面表示・検索。設計書 4-6)を足す。既存の操作は無変更。
+ * ★Batch 19a で「0) 在室」を足した。それまでは occupantId をサーバがページ生成時に
+ * 発行してテンプレートへ埋め込んでいたが(暫定入口 ManualBattleController の方式)、
+ * これだと「同じ人がタブを開き直す」だけで毎回新しい在室者になってしまい、
+ * 切断復帰(設計書 6-3)が成立しない。19a からは occupantId を localStorage に保存し、
+ * 次回以降はそれを使って同じ在室者として戻る。
  *
  * クライアントが自分で持つ状態:
+ *   - OCCUPANT_ID: 在室が確定してから埋まる(0章)。それまで STOMP は接続しない
  *   - latestView: サーバから届いた最新のビュー(ManualGameView)。再描画の元になる
  *   - selected: 進化の素材や複数移動のために Ctrl/Cmd+クリックで選んだ instanceId の集合
  *   - cardLocation: instanceId -> {seatId, zone} の索引。直近の描画から作り直す。
- *     ドロップ判定(進化か移動か)に使う。★18cで進化スタックの下段(素材)も含めるよう拡張した
- *     (renderStackRowが最上段と一緒に登録する)。
+ *     ドロップ判定(進化か移動か)に使う。
  *   - pinnedZoom: 右下に固定表示中のカード
  *   - activeOverlay: 帯・全面表示のうち現在開いているものの種別と対象(12章)。
  *     null なら何も開いていない。renderAll の最後で毎回このオーバーレイを描き直す。
@@ -24,6 +28,57 @@ let latestView = null;
 let selected = new Set();
 let cardLocation = new Map();
 let pinnedZoom = null;
+let OCCUPANT_ID = null;
+
+// ---------------------------------------------------------------
+// 0) 在室(設計書 6-3)
+// ---------------------------------------------------------------
+
+const OCCUPANT_STORAGE_KEY = `qte-manual-occupant-${ROOM_ID}`;
+
+function loadSavedOccupant() {
+    try {
+        const raw = localStorage.getItem(OCCUPANT_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && parsed.occupantId ? parsed : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveOccupant(occupantId, displayName) {
+    localStorage.setItem(OCCUPANT_STORAGE_KEY, JSON.stringify({ occupantId, displayName }));
+}
+
+function forgetOccupant() {
+    localStorage.removeItem(OCCUPANT_STORAGE_KEY);
+}
+
+/** 新規入室する。名前は省略可(設計書 6-3)で、サーバ側の既定「プレイヤー」に任せてよい。 */
+async function joinAsNewOccupant() {
+    const name = prompt('名前を入力してください(省略できます)', '') || '';
+    const res = await fetch(`/manual/api/rooms/${ROOM_ID}/occupants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: name.trim() || null }),
+    });
+    if (!res.ok) {
+        throw new Error((await res.json()).message || '入室できませんでした');
+    }
+    const data = await res.json();
+    saveOccupant(data.occupantId, data.displayName);
+    return data.occupantId;
+}
+
+/** occupantId を確定させてから解決する。localStorage にあればそれを使い、無ければ新規入室する。 */
+async function resolveOccupant() {
+    const saved = loadSavedOccupant();
+    if (saved) {
+        return saved.occupantId;
+    }
+    return joinAsNewOccupant();
+}
 
 // ---------------------------------------------------------------
 // 1) 接続
@@ -42,7 +97,16 @@ client.onConnect = () => {
 };
 
 client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)');
-client.activate();
+
+/** occupantId が決まってから初めて STOMP 接続を始める(0章)。 */
+resolveOccupant()
+    .then((occupantId) => {
+        OCCUPANT_ID = occupantId;
+        client.activate();
+    })
+    .catch((e) => {
+        setConnectionStatus('入室に失敗しました: ' + e.message);
+    });
 
 function setConnectionStatus(text) {
     document.getElementById('connection-status').textContent = text;
@@ -62,6 +126,13 @@ function send(action, payload) {
 function onMessage(frame) {
     const msg = JSON.parse(frame.body);
     if (msg.type === 'ERROR') {
+        if (msg.message === 'この部屋に入室していません') {
+            // ★猶予切れで席が空けられた等、サーバが在室者として認識できなかった場合。
+            //   古い occupantId を捨てて新規入室からやり直す(0章)。
+            forgetOccupant();
+            location.reload();
+            return;
+        }
         showTransientError(msg.message);
         return;
     }
@@ -132,6 +203,22 @@ function renderHeader(view) {
     document.getElementById('phase-name').textContent = phaseLabel(view.phase);
     document.getElementById('btn-undo').disabled = !view.canUndo;
     document.getElementById('btn-redo').disabled = !view.canRedo;
+    renderOccupantList(view.occupants);
+}
+
+/** 在室者リスト(設計書 6-3・11-2)。名前・接続状態・自分自身の目印を並べる。 */
+function renderOccupantList(occupants) {
+    const box = document.getElementById('occupant-list');
+    box.innerHTML = '';
+    for (const occupant of occupants || []) {
+        const badge = document.createElement('span');
+        const tone = occupant.connected ? 'text-bg-secondary' : 'text-bg-dark';
+        badge.className = `badge ${tone}`;
+        badge.textContent = occupant.displayName
+            + (occupant.self ? '(自分)' : '')
+            + (occupant.connected ? '' : ' ・切断中');
+        box.appendChild(badge);
+    }
 }
 
 const PHASE_LABELS = {
@@ -814,6 +901,20 @@ document.getElementById('phase-back').addEventListener('click', () => send('phas
 document.getElementById('phase-fwd').addEventListener('click', () => send('phase', { step: 1 }));
 document.getElementById('btn-undo').addEventListener('click', () => send('undo', {}));
 document.getElementById('btn-redo').addEventListener('click', () => send('redo', {}));
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+    if (confirm('リセットして引き直す。よろしいですか?')) {
+        send('reset', {});
+    }
+});
+
+document.getElementById('btn-leave').addEventListener('click', () => {
+    if (confirm('退室する。よろしいですか?')) {
+        send('leave', {});
+        forgetOccupant();
+        location.href = '/';
+    }
+});
 
 document.getElementById('note-form').addEventListener('submit', (e) => {
     e.preventDefault();

@@ -45,8 +45,28 @@ public class ManualGameService {
      */
     public void loadDeck(ManualRoom room, ManualSeatId seatId, ManualDeckImport imported) {
         ManualSeat seat = room.getGameState().seat(seatId);
+        applyImport(seat, imported);
+
+        room.getHistory().clear();
+        room.addLog("席%s にデッキ「%s」を読み込んだ(山札 %d 枚 / 禁忌 %d 枚)。シャッフルして %d 枚引いた"
+                .formatted(seatId, seat.getDeckName() == null ? "名称なし" : seat.getDeckName(),
+                        seat.zone(ManualZone.DECK).size(), seat.zone(ManualZone.TABOO).size(),
+                        seat.zone(ManualZone.HAND).size()));
+        for (String warning : imported.warnings()) {
+            room.addLog("警告: " + warning);
+        }
+    }
+
+    /**
+     * デッキの内容を席へ適用する(クリア → 配布 → シャッフル → 初期手札 → LP20)。
+     * {@link #loadDeck} と {@link #resetRoom} の共通部分をここに集約する。
+     * ★{@code seat.setLastImport} をここで呼ぶため、通常の読み込みでもリセットでも
+     * 「直近のデッキ」は必ず最新化される。
+     */
+    private void applyImport(ManualSeat seat, ManualDeckImport imported) {
         seat.clearAll();
         seat.setDeckName(imported.deckName());
+        seat.setLastImport(imported);
 
         if (imported.leader() != null) {
             seat.setLeader(imported.leader().toInstance());
@@ -64,15 +84,35 @@ public class ManualGameService {
 
         drawCards(seat, INITIAL_HAND_SIZE);
         seat.setLp(INITIAL_LP);
+    }
 
-        room.getHistory().clear();
-        room.addLog("席%s にデッキ「%s」を読み込んだ(山札 %d 枚 / 禁忌 %d 枚)。シャッフルして %d 枚引いた"
-                .formatted(seatId, seat.getDeckName() == null ? "名称なし" : seat.getDeckName(),
-                        seat.zone(ManualZone.DECK).size(), seat.zone(ManualZone.TABOO).size(),
-                        seat.zone(ManualZone.HAND).size()));
-        for (String warning : imported.warnings()) {
-            room.addLog("警告: " + warning);
+    /**
+     * リセットして引き直す(設計書 7-1・5-6)。
+     *
+     * デッキを読み込み済みの席(直近の {@link ManualDeckImport} を持つ席)だけを
+     * シャッフルし直し、初期手札4枚・LP20 で配り直す。zip の再アップロードは要らない。
+     * B席のように一度もデッキを読んでいない席は何もしない(空席のまま)。
+     * ★履歴を空にする(設計書 5-6。リセット前への Undo は無意味)。
+     *
+     * @throws IllegalStateException 両席ともデッキ未読込のとき(リセットする対象が無い)
+     */
+    public void resetRoom(ManualRoom room) {
+        ManualGameState state = room.getGameState();
+        boolean any = false;
+        for (ManualSeatId seatId : ManualSeatId.values()) {
+            ManualSeat seat = state.seat(seatId);
+            ManualDeckImport imported = seat.getLastImport();
+            if (imported == null) {
+                continue;
+            }
+            applyImport(seat, imported);
+            any = true;
         }
+        if (!any) {
+            throw new IllegalStateException("まだデッキを読み込んでいないため、リセットできません");
+        }
+        room.getHistory().clear();
+        room.addLog("リセットして引き直した");
     }
 
     /**

@@ -11,7 +11,7 @@
 <div class="container-fluid py-2" id="manual-root" style="max-width: 1200px">
 
     <!-- ヘッダ -->
-    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
         <div>
             部屋コード: <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong>
             <span class="ms-3 text-muted" id="connection-status">接続中...</span>
@@ -27,8 +27,15 @@
             </label>
             <button id="btn-undo" class="btn btn-sm btn-outline-warning" disabled>元に戻す</button>
             <button id="btn-redo" class="btn btn-sm btn-outline-warning" disabled>やり直す</button>
+            <button id="btn-reset" class="btn btn-sm btn-outline-danger">リセットして引き直す</button>
+            <a id="btn-log" class="btn btn-sm btn-outline-light"
+               th:href="@{/manual/api/rooms/{roomId}/log(roomId=${roomId})}">ログを書き出す</a>
+            <button id="btn-leave" class="btn btn-sm btn-outline-secondary">退室する</button>
         </div>
     </div>
+
+    <!-- 在室者リスト(設計書 6-3・11-2) -->
+    <div class="d-flex align-items-center gap-1 mb-2 small flex-wrap" id="occupant-list"></div>
 
     <!-- ターン/フェイズ帯 -->
     <div class="d-flex align-items-center gap-2 mb-2 small">
@@ -120,10 +127,11 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
 <script th:inline="javascript">
+    // ★Batch 19a: OCCUPANT_ID はもうサーバから渡さない。localStorage と入室APIで
+    //   クライアント自身が決める(設計書 6-3)。manual-battle.js 冒頭の「0) 在室」を参照。
     const ROOM_ID = /*[[${roomId}]]*/ '';
-    const OCCUPANT_ID = /*[[${occupantId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=2)}"></script>
+<script th:src="@{/js/manual-battle.js(v=3)}"></script>
 </body>
 </html>

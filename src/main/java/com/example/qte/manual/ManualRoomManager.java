@@ -1,5 +1,6 @@
 package com.example.qte.manual;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -60,5 +61,10 @@ public class ManualRoomManager {
 
     public int roomCount() {
         return rooms.size();
+    }
+
+    /** 全部屋を走査する必要がある処理(切断検知・猶予切れ監視)のための一覧(Batch 19a)。 */
+    public Collection<ManualRoom> allRooms() {
+        return rooms.values();
     }
 }
