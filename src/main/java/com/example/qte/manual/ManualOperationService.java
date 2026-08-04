@@ -107,16 +107,17 @@ public class ManualOperationService {
     /**
      * ゾーン間移動(設計書 5-3 の1)。挿入位置・表裏・複数枚をこれ1つで扱う。
      *
-     * <h3>★ミニオンゾーンを離れると数値は印刷値に戻る(設計書16 訂正。旧: 数値に触らない)</h3>
-     * 受けているダメージや強化は「そのミニオンが場に居続けている間」だけの状態であり、
-     * 場を離れた瞬間に個体としての履歴は切れる。したがって
-     * <b>移動元が FIELD で、移動先が FIELD 以外</b>のときだけ、印刷値に戻す
-     * (席をまたいで FIELD → FIELD へ移す「相手席のミニオンゾーンへ移す」操作は、
-     * 場に居続けている扱いなので戻さない)。
-     * 逆に FIELD 以外からの移動(手札 → 場、墓地 → 場等)は元々何も持っていないか、
+     * <h3>★FIELD / WEAPON を離れると数値は印刷値に戻る(設計書16 v2.4)</h3>
+     * 受けているダメージや強化、装備品の ATK 変更は「その個体が場に居続けている間」
+     * だけの状態であり、離れた瞬間に個体としての履歴は切れる。したがって
+     * <b>移動元が FIELD または WEAPON で、移動先がそのゾーンと異なる</b>ときだけ、
+     * 印刷値に戻す(FIELD → FIELD、WEAPON → WEAPON のように<b>同じ種類のゾーンへ
+     * 移す場合は戻さない</b>。席をまたいで FIELD → FIELD へ移す「相手席のミニオンゾーンへ
+     * 移す」操作が該当する)。
+     * FIELD / WEAPON 以外からの移動(手札 → 場、墓地 → 場等)は元々何も持っていないか、
      * 既に印刷値であるかのどちらかなので、ここでは何もしない。
      *
-     * <h3>旧 4-5-2 の3「帯から1枚抜いても数値は変えない」は撤回する</h3>
+     * <h3>旧 4-5-2 の3「帯から1枚抜いても数値は変えない」は撤回している(v2.3)</h3>
      * これも「FIELD を離れる」の一形態である。ただし {@link #evolve} が
      * 素材にする時点で既に印刷値へ戻しているため(下記)、帯から抜く操作自体は
      * 既に印刷値になっている数値をそのまま運ぶだけで、ここで重ねて何かする必要は無い。
@@ -152,8 +153,8 @@ public class ManualOperationService {
             if (request.faceDown() != null) {
                 card.setFaceDown(request.faceDown());
             }
-            // ★FIELD を離れる(移動先が FIELD 以外)ときだけ印刷値へ戻す
-            if (ref.zone() == ManualZone.FIELD && request.toZone() != ManualZone.FIELD) {
+            // ★FIELD / WEAPON を離れる(同じ種類のゾーンへの移動でない)ときだけ印刷値へ戻す
+            if (isFieldLike(ref.zone()) && ref.zone() != request.toZone()) {
                 resetToPrinted(card);
             }
             target.add(index + i, card);
@@ -565,7 +566,16 @@ public class ManualOperationService {
     }
 
     /**
-     * FIELD を離れる(または素材になる)カードの数値を印刷値へ戻す(設計書16 訂正)。
+     * 「場に居続けている」とみなすゾーンか(設計書16 v2.4)。
+     * FIELD(ミニオン)と WEAPON(装備品)の両方が対象である。
+     * どちらも離れた瞬間に印刷値へ戻る({@link #resetToPrinted}) 対象になる。
+     */
+    private boolean isFieldLike(ManualZone zone) {
+        return zone == ManualZone.FIELD || zone == ManualZone.WEAPON;
+    }
+
+    /**
+     * FIELD / WEAPON を離れる(または素材になる)カードの数値を印刷値へ戻す(設計書16 v2.3/v2.4)。
      *
      * ★突合できていないカード({@link ManualCardInstance#isResolved()} が false)は
      * 印刷値そのものが分からないため、何もしない。名前だけの灰色タイルに数値を

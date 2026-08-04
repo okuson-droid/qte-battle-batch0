@@ -12,7 +12,7 @@
 
 | 系統 | 前提ドキュメント |
 |---|---|
-| **手動モード**(17a〜19a) | `batch16-manual-mode-design-v2_2.md`(唯一の正) + `notes/batch18a-design-notes.md` |
+| **手動モード**(17a〜19a) | `batch16-manual-mode-design-v2_4.md`(唯一の正) + `notes/batch18a-design-notes.md` |
 | **Ver.0.4 対応**(15c/15d/15e) | `notes/ver0.4-transcription-notes.md` + `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` |
 
 ---
@@ -69,28 +69,30 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 - **★設計書 5-3 の13項目のうち5項目が `move` 1本に収まった**
   (ゾーン間移動 / ウェポンの装備・解除 / 進化スタックの分解 / マリガン / 素材を場へ戻す)。
 
-### ★★★ 18a 納品後、同チャットで設計書16を訂正した
+### ★★★ 18a 納品後、同チャットで設計書16を2段階で訂正した(v2.2 → v2.4)
 
 **マスターの指摘により、数値の扱いに関する設計判断そのものが変わった。**
 詳細は `notes/batch18a-design-notes.md` 冒頭と 2-3・2-3-1。
 
-> 旧: 場を離れても数値(受けたダメージ・強化)は保持する(設計書 4-5-2 の3)
-> 新: **ミニオンゾーン(FIELD)を離れる瞬間、印刷値へ戻る。**
-> 「離れる」は `move` で移動先が FIELD 以外になる場合と、`evolve` で素材になる場合の両方。
-> 席をまたぐ FIELD → FIELD(相手席へ置く)だけは場に居続ける扱いで戻さない。
+> 旧(v2.2): 場を離れても数値(受けたダメージ・強化)は保持する(設計書 4-5-2 の3)
+> 新(v2.4): **ミニオンゾーン(FIELD)または装備品(WEAPON)を離れる瞬間、印刷値へ戻る。**
+> 「離れる」は `move` で移動先が異なる種類のゾーンになる場合と、`evolve` で素材になる場合。
+> 同じ種類のゾーンへの移動(FIELD → FIELD、WEAPON → WEAPON)だけは居続ける扱いで戻さない。
 
-実装(`ManualOperationService.move` / `evolve`)とテスト(29件、旧26件から差し替え+3件)は
-この訂正を反映済みで、`javac` + 実行検証も通した。
-**プロジェクトナレッジの `batch16-manual-mode-design-v2_2.md` は読み取り専用のため、
-本体側の該当箇所(4-5・4-5-1・4-5-2 の3)はマスターに直接直してもらう必要がある。**
+**設計書16 本体は `batch16-manual-mode-design-v2_4.md` として提出済み**であり、
+マスターがプロジェクトナレッジへ反映済みである。**以後は `_v2_4.md` を読むこと。
+`_v2_2.md` / `_v2_3.md` は古い版であり、参照しないこと。**
+
+実装(`ManualOperationService.move` / `evolve`)とテスト(31件、旧26件から
+FIELD 分3件 + WEAPON 分2件を追加)はこの訂正を反映済みで、`javac` + 実行検証も通した。
 
 ### ★★ 18a から送った作業
 
-| 項目 | 送り先 |
-|---|---|
-| **★★設計書16 本体の更新** | 発注者。4-5・4-5-1・4-5-2 の3を上記の新ルールに合わせて書き換える |
-| **★ウェポンをこの規則に含めるか** | 発注者。今回は FIELD のみに絞った。装備解除で ATK を保持するか戻すかの裁定待ち |
-| **操作の疎通確認** | 発注者。画面が無いためコンソールから WebSocket を叩く<br>(`notes/batch18a-design-notes.md` 4-4 に手順あり) |
+| 項目 | 送り先 | 状態 |
+|---|---|---|
+| **★★設計書16 本体の更新** | 発注者 | **完了。`_v2_4.md` として提出済み** |
+| **★ウェポンをこの規則に含めるか** | 発注者 | **完了。含める裁定が出た(v2.4)** |
+| **操作の疎通確認** | 発注者。画面が無いためコンソールから WebSocket を叩く<br>(`notes/batch18a-design-notes.md` 4-4 に手順あり) | 未確認 |
 | **`ManualWsController` との統合** | Batch 19a。`execute` 相当が二重になっている |
 | **ログの視点フィルタ** | フェイズ2。裏向きカードの名前がログに出る |
 | **既定9種の札の配信口** | Batch 18b。`ManualLabels.DEFAULTS` はサーバ定数として置いただけである |
@@ -115,10 +117,10 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
 - **★操作は `ManualOperationService` に足し、`ManualOpsWsController` から呼ぶ。**
   個々の操作は「状態を変えてログ本文を返す」だけの関数であり、
   `push` も `addLog` も書かない。それを行うのは `apply()` の1箇所だけである。
-- **★★設計書16 訂正: FIELD を離れる(素材になる)と印刷値へ戻る。**
-  `move` は移動元が FIELD かつ移動先が FIELD 以外のときだけ印刷値へ戻す。
-  `evolve` は素材にする瞬間に印刷値へ戻す。席をまたぐ FIELD → FIELD だけは戻さない。
-  ウェポンは今回この規則に含めていない(裁定待ち)。
+- **★★設計書16 v2.4: FIELD・WEAPON を離れる(素材になる)と印刷値へ戻る。**
+  `move` は移動元が FIELD/WEAPON かつ移動先が異なる種類のゾーンのときだけ印刷値へ戻す
+  (`isFieldLike()` で判定)。`evolve` は素材にする瞬間に印刷値へ戻す。
+  同じ種類のゾーンへの移動(FIELD → FIELD、WEAPON → WEAPON)だけは戻さない。
   盤面に留まったまま明示的に戻したいときは `/stat-reset` を送る。
 - **★進化はミニオン枠を N → 1 に減らす。** 画面の枠計算は配信ビューから毎回やり直すこと。
 - **★履歴に積むのは盤面を変える操作だけ。** 自由メモ・勝敗の宣言・Undo・Redo は積まない。
@@ -336,8 +338,9 @@ https://codeload.github.com/okuson-droid/qte-battle-batch0/zip/refs/heads/main
   18本の宛先があること
 - `ManualBoardIndex.detach` が「素材」と「ゾーン直下」を分岐していること
 - `src/test/java/com/example/qte/ManualOperationTest.java` が存在すること
-- **★`ManualOperationService.move` / `evolve` が `resetToPrinted` を呼んでいること**
-  (設計書16 訂正の反映。18a 納品後に同チャットで直したため、GitHub の push 漏れが起きやすい)
+- **★`ManualOperationService.move` / `evolve` が `isFieldLike()` 経由で
+  `resetToPrinted` を呼び、FIELD と WEAPON の両方を対象にしていること**
+  (設計書16 v2.4 の反映。18a 納品後に2段階で直したため、GitHub の push 漏れが起きやすい)
 
 ---
 

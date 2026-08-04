@@ -263,6 +263,38 @@ class ManualOperationTest {
     }
 
     @Test
+    void ウェポンも装備を外すと印刷値へ戻る() {
+        ManualCardMaster master = resolvedWeapon();
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance weapon = ManualCardInstance.of(master);
+        seatA(room).zone(ManualZone.WEAPON).add(weapon);
+        weapon.setAttack(99); // 強化を受けた状態
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(weapon.getInstanceId()),
+                ManualSeatId.A, ManualZone.TRASH, null, null)));
+
+        // ★設計書16 v2.4: WEAPON を離れると印刷値へ戻る(FIELD と同じ規則)
+        assertThat(reload(room, weapon).getAttack()).isEqualTo(master.attack());
+    }
+
+    @Test
+    void ウェポンを装備し直しても数値は変わらない() {
+        ManualCardMaster master = resolvedWeapon();
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance weapon = ManualCardInstance.of(master);
+        seatA(room).zone(ManualZone.WEAPON).add(weapon);
+        weapon.setAttack(99);
+
+        // 同じ WEAPON ゾーン内での位置変更(装備し直し)は「離れる」に当たらない
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(weapon.getInstanceId()),
+                ManualSeatId.A, ManualZone.WEAPON, null, null)));
+
+        assertThat(reload(room, weapon).getAttack()).isEqualTo(99);
+    }
+
+    @Test
     void 帯から抜いた素材はミニオンゾーンへ戻せて数値は印刷値のまま() {
         ManualCardMaster master = resolvedMinion();
         ManualRoom room = new ManualRoom("TESTRM");
@@ -579,6 +611,14 @@ class ManualOperationTest {
         return cards.getAllCards().stream()
                 .filter(candidate -> candidate.type() == ManualCardType.MINION)
                 .filter(candidate -> candidate.attack() != null && candidate.hp() != null)
+                .findFirst().orElseThrow();
+    }
+
+    /** 印刷値のリセットを検証するために、attack が空欄でない突合済みウェポンを1枚拾う。 */
+    private ManualCardMaster resolvedWeapon() {
+        return cards.getAllCards().stream()
+                .filter(candidate -> candidate.type() == ManualCardType.WEAPON)
+                .filter(candidate -> candidate.attack() != null)
                 .findFirst().orElseThrow();
     }
 
