@@ -200,19 +200,81 @@ class ManualOperationTest {
     }
 
     @Test
-    void 帯から素材を1枚抜いても残りのタイルの数値は変わらない() {
+    void 素材になる瞬間に印刷値へ戻る() {
+        ManualCardMaster master = resolvedMinion();
         ManualRoom room = new ManualRoom("TESTRM");
-        ManualCardInstance m1 = put(room, ManualZone.FIELD, "素材1");
+        ManualCardInstance m1 = ManualCardInstance.of(master);
+        seatA(room).zone(ManualZone.FIELD).add(m1);
         ManualCardInstance m2 = put(room, ManualZone.FIELD, "素材2");
         ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
-        m1.setAttack(1);
+        // 素材にする前に受けたダメージ・強化
+        m1.setAttack(99);
         m1.setHp(1);
 
         operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, evolution.getInstanceId(),
                 List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
-        operations.apply(room, state -> operations.changeStats(state, new ManualOpRequest.Stat(
-                null, evolution.getInstanceId(), 6, 7, null, null)));
+
+        // ★設計書16 訂正: 素材になった瞬間、独立したミニオンとしての履歴は切れて印刷値へ戻る
+        ManualCardInstance top = reload(room, evolution);
+        ManualCardInstance stacked = top.getMaterials().stream()
+                .filter(c -> c.getInstanceId().equals(m1.getInstanceId())).findFirst().orElseThrow();
+        assertThat(stacked.getAttack()).isEqualTo(master.attack());
+        assertThat(stacked.getHp()).isEqualTo(master.hp());
+    }
+
+    @Test
+    void ミニオンゾーンを離れると印刷値へ戻る() {
+        ManualCardMaster master = resolvedMinion();
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance minion = ManualCardInstance.of(master);
+        seatA(room).zone(ManualZone.FIELD).add(minion);
+        minion.setAttack(99);
+        minion.setHp(1);
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(minion.getInstanceId()),
+                ManualSeatId.A, ManualZone.TRASH, null, null)));
+
+        // ★設計書16 訂正: FIELD → FIELD 以外の移動で印刷値へ戻る
+        ManualCardInstance moved = reload(room, minion);
+        assertThat(moved.getAttack()).isEqualTo(master.attack());
+        assertThat(moved.getHp()).isEqualTo(master.hp());
+    }
+
+    @Test
+    void ミニオンゾーンから相手のミニオンゾーンへ移しても数値は戻らない() {
+        ManualCardMaster master = resolvedMinion();
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance minion = ManualCardInstance.of(master);
+        seatA(room).zone(ManualZone.FIELD).add(minion);
+        minion.setAttack(99);
+        minion.setHp(1);
+
+        // 「相手にこのミニオンがいる想定」で置き直す操作(設計書 4-5 のドロップ先)
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(minion.getInstanceId()),
+                ManualSeatId.B, ManualZone.FIELD, null, null)));
+
+        // FIELD → FIELD(席をまたいでも)は場に居続ける扱いなので戻さない
+        ManualCardInstance moved = reload(room, minion);
+        assertThat(moved.getAttack()).isEqualTo(99);
+        assertThat(moved.getHp()).isEqualTo(1);
+    }
+
+    @Test
+    void 帯から抜いた素材はミニオンゾーンへ戻せて数値は印刷値のまま() {
+        ManualCardMaster master = resolvedMinion();
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance m1 = ManualCardInstance.of(master);
+        seatA(room).zone(ManualZone.FIELD).add(m1);
+        ManualCardInstance m2 = put(room, ManualZone.FIELD, "素材2");
+        ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
+        m1.setAttack(99); // evolve で印刷値へ戻る
+
+        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+                null, ManualSeatId.A, evolution.getInstanceId(),
+                List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
         // ★帯から最上段以外を1枚だけ抜く(設計書 4-5-2 の2)
         operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
                 null, List.of(m1.getInstanceId()),
@@ -220,12 +282,8 @@ class ManualOperationTest {
 
         ManualCardInstance top = reload(room, evolution);
         assertThat(top.materialCount()).isEqualTo(1);
-        // 4-5-2 の3: 帯から1枚抜いてもタイルの数値は変えない
-        assertThat(top.getAttack()).isEqualTo(6);
-        assertThat(top.getHp()).isEqualTo(7);
-        // 素材は重ねる前の数値のまま場に戻る(17b 2-2)
         ManualCardInstance returned = reload(room, m1);
-        assertThat(returned.getAttack()).isEqualTo(1);
+        assertThat(returned.getAttack()).isEqualTo(master.attack());
         assertThat(seatA(room).zone(ManualZone.FIELD)).hasSize(2);
     }
 
@@ -299,10 +357,7 @@ class ManualOperationTest {
 
     @Test
     void 数値を印刷値へ戻せる() {
-        ManualCardMaster master = cards.getAllCards().stream()
-                .filter(candidate -> candidate.type() == ManualCardType.MINION)
-                .filter(candidate -> candidate.attack() != null && candidate.hp() != null)
-                .findFirst().orElseThrow();
+        ManualCardMaster master = resolvedMinion();
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance minion = ManualCardInstance.of(master);
         seatA(room).zone(ManualZone.FIELD).add(minion);
@@ -517,6 +572,14 @@ class ManualOperationTest {
     /** 突合しないカードを1枚作る。★カードIDのリテラルを書かないための道具である。 */
     private ManualCardInstance card(String name) {
         return ManualCardInstance.unresolved(name, "image-" + name);
+    }
+
+    /** 印刷値のリセットを検証するために、attack/hp が空欄でない突合済みミニオンを1枚拾う。 */
+    private ManualCardMaster resolvedMinion() {
+        return cards.getAllCards().stream()
+                .filter(candidate -> candidate.type() == ManualCardType.MINION)
+                .filter(candidate -> candidate.attack() != null && candidate.hp() != null)
+                .findFirst().orElseThrow();
     }
 
     private ManualSeat seatA(ManualRoom room) {

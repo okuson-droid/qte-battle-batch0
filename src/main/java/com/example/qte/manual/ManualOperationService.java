@@ -107,13 +107,19 @@ public class ManualOperationService {
     /**
      * ゾーン間移動(設計書 5-3 の1)。挿入位置・表裏・複数枚をこれ1つで扱う。
      *
-     * ★<b>数値には一切触らない。</b>設計書 4-5 の「ミニオンゾーンの空き枠に落とすと
-     * ATK/HP は印刷値で初期化する」は、デッキ読み込み時に
-     * {@code ManualCardInstance.of(master)} が印刷値を入れていることで既に満たされている。
-     * ここで移動先に応じて数値を書き換えると、設計書 4-5-2 の3
-     * 「帯から1枚抜いてもタイルの数値は変えない」と正面から衝突する。
-     * また「場に出た = 新品」は裁定であり、5-1 に反する。
-     * 傷ついたまま場に戻したものを印刷値へ戻したいときは {@link #resetStats} を使う。
+     * <h3>★ミニオンゾーンを離れると数値は印刷値に戻る(設計書16 訂正。旧: 数値に触らない)</h3>
+     * 受けているダメージや強化は「そのミニオンが場に居続けている間」だけの状態であり、
+     * 場を離れた瞬間に個体としての履歴は切れる。したがって
+     * <b>移動元が FIELD で、移動先が FIELD 以外</b>のときだけ、印刷値に戻す
+     * (席をまたいで FIELD → FIELD へ移す「相手席のミニオンゾーンへ移す」操作は、
+     * 場に居続けている扱いなので戻さない)。
+     * 逆に FIELD 以外からの移動(手札 → 場、墓地 → 場等)は元々何も持っていないか、
+     * 既に印刷値であるかのどちらかなので、ここでは何もしない。
+     *
+     * <h3>旧 4-5-2 の3「帯から1枚抜いても数値は変えない」は撤回する</h3>
+     * これも「FIELD を離れる」の一形態である。ただし {@link #evolve} が
+     * 素材にする時点で既に印刷値へ戻しているため(下記)、帯から抜く操作自体は
+     * 既に印刷値になっている数値をそのまま運ぶだけで、ここで重ねて何かする必要は無い。
      *
      * ★最上段を指定すれば束ごと動く(4-5-2 の1)。素材を指定すればその1枚だけが抜ける(同 2)。
      * どちらも {@link ManualBoardIndex#detach} が引き受けるため、ここに分岐は無い。
@@ -141,9 +147,14 @@ public class ManualOperationService {
         int index = clampIndex(request.toIndex() == null ? target.size() : request.toIndex(),
                 target.size());
         for (int i = 0; i < refs.size(); i++) {
-            ManualCardInstance card = refs.get(i).card();
+            ManualCardRef ref = refs.get(i);
+            ManualCardInstance card = ref.card();
             if (request.faceDown() != null) {
                 card.setFaceDown(request.faceDown());
+            }
+            // ★FIELD を離れる(移動先が FIELD 以外)ときだけ印刷値へ戻す
+            if (ref.zone() == ManualZone.FIELD && request.toZone() != ManualZone.FIELD) {
+                resetToPrinted(card);
             }
             target.add(index + i, card);
         }
@@ -173,11 +184,13 @@ public class ManualOperationService {
      * 設計書 4-5-1 が「3体を素材にすれば +3、その上にさらに進化を重ねれば +4」と
      * 定めているのは、数え方が階層を無視しているということである。
      *
-     * <h3>数値は触らない</h3>
-     * 設計書 4-5-1 の「重ねた直後の数値は、上に乗せた進化ミニオンの印刷値で初期化する」は、
-     * <b>下のミニオンの数値を引き継がない</b>という意味である。
-     * 上に乗せるカードは自分の印刷値を既に持っているため、何もしなくてもこうなる。
-     * 素材は重ねる前の数値を保ったまま下に眠り、帯から抜けばその数値のまま場に戻る(4-5-2 の3)。
+     * <h3>★数値 — 上に乗るカードはそのまま、素材は印刷値に戻す(設計書16 訂正)</h3>
+     * 上に乗せる進化ミニオンの数値には触らない。自分の印刷値を既に持っているためである。
+     * <b>素材にする側は、独立したミニオンとしての履歴が切れるため、この時点で印刷値へ戻す。</b>
+     * これは {@link #move} が「FIELD を離れると印刷値に戻る」と定めたのと同じ規則であり、
+     * 素材になることも FIELD の独立した枠を失うという意味で場を離れる一形態である。
+     * 既に別の進化ミニオンの素材だったカード(平坦化で持ち上がってきたもの)は、
+     * その時点で既に印刷値になっているため、ここでの処理は二重適用になっても無害である。
      *
      * <h3>素材の並び順</h3>
      * 選択した順ではなく、ミニオンゾーンの左からの並び順で積む(設計書 4-5-1)。
@@ -219,8 +232,12 @@ public class ManualOperationService {
         List<ManualCardInstance> stacked = new ArrayList<>();
         for (ManualCardRef ref : materials) {
             ManualCardInstance material = ref.card();
-            stacked.addAll(material.getMaterials());
+            for (ManualCardInstance nested : material.getMaterials()) {
+                resetToPrinted(nested); // 既に印刷値のはずだが、平坦化のたび念のため戻す
+                stacked.add(nested);
+            }
             material.getMaterials().clear();
+            resetToPrinted(material); // ★素材になる瞬間、独立したミニオンとしての履歴が切れる
             stacked.add(material);
         }
         for (ManualCardRef ref : materials) {
@@ -305,11 +322,9 @@ public class ManualOperationService {
         if (!card.isResolved()) {
             throw new IllegalArgumentException("カード定義に突合できていないカードには印刷値がありません");
         }
-        ManualCardMaster master = cards.findById(card.getCardId());
-        card.setAttack(master.attack());
-        card.setHp(master.hp());
-        return "《%s》 の数値を印刷値 %s/%s に戻した".formatted(master.name(),
-                numberText(master.attack()), numberText(master.hp()));
+        resetToPrinted(card);
+        return "《%s》 の数値を印刷値 %s/%s に戻した".formatted(displayName(card),
+                numberText(card.getAttack()), numberText(card.getHp()));
     }
 
     // ================= 5. 札 =================
@@ -547,6 +562,22 @@ public class ManualOperationService {
         }
         return "%d枚 を%s %d枚 / %s %d枚 にした".formatted(targets.size(), onWord, on, offWord,
                 targets.size() - on);
+    }
+
+    /**
+     * FIELD を離れる(または素材になる)カードの数値を印刷値へ戻す(設計書16 訂正)。
+     *
+     * ★突合できていないカード({@link ManualCardInstance#isResolved()} が false)は
+     * 印刷値そのものが分からないため、何もしない。名前だけの灰色タイルに数値を
+     * 勝手に生やすことはしない、というだけであり、5-1 の原則に反しない。
+     */
+    private void resetToPrinted(ManualCardInstance card) {
+        if (!card.isResolved()) {
+            return;
+        }
+        ManualCardMaster master = cards.findById(card.getCardId());
+        card.setAttack(master.attack());
+        card.setHp(master.hp());
     }
 
     /** 数値の表示。★印刷値が空欄(スペル・リーダー)なら null のままなので「-」と書く。 */
