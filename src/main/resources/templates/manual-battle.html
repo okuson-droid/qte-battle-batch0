@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QTE Battle - 手動モード</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=11)}" rel="stylesheet">
+</head>
+<body class="bg-dark text-light">
+<div class="container-fluid py-2" id="manual-root" style="max-width: 1200px">
+
+    <!-- ヘッダ -->
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+        <div>
+            部屋コード: <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong>
+            <span class="ms-3 text-muted" id="connection-status">接続中...</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <label class="btn btn-sm btn-outline-light mb-0">
+                デッキを読み込む(A席)
+                <input type="file" id="deck-file-a" accept=".zip" class="d-none">
+            </label>
+            <label class="btn btn-sm btn-outline-light mb-0">
+                デッキを読み込む(B席)
+                <input type="file" id="deck-file-b" accept=".zip" class="d-none">
+            </label>
+            <button id="btn-undo" class="btn btn-sm btn-outline-warning" disabled>元に戻す</button>
+            <button id="btn-redo" class="btn btn-sm btn-outline-warning" disabled>やり直す</button>
+        </div>
+    </div>
+
+    <!-- ターン/フェイズ帯 -->
+    <div class="d-flex align-items-center gap-2 mb-2 small">
+        <span>ターン <strong id="turn-number">1</strong></span>
+        <button id="turn-minus" class="btn btn-sm btn-outline-secondary py-0 px-2">-</button>
+        <button id="turn-plus" class="btn btn-sm btn-outline-secondary py-0 px-2">+</button>
+        <span class="ms-3">フェイズ</span>
+        <button id="phase-back" class="btn btn-sm btn-outline-secondary py-0 px-2">&laquo;</button>
+        <span id="phase-name" class="badge text-bg-secondary">ドロー</span>
+        <button id="phase-fwd" class="btn btn-sm btn-outline-secondary py-0 px-2">&raquo;</button>
+        <span class="ms-auto text-muted" id="deck-import-status"></span>
+    </div>
+
+    <div class="d-flex gap-2">
+        <!-- 左列: 自席ゾーンバー 110px -->
+        <div id="zone-bar-self" style="width:110px; flex:0 0 110px;"></div>
+
+        <!-- 中央列: 盤面 700px -->
+        <div style="width:700px; flex:0 0 700px;">
+            <!-- 相手席(B席) -->
+            <div id="seat-opponent" class="board-side p-2 mb-1 opponent-side"></div>
+
+            <!-- 自席ミニオン + ウェポン -->
+            <div id="seat-self-field" class="board-side p-2 mb-1"></div>
+
+            <!-- リーダーとマナ -->
+            <div id="seat-self-leader-mana" class="board-side p-2 mb-1 my-side"></div>
+
+            <!-- 手札 -->
+            <div id="hand-row" class="board-side p-2"></div>
+        </div>
+
+        <!-- 右列: ログ + 拡大画像 350px -->
+        <div style="width:350px; flex:0 0 350px;">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="small text-muted">ログ</span>
+                <form id="note-form" class="d-flex gap-1">
+                    <input id="note-input" type="text" class="form-control form-control-sm"
+                           style="width:150px" placeholder="自由メモ">
+                    <button type="submit" class="btn btn-sm btn-outline-light">記録</button>
+                </form>
+            </div>
+            <div id="log-box" class="log-box p-2 mb-2 small"></div>
+
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <span class="small text-muted">拡大画像</span>
+                <div class="btn-group btn-group-sm" id="declare-buttons">
+                    <button class="btn btn-outline-success" data-declaration="WIN">勝利</button>
+                    <button class="btn btn-outline-danger" data-declaration="LOSE">敗北</button>
+                    <button class="btn btn-outline-secondary" data-declaration="DRAW">引分</button>
+                    <button class="btn btn-outline-warning" data-declaration="CONCEDE">投了</button>
+                </div>
+            </div>
+            <div id="zoom-panel" class="d-flex align-items-center justify-content-center"
+                 style="width:330px; height:462px; background:rgba(255,255,255,0.05); border:1px solid #495057;">
+                <span class="text-muted small">カードをクリックすると表示</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 数値編集モーダル -->
+    <div id="stat-modal" class="info-modal d-none">
+        <div class="info-modal-body">
+            <h6 id="stat-modal-title">数値の編集</h6>
+            <div class="d-flex gap-2 mb-2" id="stat-modal-fields"></div>
+            <div class="d-flex justify-content-end gap-2">
+                <button id="stat-modal-reset" class="btn btn-sm btn-outline-warning">印刷値に戻す</button>
+                <button id="stat-modal-close" class="btn btn-sm btn-outline-light">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 札編集モーダル -->
+    <div id="label-modal" class="info-modal d-none">
+        <div class="info-modal-body">
+            <h6>札</h6>
+            <div id="label-modal-current" class="d-flex flex-wrap gap-1 mb-2"></div>
+            <div id="label-modal-defaults" class="d-flex flex-wrap gap-1 mb-2"></div>
+            <form id="label-modal-form" class="d-flex gap-1">
+                <input id="label-modal-input" type="text" class="form-control form-control-sm" placeholder="自由入力">
+                <button type="submit" class="btn btn-sm btn-outline-light">追加</button>
+            </form>
+            <div class="d-flex justify-content-end mt-2">
+                <button id="label-modal-close" class="btn btn-sm btn-outline-light">閉じる</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+<script th:inline="javascript">
+    const ROOM_ID = /*[[${roomId}]]*/ '';
+    const OCCUPANT_ID = /*[[${occupantId}]]*/ '';
+    const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
+</script>
+<script th:src="@{/js/manual-battle.js(v=1)}"></script>
+</body>
+</html>
