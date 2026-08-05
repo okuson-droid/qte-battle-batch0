@@ -299,6 +299,18 @@ public class ManualWsController {
         direct(roomId, request.occupantId(), (room, actor) -> operations.note(actor, request));
     }
 
+    /**
+     * 先攻選択権の判定(21 設計書 6-3・E4)。★盤面に触らないので履歴に積まない。
+     *
+     * ★{@code note} 経路での代用を採らなかった理由は {@code ManualLogKind.FIRST_PLAYER} に書いた。
+     * 引数は occupantId だけである。どちらの席でも押せるため席を受け取る必要が無く、
+     * 受け取らなければ「相手の席として振る」偽装の余地も生まれない。
+     */
+    @MessageMapping("/manual/{roomId}/first-player")
+    public void firstPlayer(@DestinationVariable String roomId, OccupantRequest request) {
+        direct(roomId, request.occupantId(), (room, actor) -> operations.firstPlayer(actor));
+    }
+
     // ---- Undo / Redo(★履歴そのものを動かすので積まない) ----
 
     @MessageMapping("/manual/{roomId}/undo")

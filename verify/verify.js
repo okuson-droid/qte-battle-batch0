@@ -115,6 +115,18 @@ async function render(page, view) {
 async function sent(page) {
   return page.evaluate(() => window.__sent);
 }
+
+/**
+ * ★Batch 21c: ドラッグ中は矢印(dragcue)が同じ経路で何通も飛ぶ(7-2)。
+ * 「送られたのは move 1件だけ」を確かめる検証は、揮発メッセージを除いてから数える。
+ * 除かずに件数で比較すると、矢印を足しただけで既存の検証が落ちる。
+ */
+function boardMessages(msgs) {
+  return msgs.filter((m) => !m.destination.endsWith('/dragcue'));
+}
+function cueMessages(msgs) {
+  return msgs.filter((m) => m.destination.endsWith('/dragcue'));
+}
 async function clearSent(page) {
   await page.evaluate(() => { window.__sent = []; });
 }
@@ -313,13 +325,54 @@ async function clearSent(page) {
     msgs.some((m) => m.destination.endsWith('/shuffle'))
       && !msgs.some((m) => m.destination.endsWith('/move')), JSON.stringify(msgs));
 
-  // ---- 13. B席チップ: 公が無く確がある ----
+  // ---- 13. 相手上段の再構成(★Batch 21c。設計書4章) ----
   const chipTexts = await page.locator('#seat-opponent-top .zone-pile-mini').allTextContents();
-  check('B席チップは[山][墓][消][禁][確]の5つ',
-    chipTexts.length === 5 && chipTexts.some((t) => t.startsWith('確'))
+  check('相手のチップは[山][禁][確][手]の4つ(4章)',
+    chipTexts.length === 4 && chipTexts[0].startsWith('山') && chipTexts[1].startsWith('禁')
+      && chipTexts[2].startsWith('確') && chipTexts[3].startsWith('手')
       && !chipTexts.some((t) => t.startsWith('公')), JSON.stringify(chipTexts));
+  check('墓地・消滅はチップから外れ簡略画像になる(4章)',
+    (await page.locator('#seat-opponent-top .manual-opp-pile').count()) === 2
+      && !chipTexts.some((t) => t.startsWith('墓') || t.startsWith('消')),
+    JSON.stringify(chipTexts));
   check('B席にもリーダー+ウェポン合体タイルがある',
     (await page.locator('#seat-opponent-top .manual-leader-tile').count()) === 1);
+  check('相手のマナ簡略表示に枚数とMPが出る(4章・3-3)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-label').textContent()).includes('MP'),
+    await page.locator('#seat-opponent-top .manual-opp-mana-label').textContent());
+
+  // ★並び順: [マナ][墓地][消滅] … [山禁確手] [リーダー]
+  const oppMana = await boxOf('#seat-opponent-top .manual-opp-mana');
+  const oppTrash = await boxOf('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]');
+  const oppLost = await boxOf('#seat-opponent-top .manual-opp-pile[data-zone="LOST"]');
+  const oppChips = await boxOf('#seat-opponent-top .manual-opp-chips');
+  const oppLeader = await boxOf('#seat-opponent-top .manual-leader-tile');
+  check('相手上段が [マナ][墓地][消滅] … [チップ列] [リーダー] の順に並ぶ(4章)',
+    oppMana.x < oppTrash.x && oppTrash.x < oppLost.x && oppLost.x < oppChips.x
+      && oppChips.x < oppLeader.x,
+    `mana=${oppMana.x} trash=${oppTrash.x} lost=${oppLost.x} chips=${oppChips.x} leader=${oppLeader.x}`);
+  check('★チップ列が右へ寄っている(リーダーの左に接している。4章)',
+    oppLeader.x - (oppChips.x + oppChips.width) < 24,
+    `chips右端=${oppChips.x + oppChips.width} leader=${oppLeader.x}`);
+  const oppTopBox = await boxOf('#seat-opponent-top');
+  check('★相手上段が現行の高さ(148px)内に収まる(4章)',
+    oppTopBox.height <= 148, `h=${oppTopBox.height}`);
+
+  // ★簡略画像はドロップ先としても機能する(4章)。実マウスで確かめる
+  await clearSent(page);
+  await realDrag(page, '.hand-row .manual-hand-card',
+    '#seat-opponent-top .manual-opp-pile[data-zone="TRASH"] .manual-opp-face');
+  msgs = boardMessages(await sent(page));
+  check('相手の墓地(簡略画像)へ落とすと相手席への move になる(4章)',
+    msgs.length === 1 && msgs[0].body.toZone === 'TRASH' && msgs[0].body.toSeat === 'B',
+    JSON.stringify(msgs));
+  await clearSent(page);
+  await realDrag(page, '.hand-row .manual-hand-card',
+    '#seat-opponent-top .zone-pile-mini[data-zone="HAND"]');
+  msgs = boardMessages(await sent(page));
+  check('相手の手札チップへ落とすと相手席の HAND への move になる',
+    msgs.length === 1 && msgs[0].body.toZone === 'HAND' && msgs[0].body.toSeat === 'B',
+    JSON.stringify(msgs));
 
   // ---- 14. ログの折りたたみ ----
   // ★20c: ログは拡大画像の右横にあり、既定で拡大画像と高さが揃っている
@@ -532,30 +585,87 @@ async function clearSent(page) {
   // ★★実マウス: 下段が席Bでも、送信ペイロードの席は実席のまま(10章)
   await clearSent(page);
   await realDrag(page, '#hand-row .manual-hand-card', '#seat-self-minions .tile-slot-empty');
-  msgs = await sent(page);
+  let raw = await sent(page);
+  msgs = boardMessages(raw);
   check('自席=下でも move の toSeat は実席(B)のまま(★10章)',
     msgs.length === 1 && msgs[0].destination.endsWith('/move')
       && msgs[0].body.toSeat === 'B' && msgs[0].body.cardIds[0] === 'bh1',
     JSON.stringify(msgs));
+  // ★21c 7-2: 同じドラッグで矢印も飛ぶ。開始 → ホバー → 消去の順であること
+  let cues = cueMessages(raw);
+  check('★ドラッグで矢印が 開始→ホバー→消去 の順に送られる(7-2)',
+    cues.length >= 3 && cues[0].body.active === true && cues[0].body.toZone === null
+      && cues[cues.length - 1].body.active === false,
+    JSON.stringify(cues.map((c) => c.body)));
+  check('★矢印のホバー先にも実席が載る(視点を混ぜない。10章)',
+    cues.some((c) => c.body.toZone === 'FIELD' && c.body.toSeat === 'B'),
+    JSON.stringify(cues.map((c) => c.body)));
 
   await clearSent(page);
   await realDrag(page, '#hand-row .manual-hand-card', '#seat-opponent-minions .tile-slot-empty');
-  msgs = await sent(page);
+  raw = await sent(page);
+  msgs = boardMessages(raw);
   check('相手側へ落としたときの toSeat も実席(A)になる(★10章)',
     msgs.length === 1 && msgs[0].body.toSeat === 'A', JSON.stringify(msgs));
+  check('★相手側をホバーした矢印の toSeat も実席(A)になる(7-1)',
+    cueMessages(raw).some((c) => c.body.toZone === 'FIELD' && c.body.toSeat === 'A'),
+    JSON.stringify(cueMessages(raw).map((c) => c.body)));
 
   // ---- 21. 対戦部屋の count-only ビュー(3-3) ----
   const versusA = versusView('A');
   await render(page, versusA);
   const chipText = await page.locator('#seat-opponent-top .zone-pile-mini').allTextContents();
   check('相手の非公開ゾーンは中身が届かないが枚数は counts から出る(3-3)',
-    chipText[0] === '山2' && chipText[3] === '禁1',
+    chipText[0] === '山2' && chipText[1] === '禁1' && chipText[3] === '手1',
     JSON.stringify(chipText));
   check('相手席の zones に非公開ゾーンのキーが無い(fixture の前提確認)',
     await page.evaluate(() => !('HAND' in window.latestView.seatB.zones)));
   check('自席の手札は枚数ラベルつきで描かれる',
     (await page.locator('#hand-row .small').textContent()).includes('2枚'),
     await page.locator('#hand-row .small').textContent());
+  // ★21c: 相手のマナも「表向きカード + 裏向きは枚数」で出る(3-3・4章)
+  check('相手の裏向きマナは裏面1枚+枚数バッジになる(4章・3-3)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-back').count()) === 1
+      && (await page.locator('#seat-opponent-top .manual-opp-mana-back .manual-opp-count')
+        .textContent()) === '3',
+    await page.locator('#seat-opponent-top .manual-opp-mana-track').textContent());
+  check('相手上段は対戦部屋でも148px内に収まる(4章)',
+    (await page.locator('#seat-opponent-top').boundingBox()).height <= 148,
+    `h=${(await page.locator('#seat-opponent-top').boundingBox()).height}`);
+
+  // ---- 21-2. 非公開チップのフィードバック(★21c 3-5) ----
+  await page.evaluate(() => closeOverlay());
+  await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]').click();
+  await page.waitForTimeout(60);
+  check('★非公開チップをクリックしても帯が開かない(3-5)',
+    (await page.locator('#manual-overlay-root .manual-band').count()) === 0);
+  check('★「非公開」の小トーストが出る(3-5)',
+    (await page.locator('#manual-toast').count()) === 1
+      && (await page.locator('#manual-toast').textContent()).includes('非公開'),
+    await page.locator('#manual-toast').textContent().catch(() => '(なし)'));
+  check('★押したチップが明滅する(3-5)',
+    (await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]')
+      .getAttribute('class')).includes('manual-denied'));
+
+  // 公開ゾーン(墓地)は対戦部屋でも帯が開く(4章・B4)
+  const versusTrash = versusView('A');
+  versusTrash.seatB.zones.TRASH = [card('bt1', 'B墓地1')];
+  syncCounts(versusTrash.seatB);
+  await render(page, versusTrash);
+  await page.locator('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]').click();
+  await page.waitForTimeout(60);
+  check('相手の公開ゾーン(墓地)は対戦部屋でも帯が開く(B4)',
+    (await page.locator('#manual-overlay-root .manual-band').count()) === 1);
+  await page.evaluate(() => closeOverlay());
+
+  // 全公開部屋では手札チップからも帯が開く(4章)
+  await render(page, baseView());
+  await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]').click();
+  await page.waitForTimeout(60);
+  check('全公開部屋では手札チップからも帯が開く(4章)',
+    (await page.locator('#manual-overlay-root .manual-band').count()) === 1);
+  await page.evaluate(() => closeOverlay());
+  await render(page, versusA);
 
   // ---- 22. 対戦部屋での出し分け(6-3・D4・D6・E3) ----
   check('対戦部屋では Redo ボタンを隠す(D6)',
@@ -600,6 +710,172 @@ async function clearSent(page) {
   msgs = await sent(page);
   check('対戦部屋の観戦者はドラッグしても何も送らない(6-1)', msgs.length === 0,
     JSON.stringify(msgs));
+
+  // =====================================================================
+  // ★Batch 21c: 矢印・観戦トグル・先攻選択権
+  // =====================================================================
+
+  // ---- 26. ドラッグ軌跡の矢印(設計書7章) ----
+  // ★受信側の描画だけを合成 CUE で確かめる。ドラッグ操作そのものの検証は
+  //   20 節の実マウスで済ませてある(合成 DragEvent は使っていない)。
+  const cueView = baseView();
+  cueView.seatB.zones.FIELD = [card('bf1', 'B場1')];
+  syncCounts(cueView.seatB);
+  await render(page, cueView);
+
+  const injectCue = async (cue) => {
+    await page.evaluate((c) => { applyDragCue(c); }, cue);
+    await page.waitForTimeout(40);
+  };
+
+  await injectCue({
+    actorSeat: 'B', actorName: 'ばんり',
+    from: { seatId: 'B', zone: 'HAND' }, cardId: null,
+    to: { seatId: 'B', zone: 'FIELD' }, active: true,
+  });
+  check('CUE を受け取ると矢印が1本描かれる(7-1)',
+    (await page.locator('#manual-cue-layer line.manual-cue-line').count()) === 1);
+  check('★見えないカードの矢印の根はゾーンのアンカー(手札チップ)になる(7-3)',
+    (await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]')
+      .getAttribute('class')).includes('manual-cue-from'));
+  check('矢印の先(相手のミニオン行)がハイライトされる(7-4)',
+    (await page.locator('#seat-opponent-minions .minion-row')
+      .getAttribute('class')).includes('manual-cue-to'));
+  check('誰が動かしているかが矢印に添えられる',
+    (await page.locator('#manual-cue-layer text.manual-cue-label').textContent()) === 'ばんり');
+  check('★矢印レイヤは当たり判定を奪わない(pointer-events: none)',
+    (await page.evaluate(() =>
+      getComputedStyle(document.getElementById('manual-cue-layer')).pointerEvents)) === 'none');
+
+  // 見えるカードなら、根はゾーンではなくそのカードになる(7-3)
+  await injectCue({
+    actorSeat: 'B', actorName: 'ばんり',
+    from: { seatId: 'B', zone: 'FIELD' }, cardId: 'bf1',
+    to: { seatId: null, zone: 'PLAY' }, active: true,
+  });
+  check('★見えるカードの矢印の根はそのカード自身になる(7-3)',
+    (await page.locator('[data-instance-id="bf1"]').getAttribute('class'))
+      .includes('manual-cue-from'));
+  check('共有ゾーン(席なし)も矢印の先になれる(7-1)',
+    (await page.locator('.manual-center-half[data-zone="PLAY"]')
+      .getAttribute('class')).includes('manual-cue-to'));
+  check('矢印は同じ人につき1本しか残らない',
+    (await page.locator('#manual-cue-layer line.manual-cue-line').count()) === 1);
+
+  // ドロップ先が未定(to が null)なら線は引かず、根のハイライトだけ出す(7-4)
+  await injectCue({
+    actorSeat: 'B', actorName: 'ばんり',
+    from: { seatId: 'B', zone: 'FIELD' }, cardId: 'bf1', to: null, active: true,
+  });
+  check('ドロップ先が未定なら線を引かず根だけをハイライトする(7-4)',
+    (await page.locator('#manual-cue-layer line.manual-cue-line').count()) === 0
+      && (await page.locator('[data-instance-id="bf1"]').getAttribute('class'))
+        .includes('manual-cue-from'));
+
+  // active:false で消える(7-2)
+  await injectCue({
+    actorSeat: 'B', actorName: 'ばんり', from: null, cardId: null, to: null, active: false,
+  });
+  check('active:false で矢印もハイライトも消える(7-2)',
+    (await page.locator('#manual-cue-layer line.manual-cue-line').count()) === 0
+      && (await page.locator('.manual-cue-from').count()) === 0
+      && (await page.locator('.manual-cue-to').count()) === 0);
+  check('★矢印はログにも盤面にも触れない(受信でログ行が増えない。7-2)',
+    (await page.locator('#log-box > div').count()) === 4,
+    `log=${await page.locator('#log-box > div').count()}`);
+
+  // ---- 27. 観戦トグル(設計書3-2) ----
+  await render(page, versusView('A'));
+  check('プレイヤーには観戦トグルを出さない(3-1)',
+    (await page.locator('#btn-spectator-view').getAttribute('class')).includes('d-none')
+      && (await page.locator('#btn-flip').getAttribute('class')).includes('d-none'));
+
+  const spectator = versusView(null);
+  await render(page, spectator);
+  check('観戦者にはトグル2つが出る(3-2)',
+    !(await page.locator('#btn-spectator-view').getAttribute('class')).includes('d-none')
+      && !(await page.locator('#btn-flip').getAttribute('class')).includes('d-none'));
+  check('視点ボタンに現在の視点が出る(既定は公開のみ)',
+    (await page.locator('#btn-spectator-view').textContent()).includes('公開のみ'),
+    await page.locator('#btn-spectator-view').textContent());
+
+  await clearSent(page);
+  await page.locator('#btn-spectator-view').click();
+  await page.waitForTimeout(40);
+  msgs = await sent(page);
+  check('★視点の切替はサーバへ送る(3-2)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/viewpoint')
+      && msgs[0].body.spectatorView === 'ALL', JSON.stringify(msgs));
+
+  const spectatorAll = versusView(null);
+  spectatorAll.spectatorView = 'ALL';
+  await render(page, spectatorAll);
+  check('全見えのときは再クリックで公開のみへ戻す',
+    (await page.locator('#btn-spectator-view').textContent()).includes('全見え'));
+
+  // 上下反転(★クライアント描画だけ。サーバへ送らない)
+  await render(page, spectator);
+  check('観戦の既定は席Aが下(3-2)',
+    (await page.locator('#seat-self-minions .minion-row').getAttribute('data-seat')) === 'A'
+      && (await page.locator('#btn-flip').textContent()).includes('席A'));
+  await clearSent(page);
+  await page.locator('#btn-flip').click();
+  await page.waitForTimeout(60);
+  check('★上下反転で下段が席Bになる(3-2)',
+    (await page.locator('#seat-self-minions .minion-row').getAttribute('data-seat')) === 'B'
+      && (await page.locator('#seat-opponent-minions .minion-row')
+        .getAttribute('data-seat')) === 'A');
+  check('★上下反転はサーバへ送らない(3-2)', (await sent(page)).length === 0,
+    JSON.stringify(await sent(page)));
+  check('反転してもボタンの表示が追随する',
+    (await page.locator('#btn-flip').textContent()).includes('席B'));
+
+  // ★反転中でも右列のパイルは「下段の席」を出す(表示位置だけが入れ替わっている)
+  check('反転中は右列のパイルも席Bになる',
+    (await page.locator('#pile-grid .manual-pile-label').first().textContent()).includes('席B'),
+    await page.locator('#pile-grid .manual-pile-label').first().textContent());
+
+  // ★席に着いたら反転は解除される(3-1: プレイヤーは常に自席=下)
+  await render(page, versusView('A'));
+  check('★席に着くと反転が解除され、自席が下に戻る(3-1)',
+    (await page.locator('#seat-self-minions .minion-row').getAttribute('data-seat')) === 'A');
+
+  // ---- 28. 先攻選択権(設計書6-3・E4) ----
+  await render(page, baseView());
+  check('全公開部屋では先攻決めボタンを出さない(E4)',
+    (await page.locator('#btn-first-player').getAttribute('class')).includes('d-none'));
+  await render(page, versusView('A'));
+  check('対戦部屋では先攻決めボタンを出す(E4)',
+    !(await page.locator('#btn-first-player').getAttribute('class')).includes('d-none'));
+  await clearSent(page);
+  await page.locator('#btn-first-player').click();
+  await page.waitForTimeout(40);
+  msgs = await sent(page);
+  check('★先攻決めは first-player を送り、席を載せない(E4)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/first-player')
+      && msgs[0].body.seat === undefined, JSON.stringify(msgs));
+
+  // ---- 29. 超ワイド画面(★21b の積み残し。相手上段の左右の離れ) ----
+  const wide = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  const wideErrors = [];
+  wide.on('pageerror', (e) => wideErrors.push(String(e)));
+  await wide.goto(`http://127.0.0.1:${port}/harness.html`);
+  await wide.waitForTimeout(200);
+  await render(wide, versusView('A'));
+  const wideTop = await wide.locator('#seat-opponent-top').boundingBox();
+  const wideMana = await wide.locator('#seat-opponent-top .manual-opp-mana').boundingBox();
+  const wideChips = await wide.locator('#seat-opponent-top .manual-opp-chips').boundingBox();
+  const wideLeader = await wide.locator('#seat-opponent-top .manual-leader-tile').boundingBox();
+  check('1920幅でも相手上段は148px内に収まる(4章)', wideTop.height <= 148,
+    `h=${wideTop.height}`);
+  check('★1920幅では余った幅をマナ簡略表示が吸う(左右が離れない)',
+    wideMana.width > 600 && wideChips.x + wideChips.width < wideLeader.x + 8,
+    `mana.w=${wideMana.width} chips右端=${wideChips.x + wideChips.width} leader=${wideLeader.x}`);
+  check('1920幅でも盤面全体が画面高さに収まる',
+    (await wide.locator('#manual-root').boundingBox()).height <= 1080,
+    `h=${(await wide.locator('#manual-root').boundingBox()).height}`);
+  check('1920幅でJSエラーが出ない', wideErrors.length === 0, wideErrors.join(' | '));
+  await wide.close();
 
   // ---- 25. ロビー(設計書 1-3・F1) ----
   const lobby = await browser.newPage({ viewport: { width: 1000, height: 900 } });

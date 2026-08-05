@@ -15,6 +15,8 @@ import com.example.qte.manual.ManualActor;
 import com.example.qte.manual.ManualCardInstance;
 import com.example.qte.manual.ManualHistory;
 import com.example.qte.manual.ManualLogEntry;
+import com.example.qte.manual.ManualLogEvent;
+import com.example.qte.manual.ManualLogKind;
 import com.example.qte.manual.ManualLogRenderer;
 import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualOccupantRole;
@@ -576,6 +578,59 @@ class ManualVersusTest {
         room.leave(a.getOccupantId());
         assertThat(room.emptyFor(Instant.now().plus(Duration.ofMinutes(6))))
                 .isGreaterThanOrEqualTo(Duration.ofMinutes(5));
+    }
+
+    // ================= 6-3・E4 先攻選択権(★Batch 21c) =================
+
+    @Test
+    void 先攻選択権はどちらの席でも押せて結果はログにだけ残る() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        ManualOccupant b = room.join("ばんり", ManualSeatId.B);
+        int handBefore = room.getGameState().seat(ManualSeatId.A).zone(ManualZone.HAND).size();
+
+        ManualLogEvent byA = operations.firstPlayer(ManualActor.of(room, a));
+        ManualLogEvent byB = operations.firstPlayer(ManualActor.of(room, b));
+
+        assertThat(byA.kind()).isEqualTo(ManualLogKind.FIRST_PLAYER);
+        assertThat(byB.kind()).isEqualTo(ManualLogKind.FIRST_PLAYER);
+        // ★盤面には一切触らない(E4)
+        assertThat(room.getGameState().seat(ManualSeatId.A).zone(ManualZone.HAND))
+                .hasSize(handBefore);
+    }
+
+    @Test
+    void 先攻選択権の判定は必ずどちらかの席に決まる() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        ManualActor actor = ManualActor.of(room, a);
+        // ★同値は振り直す。1回でも引き分けが出れば「どちらでもない」行になってしまう
+        for (int i = 0; i < 50; i++) {
+            String text = operations.firstPlayer(actor).text();
+            assertThat(text).contains("先攻選択権の判定");
+            assertThat(text.contains("→ 席A") || text.contains("→ 席B")).isTrue();
+        }
+    }
+
+    @Test
+    void 先攻選択権は視点で変わらずそのまま全員に出る() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        room.join("ばんり", ManualSeatId.B);
+        ManualLogEvent event = operations.firstPlayer(ManualActor.of(room, a));
+        // ★plain 種別である(5-3)。どの視点でも本文がそのまま出る
+        assertThat(event.kind().isPlain()).isTrue();
+        assertThat(logRenderer.render(event,
+                new ManualViewpoint(room.getType(), ManualSeatId.B, ManualSpectatorView.PUBLIC_ONLY)))
+                .isEqualTo(event.text());
+    }
+
+    @Test
+    void 観戦者は先攻選択権を押せない() {
+        ManualRoom room = versusRoom();
+        ManualOccupant watcher = room.join("みるひと", null);
+        assertThatThrownBy(() -> operations.firstPlayer(ManualActor.of(room, watcher)))
+                .hasMessageContaining("観戦者");
     }
 
     // ================= 補助 =================

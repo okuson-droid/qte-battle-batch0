@@ -41,6 +41,10 @@ let pinnedZoom = null;
 let OCCUPANT_ID = null;
 let lpModalSeatId = null;
 let weaponModalCardId = null;
+// ★21c 3-2: 上下反転(観戦者のみ)。クライアント描画だけで完結し、サーバへは送らない
+let boardFlipped = false;
+// ★21c 7-1: ゾーン → 画面上のアンカー要素の対応表。矢印はここだけを見て描く
+let zoneAnchors = new Map();
 
 // ---------------------------------------------------------------
 // 0) 在室(設計書 6-3)
@@ -310,6 +314,12 @@ function send(action, payload) {
 
 function onMessage(frame) {
     const msg = JSON.parse(frame.body);
+    // ★21c 7-2: 矢印は揮発メッセージである。ビューでもログでもないので、
+    //   latestView を書き換えず、盤面の再描画も起こさない。
+    if (msg.type === 'CUE') {
+        applyDragCue(msg.cue);
+        return;
+    }
     if (msg.type === 'ERROR') {
         if (msg.message === 'この部屋に入室していません') {
             // ★猶予切れで席が空けられた等、サーバが在室者として認識できなかった場合。
@@ -340,6 +350,64 @@ function showTransientError(message) {
 /** ゾーンが空のときなど、操作できないことをログ欄で軽く案内する */
 function showTransientNotice(message) {
     showTransientError(message);
+}
+
+/**
+ * 小トースト(★21c 3-5)。
+ *
+ * ★ヘッダの {@code deck-import-status} ではなく独立した要素にした理由:
+ * 非公開チップは相手上段(画面の上端近く)にあり、ヘッダの文字は視線から遠い。
+ * 「押したのに何も起きない」を解消するのが目的である以上、
+ * 反応は<b>押した場所の近く</b>で見えなければ意味が無い。
+ * 中央下に固定するのは、盤面のどこを押しても同じ場所に出るほうが探さずに済むためである。
+ */
+let toastTimer = null;
+function showToast(message) {
+    let box = document.getElementById('manual-toast');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'manual-toast';
+        box.className = 'manual-toast';
+        document.body.appendChild(box);
+    }
+    box.textContent = message;
+    box.classList.remove('d-none');
+    if (toastTimer !== null) {
+        clearTimeout(toastTimer);
+    }
+    toastTimer = setTimeout(() => {
+        toastTimer = null;
+        box.classList.add('d-none');
+    }, 1600);
+}
+
+/**
+ * 要素を短く明滅させる(★21c 3-5)。
+ * ★同じ要素を続けて押したときにアニメーションが再生されるよう、クラスを外して
+ * リフローを1回強制してから付け直す。付けっぱなしだと2回目以降は無反応に見える。
+ */
+function flashDenied(el) {
+    if (!el) return;
+    el.classList.remove('manual-denied');
+    void el.offsetWidth;
+    el.classList.add('manual-denied');
+    setTimeout(() => el.classList.remove('manual-denied'), 700);
+}
+
+/**
+ * 相手のゾーンをクリックしたときの反応(★21c 3-5)。
+ *
+ * ★<b>無反応にしない。</b>20c までは非公開ゾーンでも {@code openZoneBand} を呼んでいたため、
+ * 対戦部屋では中身が空の帯が開いていた。「空である」と「見えない」は別のことであり、
+ * 空の帯は前者を意味してしまう。帯を開かず、明滅と小トーストで「非公開」と伝える。
+ */
+function openZoneOrDeny(el, seatView, zoneName) {
+    if (isZoneVisible(seatView, zoneName)) {
+        openZoneBand(seatView.id, zoneName);
+        return;
+    }
+    flashDenied(el);
+    showToast(`${ZONE_LABELS[zoneName]}は非公開`);
 }
 
 // ---------------------------------------------------------------
@@ -380,11 +448,26 @@ function civColor(civ) {
 //   そのためこの節の関数は「どの席のビューをどちらの入れ物に描くか」だけを答え、
 //   席そのものは `seatView.id` から取る。描画関数の中で 'A' / 'B' をリテラルで書かない。
 //
-// 観戦者(viewerSeat が null)は既定で A を下に置く。上下反転トグルは 21c の担当である。
+// 観戦者(viewerSeat が null)は既定で A を下に置き、上下反転トグル(3-2)で入れ替えられる。
 
-/** 画面下段に描く席のID。★自席。観戦者は A */
+/**
+ * 画面下段に描く席のID。★自席。観戦者は A(反転トグルで B)。
+ *
+ * ★21c 3-2: 上下反転はこの関数に条件を1つ足すだけで入る。
+ * 反転しているのは<b>どの席ビューをどちらの入れ物へ描くか</b>だけであり、
+ * `cardLocation` / `registerDropTarget` / 送信ペイロードが受け取る席は
+ * 相変わらず `seatView.id`(実席)である(10章)。
+ *
+ * ★反転を観戦者に限るのは 3-1 が「プレイヤーは常に自席が下・切替UIなし」と
+ * 定めているためである。プレイヤーに反転を許すと、自分の手札が上段に出た状態で
+ * 相手の場へ落とす操作をすることになり、事故の温床になる。
+ */
 function bottomSeatId(view) {
-    return view.viewerSeat || 'A';
+    const own = view.viewerSeat || 'A';
+    if (!view.viewerSeat && boardFlipped) {
+        return own === 'A' ? 'B' : 'A';
+    }
+    return own;
 }
 
 /** 画面上段に描く席のID。★相手 */
@@ -431,8 +514,22 @@ function zoneCount(seatView, zoneName) {
     return (seatView.zones[zoneName] || []).length;
 }
 
+/**
+ * そのゾーンの中身が閲覧者に届いているか(★21c 3-5)。
+ *
+ * ★判定材料は「キーがあるか」だけである。21a は非公開ゾーンを
+ * <b>zones にキーごと載せない</b>と決めており(3-3・B1)、空配列とは区別できる。
+ * 「対戦部屋か」「相手席か」をクライアントで組み立て直すと、サーバの公開範囲の
+ * 定義がクライアントにも書かれることになり、2箇所に分かれる(21a の落とし穴)。
+ */
+function isZoneVisible(seatView, zoneName) {
+    return !!seatView.zones
+        && Object.prototype.hasOwnProperty.call(seatView.zones, zoneName);
+}
+
 function renderAll(view) {
     cardLocation = new Map();
+    zoneAnchors = new Map();
     renderHeader(view);
     renderOpponentTop(view);
     renderOpponentMinions(view);
@@ -448,6 +545,8 @@ function renderAll(view) {
     refreshOverlay();
     refreshLpModal(view); // ★20a 2-4: LPモーダルが開いている間は数値だけ差し替える
     refreshWeaponModal(view); // ★20b 2-2: ウェポン操作モーダルも同じ扱い
+    // ★21c 7-1: アンカー要素を作り直したので、表示中の矢印を引き直す
+    renderDragCues();
 }
 
 /**
@@ -466,9 +565,14 @@ function renderHeader(view) {
         ROOM_TYPE_LABELS[view.roomType] || view.roomType || '';
 
     renderSeatButton(view);
+    renderSpectatorControls(view);
     renderDeckButtons(view);
     renderLogLink();
     renderOccupantList(view.occupants);
+    // ★21c 6-3・E4: 先攻選択権は対戦部屋だけの操作である。
+    //   全公開部屋(一人回し)では相手が居ないため、押す意味が無い
+    document.getElementById('btn-first-player')
+        .classList.toggle('d-none', view.roomType !== 'VERSUS');
     // ★宣言は自席のぶんだけ(6-3・D4)。観戦者は席を持たないためサーバが弾く
     declareSeat = view.viewerSeat;
 }
@@ -482,6 +586,38 @@ function renderSeatButton(view) {
     } else {
         button.textContent = '席に着く';
     }
+}
+
+/**
+ * 観戦者のトグル2つ(★21c 3-2)。
+ *
+ * ★2つのトグルは<b>行き先が違う</b>。混ぜてはならない。
+ * <ul>
+ *   <li>全見え/公開のみ — <b>サーバへ送る</b>。「全部送っておいてクライアントで隠す」
+ *       形にすると、公開のみ視点の観戦者のブラウザに相手の手札が届いてしまい、
+ *       3-3 が「カードオブジェクトを一切載せない」と決めた意味が消える</li>
+ *   <li>上下反転 — <b>クライアントだけで完結する</b>。どちらを下に置くかは
+ *       見る側の都合であり、盤面の事実ではない(10章)</li>
+ * </ul>
+ *
+ * ★どちらもプレイヤーには出さない(3-1)。永久に押せないボタンを置かない、という
+ * 21b の出し分けの方針(1-5)をそのまま適用している。
+ */
+function renderSpectatorControls(view) {
+    const spectator = !view.viewerSeat;
+    const viewBtn = document.getElementById('btn-spectator-view');
+    const flipBtn = document.getElementById('btn-flip');
+    viewBtn.classList.toggle('d-none', !spectator);
+    flipBtn.classList.toggle('d-none', !spectator);
+    if (!spectator) {
+        // ★席に着いたら反転は解除する。自席=下が崩れたままになるのを防ぐ(3-1)
+        boardFlipped = false;
+        return;
+    }
+    const current = view.spectatorView || 'PUBLIC_ONLY';
+    viewBtn.dataset.value = current;
+    viewBtn.textContent = `視点: ${SPECTATOR_VIEW_LABELS[current] || current}`;
+    flipBtn.textContent = `下段: 席${bottomSeatId(view)}`;
 }
 
 /**
@@ -596,11 +732,33 @@ const ZONE_LABELS = {
 const SHARED_ZONES = new Set(['PLAY', 'REVEAL']);
 
 /**
- * B席上段(20b 2-8): 左にミニチップ [山][墓][消][禁][確]、右端にリーダー+ウェポン合体タイル。
+ * 相手上段(★Batch 21c。設計書4章。マスター指示による再構成)。
  *
- * ★「公」(REVEAL)はチップから外した。共有ゾーンになりセンターラインが表示を兼ねるためである。
+ * <pre>
+ *   [マナ簡略表示 (MP n)] [墓地] [消滅] …伸縮… [山n][禁n][確n][手n] [リーダー+ウェポン]
+ * </pre>
+ *
+ * <h3>★なぜ並べ替えるのか — 「全ゾーンがアンカーを持つ」ことの保証(7-1)</h3>
+ * 20c までの上段はチップ5つとリーダーだけであり、相手の<b>マナと手札</b>に対応する要素が
+ * 画面に存在しなかった。ドラッグ軌跡の矢印は「ゾーン → 画面上の要素」の対応で描くため、
+ * 要素が無いゾーンは矢印の端点にできない。4章の再構成は見た目の話に見えて、
+ * 実際には 7章 の前提条件である。だから 21c は 1(この関数)→ 3(矢印)の順で行う。
+ *
+ * <h3>★情報の密度で3段階に分ける</h3>
+ * <ul>
+ *   <li><b>マナ</b> — 表向きは縮小カード画像。相手の使えるMPと文明構成は、
+ *       対戦中に最も頻繁に確認する公開情報である</li>
+ *   <li><b>墓地・消滅</b> — 最上段の縮小画像+枚数。「何が落ちたか」は
+ *       一番上だけ分かれば足り、詳しくは帯で見る</li>
+ *   <li><b>山・禁・確・手</b> — チップ(枚数のみ)。中身は原理的に見えないため、
+ *       画像を置く意味が無い</li>
+ * </ul>
+ * ★「手n」をチップに足したのは 4章 の指示であるが、意味としても正しい。
+ * 相手の手札枚数は 3-3 が公開情報と定めており、20c まで画面のどこにも出ていなかった。
+ *
  * ★リーダーを右端に置くのは自席と同じ側であり、左右対称にはしない(確定事項Q4)。
- * 目線が左右に往復しないほうが速い。
+ * ★この行は高さ148px以内に収める(4章)。マナの縮小画像を 40×56 に抑えているのはそのためで、
+ * 行の高さを決めているのはリーダータイル(120px)のままである。
  */
 function renderOpponentTop(view) {
     const el = document.getElementById('seat-opponent-top');
@@ -609,26 +767,212 @@ function renderOpponentTop(view) {
     const seat = topSeat(view);
     const seatId = seat.id;
 
-    const bar = document.createElement('div');
-    bar.className = 'd-flex gap-1';
-    for (const zoneName of ['DECK', 'TRASH', 'LOST', 'TABOO', 'PRIVATE']) {
-        // ★対戦部屋では中身が届かないため counts から数える(21b。並びは 21c で再構成する)
-        const count = zoneCount(seat, zoneName);
-        const chip = document.createElement('div');
-        chip.className = 'zone-pile-mini';
-        chip.title = ZONE_LABELS[zoneName];
-        chip.textContent = `${ZONE_LABELS[zoneName][0]}${count}`;
-        chip.addEventListener('click', () => openZoneBand(seatId, zoneName));
-        registerDropTarget(chip, seatId, zoneName);
-        bar.appendChild(chip);
-    }
-    el.appendChild(bar);
+    // 左: マナ簡略表示。★flex で伸び、余った幅をここが吸ってチップ列を右へ押す
+    el.appendChild(createOpponentMana(view, seat));
 
-    const leaderTile = createLeaderTile(seat);
-    leaderTile.classList.add('ms-auto');
-    el.appendChild(leaderTile);
+    // 左中: 墓地・消滅(簡略画像)
+    for (const zoneName of OPPONENT_PILE_ZONES) {
+        el.appendChild(createOpponentPile(seat, zoneName));
+    }
+
+    // 右: 枚数チップ4つ
+    const chips = document.createElement('div');
+    chips.className = 'd-flex gap-1 manual-opp-chips';
+    for (const zoneName of OPPONENT_CHIP_ZONES) {
+        chips.appendChild(createOpponentChip(seat, zoneName));
+    }
+    el.appendChild(chips);
+
+    // 右端: リーダー+ウェポン合体タイル(現状維持)
+    el.appendChild(createLeaderTile(seat));
     cardLocation.set(seat.leader ? seat.leader.instanceId : null,
         { seatId, zone: 'LEADER' });
+
+    // ★重ね表示は実測幅で決めるため、行の要素をすべて載せてから最後に適用する
+    //   (自席マナの applyManaOverlap と同じ手順)
+    applyOpponentManaOverlap();
+}
+
+/** 相手上段で簡略画像にするゾーン(4章)。★どちらも公開ゾーンなので帯が開く */
+const OPPONENT_PILE_ZONES = ['TRASH', 'LOST'];
+
+/** 相手上段で枚数チップにするゾーン(4章)。★対戦部屋ではすべて非公開である */
+const OPPONENT_CHIP_ZONES = ['DECK', 'TABOO', 'PRIVATE', 'HAND'];
+
+/**
+ * 枚数チップ1つ(4章)。
+ * ★枚数は必ず {@code zoneCount} から取る。対戦部屋では中身の配列が届かないため、
+ * 配列を数えると 0 になり「嘘の枚数」を表示する(21b 1-4)。
+ */
+function createOpponentChip(seat, zoneName) {
+    const chip = document.createElement('div');
+    chip.className = 'zone-pile-mini manual-opp-chip';
+    chip.dataset.seat = seat.id;
+    chip.dataset.zone = zoneName;
+    chip.title = ZONE_LABELS[zoneName];
+    chip.textContent = `${ZONE_LABELS[zoneName][0]}${zoneCount(seat, zoneName)}`;
+    chip.addEventListener('click', () => openZoneOrDeny(chip, seat, zoneName));
+    registerDropTarget(chip, seat.id, zoneName);
+    registerZoneAnchor(chip, seat.id, zoneName);
+    return chip;
+}
+
+/**
+ * 墓地・消滅の簡略画像(4章)。最上段カードの縮小画像+枚数バッジ。
+ * ★0枚は破線の空枠にする。画像が無いことと0枚であることを見分けられるようにするためである。
+ */
+function createOpponentPile(seat, zoneName) {
+    const box = document.createElement('div');
+    box.className = 'manual-opp-pile';
+    box.dataset.seat = seat.id;
+    box.dataset.zone = zoneName;
+    box.title = ZONE_LABELS[zoneName];
+
+    const face = document.createElement('div');
+    face.className = 'manual-opp-face';
+    const cards = seat.zones[zoneName] || [];
+    const count = zoneCount(seat, zoneName);
+    // ★公開パイルの最上段は末尾である(20a 2-1。山札とは逆)
+    const top = cards.length > 0 ? cards[cards.length - 1] : null;
+    if (top && top.imageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${top.imageId}.png`;
+        img.loading = 'lazy';
+        face.appendChild(img);
+    } else if (count === 0) {
+        face.classList.add('manual-opp-face-empty');
+    } else {
+        face.classList.add('manual-opp-face-blank');
+        face.textContent = (top && top.name) || '?';
+    }
+    const badge = document.createElement('div');
+    badge.className = 'manual-opp-count';
+    badge.textContent = count;
+    face.appendChild(badge);
+    box.appendChild(face);
+
+    const label = document.createElement('div');
+    label.className = 'manual-opp-label';
+    label.textContent = ZONE_LABELS[zoneName];
+    box.appendChild(label);
+
+    box.addEventListener('click', () => openZoneOrDeny(box, seat, zoneName));
+    registerDropTarget(box, seat.id, zoneName);
+    registerZoneAnchor(box, seat.id, zoneName);
+    return box;
+}
+
+/**
+ * 相手のマナ簡略表示(4章)。表向き=縮小カード画像の横並び、裏向き=裏面1枚+枚数バッジ。
+ *
+ * ★MPはサーバの計算値をそのまま出す(3-3)。クライアントでアンタップ枚数を数え直すと、
+ * 観戦者(公開のみ)には裏向きマナのカードが届かないため必ずズレる。
+ *
+ * ★タップ状態は<b>減光</b>で示す(マスター確認済み)。回転させると外接矩形が伸び、
+ * 148px の高さ制約(4章)を回転角の都合で守れなくなる。
+ */
+function createOpponentMana(view, seat) {
+    const wrap = document.createElement('div');
+    wrap.className = 'manual-opp-mana';
+    wrap.dataset.seat = seat.id;
+    wrap.dataset.zone = 'MANA';
+
+    const manaCards = seat.zones.MANA || [];
+    const faceUpCards = manaCards.filter((c) => !c.faceDown);
+    const faceDownCount = seat.manaFaceDownCount === undefined
+        ? manaCards.filter((c) => c.faceDown).length
+        : seat.manaFaceDownCount;
+
+    const label = document.createElement('div');
+    label.className = 'manual-opp-label manual-opp-mana-label';
+    label.textContent = `マナ ${zoneCount(seat, 'MANA')}(MP ${seat.mp})`;
+    wrap.appendChild(label);
+
+    const track = document.createElement('div');
+    track.className = 'manual-opp-mana-track';
+    for (const card of faceUpCards) {
+        track.appendChild(createOpponentManaCard(card, seat.id));
+        cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
+    }
+    if (faceDownCount > 0) {
+        track.appendChild(createOpponentManaBack(faceDownCount, view.backImageId));
+    }
+    wrap.appendChild(track);
+
+    registerDropTarget(wrap, seat.id, 'MANA');
+    registerZoneAnchor(wrap, seat.id, 'MANA');
+    return wrap;
+}
+
+/** 表向きマナ1枚(40×56の縮小画像)。★掴めるのは自席のマナだけであり、ここは表示専用にしない
+ *  — 相手のカードを動かせないのはサーバの権限層(6-1)の仕事であり、掴み口は残しておく */
+function createOpponentManaCard(card, seatId) {
+    const tile = document.createElement('div');
+    tile.className = 'manual-opp-mana-card' + (card.tapped ? ' manual-opp-tapped' : '');
+    tile.dataset.instanceId = card.instanceId;
+    tile.draggable = true;
+    tile.title = `${card.name || ''}${card.tapped ? '(タップ)' : ''}`;
+    if (card.imageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${card.imageId}.png`;
+        img.loading = 'lazy';
+        tile.appendChild(img);
+    } else {
+        tile.classList.add('manual-opp-face-blank');
+        tile.textContent = card.name || '?';
+    }
+    if (selected.has(card.instanceId)) {
+        tile.classList.add('manual-tile-selected');
+    }
+    tile.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, 'MANA'));
+    tile.addEventListener('click', (e) => { e.stopPropagation(); setZoom(card); });
+    tile.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    return tile;
+}
+
+/** 裏向きマナ(裏面画像1枚+枚数バッジ)。★何枚あるかは公開情報である(3-3) */
+function createOpponentManaBack(count, backImageId) {
+    const tile = document.createElement('div');
+    tile.className = 'manual-opp-mana-card manual-opp-mana-back';
+    tile.title = `裏向き ${count}枚`;
+    if (backImageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${backImageId}.png`;
+        img.loading = 'lazy';
+        tile.appendChild(img);
+    }
+    const badge = document.createElement('div');
+    badge.className = 'manual-opp-count';
+    badge.textContent = count;
+    tile.appendChild(badge);
+    return tile;
+}
+
+/**
+ * 相手マナの重ね表示。★{@code applyManaOverlap} と同じ考え方の縮小版である(4章)。
+ * 実測幅が要るため、DOM に載せた後の renderAll 側から呼ぶ。
+ */
+function applyOpponentManaOverlap() {
+    const track = document.querySelector('#seat-opponent-top .manual-opp-mana-track');
+    if (!track) return;
+    const tiles = [...track.children];
+    for (const tile of tiles) {
+        tile.style.marginLeft = '';
+        tile.style.zIndex = '';
+    }
+    if (tiles.length <= 1) return;
+    const trackWidth = track.clientWidth;
+    const tileWidth = 40;
+    const minExposure = 14;
+    const naturalWidth = tiles.length * tileWidth;
+    if (naturalWidth <= trackWidth) return;
+    const maxOverlap = tileWidth - minExposure;
+    const perTileOverlap =
+        Math.min(maxOverlap, (naturalWidth - trackWidth) / (tiles.length - 1));
+    tiles.forEach((tile, i) => {
+        if (i > 0) tile.style.marginLeft = `-${perTileOverlap}px`;
+        tile.style.zIndex = String(i + 1);
+    });
 }
 
 /** 相手のミニオン行(上段)。★席は seatOf が決める。'B' をリテラルで書かない */
@@ -644,6 +988,7 @@ function renderOpponentMinions(view) {
     fieldRow.dataset.zone = 'FIELD';
     renderStackRow(fieldRow, seat, 'FIELD', 6); // ★2-9: 7→6
     el.appendChild(fieldRow);
+    registerZoneAnchor(fieldRow, seat.id, 'FIELD');
 }
 
 /** 自分のミニオン行(下段) */
@@ -657,6 +1002,7 @@ function renderSelfMinions(view) {
     fieldRow.dataset.zone = 'FIELD';
     renderStackRow(fieldRow, seat, 'FIELD', 6); // ★2-9: 7→6
     el.appendChild(fieldRow);
+    registerZoneAnchor(fieldRow, seat.id, 'FIELD');
 }
 
 /** ゾーン1つぶんのタイル列を描画する。最小枠数(minSlots)まで空き枠を用意する */
@@ -729,6 +1075,8 @@ function createCenterHalf(zoneName, cards) {
     }
 
     registerDropTarget(half, null, zoneName);
+    // ★共有ゾーンは席を持たない(20b 3-1)。アンカーの鍵も席 null で登録する
+    registerZoneAnchor(half, null, zoneName);
     return half;
 }
 
@@ -783,6 +1131,7 @@ function renderPiles(view) {
             seat.id, zoneName, seat.zones[zoneName] || [], view.backImageId);
         pile.style.gridArea = PILE_PLACEMENT[zoneName];
         el.appendChild(pile);
+        registerZoneAnchor(pile, seat.id, zoneName);
     }
 }
 
@@ -833,8 +1182,26 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     registerDropTarget(box, seatId, zoneName);
 
     if (zoneName === 'DECK') {
-        box.addEventListener('click', () => send('draw', { seat: seatId, count: 1 }));
-        box.addEventListener('contextmenu', (e) => { e.preventDefault(); openDeckFullscreen(seatId); });
+        // ★21c 3-5: 中身が届いていない席のパイルは操作できない。
+        //   下段は「自席」だが、公開のみ視点の観戦者にとっては両席とも非公開である。
+        //   相手上段のチップと同じ反応(明滅+トースト)に揃える
+        box.addEventListener('click', () => {
+            if (!isZoneVisible(seatOf(latestView, seatId), 'DECK')) {
+                flashDenied(box);
+                showToast('山札は非公開');
+                return;
+            }
+            send('draw', { seat: seatId, count: 1 });
+        });
+        box.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            if (!isZoneVisible(seatOf(latestView, seatId), 'DECK')) {
+                flashDenied(box);
+                showToast('山札は非公開');
+                return;
+            }
+            openDeckFullscreen(seatId);
+        });
         box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示 / ドラッグ: 一番上の1枚を移動';
 
         // ★20a 2-1: 山札の一番上の1枚をドラッグの起点にする(A1)。
@@ -890,7 +1257,9 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     } else {
         // ★18c: 左クリックで帯を開く(4-6)。最上段の拡大は右クリックへ寄せた
         // (場のカードの右クリック規約と揃える。マスター確認済み)。
-        box.addEventListener('click', () => openZoneBand(seatId, zoneName));
+        // ★21c 3-5: 中身が届いていないゾーンでは空の帯を開かず「非公開」を返す
+        box.addEventListener('click',
+            () => openZoneOrDeny(box, seatOf(latestView, seatId), zoneName));
         box.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             if (pile.length > 0) {
@@ -931,6 +1300,7 @@ function renderManaRow(view) {
     wrap.appendChild(createManaStrip(`裏 (${faceDownCount})`, faceDownCards, seat.id, true));
 
     el.appendChild(wrap);
+    registerZoneAnchor(wrap, seat.id, 'MANA');
 
     for (const card of manaCards) {
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
@@ -1040,6 +1410,7 @@ function renderHand(view) {
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'HAND' });
     }
     registerDropTarget(row, seat.id, 'HAND');
+    registerZoneAnchor(row, seat.id, 'HAND');
     el.appendChild(row);
     // ★実測幅で決めるため、DOMに載せてから最後に適用する(マナの重ね表示と同じ手順)
     fitCardWidths(row, handCardMaxWidth(), 8);
@@ -1255,6 +1626,10 @@ function createLeaderTile(seat) {
     tile.dataset.seat = seat.id;
     tile.dataset.zone = 'WEAPON';
     registerDropTarget(tile, seat.id, 'WEAPON');
+    // ★21c 7-1: 合体タイルは WEAPON とリーダー(zone == null)の両方のアンカーである。
+    //   サーバは「リーダー」を zone == null で表す(ManualLogPlace の javadoc)
+    registerZoneAnchor(tile, seat.id, 'WEAPON');
+    registerZoneAnchor(tile, seat.id, null);
     if (!seat.leader) {
         tile.textContent = '(未読込)';
         appendWeaponMini(tile, seat);
@@ -1508,12 +1883,17 @@ function onDragStart(e, card, seatId, zone) {
     e.dataTransfer.setData('text/plain', JSON.stringify({ cardIds: ids, seatId, zone }));
     e.dataTransfer.effectAllowed = 'move';
 
+    // ★21c 7-2: ドラッグの開始を相手・観戦者へ知らせる(揮発)
+    sendDragCueStart(card.instanceId);
+
     const timer = setTimeout(() => {
         document.body.classList.add('manual-drag-active');
     }, 0);
     document.addEventListener('dragend', () => {
         clearTimeout(timer);
         document.body.classList.remove('manual-drag-active');
+        // ★drop の後にも dragend は必ず来る。消去をここ1箇所に集約する(7-2)
+        sendDragCueEnd();
     }, { once: true });
 }
 
@@ -1532,6 +1912,9 @@ function registerDropTarget(el, seatId, zoneName, toIndex, faceDown, targetCard)
     el.addEventListener('dragover', (e) => {
         e.preventDefault();
         el.classList.add('manual-drop-hover');
+        // ★21c 7-2: ホバー先が変わったときだけ送る(100msスロットルは送信側が持つ)。
+        //   dragover は毎フレーム飛ぶため、ここで間引かないと通信量が跳ね上がる
+        sendDragCueHover(seatId === undefined ? null : seatId, zoneName);
     });
     el.addEventListener('dragleave', () => {
         el.classList.remove('manual-drop-hover', 'manual-drop-reject');
@@ -1581,6 +1964,236 @@ function registerDropTarget(el, seatId, zoneName, toIndex, faceDown, targetCard)
         });
         selected.clear();
     });
+}
+
+// ---------------------------------------------------------------
+// 8-2) ドラッグ軌跡の矢印(★Batch 21c。設計書 7章)
+// ---------------------------------------------------------------
+//
+// ★★画素座標を中継しない(7-1)。ウィンドウ幅・カードの伸縮(20c)・上下反転(3-2)で
+//   座標系は閲覧者ごとに違う。送るのは「ドラッグ元のゾーン+カード」と
+//   「ホバー中のドロップ先ゾーン」という<b>論理アンカー</b>だけであり、
+//   受信側が自分のレイアウト上の要素を引いて、その中心同士を結ぶ。
+//
+// ★★ログ・履歴・Undo に一切触れない揮発経路である(7-2)。
+//   ドラッグ中の動きは「起きたこと」ではない。途中で手を離せば何も起きていない。
+//
+// ★視点フィルタはサーバの責務である(7-3)。見えないカードの識別子は
+//   そもそも届かず、そのとき矢印の根はゾーンのアンカーになる。
+//   クライアントに「受け取ったけど描かない」を任せると DevTools で中身が読める。
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** ホバー先の送信間隔(7-2)。 */
+const CUE_THROTTLE_MS = 100;
+
+/** 消し損ね対策の自動消去(7-2)。最終更新からこの時間で消す。 */
+const CUE_TTL_MS = 5000;
+
+/** 表示中の矢印。鍵は掴んでいる人の席(同時に2人が掴んでも混ざらない) */
+const dragCues = new Map();
+
+let cueDragCardId = null;
+let cueDragging = false;
+let cueHoverKey = null;
+let cueHoverTimer = null;
+let cueLastSentAt = 0;
+let cueHighlighted = [];
+
+/** ゾーン → アンカー要素の対応表の鍵。★共有ゾーンは席 null、リーダーはゾーン null である */
+function anchorKey(seatId, zoneName) {
+    return `${seatId || '-'}|${zoneName || 'LEADER'}`;
+}
+
+/**
+ * アンカーを登録する(★7-1 の「ゾーンとアンカー要素の対応表」)。
+ * ★描画関数が自分の作った要素をその場で登録する形にしてある。
+ * 別途セレクタの一覧を持つと、レイアウトを変えたときに片方だけ直して壊れる。
+ * 4章の相手上段の再構成で全ゾーンが要素を持つようになったため、
+ * どの閲覧者の画面でも必ず引ける。
+ */
+function registerZoneAnchor(el, seatId, zoneName) {
+    zoneAnchors.set(anchorKey(seatId, zoneName), el);
+}
+
+function anchorElement(place) {
+    if (!place) return null;
+    return zoneAnchors.get(anchorKey(place.seatId, place.zone)) || null;
+}
+
+// ---- 送信 ----
+
+function sendDragCueStart(cardId) {
+    cueDragging = true;
+    cueDragCardId = cardId;
+    cueHoverKey = null;
+    cueLastSentAt = Date.now();
+    send('dragcue', { cardId, toSeat: null, toZone: null, active: true });
+}
+
+function sendDragCueHover(seatId, zoneName) {
+    if (!cueDragging) return;
+    const key = anchorKey(seatId, zoneName);
+    if (key === cueHoverKey) return;
+    cueHoverKey = key;
+    if (cueHoverTimer !== null) {
+        clearTimeout(cueHoverTimer);
+    }
+    // ★スロットル。直前の送信から 100ms 経っていれば即送り、経っていなければ待つ
+    const wait = Math.max(0, CUE_THROTTLE_MS - (Date.now() - cueLastSentAt));
+    cueHoverTimer = setTimeout(() => {
+        cueHoverTimer = null;
+        if (!cueDragging) return;
+        cueLastSentAt = Date.now();
+        send('dragcue', {
+            cardId: cueDragCardId, toSeat: seatId, toZone: zoneName, active: true,
+        });
+    }, wait);
+}
+
+function sendDragCueEnd() {
+    if (!cueDragging) return;
+    cueDragging = false;
+    cueDragCardId = null;
+    cueHoverKey = null;
+    if (cueHoverTimer !== null) {
+        clearTimeout(cueHoverTimer);
+        cueHoverTimer = null;
+    }
+    send('dragcue', { cardId: null, toSeat: null, toZone: null, active: false });
+}
+
+// ---- 受信・描画 ----
+
+/** サーバから届いた矢印1本を反映する。★盤面の再描画は起こさない(7-2) */
+function applyDragCue(cue) {
+    if (!cue) return;
+    const key = cue.actorSeat || '-';
+    if (cue.active) {
+        dragCues.set(key, { cue, at: Date.now() });
+    } else {
+        dragCues.delete(key);
+    }
+    renderDragCues();
+}
+
+/** 消し損ね対策(7-2)。切断・タブ閉じで active:false が届かなくても必ず消える */
+setInterval(() => {
+    if (dragCues.size === 0) return;
+    const now = Date.now();
+    let changed = false;
+    for (const [key, entry] of [...dragCues]) {
+        if (now - entry.at > CUE_TTL_MS) {
+            dragCues.delete(key);
+            changed = true;
+        }
+    }
+    if (changed) renderDragCues();
+}, 1000);
+
+function cueLayer() {
+    let svg = document.getElementById('manual-cue-layer');
+    if (svg) return svg;
+    svg = document.createElementNS(SVG_NS, 'svg');
+    svg.id = 'manual-cue-layer';
+    svg.setAttribute('class', 'manual-cue-layer');
+    const defs = document.createElementNS(SVG_NS, 'defs');
+    const marker = document.createElementNS(SVG_NS, 'marker');
+    marker.setAttribute('id', 'manual-cue-head');
+    marker.setAttribute('viewBox', '0 0 10 10');
+    marker.setAttribute('refX', '9');
+    marker.setAttribute('refY', '5');
+    marker.setAttribute('markerWidth', '6');
+    marker.setAttribute('markerHeight', '6');
+    marker.setAttribute('orient', 'auto-start-reverse');
+    const head = document.createElementNS(SVG_NS, 'path');
+    head.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+    head.setAttribute('fill', '#ffca28');
+    marker.appendChild(head);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+    document.body.appendChild(svg);
+    return svg;
+}
+
+function centerOf(el) {
+    const rect = el.getBoundingClientRect();
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+}
+
+/**
+ * 矢印の根になる要素。
+ * ★カード識別子が届いていればその1枚を、届いていなければゾーンのアンカーを使う(7-3)。
+ * 届かないのは「その閲覧者に見えないカード」のときであり、
+ * 根がゾーン全体になることで<b>どの1枚かは漏れない</b>。
+ */
+function cueSourceElement(cue) {
+    if (cue.cardId) {
+        const el = document.querySelector(`[data-instance-id="${cue.cardId}"]`);
+        if (el) return el;
+    }
+    return anchorElement(cue.from);
+}
+
+function renderDragCues() {
+    for (const el of cueHighlighted) {
+        el.classList.remove('manual-cue-from', 'manual-cue-to');
+    }
+    cueHighlighted = [];
+    const svg = cueLayer();
+    for (const node of [...svg.querySelectorAll('.manual-cue-line')]) {
+        node.remove();
+    }
+    if (dragCues.size === 0) {
+        svg.classList.add('d-none');
+        return;
+    }
+    svg.classList.remove('d-none');
+    svg.setAttribute('width', window.innerWidth);
+    svg.setAttribute('height', window.innerHeight);
+    svg.setAttribute('viewBox', `0 0 ${window.innerWidth} ${window.innerHeight}`);
+    for (const entry of dragCues.values()) {
+        drawDragCue(svg, entry.cue);
+    }
+}
+
+/**
+ * 矢印1本。★根と先を軽くハイライトし、その中心同士を半透明の線で結ぶ(7-4)。
+ * ドロップ先がまだ決まっていない(どこにも重なっていない)ときは、
+ * 根のハイライトだけを出す。線を引く先が無いためである。
+ */
+function drawDragCue(svg, cue) {
+    const fromEl = cueSourceElement(cue);
+    if (!fromEl) return;
+    fromEl.classList.add('manual-cue-from');
+    cueHighlighted.push(fromEl);
+
+    const toEl = anchorElement(cue.to);
+    if (!toEl) return;
+    toEl.classList.add('manual-cue-to');
+    cueHighlighted.push(toEl);
+
+    const a = centerOf(fromEl);
+    const b = centerOf(toEl);
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('class', 'manual-cue-line');
+    line.setAttribute('x1', a.x);
+    line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x);
+    line.setAttribute('y2', b.y);
+    line.setAttribute('marker-end', 'url(#manual-cue-head)');
+    line.dataset.actor = cue.actorSeat || '';
+    svg.appendChild(line);
+
+    // ★誰が動かしているかを添える。3人以上いる部屋で矢印が2本出たときに見分けられる
+    if (cue.actorName) {
+        const text = document.createElementNS(SVG_NS, 'text');
+        text.setAttribute('class', 'manual-cue-line manual-cue-label');
+        text.setAttribute('x', (a.x + b.x) / 2);
+        text.setAttribute('y', (a.y + b.y) / 2 - 4);
+        text.textContent = cue.actorName;
+        svg.appendChild(text);
+    }
 }
 
 // ---------------------------------------------------------------
@@ -1851,6 +2464,35 @@ document.getElementById('btn-seat').addEventListener('click', () => {
     send('seat', { seat: null });
     forgetOccupant();
     location.href = '/';
+});
+
+/**
+ * 観戦の視点切替(★21c 3-2)。★サーバへ送る。
+ * サーバが以後のビューとログのフィルタを変え、その時点の全文を送り直す(5-5)。
+ * クライアントは結果のビューを描くだけであり、自分では何も隠さない。
+ */
+document.getElementById('btn-spectator-view').addEventListener('click', () => {
+    if (!latestView) return;
+    const current = latestView.spectatorView || 'PUBLIC_ONLY';
+    send('viewpoint', { spectatorView: current === 'ALL' ? 'PUBLIC_ONLY' : 'ALL' });
+});
+
+/**
+ * 上下反転(★21c 3-2)。★サーバへは送らない。
+ * どちらの席を下に置くかは見る側の都合であり、盤面の事実ではない(10章)。
+ * 反映は `bottomSeatId()` が1つ条件を見るだけで済む。
+ */
+document.getElementById('btn-flip').addEventListener('click', () => {
+    boardFlipped = !boardFlipped;
+    if (latestView) renderAll(latestView);
+});
+
+/**
+ * 先攻選択権(★21c 6-3・E4)。★盤面には触らず、結果はログにだけ残る。
+ * サーバがダイスを振る(総合ルール 2-5)。どちらの席でも押せるため席を送らない。
+ */
+document.getElementById('btn-first-player').addEventListener('click', () => {
+    send('first-player', {});
 });
 
 // 在室者ポップオーバー(2-3)。チップ列のクリックで開閉する

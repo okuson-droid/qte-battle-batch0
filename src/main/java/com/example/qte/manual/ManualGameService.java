@@ -146,4 +146,17 @@ public class ManualGameService {
     public void shuffleDeck(ManualSeat seat) {
         Collections.shuffle(seat.zone(ManualZone.DECK), random);
     }
+
+    /**
+     * ダイスを1つ振る(総合ルール 2-5 の先後判定 / 21 設計書 6-3・E4)。
+     *
+     * ★<b>乱数の出所をこのクラス1つに保つ</b>ためにここへ置いた。
+     * 呼び出し側({@code ManualOperationService.firstPlayer})に
+     * {@code Random} をもう1つ持たせると、乱数源が2箇所に分かれる。
+     * 「機械のほうが公平である」というシャッフルの理由がそのまま当てはまる処理であり、
+     * 同じ場所に置くのが素直である。★盤面には一切触らない。
+     */
+    public int rollDie(int sides) {
+        return random.nextInt(sides) + 1;
+    }
 }

@@ -383,3 +383,83 @@ body.manual-drag-active .manual-band {
     padding: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 .manual-occupant-popover td { padding: 2px 6px; }
+
+/* =========================================================================
+   ★Batch 21c: 盤面の仕上げ(相手上段の再構成・非公開フィードバック・矢印)
+   すべて手動モード専用の新規クラスである。通常モードと共有している
+   .leader-card / .minion-row / .mana-chip / .mana-row の定義には触れていない。
+   ========================================================================= */
+
+/* ---- 相手上段(設計書4章)----
+   ★行の高さを決めているのはリーダータイル(120px)であり、ここで足す要素は
+   すべてそれより低い。相手上段が 148px を超えないのはそのためである。
+   マナは flex-grow で余った幅を吸い、チップ列とリーダーを右へ押す。 */
+.manual-opp-mana {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+    border: 1px dashed #495057; border-radius: 4px; padding: 2px 4px; box-sizing: border-box;
+}
+.manual-opp-mana-track { display: flex; align-items: flex-end; min-height: 58px; }
+.manual-opp-label {
+    font-size: 10px; color: #adb5bd; line-height: 1.2; white-space: nowrap;
+    text-align: center;
+}
+.manual-opp-mana-label { text-align: left; }
+
+/* ★40×56。カードの縦横比(1 : 1.4)を保った最小の判読サイズである。
+   これ以上大きくすると、ラベルぶんを足したときにリーダーの120pxを超えて行が伸びる。 */
+.manual-opp-mana-card,
+.manual-opp-face {
+    position: relative; width: 40px; height: 56px; flex: 0 0 auto;
+    border-radius: 3px; overflow: hidden; border: 1px solid #495057;
+    background: rgba(255, 255, 255, 0.04);
+}
+.manual-opp-mana-card img,
+.manual-opp-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.manual-opp-mana-card { cursor: pointer; }
+/* ★タップは減光で示す(4章。マスター確認済み)。回転させると外接矩形が伸び、
+   148pxの高さ制約を角度の都合で守れなくなる。 */
+.manual-opp-tapped { filter: brightness(0.45); }
+.manual-opp-mana-back { border-style: dashed; }
+
+.manual-opp-pile {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    cursor: pointer; flex: 0 0 auto;
+}
+/* ★0枚は破線の空枠。画像が無いことと0枚であることを見分けられるようにする */
+.manual-opp-face-empty { border-style: dashed; background: transparent; }
+.manual-opp-face-blank {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-size: 8px; color: #adb5bd; padding: 2px;
+}
+.manual-opp-count {
+    position: absolute; right: 1px; bottom: 1px; min-width: 14px; text-align: center;
+    font-weight: bold; font-size: 10px; line-height: 1.3; border-radius: 3px;
+    background: rgba(0, 0, 0, 0.78); color: #f8f9fa; padding: 0 2px;
+}
+/* ★チップ列は右端のリーダーの左に寄せる(4章)。マナ側の flex-grow で押されるが、
+   マナが空でも右に付くよう margin-left: auto を明示しておく */
+.manual-opp-chips { margin-left: auto; flex: 0 0 auto; }
+.manual-opp-chip { cursor: pointer; }
+
+/* ---- 非公開のフィードバック(設計書3-5)---- */
+@keyframes manual-deny-blink {
+    0%, 100% { box-shadow: none; }
+    50% { box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.85); }
+}
+.manual-denied { animation: manual-deny-blink 0.35s ease-in-out 2; }
+.manual-toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    z-index: 1058; background: rgba(0, 0, 0, 0.85); color: #f8f9fa;
+    border: 1px solid #6c757d; border-radius: 4px; padding: 4px 12px; font-size: 13px;
+    pointer-events: none;
+}
+
+/* ---- ドラッグ軌跡の矢印(設計書7章)----
+   ★盤面の上に重なる純粋な飾りであり、当たり判定を奪ってはならない。
+   pointer-events: none を外すと、矢印が出ている間だけドロップできなくなる。
+   z-index は帯(1040)より下に置く。開いている帯を矢印が横切ると読めなくなる。 */
+.manual-cue-layer { position: fixed; inset: 0; z-index: 1035; pointer-events: none; }
+.manual-cue-line { stroke: #ffca28; stroke-width: 3; opacity: 0.65; }
+.manual-cue-label { fill: #ffca28; font-size: 11px; text-anchor: middle; stroke: none; }
+.manual-cue-from { outline: 2px dashed #ffca28; outline-offset: 1px; }
+.manual-cue-to { outline: 2px solid #ffca28; outline-offset: 1px; }

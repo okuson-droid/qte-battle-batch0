@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=18)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=19)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=10)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=11)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -51,6 +51,11 @@ html = html.replace("/*[[${defaultLabels}]]*/ []", "['凍結', '守護']")
 # Bootstrap の代替(検証で効いている必要があるのは非表示制御だけ)+ STOMP スタブ
 stub = """
 <style>
+  /* ★★Batch 21c: Bootstrap Reboot の box-sizing。これが無いと min-height / height に
+     padding と border が加算され、ハーネスだけ盤面が縦に伸びる。
+     20c の「Bootstrap 代替の漏れはハーネスでだけ壊れる」と同じ罠であり、
+     相手上段の 148px 制約(4章)を測ろうとして初めて表面化した。 */
+  *, *::before, *::after { box-sizing: border-box; }
   .d-none { display: none !important; }
   body { font-family: sans-serif; }
   .info-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000;

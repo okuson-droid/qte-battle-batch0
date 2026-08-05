@@ -55,6 +55,9 @@ public class ManualOperationService {
     /** 自由メモの最大文字数(設計書 5-5) */
     private static final int MAX_NOTE_LENGTH = 500;
 
+    /** 先攻選択権の判定に使うダイスの面数(総合ルール 2-5)。 */
+    private static final int DICE_SIDES = 6;
+
     /**
      * 表向きへ正規化するゾーン(Batch 20a 設計書 2-3・C1・C2)。
      * TABOO / DECK は正規化しない(C3)。MANA も対象外であり、
@@ -659,6 +662,36 @@ public class ManualOperationService {
         }
         return ManualLogEvent.plain(ManualLogKind.DECLARE, actor.seat(),
                 "%s%sを宣言した%s".formatted(seatText, request.declaration().getDisplayName(), note));
+    }
+
+    /**
+     * 先攻選択権の判定(21 設計書 6-3・E4)。★<b>盤面には一切触らない。</b>
+     *
+     * <h3>★これは「判断」ではない(設計書16 5-1 との関係)</h3>
+     * 手動モードはゲームの裁定を実装しない。ここで行うのは総合ルール 2-5 の
+     * 「ダイスを振り、出目の高い側が先攻/後攻を選択する」のうち<b>ダイスを振る部分だけ</b>で
+     * あり、選んだ結果を盤面へ反映することもターンを進めることもしない。
+     * 出目が公平であることを両者に保証するのが役割であって、ルールの適用ではない。
+     *
+     * <h3>★同値は振り直す</h3>
+     * 引き分けを表示して「もう一度押してください」と促すこともできるが、
+     * 押し直しの回数だけログが伸びる。決まるまで振るのが1回の操作として自然である。
+     *
+     * <h3>★どちらの席でも押せる(6-3)</h3>
+     * 結果が席の持ち物ではないため {@code denySeatAction} ではなく
+     * {@code denyOperate} で判定する。観戦者は押せない。
+     */
+    public ManualLogEvent firstPlayer(ManualActor actor) {
+        ManualPermissions.require(ManualPermissions.denyOperate(actor));
+        int a;
+        int b;
+        do {
+            a = gameService.rollDie(DICE_SIDES);
+            b = gameService.rollDie(DICE_SIDES);
+        } while (a == b);
+        ManualSeatId winner = a > b ? ManualSeatId.A : ManualSeatId.B;
+        return ManualLogEvent.plain(ManualLogKind.FIRST_PLAYER, actor.seat(),
+                "先攻選択権の判定: 席A %d / 席B %d → 席%s が先攻・後攻を選ぶ".formatted(a, b, winner));
     }
 
     /**
