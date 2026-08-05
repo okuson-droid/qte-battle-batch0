@@ -32,11 +32,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=15)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=16)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=7)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=8)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -54,12 +54,24 @@ stub = """
   .info-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000;
                 display: flex; align-items: center; justify-content: center; }
   .info-modal-body { background: #222; padding: 16px; border-radius: 6px; }
+  /* ★Bootstrap の代替。ここに漏れがあると「ハーネスでだけ壊れる」ため、
+     テンプレートで使っているユーティリティは必ず足すこと(20cで flex-column の
+     欠落によりログ幅が16pxになり、実態とズレた検証をしかけた)。 */
+  .container-fluid { width: 100%; box-sizing: border-box; }
   .d-flex { display: flex; } .flex-wrap { flex-wrap: wrap; }
+  .flex-column { flex-direction: column; }
   .ms-auto { margin-left: auto; } .gap-1 { gap: 4px; } .gap-2 { gap: 8px; }
-  .align-items-center { align-items: center; }
+  .align-items-center { align-items: center; } .align-items-end { align-items: flex-end; }
   .justify-content-between { justify-content: space-between; }
-  .mb-1 { margin-bottom: 4px; } .mb-2 { margin-bottom: 8px; } .p-2 { padding: 8px; }
-  .w-100 { width: 100%; } .py-2 { padding: 8px 0; }
+  .justify-content-end { justify-content: flex-end; }
+  .justify-content-center { justify-content: center; }
+  .mb-0 { margin-bottom: 0; } .mb-1 { margin-bottom: 4px; } .mb-2 { margin-bottom: 8px; }
+  .mt-1 { margin-top: 4px; } .mt-2 { margin-top: 8px; }
+  .p-2 { padding: 8px; } .py-1 { padding-top: 4px; padding-bottom: 4px; }
+  .py-2 { padding: 8px 0; } .px-2 { padding-left: 8px; padding-right: 8px; }
+  .w-100 { width: 100%; } .small { font-size: 0.875em; }
+  .btn-group { display: inline-flex; }
+  .form-control { width: 100%; box-sizing: border-box; }
 </style>
 <script>
   window.__sent = [];

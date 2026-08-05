@@ -11,7 +11,8 @@ const server=http.createServer((req,res)=>{const u=req.url.split('?')[0];
 server.listen(0,async()=>{
  const port=server.address().port;
  const b=await chromium.launch();
- const p=await b.newPage({viewport:{width:1280,height:950}});
+ const W=parseInt(process.env.W||'1280',10), H=parseInt(process.env.H||'950',10);
+ const p=await b.newPage({viewport:{width:W,height:H}});
  await p.goto(`http://127.0.0.1:${port}/harness.html`);await p.waitForTimeout(200);
  const v=baseView();
  v.shared.PLAY=[card('p1','プレイ中の札')];
@@ -22,5 +23,5 @@ server.listen(0,async()=>{
  v.seatB.zones.FIELD=[card('bf1','相手の場')];
  await p.evaluate((view)=>{window.latestView=view;renderAll(view);},v);
  await p.waitForTimeout(300);
- await p.screenshot({path:'verify/layout.png',fullPage:false});
+ await p.screenshot({path:process.env.OUT||'verify/layout.png',fullPage:false});
  await b.close();server.close();console.log('shot ok');});

@@ -1,6 +1,8 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-05(Batch 20b 完了。次はフェーズ2 UI詰め、またはVer.0.4対応 15c)
+最終更新: 2026-08-05(Batch 20b + 20c 完了。次はフェーズ2 UI詰め、またはVer.0.4対応 15c)
+**★20b と 20c は同じ土台(batch20a)からの連続した変更であり、1つのzipで納品している。
+分けて適用しないこと。**
 **★手動モード フェーズ1(一人回し)は19aで完成済み。19b・20aで操作性を改善し、
 20bで盤面レイアウトを再設計して共有ゾーンを導入した。**
 
@@ -13,7 +15,7 @@
 
 | 系統 | 前提ドキュメント |
 |---|---|
-| **手動モード**(17a〜20b・フェーズ1完成) | `batch16-manual-mode-design-v2_4.md`(唯一の正)+ `notes/batch20b-ui-design.md`(20bの唯一の正)+ `notes/batch20b-design-notes.md` + `notes/batch20a-design.md` + `notes/batch19b-ui-design.md` |
+| **手動モード**(17a〜20c・フェーズ1完成) | `batch16-manual-mode-design-v2_4.md`(唯一の正)+ `notes/batch20b-ui-design.md`(20bの唯一の正)+ `notes/batch20b-design-notes.md` + `notes/batch20c-design-notes.md` + `notes/batch20a-design.md` |
 | **Ver.0.4 対応**(15c/15d/15e) | `notes/ver0.4-transcription-notes.md` + `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` |
 
 ---
@@ -61,14 +63,31 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
   `if (z.isShared()) continue;` で席から共有ゾーンを除いていること。
 - `manual-battle.html` に `#center-line` / `#pile-grid` / `#weapon-modal` があり、
   `#seat-self-leader-row` と ターン/フェイズ行が**無い**こと。
-  `manual-battle.js(v=7)` / `battle.css(v=15)` を参照していること。
+  `manual-battle.js(v=8)` / `battle.css(v=16)` を参照していること(★20cで v=7/v=15 から更新)。
 - `manual-battle.js` に `renderCenterLine` / `renderPiles` / `appendWeaponMini` /
   `openWeaponModal` があり、`renderLeaderRow` と `flashReject` と `PHASE_LABELS` が
   **存在しない**こと。
 - `registerDropTarget` から `zoneName === 'WEAPON' && targetCard` の拒否分岐が
   **消えている**こと(装備済みでも落とせる)。
 - `verify/` 一式(`build_harness.py` / `fixture.js` / `verify.js` / `shot.js`)があること。
-  `node verify/verify.js` が 33/33 パスすること。
+  `node verify/verify.js` が **36/36** パスすること。
+
+## 20cの確認項目(20bと同時に照合すること)
+
+- `manual-battle.html` の `#manual-root` に `max-width` が**無い**こと。中央列が
+  `flex:1 1 0; min-width:0`、右列が `width:400px` であること。
+- 右列の先頭が `[#zoom-panel][ログ列]` の横並びであり、ログ列に**高さの固定が無い**こと
+  (固定すると `log-box` が押し縮められ、クリック拡張が効かなくなる)。
+- `battle.css` に `.manual-minion-row > .manual-tile` の
+  `flex: 1 1 0; max-width: min(180px, 16vh)` があること。★上限が固定pxに戻っていないこと
+  (固定pxだとワイド画面で中央に死に幅が出る)。
+- `manual-battle.js` に `fitCardWidths` / `handCardMaxWidth` / `centerCardMaxWidth` があり、
+  `createHandCard` が `width === null` を許すこと。
+- `renderManaRow` にリーダータイルの生成が**無く**、`renderPiles` の末尾に
+  `.manual-leader-slot` を追加していること。
+- `window.addEventListener('resize', ...)` によるデバウンス再描画があること。
+- `build_harness.py` の Bootstrap 代替に `.flex-column` が含まれること
+  (20cでこれが無くハーネスだけ壊れた)。
 
 ---
 
@@ -82,6 +101,7 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 | ~~19b~~〜~~19b hotfix2~~ | b系/修正 | 盤面レイアウト再設計・ドラッグ不具合修正 | 完了 |
 | ~~20a~~ | a系 | 山札からの直接移動・裏向きの正規化・LP増減UI | 完了 |
 | ~~20b~~ | a系 | 盤面レイアウト再設計v2・新ゾーン・共有ゾーン | **完了** |
+| ~~20c~~ | b系 | 全幅レイアウトへの再構成(Javaは無変更) | **完了** |
 
 ### ★次の作業はフェーズ2 UI詰め、またはVer.0.4対応のどちらか
 
@@ -145,7 +165,19 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
 - **実装済み文明リストの唯一の正は `DeckValidator.IMPLEMENTED`。** 手動モードはこの判定を
   一切使わない。
 - **静的ファイルを変更したらキャッシュバスティングのバージョンをインクリメントする。**
-  20bでは `manual-battle.js`(v=6→v=7)と `battle.css`(v=14→v=15)の両方を上げた。
+  20bで v=7 / v=15、20cで **v=8 / v=16** まで上げてある。
+- **★★カードの大きさの上限は「幅」ではなく「画面の高さ」から決める(20c)。**
+  カードは縦長であり、幅を広げるとそのぶん確実に縦を食う。横幅追従の構成では、
+  固定pxの上限を置くと「横に広いが縦が短い画面」で手札が画面外へ落ちる。
+  ミニオンは `max-width: min(180px, 16vh)`、手札は `window.innerHeight * 0.105` で決めている。
+- **★★flex アイテムの既定は `min-width: auto` であり、内容の最小幅より縮まない。**
+  可変幅の列には必ず `min-width: 0` を書くこと。無いと固定幅の隣の列が画面外へ押し出される。
+- **★★flex の親に高さを固定すると、中身の height 指定は効かなくなる(20c)。**
+  ログを包む列に `height:286px` を置いたところ、`log-box` が押し縮められて
+  クリック拡張が一切効かなくなった。伸縮させたい子を持つ親の高さは固定しない。
+- **★★検証ハーネスの Bootstrap 代替に漏れがあると「ハーネスでだけ壊れる」(20c)。**
+  `.flex-column` が無く、ログ幅が16pxとして測定された。テンプレートで使った
+  ユーティリティクラスは `build_harness.py` の代替にも必ず足すこと。
 - **カード登録は card ID が `qte-cards.json` に実在するか必ず照合する。**
 - **手動モードのカードIDを Java にリテラルで書かない。**
 - **★テストコードは機械チェックの網の外にある。** `tools/check_structure.py` は
@@ -209,7 +241,8 @@ QTE Battle の開発を継続する。以下の手順で作業を始めてほし
 2. プロジェクトナレッジ内の `qte-handoff-v22.md` を読む
    (直近の状態・次の作業・既知の落とし穴)。
 3. [フェーズ2 UI詰めなら] `batch16-manual-mode-design-v2_4.md` 11章 +
-   `notes/batch20b-ui-design.md` 6-1 + `notes/batch20b-design-notes.md` を読む。
+   `notes/batch20b-ui-design.md` 6-1 + `notes/batch20b-design-notes.md` +
+   `notes/batch20c-design-notes.md` を読む。
    [Ver.0.4対応 15cなら] `notes/ver0.4-transcription-notes.md` +
    `notes/batch15a-design-notes.md` + `notes/batch15b-design-notes.md` を読む。
 4. ソースコードを取得する(zipのアップロードは不要)。
@@ -217,8 +250,8 @@ QTE Battle の開発を継続する。以下の手順で作業を始めてほし
 
 git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 
-5. ★取得したコードで Batch 20b が反映されているかを確認し、結果を報告すること。
-   「反映済み」という記述を信じないこと。「20bの確認項目」(本ファイル0章)を
+5. ★取得したコードで Batch 20b と 20c が反映されているかを確認し、結果を報告すること。
+   「反映済み」という記述を信じないこと。「20b/20cの確認項目」(本ファイル0章)を
    実際に読んで照合する。
 
 判断に迷う点や確認したいことはまとめて質問すること。1つずつ聞かない。
@@ -252,12 +285,15 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 
 ---
 
-## 7. 20b 完了時点の積み残し
+## 7. 20b / 20c 完了時点の積み残し
 
 - **`mvn test` が未実行である**(サンドボックスから Maven Central へ到達できないため)。
   追加した8件のテストを含め、手元で必ず走らせること。
 - `ManualRoomManager#removeRoom` の呼び出し元が無い(19a からの持ち越し)。
 - `PRIVATE` の公開範囲(相手には枚数のみ)は未実装。ゾーンフィルタの責務であり、
   フェーズ2で扱う。
-- 拡大画像パネルは 204px 幅のまま(右列は 288px へ拡幅した)。右に余白が出る。
-  設計書1-3が「従来どおり」としているため変えていない。気になれば次バッチで詰める。
+- 拡大画像パネルは 204px 幅のまま(右列は 400px)。もう少し大きくできる。
+- 超ワイド画面(1920以上)では、相手上段のチップ列(左端)とリーダー(右端)が大きく離れる。
+  左寄せに変える選択肢がある(20c 5章)。
+- 超ワイド画面ではミニオン行が上限で頭打ちになり、中央列に余りが出る(1920で約240px)。
+  中央寄せにして意図した配置に見えるようにしてあるが、詰めるなら次バッチで。

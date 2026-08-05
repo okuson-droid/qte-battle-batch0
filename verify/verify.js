@@ -136,7 +136,8 @@ async function clearSent(page) {
   view2.shared.PLAY = [card('h1', '手札1')];
   await render(page, view2);
   const playBox1 = await page.locator('.manual-center-half[data-zone="PLAY"]').boundingBox();
-  check('カードが入るとセンターラインが約130pxへ自動展開', playBox1.height >= 120,
+  // ★20c: カード幅の上限を72pxへ下げたため、展開時の高さも130→112pxになった
+  check('カードが入るとセンターラインが自動展開する', playBox1.height >= 105,
     `h=${playBox1.height}`);
   // ★空の側は展開状態(manual-center-open)にならない。ただし高さは相方に合わせて伸びる。
   //   センターラインは1本の帯であり、片側だけ24pxで浮くと帯として読めなくなるためである。
@@ -163,7 +164,7 @@ async function clearSent(page) {
 
   // ---- 6. リーダータイルへのドロップ = 装備 ----
   await clearSent(page);
-  await realDrag(page, '.hand-row .manual-hand-card', '#seat-self-mana-row .manual-leader-tile');
+  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-leader-tile');
   msgs = await sent(page);
   const equip = msgs.find((m) => m.destination.endsWith('/move'));
   check('リーダータイルへ落とすと WEAPON への move になる',
@@ -177,9 +178,9 @@ async function clearSent(page) {
   view3.seatA.zones.WEAPON = [card('w1', '装備中の武器', { type: 'WEAPON', hp: null, printedHp: null })];
   await render(page, view3);
   check('装備中はリーダータイル右下にミニタイルが出る',
-    (await page.locator('#seat-self-mana-row .manual-weapon-mini').count()) === 1);
+    (await page.locator('#pile-grid .manual-weapon-mini').count()) === 1);
   await clearSent(page);
-  await realDrag(page, '.hand-row .manual-hand-card', '#seat-self-mana-row .manual-leader-tile',
+  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-leader-tile',
     { tx: 20, ty: 20 });
   msgs = await sent(page);
   check('装備済みでもドロップが受け付けられる',
@@ -187,7 +188,7 @@ async function clearSent(page) {
     JSON.stringify(msgs));
 
   // ---- 8. ウェポンのミニタイル: ダブルクリックで操作モーダル ----
-  await page.locator('#seat-self-mana-row .manual-weapon-mini').dblclick();
+  await page.locator('#pile-grid .manual-weapon-mini').dblclick();
   await page.waitForTimeout(60);
   check('ミニタイルのダブルクリックでウェポン操作モーダルが開く',
     !(await page.locator('#weapon-modal').getAttribute('class')).includes('d-none'));
@@ -201,8 +202,10 @@ async function clearSent(page) {
 
   // ---- 9. 右列パイル: 山札ドラッグ(20a の回帰確認) ----
   await render(page, baseView());
-  check('右列に5つのパイルがある',
-    (await page.locator('#pile-grid .manual-pile').count()) === 5);
+  // ★20c: 自分のリーダー枠(.manual-leader-slot)も .manual-pile を共有するため6になる
+  check('右列に5つのパイル+リーダー枠がある',
+    (await page.locator('#pile-grid .manual-pile').count()) === 6
+      && (await page.locator('#pile-grid .manual-leader-slot').count()) === 1);
   check('パイルにカード画像が敷かれている',
     (await page.locator('#pile-grid .manual-pile-face img').count()) >= 3);
   await clearSent(page);
@@ -252,18 +255,32 @@ async function clearSent(page) {
     (await page.locator('#seat-opponent-top .manual-leader-tile').count()) === 1);
 
   // ---- 14. ログの折りたたみ ----
+  // ★20c: ログは拡大画像の右横にあり、既定で拡大画像と高さが揃っている
+  const zoomBox = await page.locator('#zoom-panel').boundingBox();
   const logCollapsed = await page.locator('#log-box').boundingBox();
+  check('ログが拡大画像の右横にあり、十分な幅を持つ',
+    logCollapsed.x > zoomBox.x + zoomBox.width - 4
+      && Math.abs(logCollapsed.y - zoomBox.y) < 60
+      && logCollapsed.width >= 150,
+    `zoom=${JSON.stringify(zoomBox)} log=${JSON.stringify(logCollapsed)}`);
   await page.locator('#log-box').click();
   await page.waitForTimeout(60);
   const logOpen = await page.locator('#log-box').boundingBox();
   await page.locator('#log-box').click();
   await page.waitForTimeout(60);
   const logAgain = await page.locator('#log-box').boundingBox();
-  // ★height は内容領域の指定であり、boundingBox は padding(上下8px)を含む。
-  //   40px 指定 + padding = 56px が期待値である。
-  check('ログは既定で約2行、クリックで拡張し再クリックで畳む',
-    logCollapsed.height <= 60 && logOpen.height >= 300 && logAgain.height <= 60,
+  check('ログは既定で拡大画像と同程度、クリックで拡張し再クリックで畳む',
+    logCollapsed.height <= 250 && logOpen.height >= 440 && logAgain.height <= 250,
     `${logCollapsed.height} -> ${logOpen.height} -> ${logAgain.height}`);
+
+  // ---- 14-2. 横幅を使い切っていること(★20c) ----
+  const rootWidth = await page.evaluate(() =>
+    document.getElementById('manual-root').getBoundingClientRect().width);
+  check('盤面がウィンドウ幅をほぼ使い切る(左右の余白が無い)',
+    rootWidth >= 1280 - 24, `w=${rootWidth}`);
+  const minionTile = await page.locator('#seat-self-minions .tile-slot-empty').first().boundingBox();
+  check('ミニオン枠が幅に応じて広がる(110pxより大きい)',
+    minionTile.width > 110, `w=${minionTile.width}`);
 
   // ---- 15. 縦の収まり ----
   const rootBox = await page.locator('#manual-root').boundingBox();
@@ -276,7 +293,7 @@ async function clearSent(page) {
 
   // ---- 16. LPモーダル(20a回帰) ----
   await clearSent(page);
-  await page.locator('#seat-self-mana-row .manual-leader-tile .manual-tile-stats').click();
+  await page.locator('#pile-grid .manual-leader-tile .manual-tile-stats').click();
   await page.waitForTimeout(60);
   check('LP表示のクリックでLPモーダルが開く(20a回帰)',
     !(await page.locator('#lp-modal').getAttribute('class')).includes('d-none'));

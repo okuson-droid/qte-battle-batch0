@@ -115,6 +115,22 @@
     background: rgba(255, 255, 255, 0.25); border-radius: 3px; padding: 0 4px;
     font-size: 10px; cursor: pointer;
 }
+/* ★20c: ウィンドウ幅に追従する構成にしたため、ミニオンのタイルを幅に応じて伸ばす。
+   .minion-row / .manual-tile は通常モードと共有しているので定義は変えず、
+   手動モード専用の .manual-minion-row の内側だけを上書きする。
+
+   - flex: 1 1 0 で7枠(6枚+空き1)が等分に伸びる
+   - max-width で上限を掛ける。上限が無いとワイドモニタでタイルが縦にも巨大化し、
+     盤面全体が900pxに収まらなくなる(高さは幅に比例するため)
+   - nowrap にするのは、折り返して2段になるとミニオン枠の数が読めなくなるためである
+   - min-width: 0 で、狭い画面では折り返さずに縮む */
+.manual-minion-row { flex-wrap: nowrap; justify-content: center; }
+.manual-minion-row > .manual-tile,
+.manual-minion-row > .tile-slot-empty {
+    flex: 1 1 0; min-width: 0; max-width: min(180px, 16vh); width: auto;
+    height: auto; aspect-ratio: 110 / 120;
+}
+
 .manual-tile-tapped { transform: rotate(90deg); }
 .manual-tile-facedown { filter: brightness(0.5); }
 .manual-tile-selected { outline: 3px solid #ffca28; outline-offset: 1px; }
@@ -208,34 +224,43 @@
 }
 .manual-center-half.manual-center-open {
     align-items: flex-start; flex-direction: column; gap: 2px;
-    min-height: 130px; padding: 4px 6px;
+    min-height: 112px; padding: 4px 6px;
 }
 .manual-center-label { font-size: 11px; color: #adb5bd; white-space: nowrap; }
 .manual-center-row { display: flex; gap: 6px; overflow-x: auto; width: 100%; }
 
-/* ★20b 1-2の6: マナ行の右端にリーダー+ウェポン合体タイルを置く。
-   マナのストリップ側だけが伸縮する(min-width:0 が無いと flex 子が縮まない)。 */
-.manual-mana-outer { display: flex; gap: 8px; align-items: flex-start; }
-.manual-mana-left { flex: 1; min-width: 0; }
-
-/* ★20b 2-5: ログの折りたたみ。既定は直近2行ぶん。クリックで .manual-log-collapsed が外れ、
-   右列内でその場拡張する(宣言ボタン行を押し下げる)。 */
-.log-box.manual-log-collapsed { height: 40px; }
-.log-box:not(.manual-log-collapsed) { height: 340px; }
+/* ★20c: ログを拡大画像の右横へ移した。既定は拡大画像(286px)と高さを揃え、
+   クリックでさらに下方向へ拡張する(パイル行を押し下げる)。
+   20bの「直近2行だけ」は右列が224pxと細かった頃の折衷であり、横並びにできる今は
+   既定でひととおり読めるほうがよい。 */
+.log-box.manual-log-collapsed { height: 232px; }
+.log-box:not(.manual-log-collapsed) { height: 460px; }
 
 /* ★20b 2-7: ヘッダ1行。折り返しは許容するが、通常幅では1行に収まる密度にしてある。 */
 .manual-header { row-gap: 4px; }
+
+/* ★20c: 右列のパイル下段に置く「自分のリーダー」枠。
+   パイルと同じ体裁の箱に包み、カードの山とは役割が違うことをラベルで示す。 */
+/* ★リーダータイル(90px)に加えて、右下へはみ出すウェポンのミニタイルぶんの
+   逃げ(約8px)が要る。パイルと同じ90px幅にするとミニタイルが枠から溢れる。 */
+.manual-leader-slot { cursor: default; align-items: center; width: 108px; }
+.manual-leader-slot .manual-leader-tile { margin-top: 3px; }
+.manual-leader-slot .manual-pile-label { font-size: 11px; }
 
 /* ★19b: マナ行(リーダー行の直下。設計書2-3)。表(約6割)/裏(約4割)の2ストリップを横に並べる。 */
 .mana-strips { display: flex; gap: 12px; }
 .mana-strip { display: flex; flex-direction: column; }
 .mana-strip-up { flex: 6; min-width: 0; }
 .mana-strip-down { flex: 4; min-width: 0; }
-.mana-strip-label { margin-bottom: 2px; }
+/* ★20c: マナ行の縦詰め。タイル(64×88)の大きさは据え置き、
+   ラベル・padding・トラックの余白だけを削る(マスター確認済み)。
+   MP表示は「表」ラベルへ寄せたため、行見出しの1行(約20px)がまるごと消えている。 */
+.mana-strip-label { margin-bottom: 0; line-height: 1.2; }
 .mana-strip-track {
-    display: flex; align-items: flex-end; min-height: 92px;
-    border: 1px dashed #495057; border-radius: 4px; padding: 4px;
+    display: flex; align-items: flex-end; min-height: 90px;
+    border: 1px dashed #495057; border-radius: 4px; padding: 1px 3px;
 }
+#seat-self-mana-row { padding: 4px 8px !important; min-height: 0; }
 .mana-tile {
     flex: 0 0 auto; width: 64px; height: 88px; border-radius: 4px;
     background: #26a69a; border: 1px solid #80cbc4; box-sizing: border-box;

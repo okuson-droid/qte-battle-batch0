@@ -291,7 +291,9 @@ function renderOpponentMinions(view) {
     const el = document.getElementById('seat-opponent-minions');
     el.innerHTML = '';
     const fieldRow = document.createElement('div');
-    fieldRow.className = 'minion-row';
+    // ★20c: 幅に応じてタイルを伸ばす指定は手動モード専用クラスへ入れる。
+    //   .minion-row は通常モードと共有しているため定義を変えない。
+    fieldRow.className = 'minion-row manual-minion-row';
     fieldRow.dataset.seat = 'B';
     fieldRow.dataset.zone = 'FIELD';
     renderStackRow(fieldRow, view.seatB, 'FIELD', 6); // ★2-9: 7→6
@@ -303,7 +305,7 @@ function renderSelfMinions(view) {
     const el = document.getElementById('seat-self-minions');
     el.innerHTML = '';
     const fieldRow = document.createElement('div');
-    fieldRow.className = 'minion-row';
+    fieldRow.className = 'minion-row manual-minion-row';
     fieldRow.dataset.seat = 'A';
     fieldRow.dataset.zone = 'FIELD';
     renderStackRow(fieldRow, view.seatA, 'FIELD', 6); // ★2-9: 7→6
@@ -345,6 +347,10 @@ function renderCenterLine(view) {
     const shared = view.shared || {};
     el.appendChild(createCenterHalf('PLAY', shared.PLAY || []));
     el.appendChild(createCenterHalf('REVEAL', shared.REVEAL || []));
+    // ★20c: 手札と同じく実測幅で決める。DOMに載せた後でなければ行幅が取れない
+    for (const row of el.querySelectorAll('.manual-center-row')) {
+        fitCardWidths(row, centerCardMaxWidth(), 6);
+    }
 }
 
 /**
@@ -367,10 +373,8 @@ function createCenterHalf(zoneName, cards) {
     if (cards.length > 0) {
         const row = document.createElement('div');
         row.className = 'manual-center-row';
-        // 手札と同じ考え方で、溢れるときだけ幅を詰める(1枚あたり最小45px)
-        const width = cards.length > 4 ? Math.max(45, Math.floor(380 / cards.length)) : 90;
         for (const card of cards) {
-            row.appendChild(createHandCard(card, width, null, zoneName));
+            row.appendChild(createHandCard(card, null, null, zoneName));
             // ★共有ゾーンのカードは席を持たない。seatId は null で索引に入れる
             cardLocation.set(card.instanceId, { seatId: null, zone: zoneName });
         }
@@ -400,6 +404,19 @@ function renderPiles(view) {
         }
         el.appendChild(row);
     }
+
+    // ★20c: 自分のリーダー+ウェポンを下段の3セル目に添える(マスター指示)。
+    //   パイルと同じ体裁の入れ物に包み、カードの山とは役割が違うことをラベルで示す。
+    //   相手のリーダーは相手上段に残してあるため、ここに来るのは自席のぶんだけである。
+    const slot = document.createElement('div');
+    slot.className = 'manual-pile manual-leader-slot';
+    slot.appendChild(createLeaderTile(seat));
+    const label = document.createElement('div');
+    label.className = 'manual-pile-label';
+    label.textContent = '自分のリーダー';
+    slot.appendChild(label);
+    el.lastChild.appendChild(slot);
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
 }
 
 /** ★非公開ゾーンの集合(2-6)。山札・禁忌は中身ではなく裏面画像を敷く */
@@ -521,24 +538,16 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
 }
 
 /**
- * マナ行(20b 1-2 の6)。★リーダー行を廃止したため、リーダー+ウェポン合体タイルは
- * この行の右端へ移した。相手側と同じ側(右)に置く(確定事項Q4)。
+ * マナ行。
+ *
+ * ★20c: リーダー+ウェポン合体タイルを右列へ移したため、この行はマナのストリップだけになった。
+ * タイルの大きさ(64×88)は据え置きのまま、MP表示をストリップのラベル側へ寄せ、
+ * 行見出しの1行ぶんと余白を削って縦を詰めている(マスター確認済み)。
  */
 function renderManaRow(view) {
     const el = document.getElementById('seat-self-mana-row');
     el.innerHTML = '';
     const seat = view.seatA;
-
-    const outer = document.createElement('div');
-    outer.className = 'manual-mana-outer';
-
-    const left = document.createElement('div');
-    left.className = 'manual-mana-left';
-
-    const header = document.createElement('div');
-    header.className = 'small text-muted mb-1';
-    header.textContent = `マナ MP ${seat.mp}`;
-    left.appendChild(header);
 
     const wrap = document.createElement('div');
     wrap.className = 'mana-strips';
@@ -547,14 +556,10 @@ function renderManaRow(view) {
     const faceUpCards = manaCards.filter((c) => !c.faceDown);
     const faceDownCards = manaCards.filter((c) => c.faceDown);
 
-    wrap.appendChild(createManaStrip('表', faceUpCards, 'A', false));
+    wrap.appendChild(createManaStrip(`表 (MP ${seat.mp})`, faceUpCards, 'A', false));
     wrap.appendChild(createManaStrip('裏', faceDownCards, 'A', true));
 
-    left.appendChild(wrap);
-    outer.appendChild(left);
-    outer.appendChild(createLeaderTile(seat));
-    el.appendChild(outer);
-    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
+    el.appendChild(wrap);
 
     for (const card of manaCards) {
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
@@ -657,13 +662,52 @@ function renderHand(view) {
     row.dataset.seat = 'A';
     row.dataset.zone = 'HAND';
     const cards = view.seatA.zones.HAND || [];
-    const width = cards.length > 10 ? Math.max(45, Math.floor(900 / cards.length)) : 90;
     for (const card of cards) {
-        row.appendChild(createHandCard(card, width, 'A', 'HAND'));
+        row.appendChild(createHandCard(card, null, 'A', 'HAND'));
         cardLocation.set(card.instanceId, { seatId: 'A', zone: 'HAND' });
     }
     registerDropTarget(row, 'A', 'HAND');
     el.appendChild(row);
+    // ★実測幅で決めるため、DOMに載せてから最後に適用する(マナの重ね表示と同じ手順)
+    fitCardWidths(row, handCardMaxWidth(), 8);
+}
+
+/**
+ * 手札・センターラインのカード幅の上限(★20c)。
+ *
+ * ★上限を固定pxではなく<b>ウィンドウの高さ</b>から決める。
+ * カードは縦長(幅の約1.4倍)であり、幅を広げるとそのぶん確実に縦を食う。
+ * 横幅いっぱいに使う構成にした以上、上限を固定値で置くと
+ * 「ワイドだが縦が短い画面」で手札が画面外へ落ちる。制約は縦のほうにあるため、
+ * 縦を基準に決めるのが正しい。ミニオンのタイルがCSSで `min(180px, 16vh)` を
+ * 上限にしているのと同じ考え方である。
+ */
+function handCardMaxWidth() {
+    return Math.max(60, Math.min(120, Math.round(window.innerHeight * 0.105)));
+}
+function centerCardMaxWidth() {
+    return Math.max(45, Math.min(90, Math.round(window.innerHeight * 0.075)));
+}
+
+/**
+ * 行に並んだカードの幅を、実測した行幅から決める(★20c)。
+ *
+ * ウィンドウ幅に追従する構成にしたため、幅は固定値では決められない。
+ * 「入るなら上限いっぱいまで大きく、入らないなら詰める」を1本の式で表す。
+ * 下限45pxは、それ以下だと画像が何のカードか判別できなくなるためである
+ * (下限に張り付いた場合は行が溢れるが、溢れは人間が気づける。判別不能は気づけない)。
+ */
+function fitCardWidths(row, maxWidth, gap) {
+    const cards = [...row.children].filter((el) => el.classList.contains('manual-hand-card'));
+    if (cards.length === 0) {
+        return;
+    }
+    const available = row.clientWidth - 8;
+    const raw = Math.floor((available - gap * (cards.length - 1)) / cards.length);
+    const width = Math.max(45, Math.min(maxWidth, raw));
+    for (const card of cards) {
+        card.style.width = width + 'px';
+    }
 }
 
 /**
@@ -681,6 +725,25 @@ function renderLog(entries) {
     }
     box.scrollTop = box.scrollHeight;
 }
+
+/**
+ * ★20c: 幅がウィンドウに追従するようになったため、リサイズで描き直す。
+ * ミニオンのタイルはCSSのflexで伸縮するので追従は要らないが、手札とセンターラインの
+ * カード幅だけはJSが実測して決めているため、ここで作り直す必要がある。
+ * 連続発火を抑えるために1フレーム分まとめる。
+ */
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+    if (resizeTimer !== null) {
+        clearTimeout(resizeTimer);
+    }
+    resizeTimer = setTimeout(() => {
+        resizeTimer = null;
+        if (latestView) {
+            renderAll(latestView);
+        }
+    }, 120);
+});
 
 document.getElementById('log-box').addEventListener('click', () => {
     const box = document.getElementById('log-box');
@@ -924,7 +987,10 @@ function createHandCard(card, width, seatId, zoneName) {
     const zone = zoneName === undefined ? 'HAND' : zoneName;
     const wrap = document.createElement('div');
     wrap.className = 'manual-hand-card';
-    wrap.style.width = width + 'px';
+    // ★20c: width は null で呼ばれる。実際の幅は fitCardWidths が DOM 挿入後に決める
+    if (width !== null && width !== undefined) {
+        wrap.style.width = width + 'px';
+    }
     wrap.dataset.instanceId = card.instanceId;
     wrap.draggable = true;
 
