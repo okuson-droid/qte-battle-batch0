@@ -391,32 +391,50 @@ function createCenterHalf(zoneName, cards) {
  * ★公開(REVEAL)はセンターラインへ移ったためパイルではなくなった。
  * 代わりに新ゾーンの確認(PRIVATE)が入る。
  */
+/**
+ * 右列のパイル配置(★20d でマスター指示により確定)。
+ *
+ * ```
+ *   [リーダー][禁忌][山札][確認]
+ *             [消滅][墓地]
+ * ```
+ *
+ * ★CSS Grid で行と列を明示する。flex の「行を2本並べる」方式だと、
+ * リーダー枠だけ幅が違う(108px)ぶん下段が左へずれ、「禁忌の真下が消滅」という
+ * 縦の対応関係が崩れる。位置に意味がある配置なので、位置を直接書ける Grid を使う。
+ *
+ * 相手のリーダーは相手上段に残してあるため、ここに来るのは自席のぶんだけである。
+ */
+const PILE_PLACEMENT = {
+    TABOO: '1 / 2',
+    DECK: '1 / 3',
+    PRIVATE: '1 / 4',
+    LOST: '2 / 2',   // 禁忌の下
+    TRASH: '2 / 3',  // 山札の下
+};
+
 function renderPiles(view) {
     const el = document.getElementById('pile-grid');
     el.innerHTML = '';
     const seat = view.seatA;
-    for (const zoneNames of [['TABOO', 'DECK', 'PRIVATE'], ['LOST', 'TRASH']]) {
-        const row = document.createElement('div');
-        row.className = 'manual-pile-row';
-        for (const zoneName of zoneNames) {
-            row.appendChild(
-                createCardPile('A', zoneName, seat.zones[zoneName] || [], view.backImageId));
-        }
-        el.appendChild(row);
-    }
 
-    // ★20c: 自分のリーダー+ウェポンを下段の3セル目に添える(マスター指示)。
-    //   パイルと同じ体裁の入れ物に包み、カードの山とは役割が違うことをラベルで示す。
-    //   相手のリーダーは相手上段に残してあるため、ここに来るのは自席のぶんだけである。
     const slot = document.createElement('div');
     slot.className = 'manual-pile manual-leader-slot';
+    slot.style.gridArea = '1 / 1';
     slot.appendChild(createLeaderTile(seat));
     const label = document.createElement('div');
     label.className = 'manual-pile-label';
     label.textContent = '自分のリーダー';
     slot.appendChild(label);
-    el.lastChild.appendChild(slot);
+    el.appendChild(slot);
     cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
+
+    for (const zoneName of Object.keys(PILE_PLACEMENT)) {
+        const pile = createCardPile(
+            'A', zoneName, seat.zones[zoneName] || [], view.backImageId);
+        pile.style.gridArea = PILE_PLACEMENT[zoneName];
+        el.appendChild(pile);
+    }
 }
 
 /** ★非公開ゾーンの集合(2-6)。山札・禁忌は中身ではなく裏面画像を敷く */
@@ -889,6 +907,16 @@ function createLeaderTile(seat) {
     }
     const card = seat.leader;
     tile.dataset.instanceId = card.instanceId;
+
+    // ★20d: リーダーを文明の色で塗る(マスター指示)。場のタイル(createFieldTile)と
+    //   同じ civColor / textColorFor を使い、色と文字色の決め方を1箇所に揃える。
+    //   突合できていないリーダー(civilization が無い)は既定の灰色のままにする。
+    if (card.civilization) {
+        const bg = civColor(card.civilization);
+        tile.style.background = bg;
+        tile.style.color = textColorFor(bg);
+    }
+
     const name = document.createElement('div');
     name.className = 'manual-tile-name';
     name.textContent = card.name || 'リーダー';

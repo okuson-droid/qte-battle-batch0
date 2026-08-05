@@ -63,7 +63,8 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
   `if (z.isShared()) continue;` で席から共有ゾーンを除いていること。
 - `manual-battle.html` に `#center-line` / `#pile-grid` / `#weapon-modal` があり、
   `#seat-self-leader-row` と ターン/フェイズ行が**無い**こと。
-  `manual-battle.js(v=8)` / `battle.css(v=16)` を参照していること(★20cで v=7/v=15 から更新)。
+  `manual-battle.js(v=9)` / `battle.css(v=17)` を参照していること
+  (20cで v=8/v=16、UI確定の追補で v=9/v=17 まで上げた)。
 - `manual-battle.js` に `renderCenterLine` / `renderPiles` / `appendWeaponMini` /
   `openWeaponModal` があり、`renderLeaderRow` と `flashReject` と `PHASE_LABELS` が
   **存在しない**こと。
@@ -88,6 +89,12 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 - `window.addEventListener('resize', ...)` によるデバウンス再描画があること。
 - `build_harness.py` の Bootstrap 代替に `.flex-column` が含まれること
   (20cでこれが無くハーネスだけ壊れた)。
+- **★UI確定の追補**: `manual-battle.js` に `PILE_PLACEMENT` があり、パイルが
+  `[リーダー][禁忌][山札][確認] / 禁忌の下に消滅・山札の下に墓地` に並ぶこと。
+  `battle.css` の `#pile-grid` が `display: grid; grid-template-columns: 108px 90px 90px 90px`
+  であること(`.manual-pile-row` は削除済み)。
+  `createLeaderTile` が `civColor` / `textColorFor` でリーダーを塗ること。
+- `node verify/verify.js` が **42/42** パスすること。
 
 ---
 
@@ -101,7 +108,10 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 | ~~19b~~〜~~19b hotfix2~~ | b系/修正 | 盤面レイアウト再設計・ドラッグ不具合修正 | 完了 |
 | ~~20a~~ | a系 | 山札からの直接移動・裏向きの正規化・LP増減UI | 完了 |
 | ~~20b~~ | a系 | 盤面レイアウト再設計v2・新ゾーン・共有ゾーン | **完了** |
-| ~~20c~~ | b系 | 全幅レイアウトへの再構成(Javaは無変更) | **完了** |
+| ~~20c~~ | b系 | 全幅レイアウトへの再構成 + パイル配置とリーダー配色の確定(Javaは無変更) | **完了** |
+
+**★手動モードのUIはここで確定した(マスター言明)。** 以後、フェーズ2の設計で新しい画面を
+足す場合を除き、盤面レイアウトには手を入れない。
 
 ### ★次の作業はフェーズ2 UI詰め、またはVer.0.4対応のどちらか
 
@@ -165,7 +175,7 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
 - **実装済み文明リストの唯一の正は `DeckValidator.IMPLEMENTED`。** 手動モードはこの判定を
   一切使わない。
 - **静的ファイルを変更したらキャッシュバスティングのバージョンをインクリメントする。**
-  20bで v=7 / v=15、20cで **v=8 / v=16** まで上げてある。
+  20bで v=7 / v=15、20cで v=8 / v=16、UI確定の追補で **v=9 / v=17** まで上げてある。
 - **★★カードの大きさの上限は「幅」ではなく「画面の高さ」から決める(20c)。**
   カードは縦長であり、幅を広げるとそのぶん確実に縦を食う。横幅追従の構成では、
   固定pxの上限を置くと「横に広いが縦が短い画面」で手札が画面外へ落ちる。

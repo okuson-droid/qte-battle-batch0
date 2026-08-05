@@ -206,6 +206,46 @@ async function clearSent(page) {
   check('右列に5つのパイル+リーダー枠がある',
     (await page.locator('#pile-grid .manual-pile').count()) === 6
       && (await page.locator('#pile-grid .manual-leader-slot').count()) === 1);
+
+  // ---- 9-2. パイルの配置(★20d) ----
+  //   [リーダー][禁忌][山札][確認] / 禁忌の下に消滅、山札の下に墓地
+  const boxOf = async (sel) => page.locator(sel).first().boundingBox();
+  const bLeader = await boxOf('#pile-grid .manual-leader-slot');
+  const bTaboo = await boxOf('#pile-grid .manual-pile[data-zone="TABOO"]');
+  const bDeck = await boxOf('#pile-grid .manual-pile[data-zone="DECK"]');
+  const bPrivate = await boxOf('#pile-grid .manual-pile[data-zone="PRIVATE"]');
+  const bLost = await boxOf('#pile-grid .manual-pile[data-zone="LOST"]');
+  const bTrash = await boxOf('#pile-grid .manual-pile[data-zone="TRASH"]');
+  check('上段が左から [リーダー][禁忌][山札][確認] の順に並ぶ',
+    bLeader.x < bTaboo.x && bTaboo.x < bDeck.x && bDeck.x < bPrivate.x
+      && Math.abs(bLeader.y - bTaboo.y) < 4 && Math.abs(bTaboo.y - bDeck.y) < 4
+      && Math.abs(bDeck.y - bPrivate.y) < 4,
+    `leader=${bLeader.x} taboo=${bTaboo.x} deck=${bDeck.x} private=${bPrivate.x}`);
+  check('消滅が禁忌の真下、墓地が山札の真下にある',
+    Math.abs(bLost.x - bTaboo.x) < 2 && Math.abs(bTrash.x - bDeck.x) < 2
+      && bLost.y > bTaboo.y && bTrash.y > bDeck.y,
+    `lost=(${bLost.x},${bLost.y}) taboo=(${bTaboo.x},${bTaboo.y}) `
+      + `trash=(${bTrash.x},${bTrash.y}) deck=(${bDeck.x},${bDeck.y})`);
+  check('消滅と墓地の上端が揃っている', Math.abs(bLost.y - bTrash.y) < 2,
+    `lost.y=${bLost.y} trash.y=${bTrash.y}`);
+  check('パイル群が右列(400px)に収まる',
+    bPrivate.x + bPrivate.width - bLeader.x <= 400,
+    `幅=${bPrivate.x + bPrivate.width - bLeader.x}`);
+
+  // ---- 9-3. リーダーの文明色(★20d) ----
+  const leaderBg = await page.evaluate(() => {
+    const el = document.querySelector('#pile-grid .manual-leader-tile');
+    return { bg: el.style.background || el.style.backgroundColor, color: el.style.color };
+  });
+  check('自分のリーダーが文明の色で塗られる',
+    leaderBg.bg.replace(/\s/g, '').toLowerCase().includes('rgb(94,23,235)')
+      || leaderBg.bg.toLowerCase().includes('#5e17eb'),
+    JSON.stringify(leaderBg));
+  const oppLeaderBg = await page.evaluate(() => {
+    const el = document.querySelector('#seat-opponent-top .manual-leader-tile');
+    return el.style.background || el.style.backgroundColor;
+  });
+  check('相手のリーダーも文明の色で塗られる', !!oppLeaderBg, oppLeaderBg);
   check('パイルにカード画像が敷かれている',
     (await page.locator('#pile-grid .manual-pile-face img').count()) >= 3);
   await clearSent(page);

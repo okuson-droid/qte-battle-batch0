@@ -171,7 +171,15 @@
 /* ★20b 2-6: 右列のカード型パイル(禁忌・山札・確認・消滅・墓地)。
    カード面(90×126)に画像を敷き、枚数はその角に重ねる。ラベルは面の下に添える。
    min-height で固定しないのは、山札だけシャッフル/上下枠ぶん縦に伸びるためである。 */
-.manual-pile-row { display: flex; gap: 6px; margin-bottom: 6px; }
+/* ★20d: パイル群の配置。[リーダー][禁忌][山札][確認] / 禁忌の下に消滅、山札の下に墓地。
+   列幅の違う枠(リーダー108px)が混ざるため、位置は Grid で直接指定する。
+   合計 108+90+90+90 + gap 6×3 = 396px。右列(400px)にちょうど収まる。
+   align-items: start は、山札だけシャッフル/上下枠ぶん背が高いときに
+   他の枠が引き伸ばされないようにするためである。 */
+#pile-grid {
+    display: grid; grid-template-columns: 108px 90px 90px 90px;
+    gap: 6px; align-items: start;
+}
 .manual-pile {
     width: 90px; box-sizing: border-box; border-radius: 6px;
     border: 1px solid #495057; background: rgba(255, 255, 255, 0.03);
