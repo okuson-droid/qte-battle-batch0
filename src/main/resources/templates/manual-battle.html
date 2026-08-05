@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QTE Battle - 手動モード</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=17)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=18)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -22,26 +22,52 @@
     -->
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap manual-header">
         <span>部屋 <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong></span>
+        <!-- ★21b: 部屋名と種類を出す。対戦部屋か全公開かで見え方も操作権限も変わるため、
+             どちらに居るのかが常に画面に出ている必要がある(1-1) -->
+        <span class="small"><span id="room-name"></span>
+            <span class="badge text-bg-secondary" id="room-type"></span></span>
         <span class="text-muted small" id="connection-status">接続中...</span>
-        <span class="d-flex align-items-center gap-1 flex-wrap" id="occupant-list"></span>
+        <!--
+          ★21b 2-3: 在室者リストはヘッダ1行を維持する。チップを数人ぶんだけ直接出し、
+          多いときは「+n」に畳む。クリックでポップオーバーを開き、全員の役割・観戦の視点・
+          切断中の残り時間を出す。
+        -->
+        <span class="d-flex align-items-center gap-1 flex-wrap manual-occupant-chips"
+              id="occupant-list" title="クリックで在室者の詳細"></span>
         <span class="text-muted small" id="deck-import-status"></span>
         <span class="ms-auto d-flex align-items-center gap-1 flex-wrap">
-            <label class="btn btn-sm btn-outline-light mb-0">
+            <label class="btn btn-sm btn-outline-light mb-0" id="deck-label-a">
                 デッキA
                 <input type="file" id="deck-file-a" accept=".zip" class="d-none">
             </label>
-            <label class="btn btn-sm btn-outline-light mb-0">
+            <label class="btn btn-sm btn-outline-light mb-0" id="deck-label-b">
                 デッキB
                 <input type="file" id="deck-file-b" accept=".zip" class="d-none">
             </label>
+            <!-- ★21b 2-2: 席を立つ / 席に着く。文言は viewerSeat から決める -->
+            <button id="btn-seat" class="btn btn-sm btn-outline-primary">席</button>
             <button id="btn-undo" class="btn btn-sm btn-outline-warning" disabled>元に戻す</button>
             <button id="btn-redo" class="btn btn-sm btn-outline-warning" disabled>やり直す</button>
             <button id="btn-reset" class="btn btn-sm btn-outline-danger">リセット</button>
+            <!-- ★21b: href は occupantId つきに JS が差し替える(21a 1-12 の積み残しの解消)。
+                 対戦部屋では occupantId 無しのログ書出は 400 になる(5-4) -->
             <a id="btn-log" class="btn btn-sm btn-outline-light"
                th:href="@{/manual/api/rooms/{roomId}/log(roomId=${roomId})}">ログ書出</a>
             <button id="btn-leave" class="btn btn-sm btn-outline-secondary">退室</button>
             <button id="btn-help" class="btn btn-sm btn-outline-info" title="操作説明">?</button>
         </span>
+    </div>
+
+    <!-- 在室者ポップオーバー(2-3)。チップ列のクリックで開く -->
+    <div id="occupant-popover" class="manual-occupant-popover d-none">
+        <div class="d-flex align-items-center mb-1">
+            <strong class="small">在室者</strong>
+            <button id="occupant-popover-close"
+                    class="btn btn-sm btn-outline-light ms-auto py-0 px-1">×</button>
+        </div>
+        <table class="table table-sm table-dark table-borderless small mb-0">
+            <tbody id="occupant-popover-body"></tbody>
+        </table>
     </div>
 
     <!--
@@ -213,11 +239,61 @@
                     <tr><th>ログ</th>
                         <td>クリックで展開/折りたたみ。既定は直近2行のみ</td></tr>
                     <tr><th>ヘッダ</th>
-                        <td>リセットして引き直す(履歴は消える) / ログ書き出し / 退室 / Undo・Redo(深さ200)</td></tr>
+                        <td>リセットして引き直す(履歴は消える) / ログ書き出し / 退室 /
+                            Undo・Redo。★全公開部屋は深さ200・Redoあり、対戦部屋は直前の1手のみ・
+                            Redoなし(取り消しの取り消しまで相手に見せると追えなくなるため)</td></tr>
+                    <tr><th>席</th>
+                        <td>「席を立つ」で観戦に移り、「席に着く」で席選択画面が開く。
+                            A⇔Bの直接交換は無い(立ってから座り直す)。
+                            観戦を許可しない部屋では「席を立つ」は退室になる</td></tr>
+                    <tr><th>在室者</th>
+                        <td>ヘッダの名前チップをクリックすると、全員の役割・観戦の視点・
+                            切断中の残り時間が出る</td></tr>
                 </tbody>
             </table>
             <div class="d-flex justify-content-end">
                 <button id="help-modal-close" class="btn btn-sm btn-outline-light">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!--
+      ★席選択画面(21b・設計書 2-1)。
+      独立ページではなく盤面ページ内のゲートにしてある。こうしておくと
+      /manual/battle/{roomId} の直リンクで来た人も構造的に必ずここを通る
+      (「盤面の前に必ず通る」を分岐ではなく構造で保証する)。
+      localStorage に occupantId がある人は素通りして即復帰する。
+
+      入室後に観戦者が「席に着く」を押したときも同じ画面を使う(2-2)。
+      違いは、入室前は部屋一覧API の情報で描き、入室後はビューで描く点だけである
+      (ビューには切断中の残り時間まで入っている)。
+    -->
+    <div id="seat-gate" class="manual-gate d-none">
+        <div class="manual-gate-body">
+            <h5 class="mb-1" id="seat-gate-room">部屋</h5>
+            <div class="small text-muted mb-2">
+                部屋 <span id="seat-gate-code"></span> /
+                <span id="seat-gate-type"></span>
+            </div>
+            <div id="seat-gate-error" class="alert alert-danger py-1 px-2 small d-none"></div>
+            <div class="mb-2" id="seat-gate-name-wrap">
+                <label class="form-label small mb-1" for="seat-gate-name">
+                    あなたの名前<span id="seat-gate-name-req"></span>
+                </label>
+                <input id="seat-gate-name" type="text" class="form-control form-control-sm"
+                       maxlength="20">
+            </div>
+            <div class="d-flex flex-column gap-1" id="seat-gate-buttons">
+                <button id="seat-gate-a" class="btn btn-sm btn-outline-light" data-seat="A">
+                    席Aに座る</button>
+                <button id="seat-gate-b" class="btn btn-sm btn-outline-light" data-seat="B">
+                    席Bに座る</button>
+                <button id="seat-gate-spectate" class="btn btn-sm btn-outline-info">観戦する</button>
+            </div>
+            <div class="d-flex justify-content-between mt-2">
+                <a class="btn btn-sm btn-outline-secondary" th:href="@{/manual}">ロビーへ戻る</a>
+                <button id="seat-gate-cancel" class="btn btn-sm btn-outline-secondary d-none">
+                    やめる</button>
             </div>
         </div>
     </div>
@@ -230,6 +306,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=9)}"></script>
+<script th:src="@{/js/manual-battle.js(v=10)}"></script>
 </body>
 </html>

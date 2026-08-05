@@ -116,19 +116,57 @@ public class ManualLobbyController {
     public List<RoomSummary> listRooms() {
         List<RoomSummary> summaries = new ArrayList<>();
         for (ManualRoom room : roomManager.allRooms()) {
-            ManualRoomOptions options = room.getOptions();
-            summaries.add(new RoomSummary(
-                    options.requireRoomId() ? null : room.getRoomId(),
-                    options.name(),
-                    options.type(),
-                    options.spectatorAllowed(),
-                    options.requireRoomId(),
-                    seatName(room, ManualSeatId.A),
-                    seatName(room, ManualSeatId.B),
-                    room.spectatorCount()));
+            summaries.add(toSummary(room, room.getOptions().requireRoomId() ? null : room.getRoomId()));
         }
         summaries.sort((a, b) -> a.roomName().compareTo(b.roomName()));
         return summaries;
+    }
+
+    /**
+     * 部屋1件の情報(★Batch 21b で追加)。
+     *
+     * <h3>なぜ一覧 API だけでは足りないか</h3>
+     * 席選択画面(2-1)は<b>入室する前に</b>部屋名・種類・席の埋まり・在席者名を表示する。
+     * ところが {@link #listRooms} は鍵つき部屋の {@code roomId} を null で返す(F1・意図どおり)。
+     * そのため「鍵つき部屋にIDを打って入る」「盤面ページの直リンクで来た」経路では、
+     * 一覧から自分の部屋を特定できず表示する材料が無い。
+     * 設計書 2-1 は「部屋コード直リンクで来ても席選択画面を通る」「埋まっている席はボタンを
+     * 無効化し在席者名を表示する」を要求しているため、ID から1件を引く入口が要る。
+     *
+     * <h3>★鍵の意味は損なわれない</h3>
+     * この API は部屋IDを<b>知っている人</b>にしか答えない。IDを知っていること自体が
+     * 入室の権利である(1-2)以上、その人に部屋名と席の埋まりを見せても新しく漏れる情報は無い。
+     * 盤面状態を返さないのは一覧と同じである。
+     *
+     * <h3>★{@code roomId} はそのまま返す</h3>
+     * 一覧と違い、ここでは鍵つき部屋でも {@code roomId} を返す。要求した本人が
+     * 既にそのIDを打っているためであり、null にすると呼び出し側が自分の打った値と
+     * 突き合わせられなくなるだけである。
+     */
+    @GetMapping("/manual/api/rooms/{roomId}")
+    @ResponseBody
+    public RoomSummary getRoom(@PathVariable String roomId) {
+        ManualRoom room = roomManager.requireRoom(roomId);
+        return toSummary(room, room.getRoomId());
+    }
+
+    /**
+     * 一覧と単体で同じ組み立てを共有する。
+     * ★出す項目が2箇所に分かれると、片方だけに項目が足されて食い違う。
+     *
+     * @param roomId 載せる部屋ID。一覧の鍵つき部屋では null を渡す(F1)
+     */
+    private RoomSummary toSummary(ManualRoom room, String roomId) {
+        ManualRoomOptions options = room.getOptions();
+        return new RoomSummary(
+                roomId,
+                options.name(),
+                options.type(),
+                options.spectatorAllowed(),
+                options.requireRoomId(),
+                seatName(room, ManualSeatId.A),
+                seatName(room, ManualSeatId.B),
+                room.spectatorCount());
     }
 
     /**

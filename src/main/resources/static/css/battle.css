@@ -350,3 +350,36 @@ body.manual-drag-active .manual-band {
 
 /* ★20a 2-4: LPモーダルの増減ボタン(-5/-1/+1/+5)。他の .info-modal のボタンには影響しない */
 #lp-modal-minus5, #lp-modal-minus1, #lp-modal-plus1, #lp-modal-plus5 { min-width: 40px; }
+
+/* =========================================================================
+   ★Batch 21b: 入口の画面(席選択ゲート・在室者ポップオーバー)
+   すべて手動モード専用の新規クラスである。通常モードと共有している
+   .leader-card / .minion-row / .mana-chip / .mana-row の定義には触れていない。
+   ========================================================================= */
+
+/* 席選択ゲート(設計書 2-1)。
+   ★z-index は帯(1040)・全面表示(1050)より上に置く。入室が済むまで盤面には
+   一切触らせない、という画面である以上、何かの下に潜ってはならない。 */
+.manual-gate {
+    position: fixed; inset: 0; z-index: 1060; background: rgba(0, 0, 0, 0.75);
+    display: flex; align-items: center; justify-content: center;
+}
+.manual-gate-body {
+    width: 380px; max-width: 92vw; background: #212529; color: #f8f9fa;
+    border: 1px solid #495057; border-radius: 6px; padding: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+}
+/* ★埋まっている席のボタンは無効。押せないことが見て分かる必要がある(2-1) */
+.manual-gate-body button:disabled { opacity: 0.45; }
+
+/* 在室者チップ列(2-3)。クリックでポップオーバーが開くことを見せる */
+.manual-occupant-chips { cursor: pointer; }
+.manual-occupant-more { opacity: 0.8; }
+
+/* 在室者ポップオーバー(2-3)。ヘッダ1行を維持したまま全員ぶんの詳細を出す入れ物 */
+.manual-occupant-popover {
+    position: absolute; z-index: 1055; margin-top: 2px; min-width: 300px;
+    background: #212529; border: 1px solid #495057; border-radius: 6px;
+    padding: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+}
+.manual-occupant-popover td { padding: 2px 6px; }

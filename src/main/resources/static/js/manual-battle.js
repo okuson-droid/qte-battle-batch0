@@ -67,29 +67,201 @@ function forgetOccupant() {
     localStorage.removeItem(OCCUPANT_STORAGE_KEY);
 }
 
-/** 新規入室する。名前は省略可(設計書 6-3)で、サーバ側の既定「プレイヤー」に任せてよい。 */
-async function joinAsNewOccupant() {
-    const name = prompt('名前を入力してください(省略できます)', '') || '';
-    const res = await fetch(`/manual/api/rooms/${ROOM_ID}/occupants`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ displayName: name.trim() || null }),
-    });
-    if (!res.ok) {
-        throw new Error((await res.json()).message || '入室できませんでした');
-    }
-    const data = await res.json();
-    saveOccupant(data.occupantId, data.displayName);
-    return data.occupantId;
+// ---------------------------------------------------------------
+// 0-2) 席選択画面(★Batch 21b。設計書 2-1 / 2-2)
+// ---------------------------------------------------------------
+//
+// ★独立ページではなく盤面ページ内のゲートにしてある。
+//   /manual/battle/{roomId} を開いた時点で必ずここを通るため、「盤面の前に必ず通る」を
+//   ロビー側の分岐ではなく構造で保証できる。部屋コードの直リンクで来た人にも同じく効く。
+//
+// 同じ画面を2つの場面で使う。
+//   gateMode = 'join' — 入室前。部屋情報は GET /manual/api/rooms/{roomId} から取る。
+//                        決着したら resolveOccupant の Promise を occupantId で解決する。
+//   gateMode = 'seat' — 入室後の昇格(観戦者 → 席)。部屋情報は latestView から取る。
+//                        決着は WebSocket の seat メッセージであり、Promise は絡まない。
+//
+// ★入室前に部屋情報を引く API が要る理由:
+//   一覧 API は鍵つき部屋の roomId を null で返す(1-3・F1)。そのため一覧から
+//   自分の部屋を特定できない経路(鍵つき・直リンク)が必ず存在する。21b で
+//   GET /manual/api/rooms/{roomId} を1つ足してある。
+
+const ROOM_TYPE_LABELS = { OPEN: '全公開', VERSUS: '対戦' };
+const SPECTATOR_VIEW_LABELS = { ALL: '全見え', PUBLIC_ONLY: '公開のみ' };
+
+let gateMode = null;
+let gateResolve = null;
+let gateRoomType = 'OPEN';
+
+function gateEl(id) {
+    return document.getElementById(id);
 }
 
-/** occupantId を確定させてから解決する。localStorage にあればそれを使い、無ければ新規入室する。 */
+function showGateError(message) {
+    const box = gateEl('seat-gate-error');
+    box.textContent = message;
+    box.classList.remove('d-none');
+}
+
+function clearGateError() {
+    gateEl('seat-gate-error').classList.add('d-none');
+}
+
+function setGateBusy(busy) {
+    for (const button of gateEl('seat-gate-buttons').querySelectorAll('button')) {
+        button.disabled = busy || button.dataset.occupied === 'true';
+    }
+}
+
+function closeGate() {
+    gateEl('seat-gate').classList.add('d-none');
+    gateMode = null;
+}
+
+/**
+ * 席ボタンの状態を1箇所で決める(2-1)。
+ *
+ * ★埋まっている席のボタンは無効化し、在席者名を出す。
+ * 「押せるが失敗する」より「押せないと分かる」ほうが速い。
+ * 無効の理由は dataset.occupied に残す。setGateBusy が通信中の一時的な無効化と
+ * 取り違えて、埋まっている席まで有効に戻してしまわないようにするためである。
+ *
+ * @param names 席ごとの在席者名(空席は null)
+ * @param notes 名前に添える補足(「切断中 あと n 秒」など。無ければ null)
+ */
+function applyGateSeats(names, notes, spectatorAllowed, mySeat) {
+    for (const seatId of ['A', 'B']) {
+        const button = gateEl('seat-gate-' + seatId.toLowerCase());
+        const name = names[seatId];
+        const note = notes[seatId];
+        const mine = mySeat === seatId;
+        const occupied = !!name && !mine;
+        button.dataset.occupied = occupied ? 'true' : 'false';
+        button.disabled = occupied;
+        button.textContent = name
+            ? `席${seatId}: ${name}${note ? '(' + note + ')' : ''}${mine ? ' — あなた' : ''}`
+            : `席${seatId}に座る`;
+    }
+    const spectate = gateEl('seat-gate-spectate');
+    // ★観戦を許可しない部屋では観戦ボタンを出さない(2-1)。届く宛先が存在しないためである。
+    //   入室後の昇格(seat モード)では既に観戦しているので出す意味が無い。
+    spectate.classList.toggle('d-none', !spectatorAllowed || gateMode === 'seat');
+    spectate.dataset.occupied = 'false';
+}
+
+/** 入室前の席選択。決着(入室成功)まで盤面は描かない。 */
+function openJoinGate(summary) {
+    gateMode = 'join';
+    gateRoomType = summary.type;
+    gateEl('seat-gate-room').textContent = summary.roomName || '(名称未設定)';
+    gateEl('seat-gate-code').textContent = ROOM_ID;
+    gateEl('seat-gate-type').textContent = ROOM_TYPE_LABELS[summary.type] || summary.type;
+    gateEl('seat-gate-name-wrap').classList.remove('d-none');
+    // ★対戦部屋では名前が必須である(F4)。サーバも同じ検証をする(ManualRoom.join)
+    gateEl('seat-gate-name-req').textContent = summary.type === 'VERSUS' ? '(必須)' : '(省略可)';
+    gateEl('seat-gate-cancel').classList.add('d-none');
+    clearGateError();
+    applyGateSeats(
+        { A: summary.seatAName, B: summary.seatBName },
+        { A: null, B: null },
+        summary.spectatorAllowed,
+        null);
+    gateEl('seat-gate').classList.remove('d-none');
+    return new Promise((resolve) => { gateResolve = resolve; });
+}
+
+/** 入室後の昇格(観戦者 → 席。2-2)。部屋情報はビューから取る。 */
+function openSeatChangeGate() {
+    if (!latestView) return;
+    gateMode = 'seat';
+    gateRoomType = latestView.roomType;
+    gateEl('seat-gate-room').textContent = latestView.roomName || '(名称未設定)';
+    gateEl('seat-gate-code').textContent = ROOM_ID;
+    gateEl('seat-gate-type').textContent =
+        ROOM_TYPE_LABELS[latestView.roomType] || latestView.roomType;
+    // 入室済みなので名前は変えない
+    gateEl('seat-gate-name-wrap').classList.add('d-none');
+    gateEl('seat-gate-cancel').classList.remove('d-none');
+    clearGateError();
+
+    const names = { A: null, B: null };
+    const notes = { A: null, B: null };
+    for (const occupant of latestView.occupants || []) {
+        if (!occupant.seatId) continue;
+        names[occupant.seatId] = occupant.displayName;
+        // ★切断猶予中でも席は空かない(2-4)。残り時間まで出す
+        notes[occupant.seatId] = occupant.connected
+            ? null
+            : `切断中 あと${occupant.disconnectSecondsLeft || 0}秒`;
+    }
+    applyGateSeats(names, notes, latestView.spectatorAllowed, latestView.viewerSeat);
+    gateEl('seat-gate').classList.remove('d-none');
+}
+
+/** 部屋が見つからない等、席選択そのものが成立しないとき。 */
+function showGateFatal(message) {
+    gateEl('seat-gate-room').textContent = '入れませんでした';
+    gateEl('seat-gate-code').textContent = ROOM_ID;
+    gateEl('seat-gate-type').textContent = '';
+    gateEl('seat-gate-name-wrap').classList.add('d-none');
+    gateEl('seat-gate-buttons').classList.add('d-none');
+    gateEl('seat-gate-cancel').classList.add('d-none');
+    showGateError(message);
+    gateEl('seat-gate').classList.remove('d-none');
+}
+
+gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
+    const button = e.target.closest('button');
+    if (!button || button.disabled) return;
+    // ★観戦ボタンには data-seat が無い。null が「席に着かない」を表す
+    const seat = button.dataset.seat || null;
+
+    if (gateMode === 'seat') {
+        closeGate();
+        send('seat', { seat });
+        return;
+    }
+
+    const name = gateEl('seat-gate-name').value.trim();
+    if (gateRoomType === 'VERSUS' && name === '') {
+        showGateError('対戦部屋では名前が必要です');
+        return;
+    }
+    clearGateError();
+    setGateBusy(true);
+    try {
+        const res = await fetch(`/manual/api/rooms/${ROOM_ID}/occupants`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // ★席を指定しないときは spectate を立てる。全公開部屋の後方互換では
+            //   「席も spectate も無い」が自動着席として扱われるためである(21a の join)
+            body: JSON.stringify({ displayName: name || null, seat, spectate: seat === null }),
+        });
+        if (!res.ok) throw new Error((await res.json()).message || '入室できませんでした');
+        const data = await res.json();
+        saveOccupant(data.occupantId, data.displayName);
+        closeGate();
+        gateResolve(data.occupantId);
+    } catch (err) {
+        showGateError(err.message);
+        setGateBusy(false);
+    }
+});
+
+gateEl('seat-gate-cancel').addEventListener('click', closeGate);
+
+/** occupantId を確定させてから解決する。localStorage にあればそれを使い、無ければ席選択へ。 */
 async function resolveOccupant() {
     const saved = loadSavedOccupant();
     if (saved) {
+        // ★復帰は席選択を経ない(2-1)。同じ人が同じ席へ戻るだけだからである
         return saved.occupantId;
     }
-    return joinAsNewOccupant();
+    const res = await fetch(`/manual/api/rooms/${ROOM_ID}`);
+    if (!res.ok) {
+        throw new Error((await res.json()).message || '部屋が見つかりません');
+    }
+    return openJoinGate(await res.json());
 }
 
 // ---------------------------------------------------------------
@@ -118,6 +290,7 @@ resolveOccupant()
     })
     .catch((e) => {
         setConnectionStatus('入室に失敗しました: ' + e.message);
+        showGateFatal(e.message);
     });
 
 function setConnectionStatus(text) {
@@ -195,6 +368,69 @@ function civColor(civ) {
 // 4) 描画本体
 // ---------------------------------------------------------------
 
+// ---------------------------------------------------------------
+// 4-0) 視点(★Batch 21b。設計書 3-1 / 10章)
+// ---------------------------------------------------------------
+//
+// ★「A=下」の固定をここで外す。常に自席が下に来る。
+//
+// ★★入れ替えるのは<b>表示位置だけ</b>である(10章)。
+//   `cardLocation` / `registerDropTarget` / 送信ペイロードに渡す席は必ず<b>実席</b>を保つ。
+//   視点を送信データに混ぜると、サーバが受け取った "A" が誰の A なのか決まらなくなる。
+//   そのためこの節の関数は「どの席のビューをどちらの入れ物に描くか」だけを答え、
+//   席そのものは `seatView.id` から取る。描画関数の中で 'A' / 'B' をリテラルで書かない。
+//
+// 観戦者(viewerSeat が null)は既定で A を下に置く。上下反転トグルは 21c の担当である。
+
+/** 画面下段に描く席のID。★自席。観戦者は A */
+function bottomSeatId(view) {
+    return view.viewerSeat || 'A';
+}
+
+/** 画面上段に描く席のID。★相手 */
+function topSeatId(view) {
+    return bottomSeatId(view) === 'A' ? 'B' : 'A';
+}
+
+/** 席IDから席ビューを引く。★席の実体はサーバの席A/席Bのままである */
+function seatOf(view, seatId) {
+    return seatId === 'A' ? view.seatA : view.seatB;
+}
+
+function bottomSeat(view) {
+    return seatOf(view, bottomSeatId(view));
+}
+
+function topSeat(view) {
+    return seatOf(view, topSeatId(view));
+}
+
+/**
+ * ゾーンの枚数(★21b)。
+ *
+ * 対戦部屋では非公開ゾーンが `zones` にキーごと現れない(21a 1-2)。
+ * 中身の配列を数えると 0 になってしまうため、サーバが全ゾーンぶん送っている
+ * `counts` を優先する。「何枚あるか」は公開情報である(3-3)。
+ *
+ * ★これは 21c の「相手上段の再構成」の前倒しではない。並びには一切触れず、
+ * 表示している数の出所だけを正しくしている。
+ */
+/**
+ * 対戦部屋の観戦者か(★21b)。
+ * ★全公開部屋では席に着いていなくても操作できる(権限が効かない部屋である)ため、
+ * 部屋の種類と席の両方を見る。判定を1箇所に閉じ込めておく。
+ */
+function isSpectatorViewer() {
+    return !!latestView && latestView.roomType === 'VERSUS' && !latestView.viewerSeat;
+}
+
+function zoneCount(seatView, zoneName) {
+    if (seatView.counts && seatView.counts[zoneName] !== undefined) {
+        return seatView.counts[zoneName];
+    }
+    return (seatView.zones[zoneName] || []).length;
+}
+
 function renderAll(view) {
     cardLocation = new Map();
     renderHeader(view);
@@ -222,21 +458,126 @@ function renderAll(view) {
 function renderHeader(view) {
     document.getElementById('btn-undo').disabled = !view.canUndo;
     document.getElementById('btn-redo').disabled = !view.canRedo;
+    // ★対戦部屋は Redo を提供しない(6-3・D6)。永久に押せないボタンを残さず隠す
+    document.getElementById('btn-redo').classList.toggle('d-none', view.roomType === 'VERSUS');
+
+    document.getElementById('room-name').textContent = view.roomName || '';
+    document.getElementById('room-type').textContent =
+        ROOM_TYPE_LABELS[view.roomType] || view.roomType || '';
+
+    renderSeatButton(view);
+    renderDeckButtons(view);
+    renderLogLink();
     renderOccupantList(view.occupants);
+    // ★宣言は自席のぶんだけ(6-3・D4)。観戦者は席を持たないためサーバが弾く
+    declareSeat = view.viewerSeat;
 }
 
-/** 在室者リスト(設計書 6-3・11-2)。名前・接続状態・自分自身の目印を並べる。 */
+/** 席を立つ / 席に着く(2-2)。文言は自席の有無だけで決まる。 */
+function renderSeatButton(view) {
+    const button = document.getElementById('btn-seat');
+    if (view.viewerSeat) {
+        // ★観戦を許可しない部屋では降りる先が無いため、席を立つ = 退室である(2-2)
+        button.textContent = view.spectatorAllowed ? '席を立つ' : '席を立つ(退室)';
+    } else {
+        button.textContent = '席に着く';
+    }
+}
+
+/**
+ * デッキ読込ボタンの出し分け(6-3・E3)。
+ * ★対戦部屋では自席のぶんだけ出す。これは操作補助にすぎず、
+ * 検証はサーバが行う(設計判断27)。全公開部屋は従来どおり両方出す。
+ */
+function renderDeckButtons(view) {
+    const restricted = view.roomType === 'VERSUS';
+    for (const seatId of ['A', 'B']) {
+        document.getElementById('deck-label-' + seatId.toLowerCase())
+            .classList.toggle('d-none', restricted && view.viewerSeat !== seatId);
+    }
+}
+
+/**
+ * ログ書出リンクに occupantId を付ける(★21a 1-12 の積み残しの解消)。
+ * 対戦部屋では occupantId 無しの書出は 400 になる。誰として書き出すのか分からないまま
+ * 完全ログを返すのが「ダウンロードだけ完全版」の裏口だからである(5-4)。
+ */
+function renderLogLink() {
+    document.getElementById('btn-log').href =
+        `/manual/api/rooms/${ROOM_ID}/log?occupantId=${encodeURIComponent(OCCUPANT_ID)}`;
+}
+
+// ---- 在室者リスト(2-3) ----
+
+/** ヘッダに直接出すチップの数。これを超えたぶんは「+n」に畳む(2-3)。 */
+const OCCUPANT_CHIP_LIMIT = 3;
+
+/** 役割記号。席なら席ID、席が無ければ観戦(2-3)。 */
+function occupantRoleMark(occupant) {
+    return occupant.seatId ? occupant.seatId : '観';
+}
+
+/**
+ * 在室者リスト(2-3)。★ヘッダ1行を維持するため、チップは数人ぶんだけ直接出す。
+ * 全員ぶんの詳細はポップオーバーへ送る。
+ */
 function renderOccupantList(occupants) {
     const box = document.getElementById('occupant-list');
     box.innerHTML = '';
-    for (const occupant of occupants || []) {
+    const list = occupants || [];
+    for (const occupant of list.slice(0, OCCUPANT_CHIP_LIMIT)) {
         const badge = document.createElement('span');
         const tone = occupant.connected ? 'text-bg-secondary' : 'text-bg-dark';
         badge.className = `badge ${tone}`;
-        badge.textContent = occupant.displayName
-            + (occupant.self ? '(自分)' : '')
-            + (occupant.connected ? '' : ' ・切断中');
+        badge.textContent = `${occupant.displayName}[${occupantRoleMark(occupant)}]`
+            + (occupant.self ? '(自分)' : '');
         box.appendChild(badge);
+    }
+    if (list.length > OCCUPANT_CHIP_LIMIT) {
+        const more = document.createElement('span');
+        more.className = 'badge text-bg-secondary manual-occupant-more';
+        more.textContent = `+${list.length - OCCUPANT_CHIP_LIMIT}`;
+        box.appendChild(more);
+    }
+    renderOccupantPopover(list);
+}
+
+/**
+ * 在室者ポップオーバー(2-3)。名前・役割・観戦の視点・切断中の残り時間を出す。
+ * ★観戦者の視点まで見せるのは設計書16 11-2 の確定事項である。
+ * 「全見えの人が居る」ことが分かっていないと、プレイヤーは何を隠せているのか判断できない。
+ */
+function renderOccupantPopover(list) {
+    const body = document.getElementById('occupant-popover-body');
+    body.innerHTML = '';
+    for (const occupant of list) {
+        const row = document.createElement('tr');
+
+        const name = document.createElement('td');
+        name.textContent = occupant.displayName + (occupant.self ? '(自分)' : '');
+        row.appendChild(name);
+
+        const role = document.createElement('td');
+        role.textContent = occupant.seatId ? `席${occupant.seatId}` : '観戦';
+        row.appendChild(role);
+
+        const view = document.createElement('td');
+        // ★視点は観戦者だけが持つ(サーバが席つきの人には null を入れている)
+        view.textContent = occupant.spectatorView
+            ? SPECTATOR_VIEW_LABELS[occupant.spectatorView] || occupant.spectatorView
+            : '';
+        row.appendChild(view);
+
+        const state = document.createElement('td');
+        if (occupant.connected) {
+            state.textContent = '';
+        } else {
+            state.className = 'text-warning';
+            state.textContent = `切断中 あと${occupant.disconnectSecondsLeft || 0}秒`;
+        }
+        row.appendChild(state);
+
+        body.appendChild(row);
     }
 }
 
@@ -264,18 +605,21 @@ const SHARED_ZONES = new Set(['PLAY', 'REVEAL']);
 function renderOpponentTop(view) {
     const el = document.getElementById('seat-opponent-top');
     el.innerHTML = '';
-    const seat = view.seatB;
+    // ★21b 3-1: 上段は「相手」であり、席Bとは限らない。実席は seat.id が持つ
+    const seat = topSeat(view);
+    const seatId = seat.id;
 
     const bar = document.createElement('div');
     bar.className = 'd-flex gap-1';
     for (const zoneName of ['DECK', 'TRASH', 'LOST', 'TABOO', 'PRIVATE']) {
-        const count = (seat.zones[zoneName] || []).length;
+        // ★対戦部屋では中身が届かないため counts から数える(21b。並びは 21c で再構成する)
+        const count = zoneCount(seat, zoneName);
         const chip = document.createElement('div');
         chip.className = 'zone-pile-mini';
         chip.title = ZONE_LABELS[zoneName];
         chip.textContent = `${ZONE_LABELS[zoneName][0]}${count}`;
-        chip.addEventListener('click', () => openZoneBand('B', zoneName));
-        registerDropTarget(chip, 'B', zoneName);
+        chip.addEventListener('click', () => openZoneBand(seatId, zoneName));
+        registerDropTarget(chip, seatId, zoneName);
         bar.appendChild(chip);
     }
     el.appendChild(bar);
@@ -283,32 +627,35 @@ function renderOpponentTop(view) {
     const leaderTile = createLeaderTile(seat);
     leaderTile.classList.add('ms-auto');
     el.appendChild(leaderTile);
-    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'B', zone: 'LEADER' });
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null,
+        { seatId, zone: 'LEADER' });
 }
 
-/** Bミニオン行(折り返し解消。設計書0の指摘2) */
+/** 相手のミニオン行(上段)。★席は seatOf が決める。'B' をリテラルで書かない */
 function renderOpponentMinions(view) {
     const el = document.getElementById('seat-opponent-minions');
     el.innerHTML = '';
+    const seat = topSeat(view);
     const fieldRow = document.createElement('div');
     // ★20c: 幅に応じてタイルを伸ばす指定は手動モード専用クラスへ入れる。
     //   .minion-row は通常モードと共有しているため定義を変えない。
     fieldRow.className = 'minion-row manual-minion-row';
-    fieldRow.dataset.seat = 'B';
+    fieldRow.dataset.seat = seat.id;
     fieldRow.dataset.zone = 'FIELD';
-    renderStackRow(fieldRow, view.seatB, 'FIELD', 6); // ★2-9: 7→6
+    renderStackRow(fieldRow, seat, 'FIELD', 6); // ★2-9: 7→6
     el.appendChild(fieldRow);
 }
 
-/** Aミニオン行 */
+/** 自分のミニオン行(下段) */
 function renderSelfMinions(view) {
     const el = document.getElementById('seat-self-minions');
     el.innerHTML = '';
+    const seat = bottomSeat(view);
     const fieldRow = document.createElement('div');
     fieldRow.className = 'minion-row manual-minion-row';
-    fieldRow.dataset.seat = 'A';
+    fieldRow.dataset.seat = seat.id;
     fieldRow.dataset.zone = 'FIELD';
-    renderStackRow(fieldRow, view.seatA, 'FIELD', 6); // ★2-9: 7→6
+    renderStackRow(fieldRow, seat, 'FIELD', 6); // ★2-9: 7→6
     el.appendChild(fieldRow);
 }
 
@@ -416,7 +763,8 @@ const PILE_PLACEMENT = {
 function renderPiles(view) {
     const el = document.getElementById('pile-grid');
     el.innerHTML = '';
-    const seat = view.seatA;
+    // ★21b 3-1: 右列のパイルは常に「自席」のぶんである(観戦者は A)
+    const seat = bottomSeat(view);
 
     const slot = document.createElement('div');
     slot.className = 'manual-pile manual-leader-slot';
@@ -424,14 +772,15 @@ function renderPiles(view) {
     slot.appendChild(createLeaderTile(seat));
     const label = document.createElement('div');
     label.className = 'manual-pile-label';
-    label.textContent = '自分のリーダー';
+    label.textContent = `席${seat.id}のリーダー`;
     slot.appendChild(label);
     el.appendChild(slot);
-    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null,
+        { seatId: seat.id, zone: 'LEADER' });
 
     for (const zoneName of Object.keys(PILE_PLACEMENT)) {
         const pile = createCardPile(
-            'A', zoneName, seat.zones[zoneName] || [], view.backImageId);
+            seat.id, zoneName, seat.zones[zoneName] || [], view.backImageId);
         pile.style.gridArea = PILE_PLACEMENT[zoneName];
         el.appendChild(pile);
     }
@@ -565,7 +914,7 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
 function renderManaRow(view) {
     const el = document.getElementById('seat-self-mana-row');
     el.innerHTML = '';
-    const seat = view.seatA;
+    const seat = bottomSeat(view);
 
     const wrap = document.createElement('div');
     wrap.className = 'mana-strips';
@@ -573,9 +922,13 @@ function renderManaRow(view) {
     const manaCards = seat.zones.MANA || [];
     const faceUpCards = manaCards.filter((c) => !c.faceDown);
     const faceDownCards = manaCards.filter((c) => c.faceDown);
+    // ★観戦者(公開のみ)には裏向きマナのカードが届かない。枚数はサーバが別に送っている(3-3)
+    const faceDownCount = seat.manaFaceDownCount === undefined
+        ? faceDownCards.length
+        : seat.manaFaceDownCount;
 
-    wrap.appendChild(createManaStrip(`表 (MP ${seat.mp})`, faceUpCards, 'A', false));
-    wrap.appendChild(createManaStrip('裏', faceDownCards, 'A', true));
+    wrap.appendChild(createManaStrip(`表 (MP ${seat.mp})`, faceUpCards, seat.id, false));
+    wrap.appendChild(createManaStrip(`裏 (${faceDownCount})`, faceDownCards, seat.id, true));
 
     el.appendChild(wrap);
 
@@ -666,25 +1019,27 @@ function applyManaOverlap(wrap) {
     }
 }
 
-/** 手札 */
+/** 手札(下段=自席) */
 function renderHand(view) {
     const el = document.getElementById('hand-row');
     el.innerHTML = '';
+    const seat = bottomSeat(view);
     const label = document.createElement('div');
     label.className = 'small text-muted';
-    label.textContent = '手札';
+    // ★中身が届かない席(公開のみ観戦の下段)でも枚数だけは出す(3-3)
+    label.textContent = `手札 ${zoneCount(seat, 'HAND')}枚`;
     el.appendChild(label);
 
     const row = document.createElement('div');
     row.className = 'hand-row';
-    row.dataset.seat = 'A';
+    row.dataset.seat = seat.id;
     row.dataset.zone = 'HAND';
-    const cards = view.seatA.zones.HAND || [];
+    const cards = seat.zones.HAND || [];
     for (const card of cards) {
-        row.appendChild(createHandCard(card, null, 'A', 'HAND'));
-        cardLocation.set(card.instanceId, { seatId: 'A', zone: 'HAND' });
+        row.appendChild(createHandCard(card, null, seat.id, 'HAND'));
+        cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'HAND' });
     }
-    registerDropTarget(row, 'A', 'HAND');
+    registerDropTarget(row, seat.id, 'HAND');
     el.appendChild(row);
     // ★実測幅で決めるため、DOMに載せてから最後に適用する(マナの重ね表示と同じ手順)
     fitCardWidths(row, handCardMaxWidth(), 8);
@@ -1011,7 +1366,8 @@ function appendWeaponMini(tile, seat) {
  * 共有ゾーンでは seatId が null になる。
  */
 function createHandCard(card, width, seatId, zoneName) {
-    const seat = seatId === undefined ? 'A' : seatId;
+    // ★21b: 席を省略した呼び出しは無い。既定を 'A' に倒すと視点が固定されるため null にする
+    const seat = seatId === undefined ? null : seatId;
     const zone = zoneName === undefined ? 'HAND' : zoneName;
     const wrap = document.createElement('div');
     wrap.className = 'manual-hand-card';
@@ -1135,6 +1491,14 @@ function renderZoom(card) {
  * 付与前に dragend が来た場合に備え、clearTimeout で取り消す。
  */
 function onDragStart(e, card, seatId, zone) {
+    // ★21b: 対戦部屋の観戦者は全操作が不可である(6-1)。サーバは既に棄却するが、
+    //   掴めてしまうと毎回エラーのトーストが出るだけになる。掴ませない側で止める。
+    //   ★これは「判断」ではなく操作権限であり、検証はサーバが行う(設計判断27)。
+    if (isSpectatorViewer()) {
+        e.preventDefault();
+        showTransientNotice('観戦中は盤面を操作できません');
+        return;
+    }
     let ids;
     if (selected.has(card.instanceId) && selected.size > 1) {
         ids = [...selected];
@@ -1288,7 +1652,7 @@ function refreshLpModal(view) {
         lpModalSeatId = null;
         return;
     }
-    const seat = lpModalSeatId === 'A' ? view.seatA : view.seatB;
+    const seat = seatOf(view, lpModalSeatId);
     const input = document.querySelector('#lp-modal-fields input');
     if (input && document.activeElement !== input) {
         input.value = seat.lp;
@@ -1464,6 +1828,39 @@ document.getElementById('btn-leave').addEventListener('click', () => {
     }
 });
 
+/**
+ * 席を立つ / 席に着く(★21b 設計書 2-2)。
+ *
+ * ★A⇔Bの直接交換は作らない。座り直したいなら一度立つ。
+ * 観戦を許可しない部屋では降りる先が無いため、席を立つ = 退室である。
+ * この分岐はサーバ側(ManualWsController#seat)にもあり、こちらは
+ * 「退室したのに盤面ページに留まる」を避けるための後始末にすぎない。
+ */
+document.getElementById('btn-seat').addEventListener('click', () => {
+    if (!latestView) return;
+    if (!latestView.viewerSeat) {
+        openSeatChangeGate();
+        return;
+    }
+    if (latestView.spectatorAllowed) {
+        if (!confirm('席を立って観戦に移ります。よろしいですか?')) return;
+        send('seat', { seat: null });
+        return;
+    }
+    if (!confirm('この部屋は観戦できないため、席を立つと退室になります。よろしいですか?')) return;
+    send('seat', { seat: null });
+    forgetOccupant();
+    location.href = '/';
+});
+
+// 在室者ポップオーバー(2-3)。チップ列のクリックで開閉する
+document.getElementById('occupant-list').addEventListener('click', () => {
+    document.getElementById('occupant-popover').classList.toggle('d-none');
+});
+document.getElementById('occupant-popover-close').addEventListener('click', () => {
+    document.getElementById('occupant-popover').classList.add('d-none');
+});
+
 // ★2-6: 操作説明モーダル
 document.getElementById('btn-help').addEventListener('click', () => {
     document.getElementById('help-modal').classList.remove('d-none');
@@ -1481,10 +1878,19 @@ document.getElementById('note-form').addEventListener('submit', (e) => {
     }
 });
 
-let declareSeat = 'A';
+/**
+ * 宣言の対象席。★21b: 自席から決める(6-3・D4「宣言は自席のぶんのみ」)。
+ * 20c までは 'A' 固定だった。renderHeader が毎回ビューの viewerSeat を入れ直す。
+ * 席に着いていない観戦者は null になり、押しても何も送らない(サーバも弾く)。
+ */
+let declareSeat = null;
 document.getElementById('declare-buttons').addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-declaration]');
     if (!btn) return;
+    if (!declareSeat) {
+        showTransientNotice('席に着いていないため宣言できません');
+        return;
+    }
     send('declare', { seat: declareSeat, declaration: btn.dataset.declaration, note: null });
 });
 
@@ -1584,8 +1990,7 @@ function renderZoneBand() {
     //   ドロップ先として使われる以上、帯からも到達できる状態を保っておく。
     const items = SHARED_ZONES.has(activeOverlay.zoneName)
         ? ((latestView.shared || {})[activeOverlay.zoneName] || [])
-        : ((activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB)
-            .zones[activeOverlay.zoneName] || []);
+        : (seatOf(latestView, activeOverlay.seatId).zones[activeOverlay.zoneName] || []);
     // ★検索対象は山札・墓地・消滅・禁忌のみ(設計書4-6)。一時公開は対象外(マスター確認済み)。
     const showSearch = ['TRASH', 'LOST', 'TABOO'].includes(activeOverlay.zoneName);
     renderBandDom({
@@ -1606,7 +2011,7 @@ function openEvolutionBand(card, seatId) {
 
 function renderEvolutionBand() {
     if (!latestView) return;
-    const seatView = activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB;
+    const seatView = seatOf(latestView, activeOverlay.seatId);
     const top = findCardByInstanceId(seatView.zones['FIELD'], activeOverlay.evolutionCardId)
         || findCardByInstanceId(seatView.zones['WEAPON'], activeOverlay.evolutionCardId);
     if (!top || !top.materials || top.materials.length === 0) {
@@ -1749,7 +2154,7 @@ function openDeckFullscreen(seatId) {
  */
 function renderDeckFullscreen() {
     if (!latestView) return;
-    const seatView = activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB;
+    const seatView = seatOf(latestView, activeOverlay.seatId);
     const deck = seatView.zones['DECK'] || [];
 
     const root = overlayRoot();

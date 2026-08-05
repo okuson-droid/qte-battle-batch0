@@ -25,6 +25,8 @@ BUILTINS = {
     'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'location',
     'localStorage', 'sessionStorage', 'fetch', 'alert', 'confirm', 'prompt',
     'parseInt', 'parseFloat', 'isNaN', 'undefined', 'null', 'true', 'false',
+    # ★Batch 21b で追加。URL のエスケープは組み込み関数である
+    'encodeURIComponent', 'decodeURIComponent', 'encodeURI', 'decodeURI',
     'this', 'arguments', 'typeof', 'instanceof', 'new', 'delete', 'void',
     'navigator', 'history', 'CustomEvent', 'Event', 'Element', 'Node',
     'Blob', 'File', 'FileReader', 'URL', 'FormData', 'XMLHttpRequest',

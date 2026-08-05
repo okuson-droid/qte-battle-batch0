@@ -17,6 +17,8 @@ import pathlib
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "src/main/resources/templates/manual-battle.html"
 OUT = pathlib.Path(__file__).resolve().parent / "harness.html"
+LOBBY_TEMPLATE = ROOT / "src/main/resources/templates/manual-lobby.html"
+LOBBY_OUT = pathlib.Path(__file__).resolve().parent / "harness-lobby.html"
 
 html = TEMPLATE.read_text(encoding="utf-8")
 
@@ -32,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=17)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=18)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=9)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=10)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -72,6 +74,16 @@ stub = """
   .w-100 { width: 100%; } .small { font-size: 0.875em; }
   .btn-group { display: inline-flex; }
   .form-control { width: 100%; box-sizing: border-box; }
+  /* ★Batch 21b で足したユーティリティ。ロビー・席選択・在室者ポップオーバーが使う */
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; background: #6c757d; }
+  .alert { border-radius: 4px; background: #842029; }
+  .form-label { display: block; }
+  .form-control-sm { font-size: 0.875em; }
+  .table { width: 100%; border-collapse: collapse; }
+  .table-sm td, .table-sm th { padding: 2px 6px; }
+  .py-0 { padding-top: 0; padding-bottom: 0; }
+  .px-1 { padding-left: 4px; padding-right: 4px; }
+  .mb-1 { margin-bottom: 4px; }
 </style>
 <script>
   window.__sent = [];
@@ -98,3 +110,41 @@ html = html.replace("</head>", stub + "</head>")
 
 OUT.write_text(html, encoding="utf-8")
 print(f"wrote {OUT} ({len(html)} bytes)")
+
+# ---------------------------------------------------------------------------
+# ★Batch 21b: ロビー(manual-lobby.html)のハーネス。
+# 盤面と違い、この画面は自分で /manual/api/rooms を叩いて一覧を描く。
+# fetch はスタブせず、verify.js の HTTP サーバが実際に JSON を返す形にしてある
+# (スタブに置き換えると「一覧APIの形が変わったのに検証は通る」状態を作ってしまう)。
+# ---------------------------------------------------------------------------
+lobby = LOBBY_TEMPLATE.read_text(encoding="utf-8")
+lobby = lobby.replace(
+    '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">',
+    "",
+)
+lobby = re.sub(r'\s+th:href="[^"]*"', ' href="#"', lobby)
+
+lobby_stub = """
+<style>
+  .d-none { display: none !important; }
+  body { font-family: sans-serif; }
+  .d-flex { display: flex; } .ms-auto { margin-left: auto; }
+  .align-items-center { align-items: center; } .align-items-end { align-items: flex-end; }
+  .table { width: 100%; border-collapse: collapse; }
+  .form-control, .form-select { width: 100%; box-sizing: border-box; }
+  .row { display: block; }
+</style>
+<script>
+  // ★遷移させない。location.href の代入を捕まえて記録するだけにする
+  window.__navigated = [];
+  window.__origAssign = null;
+</script>
+"""
+lobby = lobby.replace("</head>", lobby_stub + "</head>")
+# goToRoom の遷移を記録に差し替える(実際に遷移すると検証が続けられない)
+lobby = lobby.replace(
+    "    function goToRoom(roomId) {\n        location.href = '/manual/battle/' + roomId;\n    }",
+    "    function goToRoom(roomId) {\n        window.__navigated.push(roomId);\n    }",
+)
+LOBBY_OUT.write_text(lobby, encoding="utf-8")
+print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")

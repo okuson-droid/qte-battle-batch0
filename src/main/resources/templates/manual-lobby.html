@@ -7,23 +7,92 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
-<div class="container py-4" style="max-width: 760px">
+<!--
+  ★Batch 21b: ロビーを部屋一覧つきに作り替えた(設計書 1-3・F1)。
+  この画面は「部屋を選ぶ」までを担当し、名前と席の決定は盤面ページの席選択画面(2-1)が行う。
+  入口を1本にしておくと、一覧から来ても直リンクで来ても必ず同じ席選択画面を通る。
+-->
+<div class="container py-4" style="max-width: 900px">
     <h1 class="mb-1">クイン・タブーエレメント — 手動モード</h1>
     <p class="text-muted mb-3">
-        1人で盤面を動かし、対戦の検証やソロプレイに使うモードです。効果の判定はアプリが行いません。
+        盤面を手で動かすモードです。効果の判定はアプリが行いません。
         <a th:href="@{/manual/cards}">カード一覧</a> /
         <a th:href="@{/auto}">通常対戦(未完成)</a>
     </p>
 
     <div id="status" class="alert alert-danger d-none"></div>
 
+    <!-- ============ 部屋一覧(1-3) ============ -->
+    <div class="card mb-4">
+        <div class="card-header d-flex align-items-center">
+            <strong>部屋一覧</strong>
+            <!-- ★自動ポーリングはしない(1-3)。更新は手動ボタンで行う -->
+            <button id="refresh-rooms" class="btn btn-sm btn-outline-secondary ms-auto">更新</button>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>部屋名</th>
+                        <th style="width:70px">種類</th>
+                        <th style="width:190px">席</th>
+                        <th style="width:80px">観戦</th>
+                        <th style="width:60px">鍵</th>
+                        <th style="width:150px"></th>
+                    </tr>
+                </thead>
+                <!-- ★部屋IDの列は無い。IDが鍵を兼ねるため一覧には出さない(1-3・F1) -->
+                <tbody id="room-list">
+                    <tr><td colspan="6" class="text-muted small">読み込み中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ============ 部屋を作る(1-2) ============ -->
     <div class="card mb-4">
         <div class="card-header"><strong>部屋を作る</strong></div>
         <div class="card-body">
             <form id="create-form" class="row g-3" onsubmit="return false">
-                <div class="col-md-8">
-                    <label class="form-label">名前(省略可)</label>
-                    <input type="text" id="create-name" class="form-control" placeholder="例: オクソン">
+                <div class="col-md-6">
+                    <label class="form-label" for="create-room-name">部屋名</label>
+                    <input type="text" id="create-room-name" class="form-control" maxlength="40"
+                           placeholder="例: 検証用">
+                    <div class="form-text">対戦部屋では必須です。全公開部屋は省略できます。</div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="create-type">種類</label>
+                    <select id="create-type" class="form-select">
+                        <option value="OPEN" selected>全公開(一人回し)</option>
+                        <option value="VERSUS">対戦</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label" for="create-seat">自分が座る席</label>
+                    <select id="create-seat" class="form-select">
+                        <option value="A" selected>席A</option>
+                        <option value="B">席B</option>
+                    </select>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="create-name">あなたの名前</label>
+                    <input type="text" id="create-name" class="form-control" maxlength="20"
+                           placeholder="例: オクソン">
+                    <div class="form-text" id="create-name-note">省略できます。</div>
+                </div>
+                <div class="col-md-6 d-flex align-items-end">
+                    <div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="create-spectator" checked>
+                            <label class="form-check-label" for="create-spectator">観戦を許可する</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="create-locked">
+                            <label class="form-check-label" for="create-locked">
+                                入室に部屋IDを要求する(IDが鍵になります)
+                            </label>
+                        </div>
+                    </div>
                 </div>
                 <div class="col-12">
                     <button type="submit" id="create-submit" class="btn btn-primary">部屋を作成して入室</button>
@@ -32,20 +101,22 @@
         </div>
     </div>
 
+    <!-- ============ 部屋IDで直接入る(1-3) ============ -->
     <div class="card">
-        <div class="card-header"><strong>部屋に入る</strong></div>
+        <div class="card-header"><strong>部屋IDで入る</strong></div>
         <div class="card-body">
+            <p class="text-muted small mb-2">
+                鍵つきの部屋、またはIDを共有された部屋はこちらから入ります。
+                名前と席は次の画面で選びます。
+            </p>
             <form id="join-form" class="row g-3" onsubmit="return false">
                 <div class="col-md-4">
-                    <label class="form-label">部屋コード</label>
-                    <input type="text" id="join-room" class="form-control text-uppercase" placeholder="ABC123" required>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">名前(省略可)</label>
-                    <input type="text" id="join-name" class="form-control">
+                    <label class="form-label" for="join-room">部屋ID</label>
+                    <input type="text" id="join-room" class="form-control text-uppercase"
+                           placeholder="ABC123" required>
                 </div>
                 <div class="col-12">
-                    <button type="submit" id="join-submit" class="btn btn-success">入室する</button>
+                    <button type="submit" id="join-submit" class="btn btn-success">席選択へ進む</button>
                 </div>
             </form>
         </div>
@@ -53,12 +124,20 @@
 </div>
 
 <script>
-    // 部屋の作成・入室はJSON APIを直接叩く(通常モードのようなフォーム送信は使わない)。
-    // occupantIdはURLに載せず、localStorageへ保存してから盤面画面へ遷移する(設計書6-3)。
+    // ★この画面は入室しない。部屋を選んで盤面ページへ送るところまでを担当し、
+    //   名前・席の決定と入室APIの呼び出しは席選択画面(manual-battle.js)が行う(2-1)。
+    //   唯一の例外が「部屋を作る」で、作成と同時に作成者が席へ着く(21a の createRoom)。
+
+    const ROOM_TYPE_LABELS = { OPEN: '全公開', VERSUS: '対戦' };
+
     function showError(message) {
         const box = document.getElementById('status');
         box.textContent = message;
         box.classList.remove('d-none');
+    }
+
+    function clearError() {
+        document.getElementById('status').classList.add('d-none');
     }
 
     function saveOccupant(roomId, occupantId, displayName) {
@@ -66,41 +145,152 @@
             JSON.stringify({ occupantId, displayName }));
     }
 
+    function goToRoom(roomId) {
+        location.href = '/manual/battle/' + roomId;
+    }
+
+    // ---- 部屋一覧 ----
+
+    function seatCell(name, seatId) {
+        return name ? `${seatId}:${name}` : `${seatId}:空き`;
+    }
+
+    function renderRooms(rooms) {
+        const body = document.getElementById('room-list');
+        body.innerHTML = '';
+        if (rooms.length === 0) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="6" class="text-muted small">'
+                + '部屋がありません。下のフォームから作成してください。</td>';
+            body.appendChild(tr);
+            return;
+        }
+        for (const room of rooms) {
+            const tr = document.createElement('tr');
+            tr.dataset.roomName = room.roomName;
+
+            const name = document.createElement('td');
+            name.textContent = room.roomName;
+            tr.appendChild(name);
+
+            const type = document.createElement('td');
+            type.textContent = ROOM_TYPE_LABELS[room.type] || room.type;
+            tr.appendChild(type);
+
+            const seats = document.createElement('td');
+            seats.className = 'small';
+            seats.textContent = seatCell(room.seatAName, 'A') + ' / ' + seatCell(room.seatBName, 'B');
+            tr.appendChild(seats);
+
+            const spectators = document.createElement('td');
+            spectators.className = 'small';
+            spectators.textContent = room.spectatorAllowed ? `可(${room.spectatorCount}人)` : '不可';
+            tr.appendChild(spectators);
+
+            const locked = document.createElement('td');
+            locked.className = 'small';
+            locked.textContent = room.locked ? 'あり' : '—';
+            tr.appendChild(locked);
+
+            const action = document.createElement('td');
+            if (room.roomId) {
+                // 鍵なし: 一覧から直接、席選択画面へ進める
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-sm btn-outline-primary room-enter';
+                btn.textContent = '入る';
+                btn.addEventListener('click', () => goToRoom(room.roomId));
+                action.appendChild(btn);
+            } else {
+                // ★鍵つき: 一覧に部屋IDが載っていない(1-3)。下の欄でIDを打ってもらう
+                const hint = document.createElement('span');
+                hint.className = 'text-muted small room-locked-hint';
+                hint.textContent = 'IDが必要';
+                action.appendChild(hint);
+            }
+            tr.appendChild(action);
+            body.appendChild(tr);
+        }
+    }
+
+    async function loadRooms() {
+        const button = document.getElementById('refresh-rooms');
+        button.disabled = true;
+        try {
+            const res = await fetch('/manual/api/rooms');
+            if (!res.ok) throw new Error('部屋一覧を取得できませんでした');
+            renderRooms(await res.json());
+            clearError();
+        } catch (e) {
+            showError(e.message);
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    document.getElementById('refresh-rooms').addEventListener('click', loadRooms);
+    loadRooms();
+
+    // ---- 部屋を作る ----
+
+    // ★対戦部屋では部屋名も名前も必須である(1-2・F4)。種類を変えたら注意書きも変える
+    function syncCreateForm() {
+        const versus = document.getElementById('create-type').value === 'VERSUS';
+        document.getElementById('create-name-note').textContent =
+            versus ? '対戦部屋では必須です。' : '省略できます。';
+    }
+    document.getElementById('create-type').addEventListener('change', syncCreateForm);
+    syncCreateForm();
+
     document.getElementById('create-form').addEventListener('submit', async () => {
         const button = document.getElementById('create-submit');
         button.disabled = true;
         try {
+            const type = document.getElementById('create-type').value;
+            const roomName = document.getElementById('create-room-name').value.trim();
             const name = document.getElementById('create-name').value.trim();
+            // ★サーバも同じ検証をする(ManualRoomOptions / ManualRoom.join)。
+            //   ここでの検査は往復を1回省く操作補助にすぎない(設計判断27)
+            if (type === 'VERSUS' && roomName === '') {
+                throw new Error('対戦部屋には部屋名が必要です');
+            }
+            if (type === 'VERSUS' && name === '') {
+                throw new Error('対戦部屋では名前が必要です');
+            }
             const res = await fetch('/manual/api/rooms', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ displayName: name || null }),
+                body: JSON.stringify({
+                    displayName: name || null,
+                    roomName: roomName || null,
+                    type,
+                    spectatorAllowed: document.getElementById('create-spectator').checked,
+                    requireRoomId: document.getElementById('create-locked').checked,
+                    seat: document.getElementById('create-seat').value,
+                }),
             });
             if (!res.ok) throw new Error((await res.json()).message || '部屋を作成できませんでした');
             const data = await res.json();
+            // 作成者はこの時点で席に着いている。席選択画面は localStorage を見て素通りする(2-1)
             saveOccupant(data.roomId, data.occupantId, data.displayName);
-            location.href = '/manual/battle/' + data.roomId;
+            goToRoom(data.roomId);
         } catch (e) {
             showError(e.message);
             button.disabled = false;
         }
     });
 
+    // ---- 部屋IDで入る ----
+
     document.getElementById('join-form').addEventListener('submit', async () => {
         const button = document.getElementById('join-submit');
         button.disabled = true;
         try {
             const roomId = document.getElementById('join-room').value.trim().toUpperCase();
-            const name = document.getElementById('join-name').value.trim();
-            const res = await fetch('/manual/api/rooms/' + roomId + '/occupants', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ displayName: name || null }),
-            });
-            if (!res.ok) throw new Error((await res.json()).message || '入室できませんでした');
-            const data = await res.json();
-            saveOccupant(data.roomId, data.occupantId, data.displayName);
-            location.href = '/manual/battle/' + data.roomId;
+            if (roomId === '') throw new Error('部屋IDを入力してください');
+            // ★存在確認だけ先に済ませる。入室(名前・席)は次の画面で行う(2-1)
+            const res = await fetch('/manual/api/rooms/' + encodeURIComponent(roomId));
+            if (!res.ok) throw new Error((await res.json()).message || '部屋が見つかりません');
+            goToRoom(roomId);
         } catch (e) {
             showError(e.message);
             button.disabled = false;
