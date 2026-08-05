@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.example.qte.manual.ManualActor;
 import com.example.qte.manual.ManualBoardIndex;
 import com.example.qte.manual.ManualCardInstance;
 import com.example.qte.manual.ManualCardMaster;
@@ -40,6 +41,12 @@ import com.example.qte.manual.ManualZone;
 @SpringBootTest
 class ManualOperationTest {
 
+    /**
+     * ★Batch 21a: 権限を見ない操作者。全公開部屋の既定と同じである。
+     * 対戦部屋の権限・視点・ログのマスクは {@code ManualVersusTest} が受け持つ。
+     */
+    static final ManualActor ACTOR = ManualActor.unrestricted();
+
     @Autowired
     ManualOperationService operations;
 
@@ -53,7 +60,7 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance target = put(room, ManualZone.HAND, "札1");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(target.getInstanceId()),
                 ManualSeatId.A, ManualZone.MANA, null, true)));
 
@@ -70,7 +77,7 @@ class ManualOperationTest {
         ManualCardInstance second = put(room, ManualZone.HAND, "2番目");
         ManualCardInstance third = put(room, ManualZone.HAND, "3番目");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null,
                 List.of(third.getInstanceId(), first.getInstanceId(), second.getInstanceId()),
                 ManualSeatId.A, ManualZone.TRASH, null, null)));
@@ -89,7 +96,7 @@ class ManualOperationTest {
         put(room, ManualZone.DECK, "山2");
         ManualCardInstance moved = put(room, ManualZone.HAND, "差し込む札");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(moved.getInstanceId()),
                 ManualSeatId.A, ManualZone.DECK, 999, null)));
 
@@ -104,7 +111,7 @@ class ManualOperationTest {
         ManualCardInstance leader = card("リーダー");
         seatA(room).setLeader(leader);
 
-        assertThatThrownBy(() -> operations.apply(room, state -> operations.move(state,
+        assertThatThrownBy(() -> operations.apply(room, ACTOR, state -> operations.move(state, ACTOR,
                 new ManualOpRequest.Move(null, List.of(leader.getInstanceId()),
                         ManualSeatId.A, ManualZone.TRASH, null, null))))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -118,7 +125,7 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance target = put(room, ManualZone.HAND, "札1");
 
-        assertThatThrownBy(() -> operations.apply(room, state -> operations.move(state,
+        assertThatThrownBy(() -> operations.apply(room, ACTOR, state -> operations.move(state, ACTOR,
                 new ManualOpRequest.Move(null,
                         List.of(target.getInstanceId(), target.getInstanceId()),
                         ManualSeatId.A, ManualZone.TRASH, null, null))))
@@ -137,7 +144,7 @@ class ManualOperationTest {
         ManualCardInstance m3 = put(room, ManualZone.FIELD, "素材3");
         ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
 
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, evolution.getInstanceId(),
                 List.of(m3.getInstanceId(), m1.getInstanceId(), m2.getInstanceId()), null)));
 
@@ -163,10 +170,10 @@ class ManualOperationTest {
         ManualCardInstance first = put(room, ManualZone.HAND, "進化1");
         ManualCardInstance second = put(room, ManualZone.HAND, "進化2");
 
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, first.getInstanceId(),
                 List.of(m1.getInstanceId(), m2.getInstanceId(), m3.getInstanceId()), null)));
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, second.getInstanceId(),
                 List.of(first.getInstanceId()), null)));
 
@@ -187,10 +194,10 @@ class ManualOperationTest {
         ManualCardInstance m2 = put(room, ManualZone.FIELD, "素材2");
         ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
 
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, evolution.getInstanceId(),
                 List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(evolution.getInstanceId()),
                 ManualSeatId.A, ManualZone.TRASH, null, null)));
 
@@ -211,7 +218,7 @@ class ManualOperationTest {
         m1.setAttack(99);
         m1.setHp(1);
 
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, evolution.getInstanceId(),
                 List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
 
@@ -232,7 +239,7 @@ class ManualOperationTest {
         minion.setAttack(99);
         minion.setHp(1);
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(minion.getInstanceId()),
                 ManualSeatId.A, ManualZone.TRASH, null, null)));
 
@@ -252,7 +259,7 @@ class ManualOperationTest {
         minion.setHp(1);
 
         // 「相手にこのミニオンがいる想定」で置き直す操作(設計書 4-5 のドロップ先)
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(minion.getInstanceId()),
                 ManualSeatId.B, ManualZone.FIELD, null, null)));
 
@@ -270,7 +277,7 @@ class ManualOperationTest {
         seatA(room).zone(ManualZone.WEAPON).add(weapon);
         weapon.setAttack(99); // 強化を受けた状態
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(weapon.getInstanceId()),
                 ManualSeatId.A, ManualZone.TRASH, null, null)));
 
@@ -287,7 +294,7 @@ class ManualOperationTest {
         weapon.setAttack(99);
 
         // 同じ WEAPON ゾーン内での位置変更(装備し直し)は「離れる」に当たらない
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(weapon.getInstanceId()),
                 ManualSeatId.A, ManualZone.WEAPON, null, null)));
 
@@ -304,11 +311,11 @@ class ManualOperationTest {
         ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
         m1.setAttack(99); // evolve で印刷値へ戻る
 
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, evolution.getInstanceId(),
                 List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
         // ★帯から最上段以外を1枚だけ抜く(設計書 4-5-2 の2)
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(m1.getInstanceId()),
                 ManualSeatId.A, ManualZone.FIELD, null, null)));
 
@@ -324,7 +331,7 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance evolution = put(room, ManualZone.HAND, "不敗の進化");
 
-        operations.apply(room, state -> operations.evolve(state, new ManualOpRequest.Evolve(
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
                 null, ManualSeatId.A, evolution.getInstanceId(), List.of(), null)));
 
         assertThat(seatA(room).zone(ManualZone.FIELD)).hasSize(1);
@@ -337,7 +344,7 @@ class ManualOperationTest {
         ManualCardInstance inHand = put(room, ManualZone.HAND, "手札のミニオン");
         ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
 
-        assertThatThrownBy(() -> operations.apply(room, state -> operations.evolve(state,
+        assertThatThrownBy(() -> operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR,
                 new ManualOpRequest.Evolve(null, ManualSeatId.A, evolution.getInstanceId(),
                         List.of(inHand.getInstanceId()), null))))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -352,11 +359,11 @@ class ManualOperationTest {
     void LPは上限も下限も強制しない() {
         ManualRoom room = new ManualRoom("TESTRM");
 
-        operations.apply(room, state -> operations.changeLp(state,
+        operations.apply(room, ACTOR, state -> operations.changeLp(state, ACTOR,
                 new ManualOpRequest.Lp(null, ManualSeatId.A, 40, null)));
         assertThat(seatA(room).getLp()).isEqualTo(40);
 
-        operations.apply(room, state -> operations.changeLp(state,
+        operations.apply(room, ACTOR, state -> operations.changeLp(state, ACTOR,
                 new ManualOpRequest.Lp(null, ManualSeatId.A, null, -45)));
         assertThat(seatA(room).getLp()).isEqualTo(-5);
     }
@@ -366,11 +373,11 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance minion = put(room, ManualZone.FIELD, "ミニオン");
 
-        operations.apply(room, state -> operations.changeStats(state,
+        operations.apply(room, ACTOR, state -> operations.changeStats(state, ACTOR,
                 new ManualOpRequest.Stat(null, minion.getInstanceId(), 4, 5, null, null)));
         assertThat(reload(room, minion).getAttack()).isEqualTo(4);
 
-        operations.apply(room, state -> operations.changeStats(state,
+        operations.apply(room, ACTOR, state -> operations.changeStats(state, ACTOR,
                 new ManualOpRequest.Stat(null, minion.getInstanceId(), null, null, null, -2)));
         assertThat(reload(room, minion).getHp()).isEqualTo(3);
     }
@@ -380,7 +387,7 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance spell = put(room, ManualZone.HAND, "スペル");
 
-        assertThatThrownBy(() -> operations.apply(room, state -> operations.changeStats(state,
+        assertThatThrownBy(() -> operations.apply(room, ACTOR, state -> operations.changeStats(state, ACTOR,
                 new ManualOpRequest.Stat(null, spell.getInstanceId(), null, null, 1, null))))
                 .isInstanceOf(IllegalArgumentException.class);
 
@@ -396,7 +403,7 @@ class ManualOperationTest {
         minion.setAttack(99);
         minion.setHp(1);
 
-        operations.apply(room, state -> operations.resetStats(state,
+        operations.apply(room, ACTOR, state -> operations.resetStats(state, ACTOR,
                 new ManualOpRequest.Target(null, minion.getInstanceId())));
 
         assertThat(reload(room, minion).getAttack()).isEqualTo(master.attack());
@@ -409,18 +416,18 @@ class ManualOperationTest {
         ManualCardInstance minion = put(room, ManualZone.FIELD, "ミニオン");
         String preset = ManualLabels.DEFAULTS.get(0);
 
-        operations.apply(room, state -> operations.addLabel(state,
+        operations.apply(room, ACTOR, state -> operations.addLabel(state, ACTOR,
                 new ManualOpRequest.Label(null, minion.getInstanceId(), preset)));
         // ★既定9種の外でも通る(設計書 5-4)。アプリは意味を解釈しない
-        operations.apply(room, state -> operations.addLabel(state,
+        operations.apply(room, ACTOR, state -> operations.addLabel(state, ACTOR,
                 new ManualOpRequest.Label(null, minion.getInstanceId(), "賢魂：3")));
         assertThat(reload(room, minion).getLabels()).containsExactly(preset, "賢魂：3");
 
-        operations.apply(room, state -> operations.removeLabel(state,
+        operations.apply(room, ACTOR, state -> operations.removeLabel(state, ACTOR,
                 new ManualOpRequest.Label(null, minion.getInstanceId(), preset)));
         assertThat(reload(room, minion).getLabels()).containsExactly("賢魂：3");
 
-        operations.apply(room, state -> operations.removeLabel(state,
+        operations.apply(room, ACTOR, state -> operations.removeLabel(state, ACTOR,
                 new ManualOpRequest.Label(null, minion.getInstanceId(), null)));
         assertThat(reload(room, minion).getLabels()).isEmpty();
     }
@@ -431,15 +438,15 @@ class ManualOperationTest {
         ManualCardInstance mana1 = put(room, ManualZone.MANA, "マナ1");
         ManualCardInstance mana2 = put(room, ManualZone.MANA, "マナ2");
 
-        operations.apply(room, state -> operations.tap(state, new ManualOpRequest.Flag(
+        operations.apply(room, ACTOR, state -> operations.tap(state, ACTOR, new ManualOpRequest.Flag(
                 null, List.of(mana1.getInstanceId(), mana2.getInstanceId()), true)));
         assertThat(seatA(room).availableMp()).isZero();
 
-        operations.apply(room, state -> operations.tap(state, new ManualOpRequest.Flag(
+        operations.apply(room, ACTOR, state -> operations.tap(state, ACTOR, new ManualOpRequest.Flag(
                 null, List.of(mana1.getInstanceId()), null)));
         assertThat(seatA(room).availableMp()).isEqualTo(1);
 
-        operations.apply(room, state -> operations.flip(state, new ManualOpRequest.Flag(
+        operations.apply(room, ACTOR, state -> operations.flip(state, ACTOR, new ManualOpRequest.Flag(
                 null, List.of(mana1.getInstanceId()), null)));
         assertThat(reload(room, mana1).isFaceDown()).isTrue();
         // 裏向きでもアンタップならMPになる(総合ルール 2-3)
@@ -453,9 +460,9 @@ class ManualOperationTest {
         seatA(room).setLeader(leader);
         ManualCardInstance weapon = put(room, ManualZone.WEAPON, "ウェポン");
 
-        operations.apply(room, state -> operations.tap(state,
+        operations.apply(room, ACTOR, state -> operations.tap(state, ACTOR,
                 new ManualOpRequest.Flag(null, List.of(leader.getInstanceId()), true)));
-        operations.apply(room, state -> operations.markUsed(state,
+        operations.apply(room, ACTOR, state -> operations.markUsed(state, ACTOR,
                 new ManualOpRequest.Flag(null, List.of(weapon.getInstanceId()), null)));
 
         assertThat(seatA(room).getLeader().isTapped()).isTrue();
@@ -468,19 +475,19 @@ class ManualOperationTest {
     void ターンとフェイズは前後に動かせる() {
         ManualRoom room = new ManualRoom("TESTRM");
 
-        operations.apply(room, state -> operations.setTurn(state,
+        operations.apply(room, ACTOR, state -> operations.setTurn(state, ACTOR,
                 new ManualOpRequest.Turn(null, null, 3)));
         assertThat(room.getGameState().getTurnNumber()).isEqualTo(4);
 
-        operations.apply(room, state -> operations.setTurn(state,
+        operations.apply(room, ACTOR, state -> operations.setTurn(state, ACTOR,
                 new ManualOpRequest.Turn(null, null, -99)));
         assertThat(room.getGameState().getTurnNumber()).isEqualTo(1);
 
-        operations.apply(room, state -> operations.setPhase(state,
+        operations.apply(room, ACTOR, state -> operations.setPhase(state, ACTOR,
                 new ManualOpRequest.Phase(null, null, 2)));
         assertThat(room.getGameState().getPhase()).isEqualTo(ManualPhase.MANA_CHARGE);
 
-        operations.apply(room, state -> operations.setPhase(state,
+        operations.apply(room, ACTOR, state -> operations.setPhase(state, ACTOR,
                 new ManualOpRequest.Phase(null, null, -3)));
         assertThat(room.getGameState().getPhase()).isEqualTo(ManualPhase.END);
     }
@@ -490,14 +497,14 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         put(room, ManualZone.DECK, "山1");
 
-        operations.apply(room, state -> operations.draw(state,
+        operations.apply(room, ACTOR, state -> operations.draw(state, ACTOR,
                 new ManualOpRequest.Draw(null, ManualSeatId.A, 3)));
         assertThat(seatA(room).zone(ManualZone.HAND)).hasSize(1);
         assertThat(seatA(room).zone(ManualZone.DECK)).isEmpty();
 
-        operations.apply(room, state -> operations.draw(state,
+        operations.apply(room, ACTOR, state -> operations.draw(state, ACTOR,
                 new ManualOpRequest.Draw(null, ManualSeatId.A, 1)));
-        assertThat(room.getLog().get(1).text()).contains("山札が空");
+        assertThat(room.getLog().get(1).event().text()).contains("山札が空");
         // ★デッキ切れ敗北は判定しない(設計書 5-1)
         assertThat(seatA(room).getLp()).isEqualTo(ManualGameService.INITIAL_LP);
     }
@@ -509,16 +516,16 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance target = put(room, ManualZone.HAND, "札1");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(target.getInstanceId()),
                 ManualSeatId.A, ManualZone.MANA, null, true)));
         assertThat(seatA(room).zone(ManualZone.MANA)).hasSize(1);
 
-        operations.applyDirect(room, operations::undo);
+        operations.applyDirect(room, r -> operations.undo(r, ACTOR));
         assertThat(seatA(room).zone(ManualZone.HAND)).hasSize(1);
         assertThat(seatA(room).zone(ManualZone.MANA)).isEmpty();
 
-        operations.applyDirect(room, operations::redo);
+        operations.applyDirect(room, r -> operations.redo(r, ACTOR));
         assertThat(seatA(room).zone(ManualZone.MANA)).hasSize(1);
         assertThat(reload(room, target).isFaceDown()).isTrue();
     }
@@ -528,16 +535,16 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance target = put(room, ManualZone.HAND, "札1");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(target.getInstanceId()),
                 ManualSeatId.A, ManualZone.TRASH, null, null)));
         assertThat(room.getLog()).hasSize(1);
 
-        operations.applyDirect(room, operations::undo);
+        operations.applyDirect(room, r -> operations.undo(r, ACTOR));
 
         // ★ログは追記専用である(設計書 5-5・17b 2-5)
         assertThat(room.getLog()).hasSize(2);
-        assertThat(room.getLog().get(1).text()).contains("取り消した");
+        assertThat(room.getLog().get(1).event().text()).contains("取り消した");
         assertThat(seatA(room).zone(ManualZone.HAND)).hasSize(1);
     }
 
@@ -545,9 +552,9 @@ class ManualOperationTest {
     void 取り消せる操作が無ければ失敗する() {
         ManualRoom room = new ManualRoom("TESTRM");
 
-        assertThatThrownBy(() -> operations.applyDirect(room, operations::undo))
+        assertThatThrownBy(() -> operations.applyDirect(room, r -> operations.undo(r, ACTOR)))
                 .isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> operations.applyDirect(room, operations::redo))
+        assertThatThrownBy(() -> operations.applyDirect(room, r -> operations.redo(r, ACTOR)))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(room.getLog()).isEmpty();
     }
@@ -557,8 +564,8 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
 
         operations.applyDirect(room,
-                ignored -> operations.note(new ManualOpRequest.Note(null, "検証メモ")));
-        operations.applyDirect(room, ignored -> operations.declare(new ManualOpRequest.Declare(
+                ignored -> operations.note(ACTOR, new ManualOpRequest.Note(null, "検証メモ")));
+        operations.applyDirect(room, ignored -> operations.declare(ACTOR, new ManualOpRequest.Declare(
                 null, ManualSeatId.A, ManualDeclaration.WIN, "LPが0を下回った")));
 
         assertThat(room.getLog()).hasSize(2);
@@ -572,9 +579,9 @@ class ManualOperationTest {
         put(room, ManualZone.DECK, "山1");
         put(room, ManualZone.DECK, "山2");
 
-        operations.apply(room, state -> operations.draw(state,
+        operations.apply(room, ACTOR, state -> operations.draw(state, ACTOR,
                 new ManualOpRequest.Draw(null, ManualSeatId.A, 1)));
-        operations.apply(room, state -> operations.draw(state,
+        operations.apply(room, ACTOR, state -> operations.draw(state, ACTOR,
                 new ManualOpRequest.Draw(null, ManualSeatId.A, 1)));
 
         assertThat(room.getHistory().undoDepth()).isEqualTo(2);
@@ -587,7 +594,7 @@ class ManualOperationTest {
         ManualCardInstance target = put(room, ManualZone.HAND, "札1");
         put(room, ManualZone.HAND, "札2");
 
-        assertThatThrownBy(() -> operations.apply(room, state -> operations.move(state,
+        assertThatThrownBy(() -> operations.apply(room, ACTOR, state -> operations.move(state, ACTOR,
                 new ManualOpRequest.Move(null,
                         List.of(target.getInstanceId(), "盤面に無いID"),
                         ManualSeatId.A, ManualZone.TRASH, null, null))))
@@ -609,10 +616,10 @@ class ManualOperationTest {
         room.getGameState().seat(ManualSeatId.B).zone(ManualZone.HAND).add(fromB);
 
         // A席を宛先に指定した移動と、B席を宛先に指定した移動が同じ入れ物へ入る
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(fromA.getInstanceId()),
                 ManualSeatId.A, ManualZone.PLAY, null, null)));
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(fromB.getInstanceId()),
                 ManualSeatId.B, ManualZone.PLAY, null, null)));
 
@@ -626,7 +633,7 @@ class ManualOperationTest {
         ManualCardInstance target = put(room, ManualZone.MANA, "裏の札");
         target.setFaceDown(true);
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(target.getInstanceId()),
                 ManualSeatId.A, ManualZone.REVEAL, null, null)));
 
@@ -638,16 +645,16 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance target = put(room, ManualZone.HAND, "札1");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(target.getInstanceId()),
                 ManualSeatId.A, ManualZone.PLAY, null, null)));
         assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).hasSize(1);
 
-        operations.applyDirect(room, operations::undo);
+        operations.applyDirect(room, r -> operations.undo(r, ACTOR));
         assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).isEmpty();
         assertThat(seatA(room).zone(ManualZone.HAND)).hasSize(1);
 
-        operations.applyDirect(room, operations::redo);
+        operations.applyDirect(room, r -> operations.redo(r, ACTOR));
         assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).hasSize(1);
     }
 
@@ -667,7 +674,7 @@ class ManualOperationTest {
         ManualCardInstance old = put(room, ManualZone.WEAPON, "古い武器");
         ManualCardInstance fresh = put(room, ManualZone.HAND, "新しい武器");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(fresh.getInstanceId()),
                 ManualSeatId.A, ManualZone.WEAPON, null, null)));
 
@@ -686,7 +693,7 @@ class ManualOperationTest {
         old.setFromTaboo(true);
         ManualCardInstance fresh = put(room, ManualZone.HAND, "新しい武器");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(fresh.getInstanceId()),
                 ManualSeatId.A, ManualZone.WEAPON, null, null)));
 
@@ -701,7 +708,7 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance fresh = put(room, ManualZone.HAND, "武器");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(fresh.getInstanceId()),
                 ManualSeatId.A, ManualZone.WEAPON, null, null)));
 
@@ -715,7 +722,7 @@ class ManualOperationTest {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance weapon = put(room, ManualZone.WEAPON, "武器");
 
-        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
                 null, List.of(weapon.getInstanceId()),
                 ManualSeatId.A, ManualZone.WEAPON, 0, null)));
 

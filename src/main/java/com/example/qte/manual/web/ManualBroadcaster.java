@@ -3,8 +3,10 @@ package com.example.qte.manual.web;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
+import com.example.qte.manual.ManualDragCue;
 import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualRoom;
+import com.example.qte.manual.ManualViewpoint;
 import com.example.qte.manual.view.ManualGameView;
 import com.example.qte.manual.view.ManualViewBuilder;
 
@@ -21,9 +23,9 @@ import lombok.RequiredArgsConstructor;
  * SimpleBroker は購読を認可しないため、そうした宛先を使うと
  * <b>部屋IDを知っているだけで(入室手続きを踏まずに)全情報を購読できてしまう</b>。
  * 個別宛先なら、occupantId を持たない者に届く宛先がそもそも存在しない。
- * フェイズ1では在室者が1人なので実質1本しか流れないが、
- * <b>宛先形式は配管であり、後から変えると 17b〜18c を掘り返すことになる</b>ため、
- * ここでこの形にしておく。
+ * ★Batch 21a でこの判断が実際に効き始めた。同じ部屋の在室者に対して
+ * <b>中身の違うビューを送る</b>には、宛先が分かれていることが前提になる。
+ * 観戦を許可しない部屋で観戦者に何も届かないのも、宛先が存在しないからである(2-1)。
  *
  * 既存の {@code /app/room/...} とは前置詞が異なるため {@code @MessageMapping} は衝突しない。
  *
@@ -42,16 +44,24 @@ public class ManualBroadcaster {
 
     /**
      * クライアントへ送るメッセージの型。
-     * type=VIEW のとき view が入り、type=ERROR のとき message が入る。
+     * type=VIEW のとき view が、type=ERROR のとき message が、type=CUE のとき cue が入る。
+     *
+     * ★CUE を VIEW と同じ宛先に流すのは、クライアントの購読を1本に保つためである。
+     * 宛先を分けると、購読の張り忘れが「矢印だけ来ない」という分かりにくい形で出る。
      */
-    public record ManualWsMessage(String type, ManualGameView view, String message) {
+    public record ManualWsMessage(String type, ManualGameView view, String message,
+            ManualDragCue.View cue) {
 
         static ManualWsMessage ofView(ManualGameView view) {
-            return new ManualWsMessage("VIEW", view, null);
+            return new ManualWsMessage("VIEW", view, null, null);
         }
 
         static ManualWsMessage ofError(String message) {
-            return new ManualWsMessage("ERROR", null, message);
+            return new ManualWsMessage("ERROR", null, message, null);
+        }
+
+        static ManualWsMessage ofCue(ManualDragCue.View cue) {
+            return new ManualWsMessage("CUE", null, null, cue);
         }
     }
 
@@ -62,7 +72,7 @@ public class ManualBroadcaster {
         }
     }
 
-    /** 在室者1人にビューを送る。入室直後の初回配信で使う。 */
+    /** 在室者1人にビューを送る。入室直後の初回配信・視点切替後の再送で使う(21 5-5)。 */
     public void sendTo(ManualRoom room, ManualOccupant occupant) {
         ManualGameView view = viewBuilder.build(room, occupant);
         messagingTemplate.convertAndSend(destinationOf(room.getRoomId(), occupant.getOccupantId()),
@@ -76,6 +86,31 @@ public class ManualBroadcaster {
         }
         messagingTemplate.convertAndSend(destinationOf(roomId, occupantId),
                 ManualWsMessage.ofError(message));
+    }
+
+    /**
+     * ドラッグ軌跡の矢印を、掴んでいる本人<b>以外</b>へ配る(21 7章)。
+     *
+     * ★閲覧者ごとに視点フィルタを掛け直す。起点のカード識別子は
+     * 「そのカードが見える人」にだけ載せる(7-3)。フィルタをここで行うのは、
+     * 宛先が在室者ごとに分かれているという配信の形をそのまま使えるためである。
+     *
+     * ★自分のドラッグ中は表示しない(7-4)。自分はブラウザのゴーストを見ているので、
+     * 送り返すと二重に見える。
+     *
+     * @param cueFactory 閲覧者の視点から、その人へ送る内容を作る関数
+     */
+    public void sendDragCue(ManualRoom room, ManualOccupant actor,
+            java.util.function.Function<ManualViewpoint, ManualDragCue.View> cueFactory) {
+        for (ManualOccupant occupant : room.getOccupants()) {
+            if (occupant == actor || !occupant.isConnected()) {
+                continue;
+            }
+            ManualDragCue.View cue = cueFactory.apply(ManualViewpoint.of(room, occupant));
+            messagingTemplate.convertAndSend(
+                    destinationOf(room.getRoomId(), occupant.getOccupantId()),
+                    ManualWsMessage.ofCue(cue));
+        }
     }
 
     private String destinationOf(String roomId, String occupantId) {

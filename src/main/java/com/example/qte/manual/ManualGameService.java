@@ -51,10 +51,13 @@ public class ManualGameService {
         room.getGameState().clearSharedZones();
 
         room.getHistory().clear();
-        room.addLog("席%s にデッキ「%s」を読み込んだ(山札 %d 枚 / 禁忌 %d 枚)。シャッフルして %d 枚引いた"
-                .formatted(seatId, seat.getDeckName() == null ? "名称なし" : seat.getDeckName(),
-                        seat.zone(ManualZone.DECK).size(), seat.zone(ManualZone.TABOO).size(),
-                        seat.zone(ManualZone.HAND).size()));
+        // ★デッキ名と枚数は全員に見せる(21 設計書 5-3)。名前を見せたくなければ
+        //   デッキファイルに名前を付けずに読み込めばよい、というのが確定した方針である。
+        room.addLog(ManualLogEvent.plain(ManualLogKind.DECK, seatId,
+                "席%s にデッキ「%s」を読み込んだ(山札 %d 枚 / 禁忌 %d 枚)。シャッフルして %d 枚引いた"
+                        .formatted(seatId, seat.getDeckName() == null ? "名称なし" : seat.getDeckName(),
+                                seat.zone(ManualZone.DECK).size(), seat.zone(ManualZone.TABOO).size(),
+                                seat.zone(ManualZone.HAND).size())));
         for (String warning : imported.warnings()) {
             room.addLog("警告: " + warning);
         }
@@ -120,7 +123,7 @@ public class ManualGameService {
             throw new IllegalStateException("まだデッキを読み込んでいないため、リセットできません");
         }
         room.getHistory().clear();
-        room.addLog("リセットして引き直した");
+        room.addLog(ManualLogEvent.plain(ManualLogKind.DECK, null, "リセットして引き直した"));
     }
 
     /**

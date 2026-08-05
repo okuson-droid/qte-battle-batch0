@@ -27,11 +27,20 @@ public class ManualRoomManager {
 
     private final Map<String, ManualRoom> rooms = new ConcurrentHashMap<>();
 
+    /** 従来どおりの全公開部屋を作る。 */
     public ManualRoom createRoom() {
+        return createRoom(ManualRoomOptions.openDefault());
+    }
+
+    /**
+     * 属性を指定して部屋を作る(Batch 21a 設計書 1-2)。
+     * ★属性は作成時に確定し、以後変更する経路を作らない(1-1)。
+     */
+    public ManualRoom createRoom(ManualRoomOptions options) {
         // 万一の衝突時は生成し直す。putIfAbsent で「確認と登録」を原子的に行う
         while (true) {
             String roomId = RoomIds.generate();
-            ManualRoom room = new ManualRoom(roomId);
+            ManualRoom room = new ManualRoom(roomId, options);
             if (rooms.putIfAbsent(roomId, room) == null) {
                 return room;
             }

@@ -120,7 +120,7 @@ class ManualDeckImportTest {
     @Test
     void 読み込みは履歴を空にしログを残す() throws IOException {
         ManualRoom room = new ManualRoom("TESTRM");
-        room.getHistory().push(room.getGameState());
+        room.getHistory().push(room.getGameState(), ManualSeatId.A);
         assertThat(room.getHistory().canUndo()).isTrue();
 
         gameService.loadDeck(room, ManualSeatId.A, importSample());
@@ -178,18 +178,18 @@ class ManualDeckImportTest {
         ManualGameState first = new ManualGameState("TESTRM");
         first.setTurnNumber(1);
 
-        history.push(first);
+        history.push(first, ManualSeatId.A);
         ManualGameState second = first.copy();
         second.setTurnNumber(2);
 
         assertThat(history.canUndo()).isTrue();
         assertThat(history.canRedo()).isFalse();
 
-        ManualGameState back = history.undo(second).orElseThrow();
+        ManualGameState back = history.undo(second, ManualSeatId.A).orElseThrow();
         assertThat(back.getTurnNumber()).isEqualTo(1);
         assertThat(history.canRedo()).isTrue();
 
-        ManualGameState forward = history.redo(back).orElseThrow();
+        ManualGameState forward = history.redo(back, ManualSeatId.A).orElseThrow();
         assertThat(forward.getTurnNumber()).isEqualTo(2);
     }
 
@@ -198,7 +198,7 @@ class ManualDeckImportTest {
         ManualHistory history = new ManualHistory();
         ManualGameState state = new ManualGameState("TESTRM");
         for (int i = 0; i < ManualHistory.MAX_DEPTH + 50; i++) {
-            history.push(state);
+            history.push(state, ManualSeatId.A);
         }
         assertThat(history.undoDepth()).isEqualTo(ManualHistory.MAX_DEPTH);
     }

@@ -90,6 +90,26 @@ public class ManualCardInstance {
     private boolean fromTaboo;
 
     /**
+     * 共有ゾーン(PLAY / REVEAL)に置いた席(Batch 21a 設計書 6-2)。共有ゾーンの外では null。
+     *
+     * <h3>なぜ席で持つのか(occupant ではなく)</h3>
+     * 対戦部屋では「置いた人しか動かせない」制限を掛ける(6-2)。これを occupantId で
+     * 記録すると、切断して入り直した人・席を立って座り直した人が
+     * 自分の置いたカードを動かせなくなる。権利は<b>席</b>に属する。
+     *
+     * <h3>★{@link #copy()} に必ず含めること</h3>
+     * 20b の {@code sharedZones} と同じ形の罠である(設計書 10章)。
+     * 複製から漏れたものは Undo で巻き戻らず、
+     * 「盤面は戻ったのに所有だけ戻っていない」という、症状が出るまで気づけない不具合になる。
+     *
+     * <h3>全公開部屋でも記録する</h3>
+     * 記録はするが制限しない(6-2)。1人で両席を操作する運用を妨げないためであり、
+     * 記録自体を止めないのは、同じ部屋のデータが部屋の種類によって欠けるのを避けるためである。
+     */
+    @Setter
+    private ManualSeatId placedBySeat;
+
+    /**
      * 札(設計書 5-4)。キーワード9種も凍結などの一時状態も、すべて短いテキストに統一する。
      * アプリは意味を解釈しない。カードが何枚増えても実装を変えなくてよい形である。
      */
@@ -151,6 +171,8 @@ public class ManualCardInstance {
         clone.faceDown = faceDown;
         clone.used = used;
         clone.fromTaboo = fromTaboo;
+        // ★21a 6-2: 共有ゾーンの所有。ここを忘れると Undo で所有だけ巻き戻らない
+        clone.placedBySeat = placedBySeat;
         clone.labels.addAll(labels);
         for (ManualCardInstance material : materials) {
             clone.materials.add(material.copy());

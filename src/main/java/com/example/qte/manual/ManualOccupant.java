@@ -21,6 +21,12 @@ import lombok.Setter;
  * ★猶予の打ち切り(5分)は {@link com.example.qte.manual.web.ManualCleanupScheduler} が、
  * 切断の検知は {@link com.example.qte.manual.web.ManualDisconnectListener} が行う
  * (いずれも Batch 19a)。再入室による復帰はクライアント側の localStorage が担う(設計書 6-3)。
+ *
+ * <h2>★Batch 21a: 席と観戦視点を持つ</h2>
+ * 役割({@link ManualOccupantRole})を固定のフィールドではなく<b>席の有無から導く</b>形に
+ * 変えた(21 設計書 2-2)。席を立てば観戦者、座ればプレイヤーであり、
+ * この2つが独立に変わりうると必ず食い違う(「役割は PLAYER なのに席が無い人」が生まれる)。
+ * 導出なら食い違いようがない。
  */
 @Getter
 public class ManualOccupant {
@@ -29,9 +35,23 @@ public class ManualOccupant {
 
     private final String displayName;
 
-    private final ManualOccupantRole role;
-
     private final Instant joinedAt = Instant.now();
+
+    /**
+     * 座っている席(Batch 21a 2-1)。★null は観戦者を意味する。
+     *
+     * 席の割り当てと解放は {@link ManualRoom#takeSeat} / {@link ManualRoom#standUp} が行う。
+     * ここを直接書き換えると、二重着席(同じ席に2人)の検査を素通りする。
+     */
+    @Setter
+    private ManualSeatId seatId;
+
+    /**
+     * 観戦者の視点(3-2)。★プレイヤーには効かない。
+     * 既定は「公開のみ」である。入ってきた人にいきなり両者の手札を見せない側を既定にする。
+     */
+    @Setter
+    private ManualSpectatorView spectatorView = ManualSpectatorView.PUBLIC_ONLY;
 
     /** WebSocket の購読が有効か。入室直後は false で、ready を受け取って true になる */
     @Setter
@@ -51,8 +71,17 @@ public class ManualOccupant {
     @Setter
     private String sessionId;
 
-    public ManualOccupant(String displayName, ManualOccupantRole role) {
+    public ManualOccupant(String displayName) {
         this.displayName = displayName;
-        this.role = role;
+    }
+
+    /** 役割(設計書 6章)。★席の有無から導く。フィールドとして別に持たない。 */
+    public ManualOccupantRole getRole() {
+        return seatId == null ? ManualOccupantRole.SPECTATOR : ManualOccupantRole.PLAYER;
+    }
+
+    /** 席に着いているか。 */
+    public boolean isSeated() {
+        return seatId != null;
     }
 }

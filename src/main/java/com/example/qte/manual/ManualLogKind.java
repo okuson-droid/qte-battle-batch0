@@ -1,0 +1,72 @@
+package com.example.qte.manual;
+
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+
+/**
+ * ログの操作種別(Batch 21 設計書 5-1)。
+ *
+ * <h2>★{@code plain} が「視点で変わらない行」を分ける</h2>
+ * 設計書 5-3 は「自由メモ・勝敗宣言・入退室・シャッフル・Undo・リセット・デッキ読込は
+ * 常に全員へそのまま出す」と定めている。これらの行は<b>カードの名前を含まない</b>か、
+ * 含んでいても公開情報である(デッキ名は読み込んだ本人が公開を選んでいる)。
+ * したがって本文を作った時点で文字列として確定でき、閲覧者ごとのレンダリングが要らない。
+ *
+ * 逆に {@code plain} が false の種別は、対象カードがどのゾーンに居たかによって
+ * 名前を出すかどうかが変わる(5-2)。この種別だけが
+ * {@link ManualLogRenderer} でレンダリングされる。
+ *
+ * ★新しい操作を足すときは、必ずどちらかに分類すること。分類を忘れて {@code plain} 側に
+ * 置くと、非公開ゾーンのカード名がそのままログに乗って全員へ配られる。
+ */
+@Getter
+@RequiredArgsConstructor
+public enum ManualLogKind {
+
+    // ---- 視点でマスクする種別(対象カードの所在で名前の可否が変わる。5-2) ----
+
+    /** ゾーン間移動(5-3 の1) */
+    MOVE(false),
+    /** 進化スタック(4-5-1) */
+    EVOLVE(false),
+    /** ATK / HP の変更(5-3 の3・4) */
+    STAT(false),
+    /** 数値を印刷値へ戻す */
+    STAT_RESET(false),
+    /** 札を付ける(5-3 の5) */
+    LABEL_ADD(false),
+    /** 札を外す */
+    LABEL_REMOVE(false),
+    /** タップ / アンタップ(5-3 の6) */
+    TAP(false),
+    /** 表 / 裏(5-3 の7) */
+    FLIP(false),
+    /** ウェポンの使用済み(5-3 の8) */
+    USED(false),
+
+    // ---- 常に全員へそのまま出す種別(5-3) ----
+
+    /** LP。★盤面に見えている公開情報である */
+    LP(true),
+    /** ターン番号 */
+    TURN(true),
+    /** フェイズ */
+    PHASE(true),
+    /** ドロー。引いた枚数と山札の残りは公開情報である */
+    DRAW(true),
+    /** シャッフル。★並びはログに残さない(設計書 5-5) */
+    SHUFFLE(true),
+    /** 自由メモ(5-5)。★このモードの成果物を生む中核 */
+    NOTE(true),
+    /** 勝敗の宣言(5-3 の12) */
+    DECLARE(true),
+    /** Undo / Redo */
+    HISTORY(true),
+    /** デッキ読込・リセット */
+    DECK(true),
+    /** 入退室・着席・離席・切断・警告など、部屋そのものの出来事 */
+    SYSTEM(true);
+
+    /** 視点でマスクしない(本文がそのまま全員へ出る)種別か。 */
+    private final boolean plain;
+}

@@ -4,6 +4,7 @@ import java.util.List;
 
 import com.example.qte.manual.ManualCardType;
 import com.example.qte.manual.ManualCivilization;
+import com.example.qte.manual.ManualSeatId;
 
 /**
  * 配信用のカード1枚。
@@ -16,8 +17,15 @@ import com.example.qte.manual.ManualCivilization;
  * ★突合できなかったカードは cardId / civilization / type / imageId がすべて null になる。
  * 画面は灰色タイルに name だけを出す(設計書 7-3)。
  *
- * @param stackSize 素材を含めた総枚数。1 なら単体のカード
- * @param materials 進化スタックの下段(先頭が最下段)。{@code +n} バッジを開いたときに使う
+ * ★<b>このオブジェクトが届くこと自体が「見えている」を意味する</b>(Batch 21a 3-3)。
+ * 非公開ゾーンのカードは裏向きスタブすら送らない。したがって
+ * 「見えないカード用の空の ManualCardView」を作ってはならない。
+ *
+ * @param placedBySeat 共有ゾーン(PLAY / REVEAL)に置いた席(21 6-2)。
+ *                     共有ゾーンの外では null。★対戦部屋では、相手が置いたカードを
+ *                     ドラッグ不可にし薄い枠色で区別するために画面が使う(21c)
+ * @param stackSize    素材を含めた総枚数。1 なら単体のカード
+ * @param materials    進化スタックの下段(先頭が最下段)。{@code +n} バッジを開いたときに使う
  */
 public record ManualCardView(
         String instanceId,
@@ -34,6 +42,7 @@ public record ManualCardView(
         boolean tapped,
         boolean faceDown,
         boolean used,
+        ManualSeatId placedBySeat,
         List<String> labels,
         int stackSize,
         List<ManualCardView> materials) {
