@@ -24,6 +24,14 @@
  *     null なら何も開いていない。renderAll の最後で毎回このオーバーレイを描き直す。
  *   - lpModalSeatId: LPモーダル(20a 2-4)が開いている対象席('A'/'B')。null なら未オープン。
  *     専用の再描画経路は作らず、renderAll の末尾でこの値を見て数値だけ差し替える。
+ *   - weaponModalCardId: ウェポン操作モーダル(20b 2-2)が開いている対象の instanceId。
+ *     LPモーダルと同じ考え方で、再配信のたびに中身を組み直す。
+ *
+ * ★Batch 20b でレイアウトを全面的に組み替えた(20b 設計書1章)。
+ *   - リーダー行(パイル込み・185px)を廃止し、パイル群は右列へ移した
+ *   - リーダーとウェポンを1つのタイルに合体した(リーダー自身が WEAPON のドロップ先)
+ *   - ターン/フェイズUIを表示ごと削除した(サーバ側の turn/phase 操作は残っている)
+ *   - 両ミニオン行の間にセンターライン(共有ゾーン PLAY / REVEAL)を新設した
  */
 
 let latestView = null;
@@ -32,6 +40,7 @@ let cardLocation = new Map();
 let pinnedZoom = null;
 let OCCUPANT_ID = null;
 let lpModalSeatId = null;
+let weaponModalCardId = null;
 
 // ---------------------------------------------------------------
 // 0) 在室(設計書 6-3)
@@ -191,21 +200,26 @@ function renderAll(view) {
     renderHeader(view);
     renderOpponentTop(view);
     renderOpponentMinions(view);
+    renderCenterLine(view);
     renderSelfMinions(view);
-    renderLeaderRow(view);
     renderManaRow(view);
     renderHand(view);
+    renderPiles(view);
     renderLog(view.log);
     if (pinnedZoom) {
         renderZoom(pinnedZoom);
     }
     refreshOverlay();
     refreshLpModal(view); // ★20a 2-4: LPモーダルが開いている間は数値だけ差し替える
+    refreshWeaponModal(view); // ★20b 2-2: ウェポン操作モーダルも同じ扱い
 }
 
+/**
+ * ★20b 2-1: ターン数・フェイズ名の表示は削除した。人間が数えるほうが早く、
+ * 縦の3行(約100px)を1行へ縮めるための最大の削り代だったためである。
+ * サーバ側の turn / phase 操作は休眠コードとして残してある(フェイズ2で再導入しうる)。
+ */
 function renderHeader(view) {
-    document.getElementById('turn-number').textContent = view.turnNumber;
-    document.getElementById('phase-name').textContent = phaseLabel(view.phase);
     document.getElementById('btn-undo').disabled = !view.canUndo;
     document.getElementById('btn-redo').disabled = !view.canRedo;
     renderOccupantList(view.occupants);
@@ -226,38 +240,50 @@ function renderOccupantList(occupants) {
     }
 }
 
-const PHASE_LABELS = {
-    DRAW: 'ドロー', UNTAP: 'アンタップ', MANA_CHARGE: 'マナチャージ',
-    MAIN: 'メイン', BATTLE: 'バトル', SUB: 'サブ', END: 'ターンエンド',
-};
-function phaseLabel(phase) { return PHASE_LABELS[phase] || phase; }
+// ★20b 2-1: PHASE_LABELS / phaseLabel は表示を消したため削除した。
+//   フェイズの enum 自体はサーバ側に残っている。
 
 const ZONE_LABELS = {
     DECK: '山札', HAND: '手札', MANA: 'マナ', FIELD: 'ミニオン', WEAPON: 'ウェポン',
-    TRASH: '墓地', LOST: '消滅', TABOO: '禁忌', REVEAL: '一時公開',
+    TRASH: '墓地', LOST: '消滅', TABOO: '禁忌',
+    // ★20b 2-4: REVEAL の表示名は「一時公開」から「公開」へ変更した(設計書1-2・2-3)。
+    //   サーバ側 ManualZone の displayName も合わせてある。
+    REVEAL: '公開', PLAY: 'プレイ中', PRIVATE: '確認',
 };
 
-/** B席上段: リーダー + 小型ゾーンバー(枚数のみ・クリック無効の飾り。設計書2-7) */
+/** 共有ゾーン(20b 3-1)。席に属さず view.shared から読む。 */
+const SHARED_ZONES = new Set(['PLAY', 'REVEAL']);
+
+/**
+ * B席上段(20b 2-8): 左にミニチップ [山][墓][消][禁][確]、右端にリーダー+ウェポン合体タイル。
+ *
+ * ★「公」(REVEAL)はチップから外した。共有ゾーンになりセンターラインが表示を兼ねるためである。
+ * ★リーダーを右端に置くのは自席と同じ側であり、左右対称にはしない(確定事項Q4)。
+ * 目線が左右に往復しないほうが速い。
+ */
 function renderOpponentTop(view) {
     const el = document.getElementById('seat-opponent-top');
     el.innerHTML = '';
     const seat = view.seatB;
 
-    el.appendChild(createLeaderTile(seat));
-    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'B', zone: 'LEADER' });
-
     const bar = document.createElement('div');
     bar.className = 'd-flex gap-1';
-    for (const zoneName of ['DECK', 'TRASH', 'LOST', 'TABOO', 'REVEAL']) {
+    for (const zoneName of ['DECK', 'TRASH', 'LOST', 'TABOO', 'PRIVATE']) {
         const count = (seat.zones[zoneName] || []).length;
         const chip = document.createElement('div');
         chip.className = 'zone-pile-mini';
         chip.title = ZONE_LABELS[zoneName];
         chip.textContent = `${ZONE_LABELS[zoneName][0]}${count}`;
+        chip.addEventListener('click', () => openZoneBand('B', zoneName));
         registerDropTarget(chip, 'B', zoneName);
         bar.appendChild(chip);
     }
     el.appendChild(bar);
+
+    const leaderTile = createLeaderTile(seat);
+    leaderTile.classList.add('ms-auto');
+    el.appendChild(leaderTile);
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'B', zone: 'LEADER' });
 }
 
 /** Bミニオン行(折り返し解消。設計書0の指摘2) */
@@ -307,60 +333,118 @@ function renderStackRow(container, seatView, zoneName, minSlots) {
 }
 
 /**
- * リーダー行(設計書2-1・2-2): [ウェポン][リーダー][禁忌][山札][公開][墓地][消滅]。
- * ウェポンは既存のタイル方式(renderStackRow)、残り5ゾーンはカード型パイル(createCardPile)。
+ * センターライン(20b 2-3): 両ミニオン行の間の [プレイ中 | 公開]。
+ *
+ * ★どちらもプレイヤー間の共有ゾーンであり、席に属さない(20b 3-1)。
+ * 「この列にあるカードは相手に見えている」という一貫したルールを画面に与えるための場所であり、
+ * 対戦モードで相手に見せるカードが画面の中央にあるのが最も直感的である、という判断による。
  */
-function renderLeaderRow(view) {
-    const el = document.getElementById('seat-self-leader-row');
+function renderCenterLine(view) {
+    const el = document.getElementById('center-line');
+    el.innerHTML = '';
+    const shared = view.shared || {};
+    el.appendChild(createCenterHalf('PLAY', shared.PLAY || []));
+    el.appendChild(createCenterHalf('REVEAL', shared.REVEAL || []));
+}
+
+/**
+ * センターラインの片側。
+ *
+ * ★空のときは高さ24pxの細いドロップバー、1枚でも入れば約130pxのストリップへ自動展開する
+ * (確定事項Q11)。常時130pxを占有すると、めったに使わないゾーンのために縦を1行ぶん
+ * 失うことになる。伸縮はCSSのクラス1つ(`manual-center-open`)で表す。
+ */
+function createCenterHalf(zoneName, cards) {
+    const half = document.createElement('div');
+    half.className = 'manual-center-half' + (cards.length > 0 ? ' manual-center-open' : '');
+    half.dataset.zone = zoneName;
+
+    const label = document.createElement('div');
+    label.className = 'manual-center-label';
+    label.textContent = ZONE_LABELS[zoneName] + (cards.length > 0 ? ` ${cards.length}` : '');
+    half.appendChild(label);
+
+    if (cards.length > 0) {
+        const row = document.createElement('div');
+        row.className = 'manual-center-row';
+        // 手札と同じ考え方で、溢れるときだけ幅を詰める(1枚あたり最小45px)
+        const width = cards.length > 4 ? Math.max(45, Math.floor(380 / cards.length)) : 90;
+        for (const card of cards) {
+            row.appendChild(createHandCard(card, width, null, zoneName));
+            // ★共有ゾーンのカードは席を持たない。seatId は null で索引に入れる
+            cardLocation.set(card.instanceId, { seatId: null, zone: zoneName });
+        }
+        half.appendChild(row);
+    }
+
+    registerDropTarget(half, null, zoneName);
+    return half;
+}
+
+/**
+ * 右列のパイル群(20b 2-6)。上段[禁忌][山札][確認] / 下段[消滅][墓地]。
+ *
+ * ★公開(REVEAL)はセンターラインへ移ったためパイルではなくなった。
+ * 代わりに新ゾーンの確認(PRIVATE)が入る。
+ */
+function renderPiles(view) {
+    const el = document.getElementById('pile-grid');
     el.innerHTML = '';
     const seat = view.seatA;
-
-    const weaponWrap = document.createElement('div');
-    weaponWrap.className = 'manual-weapon-slot';
-    weaponWrap.dataset.seat = 'A';
-    weaponWrap.dataset.zone = 'WEAPON';
-    renderStackRow(weaponWrap, seat, 'WEAPON', 1);
-    el.appendChild(weaponWrap);
-
-    el.appendChild(createLeaderTile(seat));
-    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
-
-    // ★2-1: 禁忌・山札・公開・墓地・消滅の並び順で固定
-    for (const zoneName of ['TABOO', 'DECK', 'REVEAL', 'TRASH', 'LOST']) {
-        const pile = seat.zones[zoneName] || [];
-        el.appendChild(createCardPile('A', zoneName, pile));
+    for (const zoneNames of [['TABOO', 'DECK', 'PRIVATE'], ['LOST', 'TRASH']]) {
+        const row = document.createElement('div');
+        row.className = 'manual-pile-row';
+        for (const zoneName of zoneNames) {
+            row.appendChild(
+                createCardPile('A', zoneName, seat.zones[zoneName] || [], view.backImageId));
+        }
+        el.appendChild(row);
     }
 }
 
-/** ★非公開ゾーンの集合(2-2)。山札・禁忌は一番上のカード名を表示しない */
+/** ★非公開ゾーンの集合(2-6)。山札・禁忌は中身ではなく裏面画像を敷く */
 const PRIVATE_PILE_ZONES = new Set(['DECK', 'TABOO']);
 
-/** カード型パイル(禁忌・山札・公開・墓地・消滅。設計書2-2) */
-function createCardPile(seatId, zoneName, pile) {
+/**
+ * カード型パイル(禁忌・山札・確認・消滅・墓地。20b 2-6)。
+ *
+ * ★見た目をカード画像にする。枚数と文字だけの箱では「現実のカードゲームに近い画面」
+ * という本バッチの方針から外れるため、90×126のカード面に画像を敷き、枚数はその角に重ねる。
+ * 非公開パイル(山札・禁忌)は裏面画像、公開パイル(確認・消滅・墓地)は一番上の表画像を使う。
+ */
+function createCardPile(seatId, zoneName, pile, backImageId) {
     const box = document.createElement('div');
     box.className = 'manual-pile';
     box.dataset.seat = seatId;
     box.dataset.zone = zoneName;
 
-    const header = document.createElement('div');
-    header.className = 'manual-pile-label';
-    header.textContent = ZONE_LABELS[zoneName];
-    box.appendChild(header);
+    const face = document.createElement('div');
+    face.className = 'manual-pile-face';
+    const hidden = PRIVATE_PILE_ZONES.has(zoneName);
+    // ★公開パイルの最上段は末尾。山札(index 0 が最上段)とは逆である(20a 2-1)。
+    //   ここは「見た目として何を敷くか」の話であり、山札は裏面なので取り違えは起きない。
+    const top = pile.length > 0 ? pile[pile.length - 1] : null;
+    const imageId = pile.length === 0 ? null : (hidden ? backImageId : (top ? top.imageId : null));
+    if (imageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${imageId}.png`;
+        img.loading = 'lazy';
+        face.appendChild(img);
+    } else {
+        face.classList.add('manual-pile-blank');
+        face.textContent = pile.length === 0 ? '' : ((top && top.name) || '(画像なし)');
+    }
 
     const count = document.createElement('div');
     count.className = 'manual-pile-count';
     count.textContent = pile.length;
-    box.appendChild(count);
+    face.appendChild(count);
+    box.appendChild(face);
 
-    // ★公開ゾーン(墓地・消滅・公開)のみ一番上のカード名を出す。非公開は枚数だけ
-    if (!PRIVATE_PILE_ZONES.has(zoneName) && pile.length > 0) {
-        const top = pile[pile.length - 1];
-        const face = document.createElement('div');
-        face.className = 'manual-pile-face';
-        face.textContent = top.name || '(名前なし)';
-        face.title = top.name || '';
-        box.appendChild(face);
-    }
+    const header = document.createElement('div');
+    header.className = 'manual-pile-label';
+    header.textContent = ZONE_LABELS[zoneName];
+    box.appendChild(header);
 
     registerDropTarget(box, seatId, zoneName);
 
@@ -394,6 +478,9 @@ function createCardPile(seatId, zoneName, pile) {
             box.draggable = false;
         }
 
+        // ★20b 2-6: シャッフルと「上へ/下へ」はパイル画像の直下に常時表示で添える。
+        //   ホバー時のみ表示する案は、誤操作しやすく存在にも気づきにくいため退けた。
+        //   右列は縦に余裕があり、隠す動機が無い。
         const shuffleBtn = document.createElement('button');
         shuffleBtn.className = 'btn btn-sm btn-outline-secondary w-100 mt-1 py-0';
         shuffleBtn.textContent = 'シャッフル';
@@ -433,16 +520,25 @@ function createCardPile(seatId, zoneName, pile) {
     return box;
 }
 
-/** マナ行(リーダー行の直下の独立行。設計書2-3) */
+/**
+ * マナ行(20b 1-2 の6)。★リーダー行を廃止したため、リーダー+ウェポン合体タイルは
+ * この行の右端へ移した。相手側と同じ側(右)に置く(確定事項Q4)。
+ */
 function renderManaRow(view) {
     const el = document.getElementById('seat-self-mana-row');
     el.innerHTML = '';
     const seat = view.seatA;
 
+    const outer = document.createElement('div');
+    outer.className = 'manual-mana-outer';
+
+    const left = document.createElement('div');
+    left.className = 'manual-mana-left';
+
     const header = document.createElement('div');
     header.className = 'small text-muted mb-1';
     header.textContent = `マナ MP ${seat.mp}`;
-    el.appendChild(header);
+    left.appendChild(header);
 
     const wrap = document.createElement('div');
     wrap.className = 'mana-strips';
@@ -454,7 +550,11 @@ function renderManaRow(view) {
     wrap.appendChild(createManaStrip('表', faceUpCards, 'A', false));
     wrap.appendChild(createManaStrip('裏', faceDownCards, 'A', true));
 
-    el.appendChild(wrap);
+    left.appendChild(wrap);
+    outer.appendChild(left);
+    outer.appendChild(createLeaderTile(seat));
+    el.appendChild(outer);
+    cardLocation.set(seat.leader ? seat.leader.instanceId : null, { seatId: 'A', zone: 'LEADER' });
 
     for (const card of manaCards) {
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
@@ -559,13 +659,18 @@ function renderHand(view) {
     const cards = view.seatA.zones.HAND || [];
     const width = cards.length > 10 ? Math.max(45, Math.floor(900 / cards.length)) : 90;
     for (const card of cards) {
-        row.appendChild(createHandCard(card, width));
+        row.appendChild(createHandCard(card, width, 'A', 'HAND'));
         cardLocation.set(card.instanceId, { seatId: 'A', zone: 'HAND' });
     }
     registerDropTarget(row, 'A', 'HAND');
     el.appendChild(row);
 }
 
+/**
+ * ログ(20b 2-5)。★既定は直近2行ぶんの高さで、クリックすると右列内でその場拡張する。
+ * 別ウィンドウやモーダルにしないのは、ログを見ながら盤面を動かす使い方があるためである。
+ * 展開は下方向で、宣言ボタン行を押し下げる(確定事項Q6)。
+ */
 function renderLog(entries) {
     const box = document.getElementById('log-box');
     box.innerHTML = '';
@@ -576,6 +681,12 @@ function renderLog(entries) {
     }
     box.scrollTop = box.scrollHeight;
 }
+
+document.getElementById('log-box').addEventListener('click', () => {
+    const box = document.getElementById('log-box');
+    box.classList.toggle('manual-log-collapsed');
+    box.scrollTop = box.scrollHeight;
+});
 
 // ---------------------------------------------------------------
 // 5) カードタイル生成
@@ -689,11 +800,28 @@ function statSpan(current, printed) {
     return span;
 }
 
+/**
+ * リーダー+ウェポン合体タイル(20b 2-2)。
+ *
+ * <h3>★リーダータイル自体が WEAPON ゾーンのドロップ先である</h3>
+ * 「リーダーにカードを落とす=装備」という一文で説明できる形にした。
+ * 従来の110px幅のウェポン専用スロットは廃止し、装備中のウェポンは
+ * タイル右下に重なるミニタイルとして表示する。
+ *
+ * <h3>★装備済みでも落とせる(旧・拒否規約の撤回)</h3>
+ * 装備の有無でドロップの当たり判定が変わると人間に説明できない。
+ * 古いウェポンの後始末はサーバが行う
+ * ({@code ManualOperationService.replaceEquippedWeapon})。
+ */
 function createLeaderTile(seat) {
     const tile = document.createElement('div');
     tile.className = 'leader-card manual-leader-tile';
+    tile.dataset.seat = seat.id;
+    tile.dataset.zone = 'WEAPON';
+    registerDropTarget(tile, seat.id, 'WEAPON');
     if (!seat.leader) {
         tile.textContent = '(未読込)';
+        appendWeaponMini(tile, seat);
         return tile;
     }
     const card = seat.leader;
@@ -721,11 +849,79 @@ function createLeaderTile(seat) {
         send('tap', { cardIds: [card.instanceId] });
     });
     tile.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    appendWeaponMini(tile, seat);
     return tile;
 }
 
-/** 手札のカード。画像を使う(設計書 4-1) */
-function createHandCard(card, width) {
+/**
+ * 装備中のウェポンを、リーダータイル右下に重なるミニタイル(44×60)として描く。
+ *
+ * <h3>★ミニタイルに載せるのは画像と枚数バッジだけである(マスター確認済み)</h3>
+ * 44×60 に ATK・使用済・札をすべて詰めると、どれも押しにくい当たり判定になる。
+ * 数値・使用済・札の編集は {@link openWeaponModal} に集約した。
+ * なおウェポンに進化は無いため、進化バッジは持たない。
+ *
+ * <h3>★2枚以上は「異常が見える」形にする</h3>
+ * ウェポン1枚はゲームルールである(総合ルール 2-2)。ただし手動モードは判断を実装しないため
+ * ゾーンに2枚以上入ること自体は妨げず、枚数バッジを出して人間が気づけるようにする。
+ * 表示するのは先頭(最前面)の1枚である。
+ */
+function appendWeaponMini(tile, seat) {
+    const weapons = seat.zones.WEAPON || [];
+    if (weapons.length === 0) {
+        return;
+    }
+    const card = weapons[0];
+    const mini = document.createElement('div');
+    mini.className = 'manual-weapon-mini';
+    mini.dataset.instanceId = card.instanceId;
+    mini.draggable = true;
+    mini.title = `${card.name || 'ウェポン'} / クリック=拡大 ダブルクリック=編集`;
+
+    if (card.imageId && !card.faceDown) {
+        const img = document.createElement('img');
+        img.src = `/cards/${card.imageId}.png`;
+        img.loading = 'lazy';
+        mini.appendChild(img);
+    } else {
+        mini.classList.add('manual-weapon-mini-blank');
+        mini.textContent = card.faceDown ? '裏' : (card.name || '?');
+    }
+    if (weapons.length > 1) {
+        const badge = document.createElement('div');
+        badge.className = 'manual-weapon-mini-badge';
+        badge.textContent = weapons.length;
+        mini.appendChild(badge);
+    }
+    if (selected.has(card.instanceId)) {
+        mini.classList.add('manual-tile-selected');
+    }
+
+    // ★リーダー本体のクリック(タップ)・LP・ドロップと衝突させないため、すべて伝播を止める
+    mini.addEventListener('click', (e) => { e.stopPropagation(); setZoom(card); });
+    mini.addEventListener('dblclick', (e) => { e.stopPropagation(); openWeaponModal(card); });
+    mini.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openWeaponModal(card);
+    });
+    mini.addEventListener('dragstart', (e) => {
+        e.stopPropagation();
+        onDragStart(e, card, seat.id, 'WEAPON');
+    });
+    tile.appendChild(mini);
+    cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'WEAPON' });
+}
+
+/**
+ * 手札・センターラインのカード。画像を使う(設計書 4-1)。
+ *
+ * ★20b: センターライン(共有ゾーン)からも使うため、席とゾーンを引数で受け取る。
+ * 共有ゾーンでは seatId が null になる。
+ */
+function createHandCard(card, width, seatId, zoneName) {
+    const seat = seatId === undefined ? 'A' : seatId;
+    const zone = zoneName === undefined ? 'HAND' : zoneName;
     const wrap = document.createElement('div');
     wrap.className = 'manual-hand-card';
     wrap.style.width = width + 'px';
@@ -746,8 +942,8 @@ function createHandCard(card, width) {
         wrap.classList.add('manual-tile-selected');
     }
 
-    wrap.addEventListener('dragstart', (e) => onDragStart(e, card, 'A', 'HAND'));
-    wrap.addEventListener('click', (e) => onCardClick(e, card, 'A', 'HAND'));
+    wrap.addEventListener('dragstart', (e) => onDragStart(e, card, seat, zone));
+    wrap.addEventListener('click', (e) => onCardClick(e, card, seat, zone));
     wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
     return wrap;
 }
@@ -765,7 +961,9 @@ function onCardClick(e, card, seatId, zone) {
         toggleSelect(card.instanceId);
         return;
     }
-    if (zone === 'HAND') {
+    // ★20b: センターライン(共有ゾーン)のカードも手札と同じく拡大にする。
+    //   置いてある札を確認するのが主な用途であり、タップの対象ではない。
+    if (zone === 'HAND' || SHARED_ZONES.has(zone)) {
         setZoom(card);
         return;
     }
@@ -863,17 +1061,19 @@ function onDragStart(e, card, seatId, zone) {
 
 /**
  * ドロップ先を1箇所登録する。
- * targetCard が渡された場合、そのタイルの上に落とすことになる
- * (占有中の FIELD なら進化、占有中の WEAPON なら受け付けない)。
+ * targetCard が渡された場合、そのタイルの上に落とすことになる(占有中の FIELD なら進化)。
+ *
+ * ★20b: 「装備済みのウェポン枠には落とせない」拒否規約は撤回した。
+ * リーダータイル自体がウェポンのドロップ先になり、装備の有無で当たり判定が変わると
+ * 人間に説明できないためである。古いウェポンの後始末はサーバが引き受ける。
+ *
+ * ★seatId は共有ゾーン(PLAY / REVEAL)のとき null を渡す。サーバは共有ゾーンへの移動で
+ * toSeat を無視するため(20b 3-2)、クライアント側で席を作り出す必要は無い。
  */
 function registerDropTarget(el, seatId, zoneName, toIndex, faceDown, targetCard) {
     el.addEventListener('dragover', (e) => {
         e.preventDefault();
-        if (zoneName === 'WEAPON' && targetCard) {
-            el.classList.add('manual-drop-reject');
-        } else {
-            el.classList.add('manual-drop-hover');
-        }
+        el.classList.add('manual-drop-hover');
     });
     el.addEventListener('dragleave', () => {
         el.classList.remove('manual-drop-hover', 'manual-drop-reject');
@@ -886,10 +1086,6 @@ function registerDropTarget(el, seatId, zoneName, toIndex, faceDown, targetCard)
         //   受け取った側で伝播を止め、最も内側の対象だけが処理する。
         e.stopPropagation();
         el.classList.remove('manual-drop-hover');
-        if (zoneName === 'WEAPON' && targetCard) {
-            flashReject(el);
-            return;
-        }
         let data;
         try {
             data = JSON.parse(e.dataTransfer.getData('text/plain'));
@@ -920,18 +1116,13 @@ function registerDropTarget(el, seatId, zoneName, toIndex, faceDown, targetCard)
 
         send('move', {
             cardIds: data.cardIds,
-            toSeat: seatId,
+            toSeat: seatId === undefined ? null : seatId,
             toZone: zoneName,
             toIndex: toIndex === undefined ? null : toIndex,
             faceDown: faceDown === undefined ? null : faceDown,
         });
         selected.clear();
     });
-}
-
-function flashReject(el) {
-    el.classList.add('manual-drop-reject');
-    setTimeout(() => el.classList.remove('manual-drop-reject'), 400);
 }
 
 // ---------------------------------------------------------------
@@ -1010,6 +1201,89 @@ function refreshLpModal(view) {
     }
 }
 
+// ---------------------------------------------------------------
+// 9-3) ウェポン操作モーダル(設計書 Batch20b 2-2)
+// ---------------------------------------------------------------
+
+/**
+ * ★合体タイルのミニタイルは44×60しかなく、ATK・使用済・札を載せる余地が無い。
+ * 操作をここへ集約し、ミニタイルは画像と枚数バッジだけに保つ(マスター確認済み)。
+ * ATK入力欄は statInput をそのまま流用するため、ミニオンの数値編集と同じ
+ * スピナーによるクリック増減が得られる。
+ */
+function openWeaponModal(card) {
+    weaponModalCardId = card.instanceId;
+    const modal = document.getElementById('weapon-modal');
+    document.getElementById('weapon-modal-title').textContent =
+        (card.name || 'ウェポン') + ' の操作';
+
+    const fields = document.getElementById('weapon-modal-fields');
+    fields.innerHTML = '';
+    fields.appendChild(statInput('ATK', card.attack, (value) => {
+        send('stat', { cardId: card.instanceId, attack: value });
+    }));
+
+    const actions = document.getElementById('weapon-modal-actions');
+    actions.innerHTML = '';
+    const usedBtn = document.createElement('button');
+    usedBtn.type = 'button';
+    usedBtn.className = 'btn btn-sm ' + (card.used ? 'btn-warning' : 'btn-outline-light');
+    usedBtn.textContent = card.used ? '使用済' : '未使用';
+    usedBtn.addEventListener('click', () => send('used', { cardIds: [card.instanceId] }));
+    actions.appendChild(usedBtn);
+
+    const labelBtn = document.createElement('button');
+    labelBtn.type = 'button';
+    labelBtn.className = 'btn btn-sm btn-outline-light';
+    labelBtn.textContent = '札を追加';
+    labelBtn.addEventListener('click', () => openLabelModal(card));
+    actions.appendChild(labelBtn);
+
+    const labels = document.getElementById('weapon-modal-labels');
+    labels.innerHTML = '';
+    for (const label of (card.labels || [])) {
+        const chip = document.createElement('span');
+        chip.className = 'manual-label-chip';
+        chip.textContent = label + ' ×';
+        chip.addEventListener('click', () => send('label-remove', { cardId: card.instanceId, label }));
+        labels.appendChild(chip);
+    }
+
+    document.getElementById('weapon-modal-reset').onclick = () => {
+        send('stat-reset', { cardId: card.instanceId });
+    };
+    document.getElementById('weapon-modal-close').onclick = () => {
+        modal.classList.add('d-none');
+        weaponModalCardId = null;
+    };
+    modal.classList.remove('d-none');
+}
+
+/**
+ * 再配信のたびにモーダルの中身を組み直す(LPモーダルと同じ考え方)。
+ * ★使用済トグルや札の付け外しは押しても閉じない設計であり、押した結果が
+ * その場で反映されないと、押せたのかどうかが分からなくなる。
+ */
+function refreshWeaponModal(view) {
+    if (!weaponModalCardId) {
+        return;
+    }
+    const modal = document.getElementById('weapon-modal');
+    if (modal.classList.contains('d-none')) {
+        weaponModalCardId = null;
+        return;
+    }
+    const card = findCardByInstanceId(view.seatA.zones.WEAPON, weaponModalCardId)
+        || findCardByInstanceId(view.seatB.zones.WEAPON, weaponModalCardId);
+    if (!card) {
+        // ★付け替えなどでウェポン枠から居なくなった。開いたままにする意味が無い
+        modal.classList.add('d-none');
+        weaponModalCardId = null;
+        return;
+    }
+    openWeaponModal(card);
+}
+
 function statInput(labelText, value, onCommit) {
     const wrap = document.createElement('div');
     const label = document.createElement('label');
@@ -1072,13 +1346,13 @@ function openLabelModal(card) {
 }
 
 // ---------------------------------------------------------------
-// 11) ヘッダ操作(ターン・フェイズ・Undo/Redo・デッキ読み込み・宣言・メモ)
+// 11) ヘッダ操作(Undo/Redo・デッキ読み込み・宣言・メモ)
 // ---------------------------------------------------------------
+//
+// ★20b 2-1: ターン数・フェイズの送信(turn / phase)はUIごと削除した。
+//   サーバ側のハンドラとサービスメソッドは残してある。フェイズ2の対戦モードで
+//   必要になったときに、UIだけを再設計して復活させられるようにするためである。
 
-document.getElementById('turn-minus').addEventListener('click', () => send('turn', { delta: -1 }));
-document.getElementById('turn-plus').addEventListener('click', () => send('turn', { delta: 1 }));
-document.getElementById('phase-back').addEventListener('click', () => send('phase', { step: -1 }));
-document.getElementById('phase-fwd').addEventListener('click', () => send('phase', { step: 1 }));
 document.getElementById('btn-undo').addEventListener('click', () => send('undo', {}));
 document.getElementById('btn-redo').addEventListener('click', () => send('redo', {}));
 
@@ -1211,8 +1485,13 @@ function openZoneBand(seatId, zoneName) {
 
 function renderZoneBand() {
     if (!latestView) return;
-    const seatView = activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB;
-    const items = seatView.zones[activeOverlay.zoneName] || [];
+    // ★20b: 共有ゾーンは席ではなく view.shared から読む(3-2)。
+    //   センターラインが常に中身を見せているため通常は開かないが、
+    //   ドロップ先として使われる以上、帯からも到達できる状態を保っておく。
+    const items = SHARED_ZONES.has(activeOverlay.zoneName)
+        ? ((latestView.shared || {})[activeOverlay.zoneName] || [])
+        : ((activeOverlay.seatId === 'A' ? latestView.seatA : latestView.seatB)
+            .zones[activeOverlay.zoneName] || []);
     // ★検索対象は山札・墓地・消滅・禁忌のみ(設計書4-6)。一時公開は対象外(マスター確認済み)。
     const showSearch = ['TRASH', 'LOST', 'TABOO'].includes(activeOverlay.zoneName);
     renderBandDom({
@@ -1493,7 +1772,10 @@ function createDeckRow(card, index, seatId, dragDisabled) {
     btns.appendChild(deckRowButton('墓地へ', () => sendDeckMove(card.instanceId, seatId, 'TRASH', null)));
     btns.appendChild(deckRowButton('消滅へ', () => sendDeckMove(card.instanceId, seatId, 'LOST', null)));
     btns.appendChild(deckRowButton('禁忌へ', () => sendDeckMove(card.instanceId, seatId, 'TABOO', null)));
-    btns.appendChild(deckRowButton('一時公開へ', () => sendDeckMove(card.instanceId, seatId, 'REVEAL', null)));
+    // ★20b: REVEAL の表示名変更に追随。あわせて新ゾーン「確認」への1手を足した
+    //   (2-4 の用途例「山札の上から3枚を見て1枚を手札に加える」が最も短い手順になる)。
+    btns.appendChild(deckRowButton('公開へ', () => sendDeckMove(card.instanceId, seatId, 'REVEAL', null)));
+    btns.appendChild(deckRowButton('確認へ', () => sendDeckMove(card.instanceId, seatId, 'PRIVATE', null)));
     btns.appendChild(deckRowButton('マナ(表)へ', () => sendDeckMove(card.instanceId, seatId, 'MANA', null, false)));
     btns.appendChild(deckRowButton('マナ(裏)へ', () => sendDeckMove(card.instanceId, seatId, 'MANA', null, true)));
     row.appendChild(btns);

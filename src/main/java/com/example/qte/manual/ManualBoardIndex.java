@@ -40,7 +40,8 @@ public final class ManualBoardIndex {
      * 移動でも同じ規則を使う。同じ盤面から同じ選択をすれば必ず同じ結果になる。
      */
     public static final Comparator<ManualCardRef> BOARD_ORDER = Comparator
-            .comparingInt((ManualCardRef ref) -> ref.seatId().ordinal())
+            // ★共有ゾーンのカードは席を持たない(seatId == null)。席の前に並べる(20b 3-2)
+            .comparingInt((ManualCardRef ref) -> ref.seatId() == null ? -1 : ref.seatId().ordinal())
             .thenComparingInt(ref -> ref.zone() == null ? -1 : ref.zone().ordinal())
             .thenComparingInt(ManualCardRef::index)
             .thenComparingInt(ManualCardRef::materialIndex);
@@ -60,19 +61,43 @@ public final class ManualBoardIndex {
                 return Optional.of(new ManualCardRef(seatId, null, -1, -1, leader, null));
             }
             for (ManualZone zone : ManualZone.values()) {
-                List<ManualCardInstance> cards = seat.zone(zone);
-                for (int i = 0; i < cards.size(); i++) {
-                    ManualCardInstance card = cards.get(i);
-                    if (card.getInstanceId().equals(instanceId)) {
-                        return Optional.of(new ManualCardRef(seatId, zone, i, -1, card, null));
-                    }
-                    List<ManualCardInstance> materials = card.getMaterials();
-                    for (int j = 0; j < materials.size(); j++) {
-                        if (materials.get(j).getInstanceId().equals(instanceId)) {
-                            return Optional.of(
-                                    new ManualCardRef(seatId, zone, i, j, materials.get(j), card));
-                        }
-                    }
+                if (zone.isShared()) {
+                    continue; // 共有ゾーンは席のループの外で1度だけ見る
+                }
+                Optional<ManualCardRef> hit =
+                        scan(seat.zone(zone), instanceId, seatId, zone);
+                if (hit.isPresent()) {
+                    return hit;
+                }
+            }
+        }
+        // ★共有ゾーン(20b 3-2)。席に属さないため seatId は null で返す。
+        for (ManualZone zone : ManualZone.values()) {
+            if (!zone.isShared()) {
+                continue;
+            }
+            Optional<ManualCardRef> hit =
+                    scan(state.getSharedZones().get(zone), instanceId, null, zone);
+            if (hit.isPresent()) {
+                return hit;
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** ゾーン1つを走査する。直下の1段と、その素材の1段で必ず尽きる(materials は平坦)。 */
+    private static Optional<ManualCardRef> scan(List<ManualCardInstance> cards, String instanceId,
+            ManualSeatId seatId, ManualZone zone) {
+        for (int i = 0; i < cards.size(); i++) {
+            ManualCardInstance card = cards.get(i);
+            if (card.getInstanceId().equals(instanceId)) {
+                return Optional.of(new ManualCardRef(seatId, zone, i, -1, card, null));
+            }
+            List<ManualCardInstance> materials = card.getMaterials();
+            for (int j = 0; j < materials.size(); j++) {
+                if (materials.get(j).getInstanceId().equals(instanceId)) {
+                    return Optional.of(
+                            new ManualCardRef(seatId, zone, i, j, materials.get(j), card));
                 }
             }
         }
@@ -126,6 +151,7 @@ public final class ManualBoardIndex {
             ref.stackTop().getMaterials().remove(ref.card());
             return;
         }
-        state.seat(ref.seatId()).zone(ref.zone()).remove(ref.card());
+        // ★共有ゾーンなら seatId は null。cards() が席の有無を吸収する(20b 3-2)
+        state.cards(ref.seatId(), ref.zone()).remove(ref.card());
     }
 }

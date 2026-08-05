@@ -599,6 +599,130 @@ class ManualOperationTest {
         assertThat(room.getHistory().canUndo()).isFalse();
     }
 
+    // ================= 共有ゾーン(Batch 20b 3章) =================
+
+    @Test
+    void 共有ゾーンへの移動は指定した席に依存しない() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance fromA = put(room, ManualZone.HAND, "A席の札");
+        ManualCardInstance fromB = card("B席の札");
+        room.getGameState().seat(ManualSeatId.B).zone(ManualZone.HAND).add(fromB);
+
+        // A席を宛先に指定した移動と、B席を宛先に指定した移動が同じ入れ物へ入る
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(fromA.getInstanceId()),
+                ManualSeatId.A, ManualZone.PLAY, null, null)));
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(fromB.getInstanceId()),
+                ManualSeatId.B, ManualZone.PLAY, null, null)));
+
+        assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).hasSize(2);
+        assertThat(room.getGameState().cards(null, ManualZone.PLAY)).hasSize(2);
+    }
+
+    @Test
+    void 共有ゾーンへ移すと表向きに正規化される() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance target = put(room, ManualZone.MANA, "裏の札");
+        target.setFaceDown(true);
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(target.getInstanceId()),
+                ManualSeatId.A, ManualZone.REVEAL, null, null)));
+
+        assertThat(reload(room, target).isFaceDown()).isFalse();
+    }
+
+    @Test
+    void 共有ゾーンの中身もUndoで戻る() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance target = put(room, ManualZone.HAND, "札1");
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(target.getInstanceId()),
+                ManualSeatId.A, ManualZone.PLAY, null, null)));
+        assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).hasSize(1);
+
+        operations.applyDirect(room, operations::undo);
+        assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).isEmpty();
+        assertThat(seatA(room).zone(ManualZone.HAND)).hasSize(1);
+
+        operations.applyDirect(room, operations::redo);
+        assertThat(room.getGameState().getSharedZones().get(ManualZone.PLAY)).hasSize(1);
+    }
+
+    @Test
+    void 共有ゾーンは席から引けない() {
+        ManualRoom room = new ManualRoom("TESTRM");
+
+        assertThatThrownBy(() -> seatA(room).zone(ManualZone.PLAY))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ================= ウェポンの付け替え(Batch 20b 2-2) =================
+
+    @Test
+    void ウェポンを装備すると古いウェポンが墓地へ行く() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance old = put(room, ManualZone.WEAPON, "古い武器");
+        ManualCardInstance fresh = put(room, ManualZone.HAND, "新しい武器");
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(fresh.getInstanceId()),
+                ManualSeatId.A, ManualZone.WEAPON, null, null)));
+
+        assertThat(seatA(room).zone(ManualZone.WEAPON)).hasSize(1);
+        assertThat(seatA(room).zone(ManualZone.WEAPON).get(0).getInstanceId())
+                .isEqualTo(fresh.getInstanceId());
+        assertThat(seatA(room).zone(ManualZone.TRASH)).hasSize(1);
+        assertThat(seatA(room).zone(ManualZone.TRASH).get(0).getInstanceId())
+                .isEqualTo(old.getInstanceId());
+    }
+
+    @Test
+    void 禁忌由来のウェポンは付け替えで消滅へ行く() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance old = put(room, ManualZone.WEAPON, "禁忌の武器");
+        old.setFromTaboo(true);
+        ManualCardInstance fresh = put(room, ManualZone.HAND, "新しい武器");
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(fresh.getInstanceId()),
+                ManualSeatId.A, ManualZone.WEAPON, null, null)));
+
+        assertThat(seatA(room).zone(ManualZone.TRASH)).isEmpty();
+        assertThat(seatA(room).zone(ManualZone.LOST)).hasSize(1);
+        assertThat(seatA(room).zone(ManualZone.LOST).get(0).getInstanceId())
+                .isEqualTo(old.getInstanceId());
+    }
+
+    @Test
+    void ウェポン枠が空なら付け替えは起きない() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance fresh = put(room, ManualZone.HAND, "武器");
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(fresh.getInstanceId()),
+                ManualSeatId.A, ManualZone.WEAPON, null, null)));
+
+        assertThat(seatA(room).zone(ManualZone.WEAPON)).hasSize(1);
+        assertThat(seatA(room).zone(ManualZone.TRASH)).isEmpty();
+        assertThat(seatA(room).zone(ManualZone.LOST)).isEmpty();
+    }
+
+    @Test
+    void ウェポン枠の中で動かしても自分自身は墓地へ行かない() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance weapon = put(room, ManualZone.WEAPON, "武器");
+
+        operations.apply(room, state -> operations.move(state, new ManualOpRequest.Move(
+                null, List.of(weapon.getInstanceId()),
+                ManualSeatId.A, ManualZone.WEAPON, 0, null)));
+
+        assertThat(seatA(room).zone(ManualZone.WEAPON)).hasSize(1);
+        assertThat(seatA(room).zone(ManualZone.TRASH)).isEmpty();
+    }
+
     // ================= ヘルパ =================
 
     /** 突合しないカードを1枚作る。★カードIDのリテラルを書かないための道具である。 */

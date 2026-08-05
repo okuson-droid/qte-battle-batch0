@@ -65,15 +65,36 @@ public class ManualViewBuilder {
                 state.getPhase(),
                 buildSeat(state.getSeatA()),
                 buildSeat(state.getSeatB()),
+                buildShared(state),
                 occupants,
                 log,
                 room.getHistory().canUndo(),
                 room.getHistory().canRedo());
     }
 
+    /**
+     * 共有ゾーン(20b 3-2)。席のビューとは別枠で1つだけ送る。
+     * クライアントは {@code view.shared.PLAY} / {@code view.shared.REVEAL} で読む。
+     */
+    private Map<ManualZone, List<ManualCardView>> buildShared(ManualGameState state) {
+        Map<ManualZone, List<ManualCardView>> shared = new EnumMap<>(ManualZone.class);
+        for (Map.Entry<ManualZone, List<ManualCardInstance>> entry
+                : state.getSharedZones().entrySet()) {
+            List<ManualCardView> views = new ArrayList<>();
+            for (ManualCardInstance card : entry.getValue()) {
+                views.add(buildCard(card));
+            }
+            shared.put(entry.getKey(), views);
+        }
+        return shared;
+    }
+
     private ManualSeatView buildSeat(ManualSeat seat) {
         Map<ManualZone, List<ManualCardView>> zones = new EnumMap<>(ManualZone.class);
         for (ManualZone z : ManualZone.values()) {
+            if (z.isShared()) {
+                continue; // 共有ゾーンは席に属さない(20b 3-1)
+            }
             List<ManualCardView> views = new ArrayList<>();
             for (ManualCardInstance card : seat.zone(z)) {
                 views.add(buildCard(card));

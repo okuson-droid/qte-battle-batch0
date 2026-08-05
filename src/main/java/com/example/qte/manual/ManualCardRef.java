@@ -22,7 +22,7 @@ package com.example.qte.manual;
  * スナップショット方式(設計書 5-6)には影響しない。
  * 逆に、操作を1つ適用した後のこの値は無効になる(位置がずれる)。使い捨てること。
  *
- * @param seatId 席
+ * @param seatId 席。★共有ゾーン(PLAY / REVEAL)のカードは席に属さないため null(20b 3-2)
  * @param zone ゾーン。★リーダーのときだけ null
  * @param index ゾーン内の位置。素材のときは「その素材を抱えている最上段」の位置。リーダーは -1
  * @param materialIndex 素材リスト内の位置。素材でなければ -1
@@ -40,6 +40,11 @@ public record ManualCardRef(
     /** リーダーか。リーダーはゾーンに属さない({@link ManualZone} の javadoc)。 */
     public boolean isLeader() {
         return zone == null;
+    }
+
+    /** 共有ゾーンに居るか(20b 3-1)。席に属さないため {@link #seatId()} は null である。 */
+    public boolean isShared() {
+        return zone != null && zone.isShared();
     }
 
     /** 進化スタックの素材か(設計書 4-5-1)。 */

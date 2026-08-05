@@ -54,13 +54,30 @@ public class ManualSeat {
     public ManualSeat(ManualSeatId id) {
         this.id = id;
         for (ManualZone z : ManualZone.values()) {
-            zones.put(z, new ArrayList<>());
+            // ★共有ゾーン(PLAY / REVEAL)は席が持たない(20b 3-1)。
+            //   ここで空リストだけ作っておくと「席ごとの公開ゾーンもある」ように見え、
+            //   どちらが本物か分からなくなる。存在しないものは作らない。
+            if (!z.isShared()) {
+                zones.put(z, new ArrayList<>());
+            }
         }
     }
 
-    /** ゾーンの中身。返るリストは可変であり、これを直接編集してよい。 */
+    /**
+     * ゾーンの中身。返るリストは可変であり、これを直接編集してよい。
+     *
+     * ★共有ゾーンを渡すと例外になる(20b 3-1)。席に属さないゾーンを席から引こうとするのは
+     * 呼び出し側の誤りであり、空リストを返して黙って通すと発見が遅れる。
+     * 席の区別を意識せず引きたいときは
+     * {@link ManualGameState#cards(ManualSeatId, ManualZone)} を使う。
+     */
     public List<ManualCardInstance> zone(ManualZone target) {
-        return zones.get(target);
+        List<ManualCardInstance> list = zones.get(target);
+        if (list == null) {
+            throw new IllegalArgumentException(
+                    "席に属さない共有ゾーンです: " + target + "(ManualGameState から引くこと)");
+        }
+        return list;
     }
 
     /**
@@ -82,8 +99,8 @@ public class ManualSeat {
 
     /** 全ゾーンとリーダーを空にする。デッキの読み込み直しで使う。 */
     public void clearAll() {
-        for (ManualZone z : ManualZone.values()) {
-            zone(z).clear();
+        for (List<ManualCardInstance> cards : zones.values()) {
+            cards.clear();
         }
         leader = null;
         deckName = null;
@@ -93,9 +110,10 @@ public class ManualSeat {
     /** 深いコピー。{@link ManualGameState#copy()} から呼ばれる。 */
     public ManualSeat copy() {
         ManualSeat clone = new ManualSeat(id);
-        for (ManualZone z : ManualZone.values()) {
-            for (ManualCardInstance card : zone(z)) {
-                clone.zone(z).add(card.copy());
+        for (Map.Entry<ManualZone, List<ManualCardInstance>> entry : zones.entrySet()) {
+            List<ManualCardInstance> target = clone.zone(entry.getKey());
+            for (ManualCardInstance card : entry.getValue()) {
+                target.add(card.copy());
             }
         }
         clone.leader = leader == null ? null : leader.copy();

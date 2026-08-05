@@ -5,97 +5,94 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QTE Battle - 手動モード</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=14)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=15)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
-<div class="container-fluid py-2" id="manual-root" style="max-width: 1200px">
+<div class="container-fluid py-2" id="manual-root" style="max-width: 1180px">
 
-    <!-- ヘッダ -->
-    <div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
-        <div>
-            部屋コード: <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong>
-            <span class="ms-3 text-muted" id="connection-status">接続中...</span>
-        </div>
-        <div class="d-flex align-items-center gap-2">
+    <!--
+      ★Batch 20b 2-7: ヘッダを1行にまとめる。従来はヘッダ・在室者リスト・ターン/フェイズの
+      3行(約100px)を使っていた。ターン/フェイズUIは表示ごと削除し(2-1)、在室者リストと
+      デッキ読み込みステータスはこの行へ統合する(マスター確認済み)。
+      折り返しは許容するが、通常の画面幅では1行に収まる密度にしてある。
+    -->
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap manual-header">
+        <span>部屋 <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong></span>
+        <span class="text-muted small" id="connection-status">接続中...</span>
+        <span class="d-flex align-items-center gap-1 flex-wrap" id="occupant-list"></span>
+        <span class="text-muted small" id="deck-import-status"></span>
+        <span class="ms-auto d-flex align-items-center gap-1 flex-wrap">
             <label class="btn btn-sm btn-outline-light mb-0">
-                デッキを読み込む(A席)
+                デッキA
                 <input type="file" id="deck-file-a" accept=".zip" class="d-none">
             </label>
             <label class="btn btn-sm btn-outline-light mb-0">
-                デッキを読み込む(B席)
+                デッキB
                 <input type="file" id="deck-file-b" accept=".zip" class="d-none">
             </label>
             <button id="btn-undo" class="btn btn-sm btn-outline-warning" disabled>元に戻す</button>
             <button id="btn-redo" class="btn btn-sm btn-outline-warning" disabled>やり直す</button>
-            <button id="btn-reset" class="btn btn-sm btn-outline-danger">リセットして引き直す</button>
+            <button id="btn-reset" class="btn btn-sm btn-outline-danger">リセット</button>
             <a id="btn-log" class="btn btn-sm btn-outline-light"
-               th:href="@{/manual/api/rooms/{roomId}/log(roomId=${roomId})}">ログを書き出す</a>
-            <button id="btn-leave" class="btn btn-sm btn-outline-secondary">退室する</button>
+               th:href="@{/manual/api/rooms/{roomId}/log(roomId=${roomId})}">ログ書出</a>
+            <button id="btn-leave" class="btn btn-sm btn-outline-secondary">退室</button>
             <button id="btn-help" class="btn btn-sm btn-outline-info" title="操作説明">?</button>
-        </div>
+        </span>
     </div>
 
-    <!-- 在室者リスト(設計書 6-3・11-2) -->
-    <div class="d-flex align-items-center gap-1 mb-2 small flex-wrap" id="occupant-list"></div>
-
-    <!-- ターン/フェイズ帯 -->
-    <div class="d-flex align-items-center gap-2 mb-2 small">
-        <span>ターン <strong id="turn-number">1</strong></span>
-        <button id="turn-minus" class="btn btn-sm btn-outline-secondary py-0 px-2">-</button>
-        <button id="turn-plus" class="btn btn-sm btn-outline-secondary py-0 px-2">+</button>
-        <span class="ms-3">フェイズ</span>
-        <button id="phase-back" class="btn btn-sm btn-outline-secondary py-0 px-2">&laquo;</button>
-        <span id="phase-name" class="badge text-bg-secondary">ドロー</span>
-        <button id="phase-fwd" class="btn btn-sm btn-outline-secondary py-0 px-2">&raquo;</button>
-        <span class="ms-auto text-muted" id="deck-import-status"></span>
-    </div>
-
-    <!-- ★Batch 19b: 3列(左110+中700+右350)を2列(中840+右224)へ再編(設計書1章) -->
+    <!-- ★Batch 20b 1-1: 中央840 + 右288 の2列。右列はパイルをカード幅90pxで3つ並べるために拡幅した -->
     <div class="d-flex gap-2">
         <!-- 中央列 840px -->
         <div style="width:840px; flex:0 0 840px;">
-            <!-- B席: リーダー + 小型ゾーンバー(飾り。設計書2-7) -->
+            <!-- B席上段: ミニチップ5つ(左) + リーダー+ウェポン合体タイル(右端。2-8) -->
             <div id="seat-opponent-top" class="board-side opponent-side p-2 mb-1 d-flex align-items-center gap-2"></div>
             <!-- Bミニオン -->
             <div id="seat-opponent-minions" class="board-side p-2 mb-1"></div>
 
+            <!--
+              ★センターライン(2-3)。左=プレイ中 / 右=公開。どちらもプレイヤー間の共有ゾーンであり、
+              「この列にあるカードは相手に見えている」という一貫したルールを画面に与える。
+              空のときは24pxの細いバー、1枚でも入ると約130pxのストリップへ自動展開する。
+            -->
+            <div id="center-line" class="manual-center-line mb-1"></div>
+
             <!-- Aミニオン -->
             <div id="seat-self-minions" class="board-side p-2 mb-1"></div>
 
-            <!-- リーダー行: ウェポン・リーダー・禁忌・山札・公開・墓地・消滅(設計書2-1) -->
-            <div id="seat-self-leader-row" class="board-side p-2 mb-1 d-flex align-items-start gap-2 flex-wrap"></div>
-
-            <!-- マナ行(設計書2-3) -->
+            <!-- マナ行 + リーダー+ウェポン合体タイル(右端。1-2の6) -->
             <div id="seat-self-mana-row" class="board-side my-side p-2 mb-1"></div>
 
-            <!-- 手札(ラベル・カード行は renderHand が生成する。18c以前と同じプレーンな入れ物に戻す) -->
+            <!-- 手札(ラベル・カード行は renderHand が生成する。入れ物はプレーンに保つ) -->
             <div id="hand-row" class="board-side p-2"></div>
         </div>
 
-        <!-- 右列 224px -->
-        <div style="width:224px; flex:0 0 224px;">
+        <!-- 右列 288px。上から 拡大画像 → パイル → ログ → 宣言(1-3) -->
+        <div style="width:288px; flex:0 0 288px;">
+            <div id="zoom-panel" class="d-flex align-items-center justify-content-center mb-2"
+                 style="width:204px; height:286px; background:rgba(255,255,255,0.05); border:1px solid #495057; position:relative;">
+                <span class="text-muted small">カードをクリックすると表示</span>
+            </div>
+
+            <!-- パイル群: 上段[禁忌][山札][確認] / 下段[消滅][墓地](2-6) -->
+            <div id="pile-grid" class="mb-2"></div>
+
             <div class="d-flex justify-content-between align-items-center mb-1">
                 <span class="small text-muted">ログ</span>
                 <form id="note-form" class="d-flex gap-1">
                     <input id="note-input" type="text" class="form-control form-control-sm"
-                           style="width:110px" placeholder="自由メモ">
+                           style="width:130px" placeholder="自由メモ">
                     <button type="submit" class="btn btn-sm btn-outline-light">記録</button>
                 </form>
             </div>
-            <div id="log-box" class="log-box p-2 mb-2 small"></div>
+            <!-- ★2-5: 既定は直近2行ぶんの高さ。クリックで右列内をその場で下方向へ拡張する -->
+            <div id="log-box" class="log-box manual-log-collapsed p-2 mb-2 small"
+                 title="クリックで開閉"></div>
 
-            <div class="d-flex flex-wrap justify-content-between align-items-center mb-1 gap-1">
-                <span class="small text-muted">拡大画像</span>
-                <div class="btn-group btn-group-sm" id="declare-buttons">
-                    <button class="btn btn-outline-success" data-declaration="WIN">勝利</button>
-                    <button class="btn btn-outline-danger" data-declaration="LOSE">敗北</button>
-                    <button class="btn btn-outline-secondary" data-declaration="DRAW">引分</button>
-                    <button class="btn btn-outline-warning" data-declaration="CONCEDE">投了</button>
-                </div>
-            </div>
-            <div id="zoom-panel" class="d-flex align-items-center justify-content-center"
-                 style="width:204px; height:286px; background:rgba(255,255,255,0.05); border:1px solid #495057; position:relative;">
-                <span class="text-muted small">カードをクリックすると表示</span>
+            <div class="btn-group btn-group-sm w-100" id="declare-buttons">
+                <button class="btn btn-outline-success" data-declaration="WIN">勝利</button>
+                <button class="btn btn-outline-danger" data-declaration="LOSE">敗北</button>
+                <button class="btn btn-outline-secondary" data-declaration="DRAW">引分</button>
+                <button class="btn btn-outline-warning" data-declaration="CONCEDE">投了</button>
             </div>
         </div>
     </div>
@@ -129,6 +126,24 @@
         </div>
     </div>
 
+    <!--
+      ウェポン操作モーダル(★Batch 20b 2-2・マスター確認済み)。
+      合体タイルのミニタイルは 44×60 しかなく、ATK・使用済・札をすべて載せられない。
+      ミニタイルは画像と枚数バッジだけを持ち、操作はこのモーダルへ集約する。
+    -->
+    <div id="weapon-modal" class="info-modal d-none">
+        <div class="info-modal-body">
+            <h6 id="weapon-modal-title">ウェポン</h6>
+            <div class="d-flex gap-2 mb-2 align-items-end" id="weapon-modal-fields"></div>
+            <div class="d-flex gap-1 mb-2 align-items-center flex-wrap" id="weapon-modal-actions"></div>
+            <div id="weapon-modal-labels" class="d-flex flex-wrap gap-1 mb-2"></div>
+            <div class="d-flex justify-content-end gap-2">
+                <button id="weapon-modal-reset" class="btn btn-sm btn-outline-warning">印刷値に戻す</button>
+                <button id="weapon-modal-close" class="btn btn-sm btn-outline-light">閉じる</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 札編集モーダル -->
     <div id="label-modal" class="info-modal d-none">
         <div class="info-modal-body">
@@ -157,16 +172,25 @@
                     <tr><th>ドラッグ</th>
                         <td>ゾーン間移動。場の既存タイルに重ねる=進化。複数選択中は選択分をまとめて移動。
                             帯・全面表示からも盤面へ直接ドラッグできる</td></tr>
+                    <tr><th>リーダー</th>
+                        <td>リーダータイルにカードを落とす=ウェポンの装備。装備済みなら古いウェポンは
+                            自動で墓地(禁忌由来は消滅)へ行く。LP表示のクリックで増減</td></tr>
+                    <tr><th>ウェポン</th>
+                        <td>リーダー右下のミニタイル: クリック=拡大 / ダブルクリック=数値・使用済・札の編集</td></tr>
+                    <tr><th>センターライン</th>
+                        <td>両ミニオン行の間の[プレイ中][公開]。両プレイヤーの共有ゾーンであり、
+                            置いたカードは相手にも見えている。空のときは細いバー、札が入ると自動で開く</td></tr>
                     <tr><th>山札</th>
                         <td>左クリック=1枚ドロー / 右クリック=全面表示(並べ替え・検索) /
                             シャッフル / 上へ・下へ / ドラッグ=一番上の1枚を他ゾーンへ移動</td></tr>
                     <tr><th>パイル</th>
-                        <td>左クリック=帯を開く / 右クリック=最上段の拡大(山札・禁忌は枚数のみ表示)</td></tr>
+                        <td>右列の[禁忌][山札][確認][消滅][墓地]。左クリック=帯を開く /
+                            右クリック=最上段の拡大(山札・禁忌は枚数のみ)</td></tr>
                     <tr><th>マナ</th>
                         <td>表/裏ストリップへのドロップで向きが決まる。ストリップ間ドラッグで表裏変更。
                             MPはアンタップ枚数の自動計算</td></tr>
-                    <tr><th>数値・札</th>
-                        <td>タイルの数値クリック=編集 / +ボタン=札の付け外し</td></tr>
+                    <tr><th>ログ</th>
+                        <td>クリックで展開/折りたたみ。既定は直近2行のみ</td></tr>
                     <tr><th>ヘッダ</th>
                         <td>リセットして引き直す(履歴は消える) / ログ書き出し / 退室 / Undo・Redo(深さ200)</td></tr>
                 </tbody>
@@ -185,6 +209,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=6)}"></script>
+<script th:src="@{/js/manual-battle.js(v=7)}"></script>
 </body>
 </html>

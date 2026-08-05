@@ -46,6 +46,9 @@ public class ManualGameService {
     public void loadDeck(ManualRoom room, ManualSeatId seatId, ManualDeckImport imported) {
         ManualSeat seat = room.getGameState().seat(seatId);
         applyImport(seat, imported);
+        // ★20b: 共有ゾーンは席の外にあり clearAll() が届かない。中央に前回の個体が
+        //   残ると、山札へ戻らないカードが盤面に居座る(マスター確認済み)。
+        room.getGameState().clearSharedZones();
 
         room.getHistory().clear();
         room.addLog("席%s にデッキ「%s」を読み込んだ(山札 %d 枚 / 禁忌 %d 枚)。シャッフルして %d 枚引いた"
@@ -79,7 +82,11 @@ public class ManualGameService {
         seat.zone(ManualZone.DECK).addAll(deck);
 
         for (ManualDeckImport.Entry entry : imported.taboo()) {
-            seat.zone(ManualZone.TABOO).add(entry.toInstance());
+            // ★20b: 由来をここで一度だけ刻む。禁忌ゾーンから出た後は現在地から復元できない
+            //   ({@link ManualCardInstance#isFromTaboo()})。
+            ManualCardInstance instance = entry.toInstance();
+            instance.setFromTaboo(true);
+            seat.zone(ManualZone.TABOO).add(instance);
         }
 
         drawCards(seat, INITIAL_HAND_SIZE);
@@ -108,6 +115,7 @@ public class ManualGameService {
             applyImport(seat, imported);
             any = true;
         }
+        state.clearSharedZones(); // ★20b: 仕切り直しでは中央も片付ける
         if (!any) {
             throw new IllegalStateException("まだデッキを読み込んでいないため、リセットできません");
         }

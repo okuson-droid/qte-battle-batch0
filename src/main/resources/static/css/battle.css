@@ -121,7 +121,16 @@
 
 /* ★19b: 通常モードと共有する .leader-card(110×80)は変更せず、
    手動モードだけこのクラスで上書きする(設計書2-1: 110→90px)。 */
-.manual-leader-tile { cursor: pointer; width: 90px; height: 120px; }
+/* ★20b 2-2: ウェポンのミニタイルを右下に重ねるため position: relative を足す。
+   合体タイルはドロップ先でもあるので、はみ出すミニタイルは overflow させない。 */
+.manual-leader-tile {
+    cursor: pointer; width: 90px; height: 120px; position: relative; flex: 0 0 90px;
+    justify-content: flex-start;
+}
+/* ★ミニタイル(右下44×60)がLP表示を覆わないよう、名前とLPを上寄せ・左寄せにする。
+   LPはクリックで編集モーダルを開く操作対象であり、隠れると押せなくなる。 */
+.manual-leader-tile .manual-tile-name { font-size: 11px; }
+.manual-leader-tile .manual-tile-stats { text-align: left; font-size: 15px; }
 
 .manual-hand-card {
     cursor: pointer; border-radius: 4px; overflow: hidden; border: 2px solid transparent;
@@ -143,26 +152,79 @@
     padding: 2px 0; color: #adb5bd;
 }
 
-/* ★19b: リーダー行のカード型パイル(禁忌・山札・公開・墓地・消滅。設計書2-1・2-2)。
-   90×120px で場タイル・リーダーと高さを揃える。ドロップ対象面積は箱全体(旧比 約4倍)。 */
-/* ★min-heightとする(heightで固定しない)。山札のみシャッフル/上下ボタンぶん
-   他のパイルより縦に伸びる(設計書2-2の図。山札の枠だけ下に長い)。 */
+/* ★20b 2-6: 右列のカード型パイル(禁忌・山札・確認・消滅・墓地)。
+   カード面(90×126)に画像を敷き、枚数はその角に重ねる。ラベルは面の下に添える。
+   min-height で固定しないのは、山札だけシャッフル/上下枠ぶん縦に伸びるためである。 */
+.manual-pile-row { display: flex; gap: 6px; margin-bottom: 6px; }
 .manual-pile {
-    width: 90px; min-height: 120px; box-sizing: border-box; border-radius: 6px;
+    width: 90px; box-sizing: border-box; border-radius: 6px;
     border: 1px solid #495057; background: rgba(255, 255, 255, 0.03);
     padding: 4px; font-size: 11px; cursor: pointer;
     display: flex; flex-direction: column; align-items: center;
 }
-.manual-pile-label { font-weight: bold; font-size: 13px; }
-.manual-pile-count { font-weight: bold; font-size: 20px; line-height: 1.3; }
 .manual-pile-face {
-    width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    text-align: center; font-size: 10px; color: #adb5bd;
+    position: relative; width: 82px; height: 114px; border-radius: 4px; overflow: hidden;
+    background: rgba(255, 255, 255, 0.04); border: 1px dashed #6c757d;
+}
+.manual-pile-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.manual-pile-blank {
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    font-size: 10px; color: #adb5bd; padding: 4px;
+}
+.manual-pile-count {
+    position: absolute; right: 2px; bottom: 2px; min-width: 20px; text-align: center;
+    font-weight: bold; font-size: 13px; line-height: 1.2; border-radius: 3px;
+    background: rgba(0, 0, 0, 0.75); color: #f8f9fa; padding: 0 3px;
+}
+.manual-pile-label { font-weight: bold; font-size: 12px; margin-top: 2px; }
+
+/* ★20b 2-2: リーダータイル右下に重なるウェポンのミニタイル。
+   タイル自体が WEAPON のドロップ先であるため、ミニタイルは表示と掴み口だけを持つ。 */
+.manual-weapon-mini {
+    position: absolute; right: -4px; bottom: -4px; width: 44px; height: 60px;
+    border-radius: 3px; overflow: hidden; border: 1px solid #ced4da;
+    background: #212529; cursor: pointer; z-index: 2;
+}
+.manual-weapon-mini img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.manual-weapon-mini-blank {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 9px; text-align: center; color: #f8f9fa; padding: 2px;
+}
+.manual-weapon-mini-badge {
+    position: absolute; right: 0; top: 0; font-size: 9px; font-weight: bold;
+    background: #dc3545; color: #fff; padding: 0 3px; border-bottom-left-radius: 3px;
 }
 
-/* ウェポン枠(設計書2-1)。場タイルと同幅の .manual-tile をそのまま並べるための入れ物。
-   未装備時は renderStackRow が空き枠(.tile-slot-empty)を差し込む。複数装備は右に伸びる。 */
-.manual-weapon-slot { display: flex; gap: 6px; }
+/* ★20b 2-3: センターライン。左=プレイ中 / 右=公開。共有ゾーンであることを
+   「中央の1本の帯」という配置そのもので表す。
+   空のときは24pxのバー、カードが入ると .manual-center-open で約130pxへ開く。 */
+.manual-center-line { display: flex; gap: 8px; }
+.manual-center-half {
+    flex: 1; min-width: 0; box-sizing: border-box;
+    border: 1px dashed #6c757d; border-radius: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 2px 6px; min-height: 24px;
+    display: flex; align-items: center; gap: 8px;
+}
+.manual-center-half.manual-center-open {
+    align-items: flex-start; flex-direction: column; gap: 2px;
+    min-height: 130px; padding: 4px 6px;
+}
+.manual-center-label { font-size: 11px; color: #adb5bd; white-space: nowrap; }
+.manual-center-row { display: flex; gap: 6px; overflow-x: auto; width: 100%; }
+
+/* ★20b 1-2の6: マナ行の右端にリーダー+ウェポン合体タイルを置く。
+   マナのストリップ側だけが伸縮する(min-width:0 が無いと flex 子が縮まない)。 */
+.manual-mana-outer { display: flex; gap: 8px; align-items: flex-start; }
+.manual-mana-left { flex: 1; min-width: 0; }
+
+/* ★20b 2-5: ログの折りたたみ。既定は直近2行ぶん。クリックで .manual-log-collapsed が外れ、
+   右列内でその場拡張する(宣言ボタン行を押し下げる)。 */
+.log-box.manual-log-collapsed { height: 40px; }
+.log-box:not(.manual-log-collapsed) { height: 340px; }
+
+/* ★20b 2-7: ヘッダ1行。折り返しは許容するが、通常幅では1行に収まる密度にしてある。 */
+.manual-header { row-gap: 4px; }
 
 /* ★19b: マナ行(リーダー行の直下。設計書2-3)。表(約6割)/裏(約4割)の2ストリップを横に並べる。 */
 .mana-strips { display: flex; gap: 12px; }

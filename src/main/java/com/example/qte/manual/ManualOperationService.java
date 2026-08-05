@@ -53,7 +53,11 @@ public class ManualOperationService {
      */
     private static final Set<ManualZone> FACE_UP_ON_ARRIVAL = EnumSet.of(
             ManualZone.FIELD, ManualZone.WEAPON, ManualZone.TRASH,
-            ManualZone.LOST, ManualZone.REVEAL, ManualZone.HAND);
+            ManualZone.LOST, ManualZone.REVEAL, ManualZone.HAND,
+            // ★20b 2-4: 新ゾーンも表向きへ揃える。PRIVATE は「自分が中身を見ている」
+            //   状態のゾーンであり、裏向きのまま置けても確認の用をなさない。
+            //   フェイズ2で相手に隠すのはゾーンフィルタの責務であり、faceDown とは別物である。
+            ManualZone.PLAY, ManualZone.PRIVATE);
 
     private final ManualGameService gameService;
 
@@ -140,7 +144,9 @@ public class ManualOperationService {
         if (request.toZone() == null) {
             throw new IllegalArgumentException("移動先のゾーンが指定されていません");
         }
-        ManualSeatId toSeatId = seatOf(request.toSeat());
+        // ★20b 3-2: 共有ゾーン(PLAY / REVEAL)は席に属さないため toSeat を無視する。
+        //   ここで null に潰しておくと、以降の target 解決もログも1本の経路で済む。
+        ManualSeatId toSeatId = request.toZone().isShared() ? null : seatOf(request.toSeat());
         List<ManualCardRef> refs = ManualBoardIndex.requireAll(state, request.cardIds());
         for (ManualCardRef ref : refs) {
             if (ref.isLeader()) {
@@ -151,11 +157,14 @@ public class ManualOperationService {
 
         String origin = describeOrigin(refs);
         String names = describeCards(refs);
-        List<ManualCardInstance> target = state.seat(toSeatId).zone(request.toZone());
+        List<ManualCardInstance> target = state.cards(toSeatId, request.toZone());
 
         for (ManualCardRef ref : refs) {
             ManualBoardIndex.detach(state, ref);
         }
+        // ★外したあとに付け替えを行う。先に行うと、ウェポン枠の中で並べ替えただけの移動で
+        //   自分自身を墓地へ送ってしまう(WEAPON → 同じ WEAPON の付け替えは起こらない)。
+        String replaced = replaceEquippedWeapon(state, toSeatId, request.toZone());
         int index = clampIndex(request.toIndex() == null ? target.size() : request.toIndex(),
                 target.size());
         for (int i = 0; i < refs.size(); i++) {
@@ -176,8 +185,54 @@ public class ManualOperationService {
             // ★正規化で表向きになった場合も、何が起きたかがログに残るようにする(2-3)
             face = "(表向き)";
         }
-        return "%s → 席%s %s%s に %d枚 移した %s".formatted(origin, toSeatId,
-                request.toZone().getDisplayName(), face, refs.size(), names);
+        String destination = toSeatId == null
+                ? "共有 %s".formatted(request.toZone().getDisplayName())
+                : "席%s %s".formatted(toSeatId, request.toZone().getDisplayName());
+        return "%s → %s%s に %d枚 移した %s%s".formatted(origin, destination,
+                face, refs.size(), names, replaced);
+    }
+
+    /**
+     * ウェポンの付け替え(Batch 20b・マスター確認済み)。
+     *
+     * <h3>★これは手動モードで唯一「アプリが行き先を決める」処理である</h3>
+     * 設計書16 5-1 の「判断を実装しない」に対する明示的な例外であり、
+     * リーダータイル自体をウェポンのドロップ先にした(20b 2-2)ことの帰結である。
+     * 装備済みかどうかでドロップの当たり判定が変わると人間に説明できないため
+     * 「いつでも落とせる」を選び、その代わりに古いウェポンの後始末をアプリが引き受ける。
+     *
+     * <h3>行き先は由来で分ける</h3>
+     * 総合ルール 2-3 により、禁忌デッキ由来のカードは場を離れると墓地ではなく消滅へ行く。
+     * 自動化した以上、行き先を間違えないのは実装の責任である
+     * ({@link ManualCardInstance#isFromTaboo()})。
+     *
+     * <h3>それでも人間が上書きできる</h3>
+     * 送り先はただの移動であり、Undo でも、墓地から消滅への手動移動でも取り消せる。
+     * ログに何が起きたかを必ず残すのはそのためである。
+     *
+     * @return ログへ追記する文字列。付け替えが起きなければ空文字
+     */
+    private String replaceEquippedWeapon(ManualGameState state, ManualSeatId toSeatId,
+            ManualZone toZone) {
+        if (toZone != ManualZone.WEAPON || toSeatId == null) {
+            return "";
+        }
+        List<ManualCardInstance> weapons = state.seat(toSeatId).zone(ManualZone.WEAPON);
+        if (weapons.isEmpty()) {
+            return "";
+        }
+        List<ManualCardInstance> old = new ArrayList<>(weapons);
+        weapons.clear();
+        List<String> moved = new ArrayList<>();
+        for (ManualCardInstance card : old) {
+            ManualZone destination = card.isFromTaboo() ? ManualZone.LOST : ManualZone.TRASH;
+            resetToPrinted(card);
+            card.setFaceDown(false);
+            card.setUsed(false);
+            state.seat(toSeatId).zone(destination).add(card);
+            moved.add("《%s》→%s".formatted(displayName(card), destination.getDisplayName()));
+        }
+        return "(付け替え: %s)".formatted(String.join(" ", moved));
     }
 
     // ================= 9. 進化スタック =================
@@ -668,10 +723,16 @@ public class ManualOperationService {
                 return "複数の場所";
             }
         }
+        // ★20b: 共有ゾーンの判定を先に置く。共有ゾーンでは seatId が null であり、
+        //   「席null」という文字列がログに出てしまうため(進化スタックが共有ゾーンに
+        //   置かれている場合も同様である)。
+        String place = first.isShared()
+                ? "共有"
+                : "席%s".formatted(first.seatId());
         if (first.isMaterial()) {
-            return "席%s 進化スタック".formatted(first.seatId());
+            return "%s 進化スタック".formatted(place);
         }
-        return "席%s %s".formatted(first.seatId(), first.zone().getDisplayName());
+        return "%s %s".formatted(place, first.zone().getDisplayName());
     }
 
     private String describeCards(List<ManualCardRef> refs) {

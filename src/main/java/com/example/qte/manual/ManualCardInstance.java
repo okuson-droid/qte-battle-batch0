@@ -71,6 +71,25 @@ public class ManualCardInstance {
     private boolean used;
 
     /**
+     * 禁忌デッキ由来の個体か(Batch 20b)。デッキ読み込み時に一度だけ立て、以後変えない。
+     *
+     * <h3>★なぜ「今どのゾーンに居るか」ではなく個体の属性なのか</h3>
+     * 総合ルール 2-3 は「禁忌カードが場を離れた場合、墓地ではなく消滅へ行く」と定める。
+     * 判定に必要なのは<b>由来</b>であって現在地ではない。禁忌ゾーンから場へ出た時点で
+     * 現在地は FIELD / WEAPON になっており、そこから「元は禁忌だった」は復元できない。
+     *
+     * <h3>★これは「判断の実装」ではない(設計書16 5-1 との関係)</h3>
+     * このフラグ自体は何も強制しない。人間は禁忌由来のカードを墓地へでもマナへでも
+     * 自由に動かせる。使うのは
+     * {@link ManualOperationService#move} のウェポン付け替え、すなわち
+     * <b>アプリが人間の代わりに行き先を決めてしまう唯一の場所</b>だけであり、
+     * そこでルールと違う行き先を選ばないための情報である。
+     * 付け替えを自動化した以上、行き先の正しさまで面倒を見る責任が生じる。
+     */
+    @Setter
+    private boolean fromTaboo;
+
+    /**
      * 札(設計書 5-4)。キーワード9種も凍結などの一時状態も、すべて短いテキストに統一する。
      * アプリは意味を解釈しない。カードが何枚増えても実装を変えなくてよい形である。
      */
@@ -131,6 +150,7 @@ public class ManualCardInstance {
         clone.tapped = tapped;
         clone.faceDown = faceDown;
         clone.used = used;
+        clone.fromTaboo = fromTaboo;
         clone.labels.addAll(labels);
         for (ManualCardInstance material : materials) {
             clone.materials.add(material.copy());
