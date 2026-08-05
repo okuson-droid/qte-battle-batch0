@@ -1,7 +1,9 @@
 package com.example.qte.manual;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Function;
 
 import org.springframework.stereotype.Service;
@@ -43,6 +45,15 @@ public class ManualOperationService {
 
     /** ログにカード名を並べる上限。これを超えたら「ほかn枚」にまとめる */
     private static final int LOG_NAME_LIMIT = 5;
+
+    /**
+     * 表向きへ正規化するゾーン(Batch 20a 設計書 2-3・C1・C2)。
+     * TABOO / DECK は正規化しない(C3)。MANA も対象外であり、
+     * 表裏はドロップ先の表/裏ストリップ({@code faceDown} 明示)で決まる(C4)。
+     */
+    private static final Set<ManualZone> FACE_UP_ON_ARRIVAL = EnumSet.of(
+            ManualZone.FIELD, ManualZone.WEAPON, ManualZone.TRASH,
+            ManualZone.LOST, ManualZone.REVEAL, ManualZone.HAND);
 
     private final ManualGameService gameService;
 
@@ -150,9 +161,7 @@ public class ManualOperationService {
         for (int i = 0; i < refs.size(); i++) {
             ManualCardRef ref = refs.get(i);
             ManualCardInstance card = ref.card();
-            if (request.faceDown() != null) {
-                card.setFaceDown(request.faceDown());
-            }
+            normalizeFaceDown(card, request);
             // ★FIELD / WEAPON を離れる(同じ種類のゾーンへの移動でない)ときだけ印刷値へ戻す
             if (isFieldLike(ref.zone()) && ref.zone() != request.toZone()) {
                 resetToPrinted(card);
@@ -163,6 +172,9 @@ public class ManualOperationService {
         String face = "";
         if (request.faceDown() != null) {
             face = request.faceDown() ? "(裏向き)" : "(表向き)";
+        } else if (FACE_UP_ON_ARRIVAL.contains(request.toZone())) {
+            // ★正規化で表向きになった場合も、何が起きたかがログに残るようにする(2-3)
+            face = "(表向き)";
         }
         return "%s → 席%s %s%s に %d枚 移した %s".formatted(origin, toSeatId,
                 request.toZone().getDisplayName(), face, refs.size(), names);
@@ -563,6 +575,34 @@ public class ManualOperationService {
         }
         return "%d枚 を%s %d枚 / %s %d枚 にした".formatted(targets.size(), onWord, on, offWord,
                 targets.size() - on);
+    }
+
+    /**
+     * 表裏の正規化(Batch 20a 設計書 2-3)。移動先ゾーンによって表向きへ揃える。
+     *
+     * <h3>★クライアントの明示指定を優先する(D1)</h3>
+     * {@code request.faceDown()} が明示されている場合はそちらを使い、正規化は行わない
+     * (マナのストリップへのドロップ・2-2 のマナ用ボタンが意図した向きを上書きされないため)。
+     * 明示が無いときだけ {@link #FACE_UP_ON_ARRIVAL} に基づいて表向きへ揃える。
+     * TABOO / DECK / MANA はここで何もしない(現状維持。C3・C4)。
+     *
+     * <h3>★進化スタックの素材にも同じ規則を適用する(C5)</h3>
+     * 素材は {@link ManualCardInstance#getMaterials()} が平坦なリストとして持つため、
+     * 再帰は不要である(設計書「materials は平坦である」)。
+     */
+    private void normalizeFaceDown(ManualCardInstance card, ManualOpRequest.Move request) {
+        applyFaceDownRule(card, request);
+        for (ManualCardInstance material : card.getMaterials()) {
+            applyFaceDownRule(material, request);
+        }
+    }
+
+    private void applyFaceDownRule(ManualCardInstance card, ManualOpRequest.Move request) {
+        if (request.faceDown() != null) {
+            card.setFaceDown(request.faceDown());
+        } else if (FACE_UP_ON_ARRIVAL.contains(request.toZone())) {
+            card.setFaceDown(false);
+        }
     }
 
     /**

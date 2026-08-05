@@ -248,4 +248,10 @@ body.manual-drag-active .manual-band {
     align-items: center; justify-content: center; text-align: center; border-radius: 3px;
 }
 .manual-deck-row-name { flex: 1; font-size: 13px; }
-.manual-deck-row-buttons { display: flex; gap: 4px; }
+/* ★20a 2-2: 4個→10個に増えたため折り返す。段数は決め打ちせずflex-wrapに任せる(B2) */
+.manual-deck-row-buttons {
+    display: flex; flex-wrap: wrap; gap: 4px; max-width: 300px; justify-content: flex-end;
+}
+
+/* ★20a 2-4: LPモーダルの増減ボタン(-5/-1/+1/+5)。他の .info-modal のボタンには影響しない */
+#lp-modal-minus5, #lp-modal-minus1, #lp-modal-plus1, #lp-modal-plus5 { min-width: 40px; }

@@ -22,6 +22,8 @@
  *   - pinnedZoom: 右下に固定表示中のカード
  *   - activeOverlay: 帯・全面表示のうち現在開いているものの種別と対象(12章)。
  *     null なら何も開いていない。renderAll の最後で毎回このオーバーレイを描き直す。
+ *   - lpModalSeatId: LPモーダル(20a 2-4)が開いている対象席('A'/'B')。null なら未オープン。
+ *     専用の再描画経路は作らず、renderAll の末尾でこの値を見て数値だけ差し替える。
  */
 
 let latestView = null;
@@ -29,6 +31,7 @@ let selected = new Set();
 let cardLocation = new Map();
 let pinnedZoom = null;
 let OCCUPANT_ID = null;
+let lpModalSeatId = null;
 
 // ---------------------------------------------------------------
 // 0) 在室(設計書 6-3)
@@ -197,6 +200,7 @@ function renderAll(view) {
         renderZoom(pinnedZoom);
     }
     refreshOverlay();
+    refreshLpModal(view); // ★20a 2-4: LPモーダルが開いている間は数値だけ差し替える
 }
 
 function renderHeader(view) {
@@ -363,7 +367,32 @@ function createCardPile(seatId, zoneName, pile) {
     if (zoneName === 'DECK') {
         box.addEventListener('click', () => send('draw', { seat: seatId, count: 1 }));
         box.addEventListener('contextmenu', (e) => { e.preventDefault(); openDeckFullscreen(seatId); });
-        box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示';
+        box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示 / ドラッグ: 一番上の1枚を移動';
+
+        // ★20a 2-1: 山札の一番上の1枚をドラッグの起点にする(A1)。
+        //   最上段は zones.DECK の index 0(公開パイルの末尾とは逆。ManualGameService.drawCards
+        //   が deck.remove(0) で引くのに合わせている)。空のときはドラッグを開始しない(A2)。
+        //   複数選択中であっても常に1枚(非公開ゾーンのため「どの1枚か」を選べない)。
+        //
+        //   ★A4(実マウス検証での訂正、2回目): dragstart の e.target は「実際にドラッグ対象
+        //   になった要素(= box 自身)」であり、実際に掴んだ場所の要素ではない
+        //   (ブラウザは mousedown 位置から祖先方向へ draggable=true を探して box に
+        //   行き着くため、e.target は最初から box になる。e.target.closest(...) では
+        //   絶対に一致しない)。実際に指が置かれた場所を見るには、dragstart 時点の
+        //   座標で document.elementFromPoint を使う必要がある。
+        if (pile.length > 0) {
+            box.draggable = true;
+            box.addEventListener('dragstart', (e) => {
+                const origin = document.elementFromPoint(e.clientX, e.clientY);
+                if (origin && origin.closest('.zone-drop-mini, button')) {
+                    e.preventDefault();
+                    return;
+                }
+                onDragStart(e, pile[0], seatId, 'DECK');
+            });
+        } else {
+            box.draggable = false;
+        }
 
         const shuffleBtn = document.createElement('button');
         shuffleBtn.className = 'btn btn-sm btn-outline-secondary w-100 mt-1 py-0';
@@ -679,10 +708,7 @@ function createLeaderTile(seat) {
     lp.textContent = 'LP ' + seat.lp;
     lp.addEventListener('click', (e) => {
         e.stopPropagation();
-        const value = prompt('LPを入力', seat.lp);
-        if (value !== null && value.trim() !== '' && !isNaN(Number(value))) {
-            send('lp', { seat: seat.id, value: Number(value) });
-        }
+        openLpModal(seat.id, seat.lp); // ★20a 2-4: prompt() を廃止しモーダル化
     });
     tile.appendChild(lp);
 
@@ -854,6 +880,11 @@ function registerDropTarget(el, seatId, zoneName, toIndex, faceDown, targetCard)
     });
     el.addEventListener('drop', (e) => {
         e.preventDefault();
+        // ★ドロップ対象の入れ子(山札パイル本体の中に「上へ/下へ」枠が別のドロップ対象として
+        //   登録されている)でイベントが祖先まで伝播すると、1回のドロップで内側・外側
+        //   両方のハンドラが発火し、moveが2回送信されてしまう(実マウス検証で発覚)。
+        //   受け取った側で伝播を止め、最も内側の対象だけが処理する。
+        e.stopPropagation();
         el.classList.remove('manual-drop-hover');
         if (zoneName === 'WEAPON' && targetCard) {
             flashReject(el);
@@ -928,6 +959,55 @@ function openStatModal(card) {
     };
     document.getElementById('stat-modal-close').onclick = () => modal.classList.add('d-none');
     modal.classList.remove('d-none');
+}
+
+// ---------------------------------------------------------------
+// 9-2) LPモーダル(設計書 Batch20a 2-4)
+// ---------------------------------------------------------------
+
+/**
+ * ★ATK/HPは type="number" のスピナーで既にクリック増減できていたが、LPだけが
+ * prompt() による打ち直ししかできなかった(この非対称が要望の正体)。statInput を
+ * そのまま流用してスピナーを得たうえで、まとまった値が動きやすいLPのために
+ * -5/-1/+1/+5 のボタンも添える。ボタンは押しても閉じない(連続クリックが主眼)。
+ */
+function openLpModal(seatId, currentLp) {
+    lpModalSeatId = seatId;
+    const modal = document.getElementById('lp-modal');
+    const fields = document.getElementById('lp-modal-fields');
+    document.getElementById('lp-modal-title').textContent = '席' + seatId + ' のLP';
+    fields.innerHTML = '';
+    fields.appendChild(statInput('LP', currentLp, (value) => {
+        send('lp', { seat: seatId, value });
+    }));
+
+    const delta = (amount) => send('lp', { seat: seatId, delta: amount });
+    document.getElementById('lp-modal-minus5').onclick = () => delta(-5);
+    document.getElementById('lp-modal-minus1').onclick = () => delta(-1);
+    document.getElementById('lp-modal-plus1').onclick = () => delta(1);
+    document.getElementById('lp-modal-plus5').onclick = () => delta(5);
+    document.getElementById('lp-modal-close').onclick = () => {
+        modal.classList.add('d-none');
+        lpModalSeatId = null;
+    };
+    modal.classList.remove('d-none');
+}
+
+/** モーダルが開いている間、再配信されたビューの数値を差し替える。専用の再描画経路は作らない */
+function refreshLpModal(view) {
+    if (!lpModalSeatId) {
+        return;
+    }
+    const modal = document.getElementById('lp-modal');
+    if (modal.classList.contains('d-none')) {
+        lpModalSeatId = null;
+        return;
+    }
+    const seat = lpModalSeatId === 'A' ? view.seatA : view.seatB;
+    const input = document.querySelector('#lp-modal-fields input');
+    if (input && document.activeElement !== input) {
+        input.value = seat.lp;
+    }
 }
 
 function statInput(labelText, value, onCommit) {
@@ -1346,7 +1426,7 @@ function renderDeckFullscreen() {
         if (filtering) {
             const note = document.createElement('div');
             note.className = 'text-muted small mb-2';
-            note.textContent = '検索中は並べ替えを無効にします(手札へ/場へ/一番上へ/一番下へは使えます)';
+            note.textContent = '検索中は並べ替えを無効にします(ボタンでの移動はすべて使えます)'; // ★20a: 10個に増えたため列挙をやめた
             list.appendChild(note);
         }
         let shown = 0;
@@ -1400,12 +1480,22 @@ function createDeckRow(card, index, seatId, dragDisabled) {
     name.textContent = card.name || '(不明)';
     row.appendChild(name);
 
+    // ★20a 2-2(B1・B2): 6つ追加して計10個。段組みは決め打ちせず、
+    //   1つの flex-wrap 入れ物に並べた順で自然に折り返す(将来ゾーンが増えても崩れない)。
+    //   マナの2つだけ faceDown を明示する(表=false / 裏=true)。残りは null を送り、
+    //   表裏は ManualOperationService.move の正規化(2-3)に委ねる。
     const btns = document.createElement('div');
     btns.className = 'manual-deck-row-buttons';
     btns.appendChild(deckRowButton('一番上へ', () => sendDeckMove(card.instanceId, seatId, 'DECK', 0)));
     btns.appendChild(deckRowButton('一番下へ', () => sendDeckMove(card.instanceId, seatId, 'DECK', 999999)));
     btns.appendChild(deckRowButton('手札へ', () => sendDeckMove(card.instanceId, seatId, 'HAND', null)));
     btns.appendChild(deckRowButton('場へ', () => sendDeckMove(card.instanceId, seatId, 'FIELD', null)));
+    btns.appendChild(deckRowButton('墓地へ', () => sendDeckMove(card.instanceId, seatId, 'TRASH', null)));
+    btns.appendChild(deckRowButton('消滅へ', () => sendDeckMove(card.instanceId, seatId, 'LOST', null)));
+    btns.appendChild(deckRowButton('禁忌へ', () => sendDeckMove(card.instanceId, seatId, 'TABOO', null)));
+    btns.appendChild(deckRowButton('一時公開へ', () => sendDeckMove(card.instanceId, seatId, 'REVEAL', null)));
+    btns.appendChild(deckRowButton('マナ(表)へ', () => sendDeckMove(card.instanceId, seatId, 'MANA', null, false)));
+    btns.appendChild(deckRowButton('マナ(裏)へ', () => sendDeckMove(card.instanceId, seatId, 'MANA', null, true)));
     row.appendChild(btns);
 
     if (!dragDisabled) {
@@ -1453,6 +1543,9 @@ function deckRowButton(label, onClick) {
     return btn;
 }
 
-function sendDeckMove(cardId, seatId, toZone, toIndex) {
-    send('move', { cardIds: [cardId], toSeat: seatId, toZone, toIndex, faceDown: null });
+function sendDeckMove(cardId, seatId, toZone, toIndex, faceDown) {
+    send('move', {
+        cardIds: [cardId], toSeat: seatId, toZone, toIndex,
+        faceDown: faceDown === undefined ? null : faceDown,
+    });
 }
