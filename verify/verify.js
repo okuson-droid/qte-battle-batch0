@@ -1605,6 +1605,185 @@ async function clearZoom(page) {
       return b && !b.classList.contains('d-none') && b.textContent.includes('席Bに座る');
     })) === true);
 
+  // =====================================================================
+  // ★Batch 26: 盤面フェイスの仕上げ
+  // =====================================================================
+
+  // ---- 30. パイル面のドラッグ = 一番上の1枚(26 1章) ----
+  // ★動いたのが「末尾」のカードであることを instanceId で確かめる。
+  //   公開パイルの最上段は末尾であり、山札(先頭)とは逆である。ここを取り違えると
+  //   「見えているカードと違う1枚が動く」というワーストの壊れ方をするため、
+  //   「move が飛んだ」だけでは検証にならない。
+  const pileView = baseView();
+  pileView.seatA.zones.TRASH = [card('t1', '墓地の下'), card('t2', '墓地の一番上')];
+  pileView.seatA.zones.LOST = [card('l1', '消滅の下'), card('l2', '消滅の一番上')];
+  pileView.seatA.zones.PRIVATE = [card('p1', '確認の下'), card('p2', '確認の一番上')];
+  syncCounts(pileView.seatA);
+
+  for (const [zone, expected, label] of [
+    ['TRASH', 't2', '墓地'], ['LOST', 'l2', '消滅'], ['PRIVATE', 'p2', '確認'],
+  ]) {
+    await render(page, pileView);
+    await clearSent(page);
+    const target = zone === 'LOST' ? 'TRASH' : 'LOST';
+    await realDrag(page, `#pile-grid .manual-pile[data-zone="${zone}"] .manual-pile-face`,
+      `#pile-grid .manual-pile[data-zone="${target}"] .manual-pile-face`);
+    const moved = (await sent(page)).find((m) => m.destination.endsWith('/move'));
+    check(`★${label}パイルのドラッグで末尾(=見えている1枚)が動く(26 1章)`,
+      !!moved && moved.body.cardIds.length === 1 && moved.body.cardIds[0] === expected
+        && moved.body.toZone === target,
+      JSON.stringify(moved && moved.body));
+  }
+
+  await render(page, pileView);
+  await clearSent(page);
+  await realDrag(page, '#pile-grid .manual-pile[data-zone="TABOO"] .manual-pile-face',
+    '#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
+  check('★禁忌パイルはドラッグの対象外のまま(26 1章。裏面しか無く「見えている1枚」が無い)',
+    (await sent(page)).filter((m) => m.destination.endsWith('/move')).length === 0
+      && (await page.locator('#pile-grid .manual-pile[data-zone="TABOO"]')
+        .evaluate((el) => el.draggable)) === false);
+
+  // ---- 31. 自席リーダーのフェイス化(26 2章) ----
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    applyCardLibrary({ cards: [{ id: 'c-A-leader', imageId: 'img-A-leader',
+      text: 'リーダー起動能力の検証テキスト' }] });
+    // eslint-disable-next-line no-undef
+    renderAll(latestView);
+  });
+  check('★自席リーダーが3段のフェイスになり効果テキストが載る(26 2章)',
+    (await page.locator('#pile-grid .manual-leader-tile .mtf-text').textContent())
+      === 'リーダー起動能力の検証テキスト'
+      && (await page.locator('#pile-grid .manual-leader-tile .mtf-crown').count()) === 1
+      && (await page.locator('#pile-grid .manual-leader-tile .mtf-foot .manual-tile-stats')
+        .textContent()).includes('LP 20'));
+  check('★相手上段のリーダーはテキストなしのまま(26 2章・マスター裁定)',
+    (await page.locator('#seat-opponent-top .manual-leader-tile .mtf-text').count()) === 0
+      && (await page.locator('#seat-opponent-top .manual-leader-tile .manual-tile-name')
+        .count()) === 1);
+  const leaderFaceBox = await page.locator('#pile-grid .manual-leader-tile').boundingBox();
+  const deckPileBox = await page.locator('#pile-grid .manual-pile[data-zone="DECK"]').boundingBox();
+  check('★自席リーダーの枠が下へ広がっても、山札パイルの行の高さを超えない(26 2章)',
+    leaderFaceBox.height >= 140
+      && leaderFaceBox.y + leaderFaceBox.height <= deckPileBox.y + deckPileBox.height,
+    `leader.h=${leaderFaceBox.height} leader下端=${leaderFaceBox.y + leaderFaceBox.height} `
+      + `deck下端=${deckPileBox.y + deckPileBox.height}`);
+
+  // ---- 32. パイル面・ウェポン枠のテキスト(26 3章) ----
+  const textView = baseView();
+  textView.seatA.zones.TRASH = [card('t1', '墓地の一番上')];
+  textView.seatA.zones.WEAPON = [card('w1', 'テストウェポン',
+    { type: 'WEAPON', hp: null, printedHp: null })];
+  syncCounts(textView.seatA);
+  await render(page, textView);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    applyCardLibrary({ cards: [
+      { id: 'c-t1', imageId: 'img-t1', text: '墓地最上段のテキスト' },
+      { id: 'c-w1', imageId: 'img-w1', text: 'ウェポンのテキスト' },
+    ] });
+    // eslint-disable-next-line no-undef
+    renderAll(latestView);
+  });
+  check('★パイルの最上段とウェポン枠に効果テキストが出る(26 3章)',
+    (await page.locator('#pile-grid .manual-pile[data-zone="TRASH"] .mcard-text').textContent())
+      === '墓地最上段のテキスト'
+      && (await page.locator('#pile-grid .manual-weapon-slot .mcard-text').textContent())
+        === 'ウェポンのテキスト');
+  // ★足の HP が枚数バッジの下に潜っていないこと(25 から残っていた重なり)
+  const pileFoot = await page.evaluate(() => {
+    const face = document.querySelector('#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
+    const hp = face.querySelector('.mcard-hp').getBoundingClientRect();
+    const badge = face.querySelector('.manual-pile-count').getBoundingClientRect();
+    return { hpRight: Math.round(hp.right), badgeLeft: Math.round(badge.left) };
+  });
+  check('★パイル面の HP が枚数バッジに潜らない(26 3章)',
+    pileFoot.hpRight <= pileFoot.badgeLeft, JSON.stringify(pileFoot));
+
+  // ---- 33. 数値表示の簡素化(26 5章) ----
+  // ★ATK と HP の両方が印刷値と違う状態を作る。差分チップ時代はここで足が溢れた。
+  const statChangedView = baseView();
+  statChangedView.seatA.zones.FIELD = [card('f1', '強化された場のミニオン',
+    { attack: 12, printedAttack: 2, hp: 1, printedHp: 3 })];
+  syncCounts(statChangedView.seatA);
+  await render(page, statChangedView);
+  const footFit = await page.evaluate(() => {
+    const foot = document.querySelector('#seat-self-minions .manual-tile-face .mtf-foot');
+    return { sw: foot.scrollWidth, cw: foot.clientWidth, text: foot.textContent };
+  });
+  check('★ATK・HP の両方を変えてもフェイスタイルの足が1行に収まる(26 5章)',
+    footFit.sw <= footFit.cw, JSON.stringify(footFit));
+  const changedMarks = await page.evaluate(() => {
+    const marks = [...document.querySelectorAll('#seat-self-minions .manual-stat-changed')];
+    return {
+      count: marks.length,
+      titles: marks.map((m) => m.title),
+      chips: document.querySelectorAll('.manual-stat-chip').length,
+    };
+  });
+  check('★変更された数値に下線クラスと title(印刷値)が付き、差分チップは消えている(26 5章)',
+    changedMarks.count === 2 && changedMarks.chips === 0
+      && changedMarks.titles.includes('印刷値 2') && changedMarks.titles.includes('印刷値 3'),
+    JSON.stringify(changedMarks));
+
+  // ---- 34. タップ表現(26 4章。回転の廃止) ----
+  const tapView = baseView();
+  tapView.seatA.zones.FIELD = [card('f1', 'タップ中の場', { tapped: true })];
+  tapView.seatA.zones.MANA = [card('m1', 'タップ中のマナ', { tapped: true })];
+  syncCounts(tapView.seatA);
+  await render(page, tapView);
+  const tapLook = await page.evaluate(() => {
+    const tile = document.querySelector('#seat-self-minions .manual-tile-tapped');
+    const mana = document.querySelector('#seat-self-mana-row .mana-tile.tapped');
+    return {
+      tileTransform: getComputedStyle(tile).transform,
+      manaTransform: getComputedStyle(mana).transform,
+      tileFilter: getComputedStyle(tile).filter,
+      badge: tile.querySelector('.manual-tapped-badge')
+        ? tile.querySelector('.manual-tapped-badge').textContent : null,
+      manaBadge: mana.querySelectorAll('.manual-tapped-badge').length,
+    };
+  });
+  check('★タップは回転ではなく減光+バッジで表す(26 4章。マナはバッジ無し)',
+    tapLook.tileTransform === 'none' && tapLook.manaTransform === 'none'
+      && tapLook.badge === 'タップ' && tapLook.manaBadge === 0
+      && tapLook.tileFilter.includes('brightness'),
+    JSON.stringify(tapLook));
+
+  // ---- 35. ★不具合修正: スクロールしても手札のサイズが変わらない(26 4章) ----
+  // ★これが 25b から入っていた不具合の再現である。handCardMaxWidth がビューポート相対の
+  //   top で残り高さを測っていたため、スクロール位置によって手札の幅が変わり、
+  //   ビュー更新を伴う最頻の操作(タップ/アンタップ)で「サイズが崩れる」と観測された。
+  //   ★従来の検証がスクロール0でしか走っていなかったため検出できなかった。
+  const short = await browser.newPage({ viewport: { width: 1280, height: 660 } });
+  const shortErrors = [];
+  short.on('pageerror', (e) => shortErrors.push(String(e)));
+  await short.goto(`http://127.0.0.1:${port}/harness.html`);
+  await short.waitForTimeout(200);
+  await render(short, baseView());
+  const widthAtTop = await short.evaluate(() =>
+    document.querySelector('#hand-row .manual-hand-card').getBoundingClientRect().width);
+  await short.evaluate(() => window.scrollTo(0, 250));
+  await short.waitForTimeout(60);
+  await render(short, baseView());   // タップ等と同じ「再描画」を起こす
+  const widthAfterScroll = await short.evaluate(() =>
+    document.querySelector('#hand-row .manual-hand-card').getBoundingClientRect().width);
+  check('★スクロールした状態で再描画しても手札の幅が変わらない(26 4章・不具合修正)',
+    Math.abs(widthAtTop - widthAfterScroll) < 0.5,
+    `top=${widthAtTop} scrolled=${widthAfterScroll}`);
+  check('狭いビューポートでもJSエラーが出ない(26)', shortErrors.length === 0,
+    shortErrors.join(' | '));
+  await short.close();
+
+  await page.evaluate(() => {
+    // ★以降のセクションへライブラリの状態を残さない(25 と同じ後始末)
+    // eslint-disable-next-line no-undef
+    cardTextById = null;
+    // eslint-disable-next-line no-undef
+    cardTextByImage = null;
+  });
+
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);
   await render(wide, versusView('A'));

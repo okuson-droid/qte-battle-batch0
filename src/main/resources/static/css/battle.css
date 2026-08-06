@@ -92,9 +92,12 @@
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
 }
 .manual-tile-stats { font-weight: bold; text-align: center; }
-.manual-stat-chip {
-    display: inline-block; background: #fff; border: 1px solid; border-radius: 3px;
-    padding: 0 3px; margin-left: 3px; font-size: 10px;
+/* ★Batch 26 5章: 差分チップ(.manual-stat-chip)は廃止した。
+   ATK・HP の両方が印刷値と違うとき、足の1行に収まらず表示が崩れたためである。
+   代わりに「印刷値と違う」ことだけを白+下線で示し、値そのものは title で渡す。 */
+.manual-stat-changed {
+    color: #fff; text-decoration: underline; text-decoration-thickness: 1px;
+    text-underline-offset: 2px; cursor: help;
 }
 .manual-tile-used {
     position: absolute; bottom: 2px; left: 2px; font-size: 9px; cursor: pointer;
@@ -131,7 +134,19 @@
     height: auto; aspect-ratio: 110 / 120;
 }
 
-.manual-tile-tapped { transform: rotate(90deg); }
+/* ★Batch 26 4章: タップ表現から回転を廃止した。
+   25c で縦長のフェイスタイルになったため、rotate(90deg) は外接矩形が枠幅を超えて
+   隣のタイルに視覚的に重なり、さらにテキストが横倒しになって読めなくなる。
+   相手上段(.manual-opp-tapped)が 21c 4章の時点で既に減光だったので、そちらへ揃える。 */
+.manual-tile-tapped { filter: brightness(0.62); }
+.manual-tapped-badge {
+    position: absolute; top: 2px; right: 2px; z-index: 3; pointer-events: none;
+    font-size: 8px; font-weight: 700; line-height: 1.4; letter-spacing: 0.02em;
+    padding: 0 3px; border-radius: 3px;
+    background: rgba(0, 0, 0, 0.72); color: #ffca28; border: 1px solid #ffca28;
+}
+/* バッジのぶんだけ頭の右を空け、名前がバッジの下へ潜らないようにする */
+.manual-tile-face.manual-tile-tapped .mtf-head { padding-right: 34px; }
 .manual-tile-facedown { filter: brightness(0.5); }
 .manual-tile-selected { outline: 3px solid #ffca28; outline-offset: 1px; }
 
@@ -279,7 +294,9 @@
     line-height: 1.15; max-height: 3.4em; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
 }
-.mana-tile.tapped { transform: rotate(90deg); }
+/* ★Batch 26 4章: マナも回転をやめて減光にする(盤面の記法を1つに揃える)。
+   マナは枚数が多く重ねて並ぶため、バッジ(文字)は持たせない。 */
+.mana-tile.tapped { filter: brightness(0.62); }
 .mana-tile.face-down { background: #455a64; border-color: #78909c; }
 /* ★Batch 22 2-2: 裏向きマナは裏面のカード画像にする(相手上段と絵を揃える)。
    .mana-tile / .mana-strip 系は 19b で手動モード用に新設したクラスであり、
@@ -774,3 +791,55 @@ body.manual-drag-active .manual-band {
 .manual-tile-face .manual-tile-labels {
     position: absolute; left: 3px; right: 3px; bottom: 24px;
 }
+
+/* ============================================================
+   ★Batch 26: 盤面フェイスの仕上げ
+   ============================================================ */
+
+/* ---- 2章: 自席リーダーのフェイス化 ----
+   ★場のミニオン(.manual-tile-face)の3段構成をそのまま共有し、
+   リーダー固有の差分だけをここに書く。相手上段のリーダーには付かない
+   (createLeaderTile の face オプションが自席の呼び出しだけ true)。
+
+   ★高さ 90px → 150px。.manual-leader-tile は flex: 0 0 90px を持つが、
+   右列(#pile-grid のセル)は縦方向の flex なので flex-basis が<b>高さ</b>に効く。
+   height だけ書いても basis に負けるため、basis も同時に上書きする。
+   ★盤面は1pxも高くならない。この行の高さは山札パイル(面+ラベル+シャッフル+上へ/下へ
+   = 約210px)が決めており、リーダー枠は120pxしか使っていなかった(実測)。
+   150px + ラベル等で約180px であり、まだ行の中に収まる。 */
+.manual-leader-face {
+    height: 150px !important; flex: 0 0 150px !important;
+    padding: 0 !important; justify-content: flex-start;
+}
+/* 王冠。コスト六角形の位置を借りるが、六角形には切らない(コストではないため) */
+.manual-leader-face .mtf-crown {
+    clip-path: none; border-radius: 50%; font-size: 10px; line-height: 1;
+    color: #ffe08a; background: rgba(0, 0, 0, 0.35);
+    border: 1px solid color-mix(in srgb, var(--mc, #5a5468) 70%, #fff 25%);
+}
+.manual-leader-face .manual-tile-name { font-size: 9.5px; }
+/* LP は足の中央に置く。共有クラス .manual-tile-stats の text-align: left(20b の
+   リーダー用上書き)をここで打ち消す */
+.manual-leader-face .mtf-foot { justify-content: center; }
+.manual-leader-face .manual-tile-stats { text-align: center; font-size: 12px; }
+.manual-leader-face .manual-stat-button { padding: 0 5px; }
+
+/* ---- 3章: パイル面・ウェポン枠に効果テキストを出す ----
+   ★cardFace のバリアントは増やさない('full' をそのまま使う)。
+   82×114 の入れ物に 'full' の既定サイズ(テキスト9.5px)は入らないので、
+   入れ物側で1段落とす。帯・山札行・相手上段は mini / micro のままである
+   (物理的に読めない大きさであり、テキストを出しても情報にならない)。 */
+.manual-pile-face .mcard-head { padding: 2px 3px; gap: 3px; }
+.manual-pile-face .mcard-cost { width: 13px; height: 13px; font-size: 8px; }
+.manual-pile-face .mcard-name { font-size: 8.5px; line-height: 1.15; }
+.manual-pile-face .mcard-type { padding: 0 3px; font-size: 6.5px; letter-spacing: 0.08em; }
+.manual-pile-face .mcard-text {
+    padding: 2px 3px; font-size: 8px; line-height: 1.35; overflow: hidden;
+}
+.manual-pile-face .mcard-foot { min-height: 12px; font-size: 9px; padding: 1px 3px; }
+/* ★足の右端は枚数バッジ(.manual-pile-count)の指定席である。空けておかないと
+   HP(♥n)がバッジの下に完全に潜る。25 でフェイスを敷いたときからあった重なりだが、
+   テキストが載って「読む面」になった今回はっきり問題になったので、ここで直す。 */
+.manual-pile-face .mcard-foot { padding-right: 26px; }
+/* 枚数バッジはテキストの右下に重なる。読み取りを妨げないよう少し透かす */
+.manual-pile-face .manual-pile-count { opacity: 0.92; }

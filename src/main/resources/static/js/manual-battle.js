@@ -1367,7 +1367,9 @@ function renderPiles(view) {
     slot.style.gridArea = '1 / 1';
     // ★22 3-4: 自席のリーダータイルは WEAPON のドロップ先ではなくなった。
     //   「ウェポンはウェポン枠に置く」という説明1つで足りる形にする(W2)
-    slot.appendChild(createLeaderTile(seat, { withWeapon: false }));
+    // ★26 2章: 自席のリーダーだけフェイス化する(効果テキストを盤面で読めるようにする)。
+    //   相手上段は 148px 制約のためテキストなしのまま(マスター裁定)
+    slot.appendChild(createLeaderTile(seat, { withWeapon: false, face: true }));
     const label = document.createElement('div');
     label.className = 'manual-pile-label';
     label.textContent = `席${seat.id}のリーダー`;
@@ -1419,7 +1421,9 @@ function createWeaponSlot(seat) {
     const face = document.createElement('div');
     face.className = 'manual-pile-face';
     if (card && !card.faceDown) {
-        face.appendChild(cardFace(card, 'mini'));
+        // ★Batch 26 3章: ウェポン枠もテキストを出す('full')。装備中のウェポンは
+        //   盤面に出しっぱなしになるカードであり、効果を読めない理由が無い
+        face.appendChild(cardFace(card, 'full'));
     } else if (card) {
         face.appendChild(cardBackFace());
     } else {
@@ -1505,11 +1509,43 @@ function createWeaponSlot(seat) {
 const PRIVATE_PILE_ZONES = new Set(['DECK', 'TABOO']);
 
 /**
+ * ★Batch 26 1章: パイル面をそのまま掴んで「一番上の1枚」を動かせるゾーン。
+ *
+ * 20a では山札だけがドラッグ可能で、墓地・消滅・確認は右クリックで帯を開くしか
+ * 動かす手段が無かった。画面上は同じ「カードが敷かれた面」に見えるため、
+ * 掴めるものと掴めないものが混在していること自体が説明できない。
+ *
+ * ★禁忌({@code TABOO})は対象外である。裏面が敷かれた非公開パイルであり、
+ * 「見えているカード」が存在しない(= どの1枚を掴んだのか人間が言えない)。
+ * 山札も非公開だが、こちらは「次に引く1枚」という一意な意味が既にある。
+ */
+const DRAGGABLE_PILE_ZONES = new Set(['DECK', 'TRASH', 'LOST', 'PRIVATE']);
+
+/**
+ * パイルの「一番上の1枚」。★取り方がゾーンによって逆である(20a 2-1)。
+ *
+ * 山札は index 0 が最上段({@code ManualGameService.drawCards} が
+ * {@code deck.remove(0)} で引くのに合わせている)。
+ * 公開パイル(墓地・消滅・確認)の最上段は<b>末尾</b>であり、
+ * {@link createCardPile} が面に敷いているカードもこちらである。
+ * 取り違えると「見えているカードと違う1枚が動く」という最悪の壊れ方をする。
+ */
+function pileTopCard(zoneName, pile) {
+    if (!pile || pile.length === 0) {
+        return null;
+    }
+    return zoneName === 'DECK' ? pile[0] : pile[pile.length - 1];
+}
+
+/**
  * カード型パイル(禁忌・山札・確認・消滅・墓地。20b 2-6)。
  *
  * ★見た目をカード画像にする。枚数と文字だけの箱では「現実のカードゲームに近い画面」
  * という本バッチの方針から外れるため、90×126のカード面に画像を敷き、枚数はその角に重ねる。
  * 非公開パイル(山札・禁忌)は裏面画像、公開パイル(確認・消滅・墓地)は一番上の表画像を使う。
+ *
+ * ★Batch 26 3章: 表向きの最上段は 'full' フェイス(名前+種別+テキスト+印刷値)で描く。
+ * バリアントは増やさず、入れ物側のCSS({@code .manual-pile-face})で文字を1段落とす。
  */
 function createCardPile(seatId, zoneName, pile, backImageId) {
     const box = document.createElement('div');
@@ -1520,15 +1556,16 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     const face = document.createElement('div');
     face.className = 'manual-pile-face';
     const hidden = PRIVATE_PILE_ZONES.has(zoneName);
-    // ★公開パイルの最上段は末尾。山札(index 0 が最上段)とは逆である(20a 2-1)。
-    //   ここは「見た目として何を敷くか」の話であり、山札は裏面なので取り違えは起きない。
-    const top = pile.length > 0 ? pile[pile.length - 1] : null;
+    // ★一番上の1枚。ゾーンによって先頭/末尾が逆である(pileTopCard の javadoc)。
+    //   面に敷くカードとドラッグで動くカードを<b>同じ式</b>から取ることで、
+    //   「見えているカードと違う1枚が動く」壊れ方を構造的に起こせなくする(26 1章)。
+    const top = pileTopCard(zoneName, pile);
     if (pile.length === 0) {
         face.classList.add('manual-pile-blank');
     } else if (hidden || (top && top.faceDown)) {
         face.appendChild(cardBackFace());
     } else {
-        face.appendChild(cardFace(top, 'mini'));
+        face.appendChild(cardFace(top, 'full'));
     }
 
     const count = document.createElement('div');
@@ -1543,6 +1580,33 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     box.appendChild(header);
 
     registerDropTarget(box, seatId, zoneName);
+
+    // ★Batch 26 1章: パイル面のドラッグ = 一番上の1枚。
+    //   20a では山札だけの機能だったが、墓地・消滅・確認へ一般化した。
+    //   ゾーンごとに違うのは「どのカードが一番上か」だけなので、分岐は pileTopCard に閉じる。
+    //
+    //   ★20a 2-1(A1/A2): 空のパイルはドラッグを開始しない。複数選択中でも常に1枚である
+    //   (「どの1枚か」を面の上で選べないため、選択集合を持ち込むと意図しないカードが動く)。
+    //
+    //   ★A4(実マウス検証での訂正、2回目): dragstart の e.target は「実際にドラッグ対象に
+    //   なった要素(= box 自身)」であり、実際に掴んだ場所の要素ではない
+    //   (ブラウザは mousedown 位置から祖先方向へ draggable=true を探して box に行き着くため、
+    //   e.target は最初から box になる。e.target.closest(...) では絶対に一致しない)。
+    //   実際に指が置かれた場所を見るには dragstart 時点の座標で document.elementFromPoint を使う。
+    if (DRAGGABLE_PILE_ZONES.has(zoneName) && pile.length > 0) {
+        const dragCard = pileTopCard(zoneName, pile);
+        box.draggable = true;
+        box.addEventListener('dragstart', (e) => {
+            const origin = document.elementFromPoint(e.clientX, e.clientY);
+            if (origin && origin.closest('.zone-drop-mini, button')) {
+                e.preventDefault();
+                return;
+            }
+            onDragStart(e, dragCard, seatId, zoneName);
+        });
+    } else {
+        box.draggable = false;
+    }
 
     if (zoneName === 'DECK') {
         // ★22 1-3: 山札は 左=1枚ドロー / 右=全面表示 のまま。新規約の唯一の例外である。
@@ -1572,30 +1636,7 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
         });
         box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示 / ドラッグ: 一番上の1枚を移動';
 
-        // ★20a 2-1: 山札の一番上の1枚をドラッグの起点にする(A1)。
-        //   最上段は zones.DECK の index 0(公開パイルの末尾とは逆。ManualGameService.drawCards
-        //   が deck.remove(0) で引くのに合わせている)。空のときはドラッグを開始しない(A2)。
-        //   複数選択中であっても常に1枚(非公開ゾーンのため「どの1枚か」を選べない)。
-        //
-        //   ★A4(実マウス検証での訂正、2回目): dragstart の e.target は「実際にドラッグ対象
-        //   になった要素(= box 自身)」であり、実際に掴んだ場所の要素ではない
-        //   (ブラウザは mousedown 位置から祖先方向へ draggable=true を探して box に
-        //   行き着くため、e.target は最初から box になる。e.target.closest(...) では
-        //   絶対に一致しない)。実際に指が置かれた場所を見るには、dragstart 時点の
-        //   座標で document.elementFromPoint を使う必要がある。
-        if (pile.length > 0) {
-            box.draggable = true;
-            box.addEventListener('dragstart', (e) => {
-                const origin = document.elementFromPoint(e.clientX, e.clientY);
-                if (origin && origin.closest('.zone-drop-mini, button')) {
-                    e.preventDefault();
-                    return;
-                }
-                onDragStart(e, pile[0], seatId, 'DECK');
-            });
-        } else {
-            box.draggable = false;
-        }
+        // ★ドラッグ(一番上の1枚)の登録は上の共通ブロックへ移した(26 1章)。
 
         // ★20b 2-6: シャッフルと「上へ/下へ」はパイル画像の直下に常時表示で添える。
         //   ホバー時のみ表示する案は、誤操作しやすく存在にも気づきにくいため退けた。
@@ -1632,7 +1673,9 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
             e.preventDefault();
             openZoneOrDeny(box, seatOf(latestView, seatId), zoneName);
         });
-        box.title = '左クリック: 一番上を拡大 / 右クリック: 一覧を開く';
+        box.title = DRAGGABLE_PILE_ZONES.has(zoneName)
+            ? '左クリック: 一番上を拡大 / 右クリック: 一覧を開く / ドラッグ: 一番上の1枚を移動'
+            : '左クリック: 一番上を拡大 / 右クリック: 一覧を開く';
     }
 
     return box;
@@ -1836,7 +1879,13 @@ function handCardMaxWidth(row) {
     if (!row || !row.isConnected) {
         return fallback;
     }
-    const top = row.getBoundingClientRect().top;
+    // ★★Batch 26 4章(不具合修正): 文書相対の top で測る。
+    //   getBoundingClientRect().top は<b>ビューポート相対</b>である。ページがスクロール
+    //   していると実位置より小さく測れ、「残り高さ」が過大になって手札が肥大する
+    //   (逆方向にも起きる)。再描画のたびにそのときのスクロール位置で幅が決まるため、
+    //   ビュー更新を伴う最頻の操作であるタップ/アンタップで「サイズが崩れる」と観測された。
+    //   盤面はビューポート内に収める設計なので、基準は「文書の先頭からの位置」が正しい。
+    const top = row.getBoundingClientRect().top + window.scrollY;
     if (!top || top <= 0) {
         return fallback;
     }
@@ -1917,6 +1966,27 @@ document.getElementById('log-box').addEventListener('click', () => {
 // ---------------------------------------------------------------
 
 /** 場・ウェポンのタイル(110×110、設計書 4-3) */
+/**
+ * タップ状態のバッジ(★Batch 26 4章)。
+ *
+ * <h3>なぜ回転をやめたか</h3>
+ * 20b からタップは {@code transform: rotate(90deg)} で表していた。
+ * 25c でタイルを縦長のフェイス(122×144 相当)にしたため、回転後の外接矩形は
+ * 144×122 になり<b>隣のタイルに視覚的に重なる</b>。transform はレイアウトに影響しないので
+ * 崩れはしないが、重なりと「テキストが横倒しで読めない」の2つが同時に起きる。
+ *
+ * 相手上段は 21c 4章の時点で既に減光({@code .manual-opp-tapped})で表しており、
+ * 減光+バッジへ揃えることで<b>盤面の上下で同じ記法</b>になる(マスター裁定 2026-08-06)。
+ * マナタイルは枚数が多く文字を足すと読めなくなるため、減光のみでバッジは持たない。
+ */
+function tappedBadge() {
+    const badge = document.createElement('div');
+    badge.className = 'manual-tapped-badge';
+    badge.textContent = 'タップ';
+    badge.setAttribute('aria-hidden', 'true');
+    return badge;
+}
+
 function createFieldTile(card, seatId, zone) {
     const tile = document.createElement('div');
     tile.className = 'manual-tile';
@@ -2022,6 +2092,7 @@ function createFieldTile(card, seatId, zone) {
 
     if (card.tapped) {
         tile.classList.add('manual-tile-tapped');
+        tile.appendChild(tappedBadge());
     }
     if (card.faceDown) {
         tile.classList.add('manual-tile-facedown');
@@ -2039,20 +2110,31 @@ function createFieldTile(card, seatId, zone) {
     return tile;
 }
 
+/**
+ * 数値1つの表示(現在値)。★Batch 26 5章で差分チップを廃止した。
+ *
+ * <h3>なぜ廃止したか</h3>
+ * 22 で入れた差分チップ({@code .manual-stat-chip})は、現在値の隣に {@code +2} / {@code -1}
+ * の小箱を並べる形だった。ATK と HP の<b>両方</b>が印刷値と違うとき、
+ * フェイスタイルの足(⚔n [+2] ✎ ♥m [-1])が幅を超えて表示が崩れる。
+ * 25c でタイルをフェイス化して足が固定高の帯になったため、崩れが目に見える形で出た。
+ *
+ * <h3>代わりに何を出すか</h3>
+ * 出すのは「現在値が印刷値と違う」という<b>事実だけ</b>である。数値を白+下線にし、
+ * {@code title} に印刷値を入れる。差分の値そのものは、幅を1文字も使わずに
+ * ホバー(title)と ✎ のモーダル(printed が出ている)から取れる。
+ * 増減の方向(バフ/デバフ)の色分けも行わない。足の幅に収まることを最優先とする。
+ *
+ * ★戻り値は常に単一の span である(22 までは差分ありのとき wrap を返していた)。
+ * 呼び出し側は変更していない。
+ */
 function statSpan(current, printed) {
     const span = document.createElement('span');
     span.textContent = current === null || current === undefined ? '-' : current;
     if (printed !== null && printed !== undefined && current !== null && current !== undefined
             && current !== printed) {
-        const chip = document.createElement('span');
-        chip.className = 'manual-stat-chip';
-        chip.style.color = current > printed ? '#27500A' : '#791F1F';
-        chip.style.borderColor = current > printed ? '#27500A' : '#791F1F';
-        chip.textContent = (current > printed ? '+' : '') + (current - printed);
-        const wrap = document.createElement('span');
-        wrap.appendChild(span);
-        wrap.appendChild(chip);
-        return wrap;
+        span.classList.add('manual-stat-changed');
+        span.title = `印刷値 ${printed}`;
     }
     return span;
 }
@@ -2074,11 +2156,20 @@ function statSpan(current, printed) {
  * 古いウェポンの後始末はサーバが行う
  * ({@code ManualOperationService.replaceEquippedWeapon})。
  *
+ * <h3>★Batch 26 2章: フェイス化するかどうかも<b>呼び出し側</b>が決める</h3>
+ * 場のミニオン(25c の {@code .manual-tile-face})と同じ3段構成
+ * (頭=♛+名前 / 胴=効果テキスト / 足=LPボタン)にすると、リーダーの起動能力が
+ * 盤面のまま読める。ただしこれは<b>自席のみ</b>である。相手上段は 148px の高さ制約が
+ * あり、テキストを積む縦が無い(マスター裁定 2026-08-06)。
+ * ここでも「自席かどうか」をこの関数に判定させない。{@code face} を引数で受ける。
+ *
  * @param options {withWeapon} true のときだけ WEAPON のドロップ先・アンカー・
  *                ミニタイルを持つ。省略時は false(= ウェポンは別枠にある)
+ * @param options {face} true のとき3段のフェイス構成にする(自席のみ。26 2章)
  */
 function createLeaderTile(seat, options) {
     const withWeapon = !!(options && options.withWeapon);
+    const face = !!(options && options.face);
     const tile = document.createElement('div');
     tile.className = 'leader-card manual-leader-tile';
     tile.dataset.seat = seat.id;
@@ -2111,15 +2202,47 @@ function createLeaderTile(seat, options) {
     const name = document.createElement('div');
     name.className = 'manual-tile-name';
     name.textContent = card.name || 'リーダー';
-    tile.appendChild(name);
 
     // ★22 4-3: LP は「押せば変えられる」ことが画面に書かれている形にする
     const lp = statButton('LP ' + seat.lp, () => openLpModal(seat.id, seat.lp));
     lp.classList.add('manual-tile-stats');
-    tile.appendChild(lp);
+
+    if (face) {
+        // ★26 2章: 場のミニオンと同じ3段構成。CSS も .mtf-* をそのまま共有する
+        //   (見た目の系統を1つに保つ。リーダー専用の記法を増やさない)。
+        //   頭のコスト六角形の位置には ♛ を置く。リーダーにコストは無い(裁定: 0固定)ため、
+        //   数字を出すと「0コストで出せるカード」に読めてしまう。
+        tile.classList.add('manual-tile-face', 'manual-leader-face');
+        const head = document.createElement('div');
+        head.className = 'mtf-head';
+        const crown = document.createElement('span');
+        crown.className = 'mtf-cost mtf-crown';
+        crown.textContent = '♛';
+        crown.setAttribute('aria-hidden', 'true');
+        head.appendChild(crown);
+        head.appendChild(name);
+        tile.appendChild(head);
+
+        const body = document.createElement('div');
+        body.className = 'mtf-body';
+        const text = document.createElement('div');
+        text.className = 'mtf-text';
+        text.textContent = cardFaceText(card);
+        body.appendChild(text);
+        tile.appendChild(body);
+
+        const foot = document.createElement('div');
+        foot.className = 'mtf-foot';
+        foot.appendChild(lp);
+        tile.appendChild(foot);
+    } else {
+        tile.appendChild(name);
+        tile.appendChild(lp);
+    }
 
     if (card.tapped) {
         tile.classList.add('manual-tile-tapped');
+        tile.appendChild(tappedBadge());
     }
     // ★22 1-2: 左=拡大 / 右=タップ。LPチップは 1-6 の「規約の外にある専用ボタン」であり、
     //   stopPropagation でここへは伝播しない
@@ -2151,7 +2274,7 @@ function createLeaderTile(seat, options) {
  * ときに中身は良くなったが、<b>入口の見た目は文字のまま</b>だった。
  * 鉛筆は装飾であり、当たり判定はチップ全体である(小さい的を作らない)。
  *
- * ★4-3: 修正値チップ({@code .manual-stat-chip})はここを通さない。
+ * ★4-3: 印刷値との差(現在は {@code .manual-stat-changed} の下線)はここを通さない。
  * あれは状態の表示であって操作ではなく、ボタン化すると
  * 「押せるもの」と「読むもの」が混ざる。
  */
