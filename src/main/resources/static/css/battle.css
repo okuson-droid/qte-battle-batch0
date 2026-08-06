@@ -281,6 +281,12 @@
 }
 .mana-tile.tapped { transform: rotate(90deg); }
 .mana-tile.face-down { background: #455a64; border-color: #78909c; }
+/* ★Batch 22 2-2: 裏向きマナは裏面のカード画像にする(相手上段と絵を揃える)。
+   .mana-tile / .mana-strip 系は 19b で手動モード用に新設したクラスであり、
+   通常モード(battle.js)は使っていないため定義を変更してよい。
+   ★名前の似た .mana-chip / .mana-row は通常モードとの共有クラスである(触らない)。 */
+.mana-tile.mana-tile-back { padding: 0; overflow: hidden; border-color: #78909c; }
+.mana-tile.mana-tile-back img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
 /* ★2-4: 拡大表示(裏向きは常に表面+バッジ) */
 .manual-facedown-badge {
@@ -463,3 +469,73 @@ body.manual-drag-active .manual-band {
 .manual-cue-label { fill: #ffca28; font-size: 11px; text-anchor: middle; stroke: none; }
 .manual-cue-from { outline: 2px dashed #ffca28; outline-offset: 1px; }
 .manual-cue-to { outline: 2px solid #ffca28; outline-offset: 1px; }
+
+/* =========================================================================
+   ★Batch 22: 手動モードUIの詰め(クリック規約・マナ表示の統一・ウェポン枠・数値ボタン)
+   すべて手動モード専用の新規クラスである。通常モードと共有している
+   .leader-card / .minion-row / .mana-chip / .mana-row の定義には触れていない。
+   ========================================================================= */
+
+/* ---- 数値編集のボタン化(設計書4章)----
+   ★「押せること」を画面に書く。20a 2-4 で prompt() をモーダル化したときに中身は
+   良くなったが、入口の見た目は文字のままだった。枠+薄い背景+ホバーで強調し、
+   末尾に鉛筆を添える。鉛筆は装飾で、当たり判定はチップ全体である(小さい的を作らない)。
+   ★常時 ± ボタンにはしない(4-2)。場のタイルは幅110pxしかなく、
+   − と + を押し込むと当たり判定が小さくなりすぎる。±はモーダル側にある。 */
+.manual-stat-button {
+    display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 4px;
+    background: rgba(0, 0, 0, 0.28); padding: 0 4px; line-height: 1.35;
+}
+.manual-stat-button:hover {
+    border-color: #ffca28; background: rgba(0, 0, 0, 0.5);
+}
+.manual-stat-pen { font-size: 9px; opacity: 0.75; }
+.manual-stat-button:hover .manual-stat-pen { opacity: 1; }
+/* ★リーダーのLPは 15px を維持する(20b の見た目を変えない)。枠のぶんだけ内側を詰める */
+.manual-leader-tile .manual-stat-button { padding: 0 3px; }
+
+/* ---- 自席マナ行の見出し(設計書2-8)----
+   ★MP はマナゾーン全体のアンタップ枚数(ManualSeat.availableMp)であり、
+   表向きストリップだけの値ではない。20c で「表」ラベルへ寄せたのは行見出しを
+   1行削るためだったが、置き場所としては正しくなかった。
+   ★足した1行ぶんは、ストリップのラベルとトラックの余白を詰めて相殺している。 */
+.manual-mana-head { line-height: 1.15; margin-bottom: 1px; font-size: 11px; }
+
+/* ---- ウェポン枠(設計書3章)----
+   ★#pile-grid の 2/1(リーダーの真下)。2行目は既に消滅・墓地が占めているため、
+   右列の高さも盤面全体の高さも変わらない。
+   ★列幅はリーダー枠と同じ108pxに揃える(同じ列に縦に並ぶため)。 */
+.manual-weapon-slot { width: 108px; position: relative; }
+.manual-weapon-slot-empty { border-style: dashed; color: #6c757d; }
+.manual-weapon-slot-badge { background: #dc3545; }
+.manual-weapon-slot-atk { font-size: 12px; font-weight: bold; margin-top: 2px; }
+.manual-weapon-slot-used {
+    font-size: 10px; cursor: pointer; margin-top: 2px; border-radius: 3px;
+    background: rgba(0, 0, 0, 0.5); color: #fff; padding: 0 4px;
+}
+.manual-weapon-slot-used.manual-tile-used-off {
+    background: rgba(255, 255, 255, 0.25); color: #212529;
+}
+
+/* ---- 相手のマナ・パイルの寸法(設計書2-3)----
+   ★40×56 → 48×66。表向きを文明色の簡略タイル+カード名にしたため、
+   40px幅ではカード名が読めない。自席(64×88)の 0.75 倍である。
+   ★高さ予算: ラベル12 + トラック(66 + padding 4 + border 2)= 84px であり、
+   行の高さを決めているリーダータイル(120px)を超えない。148px の制約は維持される。 */
+.manual-opp-mana-card,
+.manual-opp-face { width: 48px; height: 66px; }
+.manual-opp-mana-track { min-height: 68px; }
+/* 表向き=文明色の簡略タイル(自席の .mana-tile と同じ記法)。名前は3行までクランプする */
+.manual-opp-mana-face {
+    display: flex; align-items: flex-end; padding: 2px; box-sizing: border-box;
+    background: #26a69a; border-color: #80cbc4;
+}
+.manual-opp-mana-name {
+    font-size: 8px; line-height: 1.1; max-height: 3.3em; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+    word-break: break-all;
+}
+/* ★裏向きのタップぶん(2-7)。減光は .manual-opp-tapped が持つ(2-5 の相手側の記法)。
+   アンタップぶんと並ぶので、枠線でも区別が付くようにしておく */
+.manual-opp-mana-back-tapped { border-color: #6c757d; }

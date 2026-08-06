@@ -131,6 +131,25 @@ async function clearSent(page) {
   await page.evaluate(() => { window.__sent = []; });
 }
 
+/**
+ * ★Batch 22 1章: 拡大パネルの中身を読む。新しいクリック規約の主役は「拡大」であり、
+ * 「tap が送られない」だけでは<b>何も起きなかった</b>ときと区別が付かない。
+ * 何が拡大されたかまで確かめる。
+ */
+async function zoomedImage(page) {
+  return page.evaluate(() => {
+    const img = document.querySelector('#zoom-panel img');
+    return img ? new URL(img.src).pathname : null;
+  });
+}
+async function clearZoom(page) {
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    pinnedZoom = null;
+    document.getElementById('zoom-panel').innerHTML = '';
+  });
+}
+
 (async () => {
   const server = await startServer();
   const port = server.address().port;
@@ -201,35 +220,107 @@ async function clearSent(page) {
   check('0枚に戻るとセンターラインが畳まれる',
     (await page.locator('.manual-center-half[data-zone="PLAY"]').boundingBox()).height <= 32);
 
-  // ---- 6. リーダータイルへのドロップ = 装備 ----
+  // ---- 6. ウェポン枠へのドロップ = 装備(★Batch 22 3章で書き換え) ----
+  //   20c までは「リーダータイルへ落とす=装備」だった。自席ではウェポン枠だけが
+  //   ドロップ先になる(W2)。相手のリーダータイルへ落とす経路は残る(下の 6-3)
+  check('★未装備のウェポン枠が破線の空枠として出る(3-3)',
+    (await page.locator('#pile-grid .manual-weapon-slot').count()) === 1
+      && (await page.locator('#pile-grid .manual-weapon-slot .manual-weapon-slot-empty')
+        .count()) === 1);
   await clearSent(page);
-  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-leader-tile');
-  msgs = await sent(page);
+  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-weapon-slot');
+  msgs = boardMessages(await sent(page));
   const equip = msgs.find((m) => m.destination.endsWith('/move'));
-  check('リーダータイルへ落とすと WEAPON への move になる',
+  check('★ウェポン枠へ落とすと WEAPON への move になる(3-2)',
     !!equip && equip.body.toZone === 'WEAPON' && equip.body.toSeat === 'A',
     JSON.stringify(equip && equip.body));
-  check('リーダータイルへのドロップは1件だけ送られる',
-    msgs.filter((m) => m.destination.endsWith('/move')).length === 1);
+  check('ウェポン枠へのドロップは1件だけ送られる',
+    msgs.filter((m) => m.destination.endsWith('/move')).length === 1, JSON.stringify(msgs));
 
-  // ---- 7. 装備済みでもドロップを受け付ける(旧・拒否規約の撤回) ----
+  // ---- 6-2. ★自席のリーダータイルは WEAPON を受けない(W2) ----
+  await clearSent(page);
+  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-leader-tile');
+  msgs = boardMessages(await sent(page));
+  check('★自席のリーダータイルへ落としても WEAPON の move は送られない(W2)',
+    !msgs.some((m) => m.destination.endsWith('/move') && m.body.toZone === 'WEAPON'),
+    JSON.stringify(msgs));
+
+  // ---- 6-3. ★相手のリーダータイルは合体タイルのまま受ける(W3) ----
+  await clearSent(page);
+  await realDrag(page, '.hand-row .manual-hand-card', '#seat-opponent-top .manual-leader-tile');
+  msgs = boardMessages(await sent(page));
+  const oppEquip = msgs.find((m) => m.destination.endsWith('/move'));
+  check('★相手のリーダータイルへ落とすと相手席の WEAPON への move になる(W3)',
+    !!oppEquip && oppEquip.body.toZone === 'WEAPON' && oppEquip.body.toSeat === 'B',
+    JSON.stringify(oppEquip && oppEquip.body));
+
+  // ---- 7. 装備中の見え方(★Batch 22 3-3 で書き換え) ----
   const view3 = baseView();
   view3.seatA.zones.WEAPON = [card('w1', '装備中の武器', { type: 'WEAPON', hp: null, printedHp: null })];
+  view3.seatB.zones.WEAPON = [card('w2', '相手の武器', { type: 'WEAPON', hp: null, printedHp: null })];
+  syncCounts(view3.seatA);
+  syncCounts(view3.seatB);
   await render(page, view3);
-  check('装備中はリーダータイル右下にミニタイルが出る',
-    (await page.locator('#pile-grid .manual-weapon-mini').count()) === 1);
+  check('★自席のリーダータイルにミニタイルは出ない(3-4)',
+    (await page.locator('#pile-grid .manual-weapon-mini').count()) === 0);
+  check('★相手の合体タイルにはミニタイルが出る(W3・現状維持)',
+    (await page.locator('#seat-opponent-top .manual-weapon-mini').count()) === 1);
+  check('★装備中のウェポン枠に画像・ATKチップ・使用済トグルがその場に出る(3-3)',
+    (await page.locator('#pile-grid .manual-weapon-slot .manual-pile-face img').count()) === 1
+      && (await page.locator('#pile-grid .manual-weapon-slot .manual-stat-button').count()) === 1
+      && (await page.locator('#pile-grid .manual-weapon-slot .manual-weapon-slot-used')
+        .count()) === 1);
   await clearSent(page);
-  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-leader-tile',
+  await page.locator('#pile-grid .manual-weapon-slot .manual-weapon-slot-used').click();
+  msgs = boardMessages(await sent(page));
+  check('ウェポン枠の使用済トグルをその場で押せる(3-3)',
+    msgs.some((m) => m.destination.endsWith('/used')), JSON.stringify(msgs));
+  await clearSent(page);
+  await realDrag(page, '.hand-row .manual-hand-card', '#pile-grid .manual-weapon-slot',
     { tx: 20, ty: 20 });
-  msgs = await sent(page);
-  check('装備済みでもドロップが受け付けられる',
+  msgs = boardMessages(await sent(page));
+  check('装備済みでもウェポン枠がドロップを受け付ける',
     msgs.some((m) => m.destination.endsWith('/move') && m.body.toZone === 'WEAPON'),
     JSON.stringify(msgs));
 
-  // ---- 8. ウェポンのミニタイル: ダブルクリックで操作モーダル ----
-  await page.locator('#pile-grid .manual-weapon-mini').dblclick();
+  // ★3-3: 装備中のカードはウェポン枠から掴んで外へ出せる
+  await render(page, view3);
+  await clearSent(page);
+  await realDrag(page, '#pile-grid .manual-weapon-slot .manual-pile-face',
+    '#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
+  msgs = boardMessages(await sent(page));
+  const unequip = msgs.find((m) => m.destination.endsWith('/move'));
+  check('★ウェポン枠が装備中カードのドラッグ起点になる(3-3)',
+    !!unequip && unequip.body.cardIds[0] === 'w1' && unequip.body.toZone === 'TRASH',
+    JSON.stringify(unequip && unequip.body));
+
+  // ★3-5: 自席の WEAPON のアンカーがウェポン枠へ移っていること。
+  //   移し忘れると矢印のウェポン宛の端点が相手上段の合体タイルを指したままになる(21c 7-1)
+  await render(page, view3);
+  const weaponAnchors = await page.evaluate(() => {
+    /* eslint-disable no-undef */
+    const name = (el) => (el ? el.className : null);
+    return {
+      self: name(anchorElement({ seatId: 'A', zone: 'WEAPON' })),
+      opp: name(anchorElement({ seatId: 'B', zone: 'WEAPON' })),
+      leader: name(anchorElement({ seatId: 'A', zone: null })),
+    };
+    /* eslint-enable no-undef */
+  });
+  check('★自席の WEAPON のアンカーがウェポン枠になる(3-5)',
+    !!weaponAnchors.self && weaponAnchors.self.includes('manual-weapon-slot'),
+    JSON.stringify(weaponAnchors));
+  check('★相手の WEAPON のアンカーは合体タイルのままである(3-5)',
+    !!weaponAnchors.opp && weaponAnchors.opp.includes('manual-leader-tile'),
+    JSON.stringify(weaponAnchors));
+  check('★自席のリーダー(zone null)のアンカーは残っている(3-5)',
+    !!weaponAnchors.leader && weaponAnchors.leader.includes('manual-leader-tile'),
+    JSON.stringify(weaponAnchors));
+
+  // ---- 8. ウェポン枠の右クリックで操作モーダル(★22 1-2 で入替) ----
+  await page.locator('#pile-grid .manual-weapon-slot .manual-pile-face').click({ button: 'right' });
   await page.waitForTimeout(60);
-  check('ミニタイルのダブルクリックでウェポン操作モーダルが開く',
+  check('★ウェポン枠の右クリックでウェポン操作モーダルが開く(1-2)',
     !(await page.locator('#weapon-modal').getAttribute('class')).includes('d-none'));
   await clearSent(page);
   await page.locator('#weapon-modal-actions button').first().click();
@@ -238,13 +329,20 @@ async function clearSent(page) {
     msgs.some((m) => m.destination.endsWith('/used')), JSON.stringify(msgs));
   await page.locator('#weapon-modal-close').click();
   await page.waitForTimeout(60);
+  await clearZoom(page);
+  await page.locator('#pile-grid .manual-weapon-slot .manual-pile-face').click();
+  await page.waitForTimeout(60);
+  check('★ウェポン枠の左クリックは拡大である(1-2)',
+    (await zoomedImage(page)) === '/cards/img-w1.png', await zoomedImage(page));
 
   // ---- 9. 右列パイル: 山札ドラッグ(20a の回帰確認) ----
   await render(page, baseView());
-  // ★20c: 自分のリーダー枠(.manual-leader-slot)も .manual-pile を共有するため6になる
-  check('右列に5つのパイル+リーダー枠がある',
-    (await page.locator('#pile-grid .manual-pile').count()) === 6
-      && (await page.locator('#pile-grid .manual-leader-slot').count()) === 1);
+  // ★22 3章: ウェポン枠が増えたので 6 → 7 になる
+  //   (5つのパイル + リーダー枠 + ウェポン枠。いずれも .manual-pile を共有する)
+  check('右列に5つのパイル+リーダー枠+ウェポン枠がある(3章)',
+    (await page.locator('#pile-grid .manual-pile').count()) === 7
+      && (await page.locator('#pile-grid .manual-leader-slot').count()) === 1
+      && (await page.locator('#pile-grid .manual-weapon-slot').count()) === 1);
 
   // ---- 9-2. パイルの配置(★20d) ----
   //   [リーダー][禁忌][山札][確認] / 禁忌の下に消滅、山札の下に墓地
@@ -411,7 +509,7 @@ async function clearSent(page) {
   });
   check('手札の下端が画面内(950px)に収まる', handBottom <= 950, `bottom=${handBottom}`);
 
-  // ---- 16. LPモーダル(20a回帰) ----
+  // ---- 16. LPモーダル(20a回帰。★22 4章でボタン化しても左クリックのままである) ----
   await clearSent(page);
   await page.locator('#pile-grid .manual-leader-tile .manual-tile-stats').click();
   await page.waitForTimeout(60);
@@ -424,6 +522,324 @@ async function clearSent(page) {
       && !(await page.locator('#lp-modal').getAttribute('class')).includes('d-none'),
     JSON.stringify(msgs));
   await page.locator('#lp-modal-close').click();
+
+  // =====================================================================
+  // ★Batch 22: クリック規約の入れ替え・マナ表示の統一・数値のボタン化
+  // =====================================================================
+
+  await render(page, baseView());
+
+  // ---- 22-1. クリック規約(設計書1章)----
+  //   ★「tap が送られない」だけでは「何も起きなかった」と区別が付かない。
+  //     拡大パネルに何が出たかまで確かめる
+  await clearSent(page);
+  await clearZoom(page);
+  // ★タイルの中央は数値チップである(1-6 の専用ボタン)。カード本体を押すために名前を狙う
+  const minionBody = '#seat-self-minions .manual-tile .manual-tile-name';
+  await page.locator(minionBody).first().click();
+  await page.waitForTimeout(60);
+  msgs = boardMessages(await sent(page));
+  check('★場のカードの左クリックで拡大され、tap が送られない(1-1)',
+    (await zoomedImage(page)) === '/cards/img-f1.png'
+      && !msgs.some((m) => m.destination.endsWith('/tap')),
+    `zoom=${await zoomedImage(page)} msgs=${JSON.stringify(msgs)}`);
+
+  await clearSent(page);
+  await page.locator(minionBody).first().click({ button: 'right' });
+  await page.waitForTimeout(60);
+  msgs = boardMessages(await sent(page));
+  check('★場のカードの右クリックで tap が送られる(1-1)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/tap')
+      && msgs[0].body.cardIds[0] === 'f1',
+    JSON.stringify(msgs));
+
+  await clearSent(page);
+  await page.locator(minionBody).first().click({ modifiers: ['Shift'] });
+  msgs = boardMessages(await sent(page));
+  check('Shift+左クリックは表裏のままである(1-4)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/flip'), JSON.stringify(msgs));
+
+  await clearSent(page);
+  await page.locator(minionBody).first().click({ modifiers: ['Control'] });
+  await page.waitForTimeout(60);
+  msgs = boardMessages(await sent(page));
+  check('Ctrl+左クリックは複数選択のままである(1-4)',
+    msgs.length === 0
+      && (await page.locator('#seat-self-minions .manual-tile-selected').count()) === 1,
+    JSON.stringify(msgs));
+  await page.locator(minionBody).first().click({ modifiers: ['Control'] }); // 選択を戻す
+  await page.waitForTimeout(60);
+
+  // マナタイルも同じ規約に従う
+  const manaView = baseView();
+  manaView.seatA.zones.MANA = [
+    card('m1', '表マナ1'), card('m2', '表マナ2', { tapped: true }),
+    card('m3', '裏マナ1', { faceDown: true }),
+  ];
+  manaView.seatA.mp = 2;
+  syncCounts(manaView.seatA);
+  await render(page, manaView);
+  await clearSent(page);
+  await clearZoom(page);
+  await page.locator('.mana-strip-up .mana-tile').first().click();
+  await page.waitForTimeout(60);
+  msgs = boardMessages(await sent(page));
+  check('★マナの左クリックは拡大で tap を送らない(1-2)',
+    (await zoomedImage(page)) === '/cards/img-m1.png'
+      && !msgs.some((m) => m.destination.endsWith('/tap')),
+    `zoom=${await zoomedImage(page)} msgs=${JSON.stringify(msgs)}`);
+  await clearSent(page);
+  await page.locator('.mana-strip-up .mana-tile').first().click({ button: 'right' });
+  msgs = boardMessages(await sent(page));
+  check('★マナの右クリックで tap が送られる(1-2)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/tap'), JSON.stringify(msgs));
+
+  // ★1-5「押しても何も起きない」を作らない: 手札の右クリックは拡大を返す
+  await clearSent(page);
+  await clearZoom(page);
+  await page.locator('.hand-row .manual-hand-card').first().click({ button: 'right' });
+  await page.waitForTimeout(60);
+  msgs = boardMessages(await sent(page));
+  check('★手札の右クリックは無反応にせず拡大を返す(1-5)',
+    (await zoomedImage(page)) === '/cards/img-h1.png' && msgs.length === 0,
+    `zoom=${await zoomedImage(page)} msgs=${JSON.stringify(msgs)}`);
+
+  // ★1-3 山札だけが例外: 左=1枚ドロー
+  await clearSent(page);
+  await page.locator('#pile-grid .manual-pile[data-zone="DECK"] .manual-pile-face').click();
+  msgs = boardMessages(await sent(page));
+  check('★山札の左クリックは規約の例外で draw を送る(1-3)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/draw')
+      && msgs[0].body.count === 1, JSON.stringify(msgs));
+
+  // ★右列パイル: 左=最上段を拡大 / 右=帯
+  await clearSent(page);
+  await clearZoom(page);
+  await page.locator('#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face').click();
+  await page.waitForTimeout(60);
+  check('★右列パイルの左クリックは一番上のカードを拡大する(1-2)',
+    (await zoomedImage(page)) === '/cards/img-t1.png'
+      && (await page.locator('#manual-overlay-root .manual-band').count()) === 0,
+    `zoom=${await zoomedImage(page)}`);
+  await page.locator('#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face')
+    .click({ button: 'right' });
+  await page.waitForTimeout(60);
+  check('★右列パイルの右クリックで帯(一覧)が開く(1-2)',
+    (await page.locator('#manual-overlay-root .manual-band-card').count()) === 1);
+  await page.evaluate(() => closeOverlay());
+
+  // ★相手の墓地(マスター要望の本体。G5)
+  await clearZoom(page);
+  await page.locator('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]').click();
+  await page.waitForTimeout(60);
+  check('相手の墓地は0枚なら左クリックで拡大せず「空」と返す',
+    (await zoomedImage(page)) === null);
+  const oppTrashView = baseView();
+  oppTrashView.seatB.zones.TRASH = [card('bt1', 'B墓地1'), card('bt2', 'B墓地2')];
+  syncCounts(oppTrashView.seatB);
+  await render(page, oppTrashView);
+  await clearZoom(page);
+  await page.locator('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]').click();
+  await page.waitForTimeout(60);
+  check('★相手の墓地の左クリックで一番上のカードが拡大される(G5)',
+    (await zoomedImage(page)) === '/cards/img-bt2.png', await zoomedImage(page));
+  await page.locator('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]')
+    .click({ button: 'right' });
+  await page.waitForTimeout(60);
+  check('★相手の墓地の右クリックで帯が開く(G5)',
+    (await page.locator('#manual-overlay-root .manual-band-card').count()) === 2);
+  await page.evaluate(() => closeOverlay());
+
+  // ★対戦部屋の非公開チップは左右どちらでも「非公開」(21c 3-5 の回帰)
+  await render(page, versusView('A'));
+  await clearZoom(page);
+  await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]').click();
+  await page.waitForTimeout(60);
+  check('★非公開チップの左クリックは拡大せずトーストを返す(7-3・21c 3-5)',
+    (await zoomedImage(page)) === null
+      && (await page.locator('#manual-toast:not(.d-none)').count()) === 1
+      && (await page.locator('#manual-overlay-root .manual-band').count()) === 0);
+  await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]')
+    .click({ button: 'right' });
+  await page.waitForTimeout(60);
+  check('★非公開チップの右クリックでも帯を開かずトーストを返す(21c 3-5)',
+    (await page.locator('#manual-toast:not(.d-none)').count()) === 1
+      && (await page.locator('#manual-overlay-root .manual-band').count()) === 0);
+
+  // ---- 22-2. マナ表示の統一(設計書2章)----
+  await render(page, manaView);
+  check('★自席の裏向きマナが裏面カード画像になる(2-2)',
+    (await page.locator('.mana-strip-down .mana-tile.mana-tile-back img').count()) === 1
+      && (await page.evaluate(() => {
+        const img = document.querySelector('.mana-strip-down .mana-tile-back img');
+        return img ? new URL(img.src).pathname : null;
+      })) === '/cards/back.png');
+  check('自席の表向きマナは文明色タイル+カード名のままである(2-2)',
+    (await page.locator('.mana-strip-up .mana-tile .mana-tile-name').first().textContent())
+      === '表マナ1'
+      && (await page.locator('.mana-strip-up .mana-tile.mana-tile-back').count()) === 0);
+  await clearZoom(page);
+  await page.locator('.mana-strip-down .mana-tile').first().click();
+  await page.waitForTimeout(60);
+  check('★裏向きマナも左クリック1回で中身(表面画像)を確認できる(2-4)',
+    (await zoomedImage(page)) === '/cards/img-m3.png', await zoomedImage(page));
+
+  // ★自席のマナ行見出し(2-8)
+  check('★自席のマナ行見出しに 合計・表・裏・MP が出る(2-8)',
+    (await page.locator('#mana-row-head').textContent()) === 'マナ 3枚(表 2 / 裏 1) MP 2',
+    await page.locator('#mana-row-head').textContent());
+  const stripLabels = await page.locator('.mana-strip-label').allTextContents();
+  check('ストリップのラベルは1行の「表 n枚」「裏 n枚」である(2-8)',
+    stripLabels.length === 2 && stripLabels[0] === '表 2枚' && stripLabels[1] === '裏 1枚',
+    JSON.stringify(stripLabels));
+
+  // ★公開のみ視点の観戦者は「自席側」の裏向きマナのカードが届かない。
+  //   それでも合計と裏の枚数は counts / manaFaceDownCount から出る(2-8)
+  const specMana = versusView(null);
+  specMana.seatA.zones.MANA = [card('sm1', '見える表マナ')];
+  specMana.seatA.counts.MANA = 4;
+  specMana.seatA.manaFaceDownCount = 3;
+  specMana.seatA.mp = 2;
+  await render(page, specMana);
+  check('★公開のみ観戦でも合計と裏の枚数が counts から出る(2-8・21b 1-4)',
+    (await page.locator('#mana-row-head').textContent()) === 'マナ 4枚(表 1 / 裏 3) MP 2',
+    await page.locator('#mana-row-head').textContent());
+
+  // ---- 22-3. 相手のマナ(2-2・2-3・2-7)----
+  const oppManaView = baseView();
+  oppManaView.seatB.zones.MANA = [
+    card('bm1', 'B表マナ1'),
+    card('bm2', 'B表マナ2', { tapped: true }),   // ★表向きにタップ済みを混ぜる(7-3)
+    card('bm3', 'B裏マナ1', { faceDown: true }),
+    card('bm4', 'B裏マナ2', { faceDown: true }),
+    card('bm5', 'B裏マナ3', { faceDown: true }),
+  ];
+  syncCounts(oppManaView.seatB);
+  // 表向きアンタップ1 + 裏アンタップ2 = MP 3 → 裏タップは 3 - 2 = 1
+  oppManaView.seatB.mp = 3;
+  await render(page, oppManaView);
+  check('★相手の表向きマナが文明色タイル+カード名になる(2-2)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-face').count()) === 2
+      && (await page.locator('#seat-opponent-top .manual-opp-mana-name').first().textContent())
+        === 'B表マナ1'
+      && (await page.locator('#seat-opponent-top .manual-opp-mana-face img').count()) === 0);
+  const oppManaTile = await boxOf('#seat-opponent-top .manual-opp-mana-face');
+  check('★相手のマナタイルが 48×66 になる(2-3)',
+    Math.abs(oppManaTile.width - 48) < 1.5 && Math.abs(oppManaTile.height - 66) < 1.5,
+    `${oppManaTile.width}×${oppManaTile.height}`);
+  const oppTrashFace = await boxOf('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"] .manual-opp-face');
+  check('★相手の墓地・消滅の面も 48×66 に揃う(2-3)',
+    Math.abs(oppTrashFace.width - 48) < 1.5 && Math.abs(oppTrashFace.height - 66) < 1.5,
+    `${oppTrashFace.width}×${oppTrashFace.height}`);
+
+  const backCounts = await page.locator('#seat-opponent-top .manual-opp-mana-back .manual-opp-count')
+    .allTextContents();
+  check('★相手の裏マナがアンタップ枠とタップ枠の2つに分かれる(2-7)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-back').count()) === 2,
+    JSON.stringify(backCounts));
+  check('★裏マナの内訳が mp からの引き算で正しく出る(2-7)',
+    backCounts.length === 2 && backCounts[0] === '2' && backCounts[1] === '1',
+    JSON.stringify(backCounts));
+  check('★タップぶんの枠だけが減光される(2-7・2-5)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-back.manual-opp-tapped')
+      .count()) === 1
+      && (await page.locator(
+        '#seat-opponent-top .manual-opp-mana-back[data-tapped="false"].manual-opp-tapped')
+        .count()) === 0);
+
+  // ★0枚の枠は出さない
+  const allUntapped = baseView();
+  allUntapped.seatB.zones.MANA = [card('bu1', 'B裏マナ', { faceDown: true })];
+  syncCounts(allUntapped.seatB);
+  allUntapped.seatB.mp = 1;
+  await render(page, allUntapped);
+  check('★裏マナが全部アンタップなら枠は1つだけ(0枚の枠を出さない。2-7)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-back').count()) === 1
+      && (await page.locator('#seat-opponent-top .manual-opp-mana-back[data-tapped="true"]')
+        .count()) === 0);
+  allUntapped.seatB.mp = 0;
+  await render(page, allUntapped);
+  check('★裏マナが全部タップなら枠は1つだけ(2-7)',
+    (await page.locator('#seat-opponent-top .manual-opp-mana-back').count()) === 1
+      && (await page.locator('#seat-opponent-top .manual-opp-mana-back[data-tapped="true"]')
+        .count()) === 1);
+
+  // ★引き算が負・超過になるズレは丸める(2-7 の防御的な扱い)
+  const skewed = baseView();
+  skewed.seatB.zones.MANA = [
+    card('bs1', 'B裏1', { faceDown: true }), card('bs2', 'B裏2', { faceDown: true }),
+  ];
+  syncCounts(skewed.seatB);
+  skewed.seatB.mp = 99; // サーバとのズレを模す
+  await render(page, skewed);
+  const skewCounts = await page.locator('#seat-opponent-top .manual-opp-mana-back .manual-opp-count')
+    .allTextContents();
+  check('★内訳が総枚数を超えないよう丸める(2-7)',
+    skewCounts.length === 1 && skewCounts[0] === '2', JSON.stringify(skewCounts));
+
+  // ★相手上段の高さ制約(2-3)。マナを広げたぶん高さ予算が縮んでいる
+  await render(page, oppManaView);
+  const oppTopAfter = await boxOf('#seat-opponent-top');
+  check('★マナを 48×66 へ広げても相手上段は148px内に収まる(2-3)',
+    oppTopAfter.height <= 148, `h=${oppTopAfter.height}`);
+  await render(page, versusView('A'));
+  const oppTopVersus = await boxOf('#seat-opponent-top');
+  check('★対戦部屋でも相手上段が148px内に収まる(2-3)',
+    oppTopVersus.height <= 148, `h=${oppTopVersus.height}`);
+
+  // ---- 22-4. 数値のボタン化(設計書4章)----
+  const statView = baseView();
+  statView.seatA.zones.WEAPON = [
+    card('w9', 'ウェポン', { type: 'WEAPON', hp: null, printedHp: null, attack: 4 }),
+  ];
+  syncCounts(statView.seatA);
+  await render(page, statView);
+  const statButtons = await page.evaluate(() => {
+    const pick = (sel) => {
+      const el = document.querySelector(sel);
+      return el ? { title: el.title, pen: !!el.querySelector('.manual-stat-pen') } : null;
+    };
+    return {
+      lp: pick('#pile-grid .manual-leader-tile .manual-stat-button'),
+      minion: pick('#seat-self-minions .manual-tile .manual-stat-button'),
+      weapon: pick('#pile-grid .manual-weapon-slot .manual-stat-button'),
+    };
+  });
+  check('★LP・ATK/HP・ウェポンATK が .manual-stat-button になり鉛筆と title を持つ(4-2)',
+    ['lp', 'minion', 'weapon'].every((k) => statButtons[k]
+      && statButtons[k].pen && statButtons[k].title === 'クリックで編集'),
+    JSON.stringify(statButtons));
+  await page.locator('#seat-self-minions .manual-tile .manual-stat-button').first().click();
+  await page.waitForTimeout(60);
+  check('数値チップを押すと数値モーダルが開く(4-2)',
+    !(await page.locator('#stat-modal').getAttribute('class')).includes('d-none'));
+  await clearSent(page);
+  const deltaButtons = page.locator('#stat-modal-fields .manual-stat-delta button');
+  check('★数値モーダルの ATK / HP に -1 / +1 がある(4-4)',
+    (await deltaButtons.count()) === 4, `n=${await deltaButtons.count()}`);
+  await deltaButtons.nth(1).click(); // ATK の +1
+  msgs = boardMessages(await sent(page));
+  check('★数値モーダルの +1 で stat が送られ、モーダルは閉じない(4-4)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/stat') && msgs[0].body.attack === 3
+      && !(await page.locator('#stat-modal').getAttribute('class')).includes('d-none'),
+    JSON.stringify(msgs));
+  await page.locator('#stat-modal-close').click();
+  await page.waitForTimeout(60);
+  check('修正値チップ(.manual-stat-chip)はボタン化していない(4-3)',
+    (await page.locator('.manual-stat-chip.manual-stat-button').count()) === 0);
+
+  // ---- 22-5. 縦の収まり(★見出し1行とウェポン枠を足したあと)----
+  await render(page, statView);
+  const rootAfter = await page.locator('#manual-root').boundingBox();
+  check('★見出しとウェポン枠を足しても盤面全体が900px級に収まる(2-8・3-2)',
+    rootAfter.height <= 900, `h=${rootAfter.height}`);
+  const bWeaponSlot = await boxOf('#pile-grid .manual-weapon-slot');
+  const bLeaderSlot = await boxOf('#pile-grid .manual-leader-slot');
+  const bLostAfter = await boxOf('#pile-grid .manual-pile[data-zone="LOST"]');
+  check('★ウェポン枠がリーダーの真下(2/1)にあり、消滅と同じ行である(3-2)',
+    Math.abs(bWeaponSlot.x - bLeaderSlot.x) < 2 && bWeaponSlot.y > bLeaderSlot.y
+      && Math.abs(bWeaponSlot.y - bLostAfter.y) < 4,
+    `weapon=(${bWeaponSlot.x},${bWeaponSlot.y}) leader.x=${bLeaderSlot.x} lost.y=${bLostAfter.y}`);
 
   // =====================================================================
   // ★Batch 21b: 入口の画面(ロビー・席選択・在室者リスト・自席=下)
@@ -652,7 +1068,9 @@ async function clearSent(page) {
   versusTrash.seatB.zones.TRASH = [card('bt1', 'B墓地1')];
   syncCounts(versusTrash.seatB);
   await render(page, versusTrash);
-  await page.locator('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]').click();
+  // ★22 1-2: 帯を開くのは右クリックになった(左は最上段の拡大)
+  await page.locator('#seat-opponent-top .manual-opp-pile[data-zone="TRASH"]')
+    .click({ button: 'right' });
   await page.waitForTimeout(60);
   check('相手の公開ゾーン(墓地)は対戦部屋でも帯が開く(B4)',
     (await page.locator('#manual-overlay-root .manual-band').count()) === 1);
@@ -660,7 +1078,8 @@ async function clearSent(page) {
 
   // 全公開部屋では手札チップからも帯が開く(4章)
   await render(page, baseView());
-  await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]').click();
+  await page.locator('#seat-opponent-top .zone-pile-mini[data-zone="HAND"]')
+    .click({ button: 'right' });
   await page.waitForTimeout(60);
   check('全公開部屋では手札チップからも帯が開く(4章)',
     (await page.locator('#manual-overlay-root .manual-band').count()) === 1);

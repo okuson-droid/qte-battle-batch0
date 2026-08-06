@@ -1,5 +1,5 @@
 const http=require('http'),fs=require('fs'),path=require('path');
-const {chromium}=require('playwright');const {baseView,card}=require('./fixture');
+const {chromium}=require('playwright');const {baseView,card,syncCounts}=require('./fixture');
 const RES=path.join(path.resolve(__dirname,'..'),'src/main/resources');
 const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
 const server=http.createServer((req,res)=>{const u=req.url.split('?')[0];
@@ -21,6 +21,14 @@ server.listen(0,async()=>{
  v.seatA.zones.PRIVATE=[card('pv1','確認中')];
  v.seatA.zones.LOST=[card('l1','消滅1')];
  v.seatB.zones.FIELD=[card('bf1','相手の場')];
+ // ★Batch 22: 相手のマナ(表向きにタップ済みを混ぜ、裏はアンタップ2 / タップ1 に割れる)
+ v.seatB.zones.MANA=[card('bm1','相手マナ1'),card('bm2','相手マナ2',{tapped:true}),
+   card('bm3','裏1',{faceDown:true}),card('bm4','裏2',{faceDown:true}),
+   card('bm5','裏3',{faceDown:true})];
+ v.seatB.zones.TRASH=[card('bt1','相手墓地')];
+ v.seatB.zones.WEAPON=[card('bw1','相手の武器',{type:'WEAPON',hp:null,printedHp:null})];
+ syncCounts(v.seatA); syncCounts(v.seatB);
+ v.seatA.mp=2; v.seatB.mp=3;
  await p.evaluate((view)=>{window.latestView=view;renderAll(view);},v);
  await p.waitForTimeout(300);
  await p.screenshot({path:process.env.OUT||'verify/layout.png',fullPage:false});

@@ -783,8 +783,10 @@ function renderOpponentTop(view) {
     }
     el.appendChild(chips);
 
-    // 右端: リーダー+ウェポン合体タイル(現状維持)
-    el.appendChild(createLeaderTile(seat));
+    // 右端: リーダー+ウェポン合体タイル。
+    // ★22 3-4: 相手側は合体タイルのまま(148px の高さ制約があり枠を増やせない)。
+    //   自席かどうかを createLeaderTile に判定させず、呼び出し側がフラグを渡す
+    el.appendChild(createLeaderTile(seat, { withWeapon: true }));
     cardLocation.set(seat.leader ? seat.leader.instanceId : null,
         { seatId, zone: 'LEADER' });
 
@@ -811,7 +813,13 @@ function createOpponentChip(seat, zoneName) {
     chip.dataset.zone = zoneName;
     chip.title = ZONE_LABELS[zoneName];
     chip.textContent = `${ZONE_LABELS[zoneName][0]}${zoneCount(seat, zoneName)}`;
-    chip.addEventListener('click', () => openZoneOrDeny(chip, seat, zoneName));
+    // ★22 1-2: 左=先頭のカードを拡大 / 右=帯(一覧)を開く。
+    //   非公開のときは左右どちらでも 21c 3-5 の明滅+トーストが返る
+    chip.addEventListener('click', () => zoomTopOrDeny(chip, seat, zoneName, true));
+    chip.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        openZoneOrDeny(chip, seat, zoneName);
+    });
     registerDropTarget(chip, seat.id, zoneName);
     registerZoneAnchor(chip, seat.id, zoneName);
     return chip;
@@ -856,7 +864,12 @@ function createOpponentPile(seat, zoneName) {
     label.textContent = ZONE_LABELS[zoneName];
     box.appendChild(label);
 
-    box.addEventListener('click', () => openZoneOrDeny(box, seat, zoneName));
+    // ★22 1-2(マスター要望の本体): 左=一番上のカードを拡大 / 右=帯を開く
+    box.addEventListener('click', () => zoomTopOrDeny(box, seat, zoneName, false));
+    box.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        openZoneOrDeny(box, seat, zoneName);
+    });
     registerDropTarget(box, seat.id, zoneName);
     registerZoneAnchor(box, seat.id, zoneName);
     return box;
@@ -882,6 +895,7 @@ function createOpponentMana(view, seat) {
     const faceDownCount = seat.manaFaceDownCount === undefined
         ? manaCards.filter((c) => c.faceDown).length
         : seat.manaFaceDownCount;
+    const split = faceDownManaSplit(seat, faceUpCards, faceDownCount);
 
     const label = document.createElement('div');
     label.className = 'manual-opp-label manual-opp-mana-label';
@@ -894,8 +908,14 @@ function createOpponentMana(view, seat) {
         track.appendChild(createOpponentManaCard(card, seat.id));
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
     }
-    if (faceDownCount > 0) {
-        track.appendChild(createOpponentManaBack(faceDownCount, view.backImageId));
+    // ★22 2-7: 裏向きは「アンタップぶん」「タップぶん」の2枠に分ける。
+    //   並び順は 表向き… → 裏アンタップ → 裏タップ。0枚の枠は出さない
+    //   (0 の枠が並ぶと読みにくく、「何も無い」ことは枠が無いことで既に伝わる)
+    if (split.untapped > 0) {
+        track.appendChild(createOpponentManaBack(split.untapped, view.backImageId, false));
+    }
+    if (split.tapped > 0) {
+        track.appendChild(createOpponentManaBack(split.tapped, view.backImageId, true));
     }
     wrap.appendChild(track);
 
@@ -904,37 +924,90 @@ function createOpponentMana(view, seat) {
     return wrap;
 }
 
-/** 表向きマナ1枚(40×56の縮小画像)。★掴めるのは自席のマナだけであり、ここは表示専用にしない
- *  — 相手のカードを動かせないのはサーバの権限層(6-1)の仕事であり、掴み口は残しておく */
+/**
+ * 相手の裏向きマナのタップ / アンタップ内訳(★Batch 22 2-7)。
+ *
+ * <h3>★サーバは触らない。既に届いている値から引き算で出す</h3>
+ * <pre>
+ *   裏アンタップ = seat.mp − (表向きカードのうち tapped でない枚数)
+ *   裏タップ     = manaFaceDownCount − 裏アンタップ
+ * </pre>
+ *
+ * ★この式が成り立つのは、{@code seat.mp}({@code ManualSeat.availableMp})が
+ * <b>マナゾーン全体のアンタップ枚数</b>であり、裏向きも数に入れているからである
+ * (同メソッドの javadoc)。<b>availableMp を「表向きだけ」に変えるとここが壊れる。</b>
+ *
+ * ★設計判断28「同じ情報を2箇所に置かない」に沿う形でもある。サーバに
+ * {@code manaFaceDownUntappedCount} を足すと {@code mp} と重複する情報が2つ届き、
+ * 片方だけずれる余地が生まれる。<b>引ける値は引く。</b>
+ *
+ * ★情報公開の観点でも新しく漏れるものは無い。タップ状態は実物のカードが寝ているか
+ * どうかであり盤面を見れば分かる公開情報で、MP を数値で公開している(3-3)時点で
+ * アンタップ枚数は既に相手へ渡っている。
+ *
+ * ★防御的な丸め: サーバとクライアントの一時的なズレで負や総枚数超過になりうるので、
+ * 0 と faceDownCount で丸める(嘘の数字を出すより丸めるほうがよい。21b 1-4 と同じ軸)。
+ */
+function faceDownManaSplit(seat, faceUpCards, faceDownCount) {
+    const faceUpUntapped = faceUpCards.filter((c) => !c.tapped).length;
+    const raw = (seat.mp === undefined || seat.mp === null ? 0 : seat.mp) - faceUpUntapped;
+    const untapped = Math.max(0, Math.min(faceDownCount, raw));
+    return { untapped, tapped: Math.max(0, faceDownCount - untapped) };
+}
+
+/**
+ * 相手の表向きマナ1枚(★Batch 22 2-2 で文明色の簡略タイルへ変更。48×66)。
+ *
+ * ★自席(64×88)と絵の種類を揃える。21c はここをカード画像にしたが、自席と並べると
+ * 同じものに見えなかった。40px 幅ではカード名が読めないため 48px へ広げている(2-3)。
+ *
+ * ★掴めるのは自席のマナだけだが、ここを表示専用にはしない — 相手のカードを動かせないのは
+ * サーバの権限層(6-1)の仕事であり、掴み口は残しておく。
+ */
 function createOpponentManaCard(card, seatId) {
     const tile = document.createElement('div');
-    tile.className = 'manual-opp-mana-card' + (card.tapped ? ' manual-opp-tapped' : '');
+    tile.className = 'manual-opp-mana-card manual-opp-mana-face'
+        + (card.tapped ? ' manual-opp-tapped' : '');
     tile.dataset.instanceId = card.instanceId;
     tile.draggable = true;
     tile.title = `${card.name || ''}${card.tapped ? '(タップ)' : ''}`;
-    if (card.imageId) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.loading = 'lazy';
-        tile.appendChild(img);
-    } else {
-        tile.classList.add('manual-opp-face-blank');
-        tile.textContent = card.name || '?';
+    if (card.civilization) {
+        const bg = civColor(card.civilization);
+        tile.style.background = bg;
+        tile.style.color = textColorFor(bg);
     }
+    const name = document.createElement('div');
+    name.className = 'manual-opp-mana-name';
+    name.textContent = card.name || '?';
+    tile.appendChild(name);
     if (selected.has(card.instanceId)) {
         tile.classList.add('manual-tile-selected');
     }
     tile.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, 'MANA'));
-    tile.addEventListener('click', (e) => { e.stopPropagation(); setZoom(card); });
-    tile.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    // ★22 1-2: 左=拡大 / 右=タップ。行全体のクリックへは伝播させない
+    tile.addEventListener('click', (e) => { e.stopPropagation(); onCardClick(e, card, seatId, 'MANA'); });
+    tile.addEventListener('contextmenu', (e) => {
+        e.stopPropagation();
+        onCardContextMenu(e, card, seatId, 'MANA');
+    });
     return tile;
 }
 
-/** 裏向きマナ(裏面画像1枚+枚数バッジ)。★何枚あるかは公開情報である(3-3) */
-function createOpponentManaBack(count, backImageId) {
+/**
+ * 相手の裏向きマナ(裏面画像1枚+枚数バッジ)。★何枚あるかは公開情報である(3-3)。
+ *
+ * ★2-2: 相手側は「1枚+枚数バッジ」のままでよい(マスター確認済み)。中身が届かないため
+ * 枚数分並べても情報量は増えず、幅を食うだけである。<b>揃えるのは絵の種類であって
+ * 枚数の数え方ではない。</b>
+ *
+ * @param tapped タップぶんの枠なら true。減光で示す(2-5 の相手側の記法)
+ */
+function createOpponentManaBack(count, backImageId, tapped) {
     const tile = document.createElement('div');
-    tile.className = 'manual-opp-mana-card manual-opp-mana-back';
-    tile.title = `裏向き ${count}枚`;
+    tile.className = 'manual-opp-mana-card manual-opp-mana-back'
+        + (tapped ? ' manual-opp-tapped manual-opp-mana-back-tapped' : '');
+    tile.dataset.tapped = tapped ? 'true' : 'false';
+    tile.title = `裏向き ${count}枚(${tapped ? 'タップ' : 'アンタップ'})`;
     if (backImageId) {
         const img = document.createElement('img');
         img.src = `/cards/${backImageId}.png`;
@@ -962,8 +1035,10 @@ function applyOpponentManaOverlap() {
     }
     if (tiles.length <= 1) return;
     const trackWidth = track.clientWidth;
-    const tileWidth = 40;
-    const minExposure = 14;
+    // ★22 2-3: タイルを 40×56 → 48×66 へ広げた(文明色タイルはカード名を読ませるため)。
+    //   露出の下限もそれに合わせて広げる
+    const tileWidth = 48;
+    const minExposure = 18;
     const naturalWidth = tiles.length * tileWidth;
     if (naturalWidth <= trackWidth) return;
     const maxOverlap = tileWidth - minExposure;
@@ -1117,7 +1192,9 @@ function renderPiles(view) {
     const slot = document.createElement('div');
     slot.className = 'manual-pile manual-leader-slot';
     slot.style.gridArea = '1 / 1';
-    slot.appendChild(createLeaderTile(seat));
+    // ★22 3-4: 自席のリーダータイルは WEAPON のドロップ先ではなくなった。
+    //   「ウェポンはウェポン枠に置く」という説明1つで足りる形にする(W2)
+    slot.appendChild(createLeaderTile(seat, { withWeapon: false }));
     const label = document.createElement('div');
     label.className = 'manual-pile-label';
     label.textContent = `席${seat.id}のリーダー`;
@@ -1126,6 +1203,10 @@ function renderPiles(view) {
     cardLocation.set(seat.leader ? seat.leader.instanceId : null,
         { seatId: seat.id, zone: 'LEADER' });
 
+    // ★22 3章: リーダーの真下(2/1)の空きマスをウェポン置き場にする。
+    //   2行目は既に消滅・墓地が占めているので、右列も盤面全体も縦は伸びない
+    el.appendChild(createWeaponSlot(seat));
+
     for (const zoneName of Object.keys(PILE_PLACEMENT)) {
         const pile = createCardPile(
             seat.id, zoneName, seat.zones[zoneName] || [], view.backImageId);
@@ -1133,6 +1214,122 @@ function renderPiles(view) {
         el.appendChild(pile);
         registerZoneAnchor(pile, seat.id, zoneName);
     }
+}
+
+/**
+ * 自席のウェポン枠(★Batch 22 3章)。`#pile-grid` の 2/1(リーダーの真下)。
+ *
+ * <h3>★44×60 の制約が消えるので、ATK と使用済はその場に出す</h3>
+ * 20b の合体ミニタイルは 44×60 しかなく、数値も使用済も札も載せられないため
+ * すべて {@link openWeaponModal} へ追い出されていた(20b 2-2)。
+ * 独立した枠になったことでこの制約が消えたので、頻度の高い ATK と使用済を表に出す。
+ * モーダルは札の編集と数値の直接入力のために残す。
+ *
+ * <h3>★自席では<b>この枠だけ</b>が WEAPON のドロップ先である(3-4・W2)</h3>
+ * 席によってドロップ先が違うことになるが、受け入れる。場所と意味が1対1になり、
+ * 「リーダーに落とすと装備される」という比喩を覚えなくてよくなるためである。
+ *
+ * <h3>★2枚以上は「異常が見える」形にする(20b 2-2 の方針を維持)</h3>
+ * ウェポン1枚はゲームルール(総合ルール 2-2)だが、手動モードは判断を実装しないので
+ * 2枚以上入ること自体は妨げず、枚数バッジを出して人間が気づけるようにする。
+ */
+function createWeaponSlot(seat) {
+    const box = document.createElement('div');
+    box.className = 'manual-pile manual-weapon-slot';
+    box.dataset.seat = seat.id;
+    box.dataset.zone = 'WEAPON';
+    box.style.gridArea = '2 / 1';
+
+    const weapons = seat.zones.WEAPON || [];
+    const card = weapons.length > 0 ? weapons[0] : null;
+
+    const face = document.createElement('div');
+    face.className = 'manual-pile-face';
+    if (card && card.imageId && !card.faceDown) {
+        const img = document.createElement('img');
+        img.src = `/cards/${card.imageId}.png`;
+        img.loading = 'lazy';
+        face.appendChild(img);
+    } else if (card) {
+        face.classList.add('manual-pile-blank');
+        face.textContent = card.faceDown ? '(裏向き)' : (card.name || '(画像なし)');
+    } else {
+        face.classList.add('manual-pile-blank', 'manual-weapon-slot-empty');
+        face.textContent = '未装備';
+    }
+    if (weapons.length > 1) {
+        const badge = document.createElement('div');
+        badge.className = 'manual-pile-count manual-weapon-slot-badge';
+        badge.textContent = weapons.length;
+        face.appendChild(badge);
+    }
+    box.appendChild(face);
+
+    if (card) {
+        // ★4-3: ATK もボタン化する(枠+鉛筆)。当たり判定はチップ全体である
+        const atkValue = document.createElement('span');
+        atkValue.appendChild(document.createTextNode('ATK '));
+        atkValue.appendChild(statSpan(card.attack, card.printedAttack));
+        const atk = statButton(atkValue, () => openWeaponModal(card));
+        atk.classList.add('manual-weapon-slot-atk');
+        box.appendChild(atk);
+
+        const used = document.createElement('div');
+        used.className = 'manual-weapon-slot-used'
+            + (card.used ? '' : ' manual-tile-used-off');
+        used.textContent = card.used ? '使用済' : '未使用';
+        used.title = 'クリックで使用済/未使用を切り替える';
+        used.addEventListener('click', (e) => {
+            e.stopPropagation();
+            send('used', { cardIds: [card.instanceId] });
+        });
+        box.appendChild(used);
+
+        box.draggable = true;
+        box.addEventListener('dragstart', (e) => {
+            // ★20a 3-1 と同じ形。専用ボタンの上から掴んだときはドラッグを開始しない
+            //   (e.target ではなく、実際に指が置かれた位置の要素を見る)
+            const origin = document.elementFromPoint(e.clientX, e.clientY);
+            if (origin && origin.closest('.manual-stat-button, .manual-weapon-slot-used, button')) {
+                e.preventDefault();
+                return;
+            }
+            onDragStart(e, card, seat.id, 'WEAPON');
+        });
+        // ★22 1-2: 左=拡大 / 右=ウェポン操作モーダル
+        box.addEventListener('click', (e) => {
+            if (e.shiftKey) {
+                send('flip', { cardIds: [card.instanceId] });
+                return;
+            }
+            if (e.ctrlKey || e.metaKey) {
+                toggleSelect(card.instanceId);
+                return;
+            }
+            setZoom(card);
+        });
+        box.addEventListener('contextmenu', (e) => { e.preventDefault(); openWeaponModal(card); });
+        if (selected.has(card.instanceId)) {
+            box.classList.add('manual-tile-selected');
+        }
+        cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'WEAPON' });
+    } else {
+        box.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showTransientNotice('ウェポンは未装備です');
+        });
+    }
+
+    const label = document.createElement('div');
+    label.className = 'manual-pile-label';
+    label.textContent = ZONE_LABELS.WEAPON;
+    box.appendChild(label);
+
+    registerDropTarget(box, seat.id, 'WEAPON');
+    // ★3-5: 自席の WEAPON のアンカーはこの枠へ移る。移し忘れると矢印のウェポン宛の
+    //   端点が相手上段の合体タイルを指したままになる(21c 7-1)
+    registerZoneAnchor(box, seat.id, 'WEAPON');
+    return box;
 }
 
 /** ★非公開ゾーンの集合(2-6)。山札・禁忌は中身ではなく裏面画像を敷く */
@@ -1182,6 +1379,11 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     registerDropTarget(box, seatId, zoneName);
 
     if (zoneName === 'DECK') {
+        // ★22 1-3: 山札は 左=1枚ドロー / 右=全面表示 のまま。新規約の唯一の例外である。
+        //   左を拡大にしても意味が無い(一番上は非公開であり、自分のものなら
+        //   「次に引く1枚が見える」というルール上おかしい表示になる)。
+        //   右の全面表示は既に「一覧を開く」であり、他のパイルの右クリックと同じ役割である。
+        //   ドローはこのアプリで最も回数の多い操作の1つなので、手数を増やさない。
         // ★21c 3-5: 中身が届いていない席のパイルは操作できない。
         //   下段は「自席」だが、公開のみ視点の観戦者にとっては両席とも非公開である。
         //   相手上段のチップと同じ反応(明滅+トースト)に揃える
@@ -1255,19 +1457,16 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
         dropRow.appendChild(bottom1);
         box.appendChild(dropRow);
     } else {
-        // ★18c: 左クリックで帯を開く(4-6)。最上段の拡大は右クリックへ寄せた
-        // (場のカードの右クリック規約と揃える。マスター確認済み)。
-        // ★21c 3-5: 中身が届いていないゾーンでは空の帯を開かず「非公開」を返す
+        // ★22 1-2: 左=一番上のカードを拡大 / 右=帯(一覧)を開く。18c とは逆になった。
+        // ★21c 3-5: 中身が届いていないゾーンでは空の帯も拡大も出さず「非公開」を返す。
+        //   下段は「自席」だが、公開のみ視点の観戦者にとっては両席とも非公開である
         box.addEventListener('click',
-            () => openZoneOrDeny(box, seatOf(latestView, seatId), zoneName));
+            () => zoomTopOrDeny(box, seatOf(latestView, seatId), zoneName, false));
         box.addEventListener('contextmenu', (e) => {
             e.preventDefault();
-            if (pile.length > 0) {
-                setZoom(pile[pile.length - 1]);
-            } else {
-                showTransientNotice(ZONE_LABELS[zoneName] + 'は空です');
-            }
+            openZoneOrDeny(box, seatOf(latestView, seatId), zoneName);
         });
+        box.title = '左クリック: 一番上を拡大 / 右クリック: 一覧を開く';
     }
 
     return box;
@@ -1285,9 +1484,6 @@ function renderManaRow(view) {
     el.innerHTML = '';
     const seat = bottomSeat(view);
 
-    const wrap = document.createElement('div');
-    wrap.className = 'mana-strips';
-
     const manaCards = seat.zones.MANA || [];
     const faceUpCards = manaCards.filter((c) => !c.faceDown);
     const faceDownCards = manaCards.filter((c) => c.faceDown);
@@ -1295,9 +1491,28 @@ function renderManaRow(view) {
     const faceDownCount = seat.manaFaceDownCount === undefined
         ? faceDownCards.length
         : seat.manaFaceDownCount;
+    // ★22 2-8: 合計は配列ではなく counts から取る(21b 1-4)。表向きは「合計 − 裏」で出す。
+    //   公開のみ視点の観戦者が自席側を見るとき、裏向きのカードは配列に届かないため、
+    //   配列を数えると嘘の枚数になる。
+    const total = zoneCount(seat, 'MANA');
+    const faceUpCount = Math.max(0, total - faceDownCount);
 
-    wrap.appendChild(createManaStrip(`表 (MP ${seat.mp})`, faceUpCards, seat.id, false));
-    wrap.appendChild(createManaStrip(`裏 (${faceDownCount})`, faceDownCards, seat.id, true));
+    // ★22 2-8: 行見出し。MP は「表」ラベルではなくここに置く。
+    //   MP はマナゾーン<b>全体</b>のアンタップ枚数(ManualSeat.availableMp)であり、
+    //   表向きストリップだけの値ではない。20c で表ラベルへ寄せたのは
+    //   行見出しを1行削るためだったが、置き場所としては正しくなかった。
+    const head = document.createElement('div');
+    head.className = 'manual-mana-head small text-muted';
+    head.id = 'mana-row-head';
+    head.textContent = `マナ ${total}枚(表 ${faceUpCount} / 裏 ${faceDownCount}) MP ${seat.mp}`;
+    el.appendChild(head);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'mana-strips';
+    wrap.appendChild(
+        createManaStrip(`表 ${faceUpCount}枚`, faceUpCards, seat.id, false, view.backImageId));
+    wrap.appendChild(
+        createManaStrip(`裏 ${faceDownCount}枚`, faceDownCards, seat.id, true, view.backImageId));
 
     el.appendChild(wrap);
     registerZoneAnchor(wrap, seat.id, 'MANA');
@@ -1311,7 +1526,7 @@ function renderManaRow(view) {
 }
 
 /** マナのストリップ1つ(表 or 裏)。ストリップ全体がドロップ対象(設計書2-3) */
-function createManaStrip(label, cards, seatId, faceDown) {
+function createManaStrip(label, cards, seatId, faceDown, backImageId) {
     const strip = document.createElement('div');
     strip.className = 'mana-strip' + (faceDown ? ' mana-strip-down' : ' mana-strip-up');
 
@@ -1325,39 +1540,70 @@ function createManaStrip(label, cards, seatId, faceDown) {
     registerDropTarget(track, seatId, 'MANA', null, faceDown);
 
     for (const card of cards) {
-        track.appendChild(createManaTile(card, seatId));
+        track.appendChild(createManaTile(card, seatId, backImageId));
     }
 
     strip.appendChild(track);
     return strip;
 }
 
-/** マナのミニタイル(64×88。文明色+カード名。設計書2-3) */
-function createManaTile(card, seatId) {
+/**
+ * 自席のマナのミニタイル(64×88)。
+ *
+ * <h3>★Batch 22 2-2: 表向き=文明色の簡略タイル / 裏向き=裏面のカード画像</h3>
+ * 20c までは裏向きも灰色の簡略タイルであり、相手上段(裏面画像)と絵が揃っていなかった。
+ * 「同じマナが席によって別のものに見える」状態を解消する。
+ *
+ * ★2-4: 裏向きを絵にしても<b>中身の確認手段は失われない</b>。
+ * 総合ルール 2-9 は「裏向きマナの内容は持ち主がいつでも確認できる」と定めるが、
+ * 1章の新規約により<b>左クリック1回で拡大</b>でき、拡大表示は常に表面画像を出す
+ * (20a 2-4)。従来は右クリックだったので、むしろ確認は速くなっている。
+ *
+ * ★8章: {@code faceDown} は<b>絵の出し分けにだけ</b>使う。公開範囲を決めるのはゾーンであり
+ * (21 設計書 3-4)、対戦部屋で相手の裏マナが漏れないのは
+ * サーバがカードを載せないからである(21a 3-3)。描き方とは無関係である。
+ */
+function createManaTile(card, seatId, backImageId) {
     const chip = document.createElement('div');
     chip.className = 'mana-tile' + (card.tapped ? ' tapped' : '') + (card.faceDown ? ' face-down' : '');
     chip.dataset.instanceId = card.instanceId;
     chip.draggable = true;
 
-    if (card.civilization && !card.faceDown) {
-        const bg = civColor(card.civilization);
-        chip.style.background = bg;
-        chip.style.color = textColorFor(bg);
+    if (card.faceDown) {
+        // ★裏面のカード画像(相手上段の記法に揃える)。画像が無い環境では従来の簡略タイルへ落ちる
+        if (backImageId) {
+            const img = document.createElement('img');
+            img.src = `/cards/${backImageId}.png`;
+            img.loading = 'lazy';
+            chip.classList.add('mana-tile-back');
+            chip.appendChild(img);
+        } else {
+            const name = document.createElement('div');
+            name.className = 'mana-tile-name';
+            chip.appendChild(name);
+        }
+        chip.title = '裏向き(左クリックで中身を拡大)';
+    } else {
+        if (card.civilization) {
+            const bg = civColor(card.civilization);
+            chip.style.background = bg;
+            chip.style.color = textColorFor(bg);
+        }
+        const name = document.createElement('div');
+        name.className = 'mana-tile-name';
+        name.textContent = card.name || '';
+        chip.appendChild(name);
+        chip.title = card.name || '';
     }
-
-    const name = document.createElement('div');
-    name.className = 'mana-tile-name';
-    name.textContent = card.faceDown ? '' : (card.name || '');
-    chip.appendChild(name);
-    chip.title = card.faceDown ? '裏向き' : (card.name || '');
 
     if (selected.has(card.instanceId)) {
         chip.classList.add('manual-tile-selected');
     }
 
     chip.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, 'MANA'));
+    // ★22 1-2: 左=拡大 / 右=タップ
     chip.addEventListener('click', (e) => onCardClick(e, card, seatId, 'MANA'));
-    chip.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    chip.addEventListener('contextmenu', (e) => onCardContextMenu(e, card, seatId, 'MANA'));
     return chip;
 }
 
@@ -1522,14 +1768,15 @@ function createFieldTile(card, seatId, zone) {
         name.textContent = card.name;
         tile.appendChild(name);
 
-        const stats = document.createElement('div');
-        stats.className = 'manual-tile-stats';
-        stats.appendChild(statSpan(card.attack, card.printedAttack));
+        // ★22 4-3: ATK/HP も「押せば変えられる」形にする(枠+鉛筆)
+        const values = document.createElement('span');
+        values.appendChild(statSpan(card.attack, card.printedAttack));
         if (zone !== 'WEAPON' && card.hp !== null && card.hp !== undefined) {
-            stats.appendChild(document.createTextNode(' / '));
-            stats.appendChild(statSpan(card.hp, card.printedHp));
+            values.appendChild(document.createTextNode(' / '));
+            values.appendChild(statSpan(card.hp, card.printedHp));
         }
-        stats.addEventListener('click', (e) => { e.stopPropagation(); openStatModal(card); });
+        const stats = statButton(values, () => openStatModal(card));
+        stats.classList.add('manual-tile-stats');
         tile.appendChild(stats);
 
         if (zone === 'WEAPON') {
@@ -1582,8 +1829,9 @@ function createFieldTile(card, seatId, zone) {
     }
 
     tile.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, zone));
+    // ★22 1-2: 左=拡大 / 右=タップ(20c までと入れ替わっている)
     tile.addEventListener('click', (e) => onCardClick(e, card, seatId, zone));
-    tile.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    tile.addEventListener('contextmenu', (e) => onCardContextMenu(e, card, seatId, zone));
     registerDropTarget(tile, seatId, zone, null, null, card);
 
     return tile;
@@ -1608,31 +1856,44 @@ function statSpan(current, printed) {
 }
 
 /**
- * リーダー+ウェポン合体タイル(20b 2-2)。
+ * リーダータイル(20b 2-2 の合体タイル)。
  *
- * <h3>★リーダータイル自体が WEAPON ゾーンのドロップ先である</h3>
- * 「リーダーにカードを落とす=装備」という一文で説明できる形にした。
- * 従来の110px幅のウェポン専用スロットは廃止し、装備中のウェポンは
- * タイル右下に重なるミニタイルとして表示する。
+ * <h3>★Batch 22 3-4: ウェポンを合体させるかどうかは<b>呼び出し側</b>が決める</h3>
+ * 自席のウェポンは右列の独立した枠({@link createWeaponSlot})へ移った。
+ * 相手上段は 148px の高さ制約(21 設計書4章)があり枠を増やせないので、
+ * 合体タイルのままである。つまり<b>席によってウェポンの置き場が違う</b>。
+ *
+ * ★この関数に「自席かどうか」を判定させてはならない(21b で確立した規約:
+ * 描画関数の中に {@code 'A'} / {@code 'B'} を書かない。上下は bottomSeat / topSeat が
+ * 決め、席の役割は呼び出し側が知っている)。だから {@code withWeapon} を引数で受ける。
  *
  * <h3>★装備済みでも落とせる(旧・拒否規約の撤回)</h3>
  * 装備の有無でドロップの当たり判定が変わると人間に説明できない。
  * 古いウェポンの後始末はサーバが行う
  * ({@code ManualOperationService.replaceEquippedWeapon})。
+ *
+ * @param options {withWeapon} true のときだけ WEAPON のドロップ先・アンカー・
+ *                ミニタイルを持つ。省略時は false(= ウェポンは別枠にある)
  */
-function createLeaderTile(seat) {
+function createLeaderTile(seat, options) {
+    const withWeapon = !!(options && options.withWeapon);
     const tile = document.createElement('div');
     tile.className = 'leader-card manual-leader-tile';
     tile.dataset.seat = seat.id;
-    tile.dataset.zone = 'WEAPON';
-    registerDropTarget(tile, seat.id, 'WEAPON');
-    // ★21c 7-1: 合体タイルは WEAPON とリーダー(zone == null)の両方のアンカーである。
-    //   サーバは「リーダー」を zone == null で表す(ManualLogPlace の javadoc)
-    registerZoneAnchor(tile, seat.id, 'WEAPON');
+    if (withWeapon) {
+        tile.dataset.zone = 'WEAPON';
+        registerDropTarget(tile, seat.id, 'WEAPON');
+        // ★21c 7-1: 合体タイルは WEAPON とリーダー(zone == null)の両方のアンカーである
+        registerZoneAnchor(tile, seat.id, 'WEAPON');
+    }
+    // ★サーバは「リーダー」を zone == null で表す(ManualLogPlace の javadoc)。
+    //   ウェポンを別枠へ移してもリーダーのアンカーはここに残る(3-5)
     registerZoneAnchor(tile, seat.id, null);
     if (!seat.leader) {
         tile.textContent = '(未読込)';
-        appendWeaponMini(tile, seat);
+        if (withWeapon) {
+            appendWeaponMini(tile, seat);
+        }
         return tile;
     }
     const card = seat.leader;
@@ -1652,26 +1913,66 @@ function createLeaderTile(seat) {
     name.textContent = card.name || 'リーダー';
     tile.appendChild(name);
 
-    const lp = document.createElement('div');
-    lp.className = 'manual-tile-stats';
-    lp.textContent = 'LP ' + seat.lp;
-    lp.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openLpModal(seat.id, seat.lp); // ★20a 2-4: prompt() を廃止しモーダル化
-    });
+    // ★22 4-3: LP は「押せば変えられる」ことが画面に書かれている形にする
+    const lp = statButton('LP ' + seat.lp, () => openLpModal(seat.id, seat.lp));
+    lp.classList.add('manual-tile-stats');
     tile.appendChild(lp);
 
     if (card.tapped) {
         tile.classList.add('manual-tile-tapped');
     }
+    // ★22 1-2: 左=拡大 / 右=タップ。LPチップは 1-6 の「規約の外にある専用ボタン」であり、
+    //   stopPropagation でここへは伝播しない
     tile.addEventListener('click', (e) => {
-        if (e.target === lp) return;
-        if (e.shiftKey || e.ctrlKey || e.metaKey) return;
+        if (e.shiftKey) {
+            send('flip', { cardIds: [card.instanceId] });
+            return;
+        }
+        if (e.ctrlKey || e.metaKey) {
+            toggleSelect(card.instanceId);
+            return;
+        }
+        setZoom(card);
+    });
+    tile.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
         send('tap', { cardIds: [card.instanceId] });
     });
-    tile.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
-    appendWeaponMini(tile, seat);
+    if (withWeapon) {
+        appendWeaponMini(tile, seat);
+    }
     return tile;
+}
+
+/**
+ * 数値チップ(★Batch 22 4-2)。「押せると分かる」形に統一する。
+ *
+ * ★枠+薄い背景+ホバーで強調+鉛筆(✎)。20a 2-4 で {@code prompt()} をモーダル化した
+ * ときに中身は良くなったが、<b>入口の見た目は文字のまま</b>だった。
+ * 鉛筆は装飾であり、当たり判定はチップ全体である(小さい的を作らない)。
+ *
+ * ★4-3: 修正値チップ({@code .manual-stat-chip})はここを通さない。
+ * あれは状態の表示であって操作ではなく、ボタン化すると
+ * 「押せるもの」と「読むもの」が混ざる。
+ */
+function statButton(content, onClick) {
+    const btn = document.createElement('div');
+    btn.className = 'manual-stat-button';
+    btn.title = 'クリックで編集';
+    if (typeof content === 'string') {
+        btn.appendChild(document.createTextNode(content));
+    } else {
+        btn.appendChild(content);
+    }
+    const pen = document.createElement('span');
+    pen.className = 'manual-stat-pen';
+    pen.textContent = '✎';
+    pen.setAttribute('aria-hidden', 'true');
+    btn.appendChild(pen);
+    // ★1-6: 専用ボタンはカード本体のクリック規約の外にある。伝播を必ず止める
+    btn.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); onClick(); });
+    return btn;
 }
 
 /**
@@ -1768,15 +2069,35 @@ function createHandCard(card, width, seatId, zoneName) {
     }
 
     wrap.addEventListener('dragstart', (e) => onDragStart(e, card, seat, zone));
+    // ★22 1-5: 手札・共有ゾーンはタップできない。無反応にせず右も拡大を返す
     wrap.addEventListener('click', (e) => onCardClick(e, card, seat, zone));
-    wrap.addEventListener('contextmenu', (e) => { e.preventDefault(); setZoom(card); });
+    wrap.addEventListener('contextmenu', (e) => onCardContextMenu(e, card, seat, zone));
     return wrap;
 }
 
 // ---------------------------------------------------------------
-// 6) クリック規約(設計書 4-4)
+// 6) クリック規約(★Batch 22 1章で入れ替えた)
 // ---------------------------------------------------------------
 
+/**
+ * ★Batch 22 1-1: 新しい原則。
+ *
+ * <pre>
+ *   左クリック = 見る   (拡大表示)
+ *   右クリック = 動かす (タップ / 一覧を開く)
+ * </pre>
+ *
+ * 20c までは逆であった。カードゲームで最も回数が多い操作は「見る」であり
+ * (効果テキストを読み直す・相手が何を出したか確かめる・裏向きマナの中身を思い出す)、
+ * 回数の多い操作を主ボタンに置くのが素直である。
+ *
+ * ★1-4: 入れ替えるのは<b>素のクリックだけ</b>である。修飾キー付きは左のまま
+ * (Shift+左=表裏 / Ctrl,⌘+左=複数選択)。修飾キーを右へ移すと
+ * 「Shift を押しながら右クリック」という覚えにくい操作が生まれる。
+ *
+ * ★1-7: ゾーンを見る必要が無くなった。分岐は右クリック側
+ * ({@link onCardContextMenu})が引き受ける。
+ */
 function onCardClick(e, card, seatId, zone) {
     if (e.shiftKey) {
         send('flip', { cardIds: [card.instanceId] });
@@ -1786,14 +2107,50 @@ function onCardClick(e, card, seatId, zone) {
         toggleSelect(card.instanceId);
         return;
     }
-    // ★20b: センターライン(共有ゾーン)のカードも手札と同じく拡大にする。
-    //   置いてある札を確認するのが主な用途であり、タップの対象ではない。
+    setZoom(card);
+}
+
+/**
+ * 素の右クリック(★Batch 22 1-2)。タップできるゾーンならタップ、それ以外は拡大。
+ *
+ * ★1-5「押しても何も起きない」を作らない。手札・センターライン・帯の中のカードには
+ * タップの概念が無いが、無反応にはせず拡大を返す。規約の一貫性より
+ * <b>押した結果が必ず返ること</b>を優先する(21 設計書 3-5 と同じ考え方)。
+ *
+ * ★1-7: {@code e.preventDefault()} は呼び出し側ではなくここで必ず行う。
+ * 忘れるとタップのたびにブラウザのコンテキストメニューが出る。
+ */
+function onCardContextMenu(e, card, seatId, zone) {
+    e.preventDefault();
     if (zone === 'HAND' || SHARED_ZONES.has(zone)) {
         setZoom(card);
         return;
     }
-    // 場・マナの空白部分(タイル背景)のクリック → タップ⇔アンタップ
     send('tap', { cardIds: [card.instanceId] });
+}
+
+/**
+ * パイル・チップの左クリック(★Batch 22 1-2)。一番上(または先頭)のカードを拡大する。
+ *
+ * ★中身が届いていないゾーンでは拡大もできない。21c 3-5 と同じ明滅+トーストを返す
+ * (「空である」と「見えない」を同じ表示にしない)。判定材料は {@code zones} に
+ * キーがあるかだけであり、公開範囲の定義をクライアントへ写さない。
+ *
+ * @param fromHead true なら配列の先頭が最上段(山札・チップ)、
+ *                 false なら末尾が最上段(公開パイル。20a 2-1)
+ */
+function zoomTopOrDeny(el, seatView, zoneName, fromHead) {
+    if (!isZoneVisible(seatView, zoneName)) {
+        flashDenied(el);
+        showToast(`${ZONE_LABELS[zoneName]}は非公開`);
+        return;
+    }
+    const cards = seatView.zones[zoneName] || [];
+    if (cards.length === 0) {
+        showTransientNotice(ZONE_LABELS[zoneName] + 'は空です');
+        return;
+    }
+    setZoom(fromHead ? cards[0] : cards[cards.length - 1]);
 }
 
 function toggleSelect(instanceId) {
@@ -2206,13 +2563,16 @@ function openStatModal(card) {
     document.getElementById('stat-modal-title').textContent = card.name + ' の数値';
     fields.innerHTML = '';
 
+    // ★22 4-4: LPモーダルにあって数値モーダルに無いのは非対称である(20a 2-4 が
+    //   LP を直したときの理由がそのまま当てはまる)。刻みが LP(-5/-1/+1/+5)より
+    //   小さいのは、ミニオンの数値が5単位で動くことが稀なためである。
     fields.appendChild(statInput('ATK', card.attack, (value) => {
         send('stat', { cardId: card.instanceId, attack: value });
-    }));
+    }, true));
     if (card.hp !== null && card.hp !== undefined) {
         fields.appendChild(statInput('HP', card.hp, (value) => {
             send('stat', { cardId: card.instanceId, hp: value });
-        }));
+        }, true));
     }
 
     document.getElementById('stat-modal-reset').onclick = () => {
@@ -2290,9 +2650,10 @@ function openWeaponModal(card) {
 
     const fields = document.getElementById('weapon-modal-fields');
     fields.innerHTML = '';
+    // ★22 4-4: ミニオンの数値モーダルと同じく ±1 を添える(体裁を揃える)
     fields.appendChild(statInput('ATK', card.attack, (value) => {
         send('stat', { cardId: card.instanceId, attack: value });
-    }));
+    }, true));
 
     const actions = document.getElementById('weapon-modal-actions');
     actions.innerHTML = '';
@@ -2355,7 +2716,17 @@ function refreshWeaponModal(view) {
     openWeaponModal(card);
 }
 
-function statInput(labelText, value, onCommit) {
+/**
+ * 数値の入力欄。
+ *
+ * @param withDelta ★Batch 22 4-4。true のとき -1 / +1 のボタンを添える。
+ *   サーバの {@code stat} は差分ではなく<b>絶対値</b>を受ける操作なので、ボタンは
+ *   入力欄の現在値を ±1 して確定させる形にした。こうしておくと、押した結果が
+ *   入力欄にもその場で出て「押せたのかどうか」が分かる(20b 2-2 と同じ理由)。
+ *   サーバに差分の経路を足す案は退けた — このバッチは Java に触らない(X1)し、
+ *   同じ操作に絶対値と差分の2経路ができると、どちらが正かが曖昧になる。
+ */
+function statInput(labelText, value, onCommit, withDelta) {
     const wrap = document.createElement('div');
     const label = document.createElement('label');
     label.className = 'small text-muted d-block';
@@ -2372,6 +2743,26 @@ function statInput(labelText, value, onCommit) {
     });
     wrap.appendChild(label);
     wrap.appendChild(input);
+
+    if (withDelta) {
+        const row = document.createElement('div');
+        row.className = 'd-flex gap-1 mt-1 manual-stat-delta';
+        for (const amount of [-1, 1]) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm btn-outline-light py-0 px-1';
+            btn.textContent = amount > 0 ? '+1' : '-1';
+            btn.addEventListener('click', () => {
+                const current = input.value === '' || isNaN(Number(input.value))
+                    ? 0 : Number(input.value);
+                const next = current + amount;
+                input.value = next;
+                onCommit(next);
+            });
+            row.appendChild(btn);
+        }
+        wrap.appendChild(row);
+    }
     return wrap;
 }
 

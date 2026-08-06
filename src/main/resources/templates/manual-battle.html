@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QTE Battle - 手動モード</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=19)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=20)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -216,63 +216,101 @@
         </div>
     </div>
 
-    <!-- 操作説明モーダル(設計書2-6) -->
+    <!--
+      操作説明モーダル(★Batch 22 5章で全面的に書き直した)。
+
+      ★書き直しの原則は3つ(5-1)。
+        1. 原則を先に1行で示す。覚えることを1つにする
+        2. 表は「場所 × 左 / 右 / ドラッグ」の3列にする。読者は「今この枠で何ができるか」を
+           探しているのであって、機能の一覧を読みたいわけではない
+        3. 例外は例外として書く。山札だけが違うことを隠さない
+      20c までは「カード共通」「ドラッグ」「リーダー」…という場所ごとの箇条書きであり、
+      新しい規約(左=見る / 右=動かす)が読み取れなかった。
+    -->
     <div id="help-modal" class="info-modal d-none">
-        <div class="info-modal-body" style="max-width:620px;">
+        <div class="info-modal-body" style="max-width:680px;">
             <h6>操作説明</h6>
+            <div class="small mb-2">
+                <div class="fw-bold mb-1">基本の操作</div>
+                <ul class="mb-1 ps-4">
+                    <li><strong>左クリック = 見る</strong>(カードを拡大表示)</li>
+                    <li><strong>右クリック = 動かす</strong>(タップ / 一覧を開く)</li>
+                    <li><strong>ドラッグ = 移動</strong>(ゾーンからゾーンへ)</li>
+                    <li><strong>Shift + クリック</strong> = 表 / 裏をひっくり返す</li>
+                    <li><strong>Ctrl(⌘)+ クリック</strong> = 複数選択(まとめて移動できる)</li>
+                </ul>
+            </div>
             <table class="table table-sm table-dark table-bordered small mb-2 align-middle">
+                <thead>
+                    <tr><th style="width:118px;">場所</th><th>左クリック</th>
+                        <th>右クリック</th><th>ドラッグ</th></tr>
+                </thead>
                 <tbody>
-                    <tr><th style="width:110px;">カード共通</th>
-                        <td>左クリック=拡大(タップ対象はタップ) / 右クリック=拡大固定 /
-                            Shift+クリック=表裏 / Ctrl(Cmd)+クリック=複数選択</td></tr>
-                    <tr><th>ドラッグ</th>
-                        <td>ゾーン間移動。場の既存タイルに重ねる=進化。複数選択中は選択分をまとめて移動。
-                            帯・全面表示からも盤面へ直接ドラッグできる</td></tr>
-                    <tr><th>リーダー</th>
-                        <td>リーダータイルにカードを落とす=ウェポンの装備。装備済みなら古いウェポンは
-                            自動で墓地(禁忌由来は消滅)へ行く。LP表示のクリックで増減</td></tr>
-                    <tr><th>ウェポン</th>
-                        <td>リーダー右下のミニタイル: クリック=拡大 / ダブルクリック=数値・使用済・札の編集</td></tr>
-                    <tr><th>センターライン</th>
-                        <td>両ミニオン行の間の[プレイ中][公開]。両プレイヤーの共有ゾーンであり、
-                            置いたカードは相手にも見えている。空のときは細いバー、札が入ると自動で開く</td></tr>
-                    <tr><th>山札</th>
-                        <td>左クリック=1枚ドロー / 右クリック=全面表示(並べ替え・検索) /
-                            シャッフル / 上へ・下へ / ドラッグ=一番上の1枚を他ゾーンへ移動</td></tr>
-                    <tr><th>パイル</th>
-                        <td>右列の[禁忌][山札][確認][消滅][墓地]。左クリック=帯を開く /
-                            右クリック=最上段の拡大(山札・禁忌は枚数のみ)</td></tr>
-                    <tr><th>マナ</th>
-                        <td>表/裏ストリップへのドロップで向きが決まる。ストリップ間ドラッグで表裏変更。
-                            MPはアンタップ枚数の自動計算</td></tr>
-                    <tr><th>ログ</th>
-                        <td>クリックで展開/折りたたみ。既定は直近2行のみ</td></tr>
-                    <tr><th>ヘッダ</th>
-                        <td>リセットして引き直す(履歴は消える) / ログ書き出し / 退室 /
-                            Undo・Redo。★全公開部屋は深さ200・Redoあり、対戦部屋は直前の1手のみ・
-                            Redoなし(取り消しの取り消しまで相手に見せると追えなくなるため)</td></tr>
-                    <tr><th>席</th>
-                        <td>「席を立つ」で観戦に移り、「席に着く」で席選択画面が開く。
-                            A⇔Bの直接交換は無い(立ってから座り直す)。
-                            観戦を許可しない部屋では「席を立つ」は退室になる</td></tr>
-                    <tr><th>在室者</th>
-                        <td>ヘッダの名前チップをクリックすると、全員の役割・観戦の視点・
-                            切断中の残り時間が出る</td></tr>
-                    <tr><th>相手上段</th>
-                        <td>左からマナ簡略表示(MP)・墓地・消滅の画像、右に[山][禁][確][手]の
-                            枚数チップとリーダー。公開ゾーンはクリックで帯が開く。
-                            対戦部屋の非公開ゾーンは「非公開」と反応するだけで中身は出ない</td></tr>
-                    <tr><th>矢印</th>
-                        <td>相手がドラッグしている間、掴んだ場所から狙っているゾーンへ
-                            半透明の矢印が出る。ログには残らない</td></tr>
-                    <tr><th>観戦</th>
-                        <td>観戦中だけヘッダに[視点][上下反転]が出る。視点は全見え/公開のみの切替
-                            (サーバが情報量を変える)、上下反転はどちらの席を下に置くかの表示切替</td></tr>
-                    <tr><th>先攻決め</th>
-                        <td>対戦部屋のみ。サーバがダイスを振り、先攻・後攻の選択権を持つ席を
-                            ログに残す。盤面は変わらない</td></tr>
+                    <tr><th>場のミニオン</th><td>拡大</td><td>タップ / アンタップ</td>
+                        <td>移動。場の別のカードに<strong>重ねると進化</strong></td></tr>
+                    <tr><th>リーダー</th><td>拡大</td><td>タップ / アンタップ</td><td>—</td></tr>
+                    <tr><th><strong>ウェポン枠</strong>(リーダーの下)</th><td>拡大</td>
+                        <td>ATK・使用済・札の編集</td><td>移動</td></tr>
+                    <tr><th>手札</th><td>拡大</td><td>拡大</td><td>移動</td></tr>
+                    <tr><th>マナ</th><td>拡大</td><td>タップ / アンタップ</td>
+                        <td><strong>表 / 裏のストリップ</strong>に落とすと向きが決まる</td></tr>
+                    <tr><th><strong>山札</strong>(ここだけ例外)</th>
+                        <td><strong>1枚ドロー</strong></td><td>全面表示(検索・並べ替え)</td>
+                        <td>一番上の1枚を移動</td></tr>
+                    <tr><th>墓地・消滅・禁忌・確認</th><td><strong>一番上のカードを拡大</strong></td>
+                        <td>中身の一覧を開く</td><td>移動</td></tr>
+                    <tr><th>センターライン(プレイ中 / 公開)</th><td>拡大</td><td>拡大</td>
+                        <td>移動</td></tr>
+                    <tr><th>相手の[山][禁][確][手]</th><td>対戦部屋では「非公開」</td><td>同左</td>
+                        <td>相手のゾーンへ落とすのは可</td></tr>
                 </tbody>
             </table>
+            <div class="small mb-2">
+                <div class="fw-bold mb-1">マナの読み方</div>
+                <ul class="mb-1 ps-4">
+                    <li>自分のマナは見出しに
+                        <strong>「マナ 8枚(表 5 / 裏 3) MP 5」</strong>。
+                        MP はアンタップの枚数で、表 / 裏を問わず数える</li>
+                    <li>相手のマナは表向きがカードのタイル、裏向きは
+                        <strong>アンタップぶんとタップぶんが別々の枚数</strong>で出る。
+                        暗いほうがタップ済み</li>
+                </ul>
+            </div>
+            <div class="small mb-2">
+                <div class="fw-bold mb-1">数値・札を変える</div>
+                <ul class="mb-1 ps-4">
+                    <li><strong>LP・ATK/HP</strong> は枠つきの数字(<strong>✎</strong>)を押す。
+                        モーダルで直接入力か ± ボタン</li>
+                    <li><strong>札</strong>(凍結・守護など)はタイル下の <strong>[+]</strong> から付け、
+                        札をクリックで外す</li>
+                    <li><strong>進化</strong>は場のカードに重ねてドロップ。
+                        <strong>+n</strong> バッジで中身を開く</li>
+                    <li><strong>装備</strong>はウェポンを<strong>自分のウェポン枠</strong>へドロップ。
+                        装備済みなら古いウェポンは自動で墓地(禁忌由来は消滅)へ行く。
+                        相手のリーダータイルに落とせば相手の装備になる</li>
+                </ul>
+            </div>
+            <div class="small mb-2">
+                <div class="fw-bold mb-1">画面まわり</div>
+                <ul class="mb-1 ps-4">
+                    <li><strong>相手の盤面</strong>(画面の上)左からマナ(MP)・墓地・消滅の画像、
+                        右に [山][禁][確][手] の枚数と相手のリーダー。公開されているものは
+                        右クリックで一覧が開く。対戦部屋の非公開ゾーンは「非公開」と
+                        反応するだけで中身は出ない</li>
+                    <li><strong>ログ</strong>はクリックで開閉。書き出すと自分に見えているぶんだけ
+                        保存される</li>
+                    <li><strong>席</strong>「席を立つ」で観戦へ、「席に着く」で席選択が開く。
+                        A⇔B の直接交換は無い</li>
+                    <li><strong>在室者</strong>ヘッダの名前チップをクリックすると、
+                        全員の役割・観戦の視点・切断中の残り時間</li>
+                    <li><strong>観戦中</strong>だけ [視点](全見え / 公開のみ)と [上下反転] が出る</li>
+                    <li><strong>先攻決め</strong>(対戦部屋のみ)ダイスで先攻・後攻の選択権を決め、
+                        ログに残す</li>
+                    <li><strong>元に戻す</strong>は全公開部屋が深さ200・やり直しあり、
+                        対戦部屋は直前の1手のみ・やり直しなし</li>
+                    <li><strong>矢印</strong>相手がドラッグしている間だけ出る。ログには残らない</li>
+                </ul>
+            </div>
             <div class="d-flex justify-content-end">
                 <button id="help-modal-close" class="btn btn-sm btn-outline-light">閉じる</button>
             </div>
@@ -328,6 +366,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=11)}"></script>
+<script th:src="@{/js/manual-battle.js(v=12)}"></script>
 </body>
 </html>

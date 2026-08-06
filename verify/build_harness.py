@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=19)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=20)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=11)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=12)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -86,6 +86,13 @@ stub = """
   .form-control-sm { font-size: 0.875em; }
   .table { width: 100%; border-collapse: collapse; }
   .table-sm td, .table-sm th { padding: 2px 6px; }
+  /* ★Batch 22: 操作説明を「場所 × 左/右/ドラッグ」の表へ書き直したときに使った代替。
+     ハーネスに足りないと「ハーネスでだけ見た目が違う」状態になる(21c 2章の教訓)。 */
+  .table-bordered td, .table-bordered th { border: 1px solid #495057; }
+  thead th { text-align: center; vertical-align: bottom; }
+  .align-middle td, .align-middle th { vertical-align: middle; }
+  .fw-bold { font-weight: 700; }
+  .ps-4 { padding-left: 1.5rem; }
   .py-0 { padding-top: 0; padding-bottom: 0; }
   .px-1 { padding-left: 4px; padding-right: 4px; }
   .mb-1 { margin-bottom: 4px; }
