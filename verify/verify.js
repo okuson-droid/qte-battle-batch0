@@ -1308,6 +1308,9 @@ async function clearZoom(page) {
     await page.locator('#start-method-dice').textContent());
   check('開始方法は3択である(3-1)',
     (await page.locator('#start-method-modal button[data-method]').count()) === 3);
+  check('★②③のボタンは「自分」ではなく席名で書く(subjectSeat)',
+    (await page.locator('#start-method-first').textContent()).includes('席A が先攻'),
+    await page.locator('#start-method-first').textContent());
   await clearSent(page);
   await page.locator('#start-method-first').click();
   await page.waitForTimeout(40);
@@ -1322,6 +1325,27 @@ async function clearZoom(page) {
   check('★ソロ(全公開部屋)の①は「ランダムで決める」に変わる(3-1)',
     (await page.locator('#start-method-dice').textContent()).includes('ランダム'),
     await page.locator('#start-method-dice').textContent());
+
+  // ★23 hotfix: 一人回しでデッキが1つだけのとき、主語はその席になる(サーバが決める)。
+  //   「自分」と書いたままだと、どちらが先攻になるのか画面から読めない
+  v = baseView();
+  v.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: true,
+    subjectSeat: 'B' });
+  await render(page, v);
+  check('★★1デッキのソロでも開始方法を選べ、主語がデッキのある席になる',
+    (await page.locator('#start-method-first').textContent()).includes('席B が先攻')
+      && (await page.locator('#start-method-second').textContent()).includes('席B が後攻'),
+    await page.locator('#start-method-second').textContent());
+  check('★後攻の選択肢に「5枚+ピュア・エレメント」と書いてある(何が変わるか読める)',
+    (await page.locator('#start-method-second').textContent()).includes('ピュア・エレメント'));
+  await clearSent(page);
+  await page.locator('#start-method-second').click();
+  await page.waitForTimeout(40);
+  msgs = boardMessages(await sent(page));
+  check('★「後攻をとる」は start-method に SECOND を載せる(席は載せない)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/start-method')
+      && msgs[0].body.method === 'SECOND' && msgs[0].body.seat === undefined,
+    JSON.stringify(msgs));
 
   v = versusView('B');
   v.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: false,

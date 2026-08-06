@@ -5,7 +5,7 @@
 **★★`mvn test` が未実行である(サンドボックスから Maven Central へ到達できない)。
 21c の Java 変更(4ファイル)も未検証のまま残っている。
 納品後、必ずマスターの手元で走らせること
-(期待: `ManualStartSequenceTest` 26件 / `ManualVersusTest` 34件)。**
+(期待: `ManualStartSequenceTest` 30件 / `ManualVersusTest` 34件)。**
 
 **★新しいチャットを始めるときは 5章「チャット開始テンプレート」を使うこと。**
 
@@ -75,7 +75,7 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
   ★`onDragStart` に `isStartLocked()` の枝があること。
 - `battle.css` の末尾に `.manual-start-banner` / `.manual-mulligan-*` があること。
   **共有クラス(`.leader-card` / `.minion-row` / `.mana-chip` / `.mana-row`)が無変更であること。**
-- `verify/verify.js` が **216項目**であること。
+- `verify/verify.js` が **220項目**であること。
 - **★`mvn test` が通ること**(サンドボックスでは走っていない。6章)。
 
 ---
@@ -175,6 +175,14 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
 - **★MPを直接増減する操作を作らない。**
 - **★実装済み文明リストの唯一の正は `DeckValidator.IMPLEMENTED`。**
 - **カード登録は card ID が `qte-cards.json` に実在するか必ず照合する。**
+- **★★一人回しでも先攻・後攻を選べること(23 hotfix)。** 総合ルール 2-5 の先攻と後攻は
+  <b>初期条件そのものが違う</b>(4枚 / 5枚+ピュア・エレメント)。相手が居ないことは
+  「選ぶ意味が無い」理由にならない。**選んでいるのは相手ではなく自分の初期条件である。**
+  ★全公開部屋でデッキが1つだけのときは、**その席**が「自分」の主語になる
+  (`ManualStartService.subjectSeat`)。カードのある席以外を主語にすると、
+  選んだ内容と結果が逆さまになる。
+  ★**ボタンの文言をクライアントで組み立てない。** `ManualStartView.subjectSeat` を
+  運び、画面は席名を埋めるだけにする(表示と挙動が同じ関数を通る。設計判断34)。
 - **★★総合ルールの「物理的な所作」をそのまま写さない(23 で確定した読み方)。**
   総合ルール 2-5 の4は【ピュア・エレメント】を「**裏向きで**渡す」と書いているが、
   **表向きで渡す**のが正しい(マスター裁定 2026-08-06)。
@@ -257,7 +265,7 @@ grep 優先でファイルを渡り歩き、`view` による全体読み込み�
   「今出ている」を数えるには `:not(.d-none)` が要る(22 2章)。
 - **★観測結果を環境の制約だと決めつけないこと。** 実マウス検証の結果が優先する。
 - **★検証ハーネスは `verify/` にリポジトリ管理してある(20bで新設)。**
-  `python3 verify/build_harness.py && node verify/verify.js` で **216項目**が走る。
+  `python3 verify/build_harness.py && node verify/verify.js` で **220項目**が走る。
   **新しいUIを足したらここに検証項目を追加すること。**
   ★`verify/shot.js` は目視用のスクリーンショットを撮る
   (`W`/`H`/`OUT` に加え、23 から `START=method|order|mulligan|banner|begin` で
@@ -363,7 +371,7 @@ git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 - **★★`mvn test` が未実行である(最重要)。**
   23 は Java の変更が最も重いバッチであり(新規4ファイル・変更11ファイル)、
   **21c の Java 変更も未検証のまま残っている**。手元で必ず走らせること。
-  期待は `ManualStartSequenceTest` **26件** + `ManualVersusTest` **34件**。
+  期待は `ManualStartSequenceTest` **30件** + `ManualVersusTest` **34件**。
 - **★[ゲームを始める] を対戦部屋にも出したこと(23 設計解説 1-8・Q6)。**
   設計書 6-1 は「全公開部屋のみ表示」としていた。**マスターの判断待ち。**
 - **★入室前の席選択で「切断中」を表示できない**(21b から継続)。

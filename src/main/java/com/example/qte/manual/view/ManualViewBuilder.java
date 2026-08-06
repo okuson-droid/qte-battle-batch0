@@ -157,6 +157,8 @@ public class ManualViewBuilder {
                 phase.isLocking(),
                 room.getFirstSeat(),
                 room.getOrderChooserSeat(),
+                // ★ボタンの文言と実際の結果が同じ関数を通る(設計判断34)
+                startService.subjectSeat(room, actor),
                 phase == ManualStartPhase.IDLE && mayControl && beginnable(room, actor),
                 phase == ManualStartPhase.ORDER_METHOD && mayControl,
                 phase == ManualStartPhase.ORDER_CHOICE && mayOrder,

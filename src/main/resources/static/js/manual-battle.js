@@ -3419,6 +3419,14 @@ function renderStartUi(view) {
         // ★ソロで選択モーダルをもう1枚出しても、同じ人が続けて2回押すだけになる(3-1)
         ? 'ランダムに選ぶと、勝った席がそのまま先攻になる。'
         : 'ダイスで勝った側が先攻・後攻の選択権を得る(同じ出目なら振り直す)。';
+    // ★②③の「自分」がどの席を指すかはサーバが決める(start.subjectSeat)。
+    //   全公開部屋でデッキが1つだけのときは<b>その席</b>になるため、
+    //   「自分」と書いたままだとどちらが先攻になるのか読めない。席名を出す。
+    const subject = start.subjectSeat;
+    document.getElementById('start-method-first').textContent =
+        subject ? `席${subject} が先攻をとる` : '自分が先攻をとる';
+    document.getElementById('start-method-second').textContent =
+        subject ? `席${subject} が後攻をとる(5枚+ピュア・エレメント)` : '自分が後攻をとる';
     toggleStartModal('start-method-modal', !!start.canChooseMethod);
 
     // 2) 先攻・後攻の選択(3-3)。ダイスで勝った席のプレイヤーだけに出る

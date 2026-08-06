@@ -25,6 +25,11 @@ import com.example.qte.manual.ManualStartPhase;
  *                         (操作補助にすぎず、検証はサーバにある。設計判断27)
  * @param firstSeat        先攻の席。決まるまで null。★リセットまで固定(1-4)
  * @param orderChooser     ダイスで選択権を得た席。{@code ORDER_CHOICE} の間だけ意味を持つ
+ * @param subjectSeat      「自分が先攻をとる」の<b>「自分」が指す席</b>(3-1 の②③)。
+ *                         ★画面のボタンはこれを使って「席A が先攻をとる」と書く。
+ *                         全公開部屋でデッキが1つだけのときは<b>その席</b>になるため、
+ *                         文言をクライアントで組み立てると必ず食い違う
+ *                         ({@code ManualStartService.subjectSeat} が唯一の正)
  * @param canBegin         閲覧者が [ゲームを始める] を押せるか(2-3)
  * @param canChooseMethod  閲覧者が開始方法の3択を押せるか(2-4)
  * @param canChooseOrder   閲覧者が先攻 / 後攻を選べるか(3-3)
@@ -40,6 +45,7 @@ public record ManualStartView(
         boolean locking,
         ManualSeatId firstSeat,
         ManualSeatId orderChooser,
+        ManualSeatId subjectSeat,
         boolean canBegin,
         boolean canChooseMethod,
         boolean canChooseOrder,

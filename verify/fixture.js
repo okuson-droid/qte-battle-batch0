@@ -91,6 +91,9 @@ function startState(overrides = {}) {
     locking: false,
     firstSeat: null,
     orderChooser: null,
+    // ★23 hotfix: 「自分が先攻をとる」の「自分」が指す席。サーバが決める
+    //   (全公開部屋でデッキが1つだけならその席になる)
+    subjectSeat: 'A',
     canBegin: false,
     canChooseMethod: false,
     canChooseOrder: false,

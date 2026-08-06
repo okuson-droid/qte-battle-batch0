@@ -124,8 +124,13 @@ public class ManualStartService {
      *   <li><b>対戦部屋</b> — 両席が {@code deckLoaded} であること。片方だけでは始めない
      *       (マスター指示「お互いがデッキを読み込んだ後に」)</li>
      *   <li><b>全公開部屋</b> — 読み込まれているデッキが1つ以上あること。
-     *       ★1つだけなら<b>その席をそのまま先攻として扱い</b>、先攻後攻の選択を飛ばして
-     *       直ちに配る(6-2)。相手が居ない状態で先攻後攻を選ばせても意味が無い</li>
+     *       ★<b>1つだけでも開始方法を選ばせる</b>(マスター指示 2026-08-06)。
+     *       設計書 6-2 は「1デッキなら先攻として扱い、モーダルを出さずに4枚引く」と
+     *       していたが、それでは<b>後攻の練習ができない</b>。総合ルール 2-5 の後攻は
+     *       5枚引いて【ピュア・エレメント】を受け取るという別の初期条件であり、
+     *       一人回しで確かめたいのはまさにそこである。
+     *       ★このとき「自分」が指すのは<b>デッキを読み込んでいる席</b>である
+     *       ({@link #subjectSeat})</li>
      * </ul>
      */
     public ManualLogEvent begin(ManualRoom room, ManualActor actor) {
@@ -139,11 +144,6 @@ public class ManualStartService {
         }
         if (actor.isRestricted() && loaded.size() < ManualSeatId.values().length) {
             throw new IllegalStateException("両方の席がデッキを読み込むまで開始できません");
-        }
-        if (loaded.size() == 1) {
-            // ★全公開部屋で1デッキだけのとき(6-2)。モーダルを出さずにその席を先攻として配る
-            return deal(room, actor, loaded.get(0),
-                    "デッキを読み込んでいる席%s だけで開始する".formatted(loaded.get(0)));
         }
         room.setStartPhase(ManualStartPhase.ORDER_METHOD);
         return startLog(actor, "ゲーム開始の準備に入った(開始方法を選択中)");
@@ -355,6 +355,13 @@ public class ManualStartService {
         room.getHistory().clear();
         text.append("ゲームを開始した(先攻 席%s / 後攻 席%s)"
                 .formatted(room.getFirstSeat(), second));
+        // ★一人回しで1デッキだけのとき、相手側の席は空のまま先攻(または後攻)になる。
+        //   ログだけを見た人が「配り忘れ」と読まないように、そのことを明記する
+        for (ManualSeatId seatId : ManualSeatId.values()) {
+            if (!room.getMulliganPending().contains(seatId)) {
+                text.append(" ※席%s はデッキ未読込".formatted(seatId));
+            }
+        }
         return text.toString();
     }
 
@@ -411,11 +418,32 @@ public class ManualStartService {
     }
 
     /**
-     * 「自分の席」。★全公開部屋では席に着いていない在室者も操作できる(21 6-1)ため、
-     * 席が無ければ部屋の作成者席(それも無ければ席A)を主語にする。
-     * ★この関数は<b>権限の判定ではない</b>。権限は {@link ManualPermissions} が持つ。
+     * 「自分が先攻をとる」の<b>「自分」が指す席</b>(★設計書 3-1 の②③)。
+     *
+     * <h3>★これは権限の判定ではない</h3>
+     * 押せるかどうかは {@link ManualPermissions} が決める。ここが答えるのは
+     * 「押した結果、どちらの席が先攻になるのか」だけである。
+     * ★ビュー({@code ManualStartView.subjectSeat})も同じメソッドを呼ぶ。
+     * ボタンの文言と実際の結果が同じ関数を通るため、表示と挙動がズレない(設計判断34)。
+     *
+     * <h3>★全公開部屋で「デッキが1つだけ」のときは、その席が主語である</h3>
+     * (マスター指示 2026-08-06)。全公開部屋は1人が両席を操作するため、
+     * そもそも「自分」の指す先が弱い。デッキが片方にしか無いなら、
+     * <b>カードがある席以外を主語にしても意味を成さない</b>。
+     * 席Bだけ読み込んでいるのに、作成者席Aを主語にして「自分が先攻」を選ぶと、
+     * 空席Aが先攻になり席Bが5枚引く — 選んだ内容と結果が逆さまになる。
+     *
+     * <h3>それ以外</h3>
+     * 対戦部屋では常に押した人の席である。全公開部屋で両席が読み込み済みなら、
+     * 押した人の席(席に着いていなければ作成者席、それも無ければ席A)を主語にする。
      */
-    private ManualSeatId subjectSeat(ManualRoom room, ManualActor actor) {
+    public ManualSeatId subjectSeat(ManualRoom room, ManualActor actor) {
+        if (!actor.isRestricted()) {
+            List<ManualSeatId> loaded = loadedSeats(room);
+            if (loaded.size() == 1) {
+                return loaded.get(0);
+            }
+        }
         if (actor.seat() != null) {
             return actor.seat();
         }

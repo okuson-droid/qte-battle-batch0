@@ -89,19 +89,86 @@ class ManualStartSequenceTest {
     }
 
     @Test
-    void 全公開部屋でデッキが1つだけなら先攻後攻を選ばずに4枚配る() {
+    void 全公開部屋はデッキが1つだけでも開始方法を選べる() {
+        // ★マスター指示 2026-08-06。先攻に固定すると後攻の練習ができない
         ManualRoom room = openRoom();
         ManualOccupant a = room.join("ひとり", ManualSeatId.A);
         load(room, ManualSeatId.A);
 
         startService.begin(room, ManualActor.of(room, a));
 
-        // ★相手が居ない状態で先攻後攻を選ばせても意味が無い(6-2)
-        assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.MULLIGAN);
+        assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.ORDER_METHOD);
+    }
+
+    @Test
+    void デッキが1つだけのとき先攻を選ぶと4枚引く() {
+        ManualRoom room = openRoom();
+        ManualOccupant a = room.join("ひとり", ManualSeatId.A);
+        load(room, ManualSeatId.A);
+        ManualActor actor = ManualActor.of(room, a);
+        startService.begin(room, actor);
+
+        startService.chooseMethod(room, actor, ManualStartMethod.FIRST);
+
         assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.A);
         assertThat(hand(room, ManualSeatId.A)).hasSize(ManualGameService.FIRST_PLAYER_HAND_SIZE);
         // ★デッキを読み込んでいない席は配らず、マリガンも待たない
         assertThat(room.getMulliganPending()).containsExactly(ManualSeatId.A);
+    }
+
+    @Test
+    void デッキが1つだけのとき後攻を選ぶと5枚引いてピュアエレメントを受け取る() {
+        ManualRoom room = openRoom();
+        ManualOccupant a = room.join("ひとり", ManualSeatId.A);
+        load(room, ManualSeatId.A);
+        ManualActor actor = ManualActor.of(room, a);
+        startService.begin(room, actor);
+
+        startService.chooseMethod(room, actor, ManualStartMethod.SECOND);
+
+        // ★空席Bが先攻になる。一人回しで「相手が先攻」を再現している状態である
+        assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.B);
+        assertThat(room.secondSeat()).isEqualTo(ManualSeatId.A);
+        assertThat(hand(room, ManualSeatId.A)).hasSize(ManualGameService.SECOND_PLAYER_HAND_SIZE);
+        assertThat(room.getMulliganPending()).containsExactly(ManualSeatId.A);
+
+        startService.mulligan(room, actor, ManualSeatId.A, List.of());
+
+        assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.PLAYING);
+        // 後攻5枚 + ピュア・エレメント1枚
+        assertThat(hand(room, ManualSeatId.A)).hasSize(6);
+        assertThat(lastLog(room)).contains("ピュア・エレメントを渡した");
+        // ★空席であることをログに明記する(配り忘れと読まれないため)
+        assertThat(lastLog(room)).contains("席B はデッキ未読込");
+    }
+
+    @Test
+    void 席Bだけ読み込んでいるとき先攻の主語は席Bになる() {
+        // ★作成者席Aを主語にすると、選んだ内容と結果が逆さまになる
+        ManualRoom room = openRoom();
+        room.setCreatorSeat(ManualSeatId.A);
+        ManualOccupant a = room.join("ひとり", ManualSeatId.A);
+        load(room, ManualSeatId.B);
+        ManualActor actor = ManualActor.of(room, a);
+
+        assertThat(startService.subjectSeat(room, actor)).isEqualTo(ManualSeatId.B);
+
+        startService.begin(room, actor);
+        startService.chooseMethod(room, actor, ManualStartMethod.FIRST);
+
+        assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.B);
+        assertThat(hand(room, ManualSeatId.B)).hasSize(ManualGameService.FIRST_PLAYER_HAND_SIZE);
+    }
+
+    @Test
+    void 両席を読み込んでいる全公開部屋では主語が押した席のままである() {
+        ManualRoom room = openRoom();
+        room.setCreatorSeat(ManualSeatId.A);
+        ManualOccupant b = room.join("ひとり", ManualSeatId.B);
+        loadBoth(room);
+
+        assertThat(startService.subjectSeat(room, ManualActor.of(room, b)))
+                .isEqualTo(ManualSeatId.B);
     }
 
     // ================= 2-4. 誰が開始方法を選ぶのか =================
@@ -457,6 +524,8 @@ class ManualStartSequenceTest {
         assertThat(forA.start().locking()).isTrue();
         assertThat(forA.start().canChooseMethod()).isTrue();
         assertThat(forB.start().canChooseMethod()).isFalse();
+        // ★ボタンの文言と実際の結果が同じ関数を通る(設計判断34)
+        assertThat(forA.start().subjectSeat()).isEqualTo(ManualSeatId.A);
         // ★待機表示は全員に出す(7-3)。盤面が固まっている理由が画面に無い状態を作らない
         assertThat(forB.start().waiting()).isNotBlank();
     }
