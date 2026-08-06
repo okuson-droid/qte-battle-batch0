@@ -737,3 +737,40 @@ body.manual-drag-active .manual-band {
     display: block; width: 100%; height: 100%;
     object-fit: cover; border-radius: 5px;
 }
+
+/* ---------- 25c: 一人回しの席切替・手札拡大・枚数表示・タイルのフェイス化 ---------- */
+/* 枚数表示(マナ行見出し・ストリップ見出し・相手上段・宣言ボタン下の手札)。
+   text-muted / 従来の淡色では白背景に薄すぎて読めなかった(マスター指摘) */
+.manual-count-label { color: #343a40 !important; font-weight: 600; }
+.manual-opp-label { color: #343a40 !important; font-weight: 600; }
+
+/* 場のミニオンタイルのフェイス化(手動モード専用クラス。共有 .manual-tile は無変更) */
+.manual-tile-face {
+    display: flex; flex-direction: column; padding: 0 !important;
+    overflow: hidden; position: relative; text-align: left;
+}
+.manual-tile-face .mtf-head {
+    display: flex; align-items: center; gap: 3px; padding: 3px 4px; min-height: 24px;
+    background: rgba(0, 0, 0, 0.25); border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.manual-tile-face .mtf-cost {
+    flex: 0 0 auto; width: 15px; height: 15px; font-size: 9px; font-weight: 900;
+    display: flex; align-items: center; justify-content: center; color: #fff;
+    clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+    background: color-mix(in srgb, var(--mc, #5a5468) 65%, #fff 20%);
+}
+.manual-tile-face .manual-tile-name { font-size: 9.5px; }
+.manual-tile-face .mtf-body { flex: 1 1 0; min-height: 0; overflow: hidden; padding: 2px 4px; }
+.manual-tile-face .mtf-text { font-size: 8px; line-height: 1.4; color: #cfc9e4; overflow: hidden; }
+.manual-tile-face .mtf-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 2px;
+    padding: 2px 4px; min-height: 20px; font-weight: 900; font-size: 11px;
+    background: rgba(0, 0, 0, 0.3); border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.manual-tile-face .mtf-atk { color: #f0c869; }
+.manual-tile-face .mtf-hp { color: #e88a9a; }
+.manual-tile-face .mtf-edit { flex: 0 0 auto; padding: 0 5px; }
+/* タグ(ラベル)は胴の余白に重ねる。足(数値)は覆わない */
+.manual-tile-face .manual-tile-labels {
+    position: absolute; left: 3px; right: 3px; bottom: 24px;
+}

@@ -513,7 +513,9 @@ async function clearZoom(page) {
 
   // ---- 15. 縦の収まり ----
   const rootBox = await page.locator('#manual-root').boundingBox();
-  check('盤面全体の高さが900px級に収まる', rootBox.height <= 900, `h=${rootBox.height}`);
+  // ★25c: 手札が残りの縦を使い切る設計になったため、上限は「900px級」ではなく
+  //   「ビューポート(950px)からはみ出さない」が本来の制約である
+  check('盤面全体がビューポート(950px)に収まる', rootBox.height <= 950, `h=${rootBox.height}`);
   const handBottom = await page.evaluate(() => {
     const r = document.getElementById('hand-row').getBoundingClientRect();
     return r.bottom;
@@ -842,8 +844,8 @@ async function clearZoom(page) {
   // ---- 22-5. 縦の収まり(★見出し1行とウェポン枠を足したあと)----
   await render(page, statView);
   const rootAfter = await page.locator('#manual-root').boundingBox();
-  check('★見出しとウェポン枠を足しても盤面全体が900px級に収まる(2-8・3-2)',
-    rootAfter.height <= 900, `h=${rootAfter.height}`);
+  check('★見出しとウェポン枠を足しても盤面全体がビューポート(950px)に収まる(2-8・3-2)',
+    rootAfter.height <= 950, `h=${rootAfter.height}`);
   const bWeaponSlot = await boxOf('#pile-grid .manual-weapon-slot');
   const bLeaderSlot = await boxOf('#pile-grid .manual-leader-slot');
   const bLostAfter = await boxOf('#pile-grid .manual-pile[data-zone="LOST"]');
@@ -1047,9 +1049,10 @@ async function clearZoom(page) {
     JSON.stringify(chipText));
   check('相手席の zones に非公開ゾーンのキーが無い(fixture の前提確認)',
     await page.evaluate(() => !('HAND' in window.latestView.seatB.zones)));
-  check('自席の手札は枚数ラベルつきで描かれる',
-    (await page.locator('#hand-row .small').textContent()).includes('2枚'),
-    await page.locator('#hand-row .small').textContent());
+  // ★25c: 手札の枚数ラベルは行見出しから宣言ボタン下(#hand-count-line)へ移った
+  check('自席の手札の枚数が宣言ボタン下に出る(25c)',
+    (await page.locator('#hand-count-line').textContent()).includes('2枚'),
+    await page.locator('#hand-count-line').textContent());
   // ★21c: 相手のマナも「表向きカード + 裏向きは枚数」で出る(3-3・4章)
   check('相手の裏向きマナは裏面1枚+枚数バッジになる(4章・3-3)',
     (await page.locator('#seat-opponent-top .manual-opp-mana-back').count()) === 1
@@ -1535,6 +1538,72 @@ async function clearZoom(page) {
     // eslint-disable-next-line no-undef
     cardTextByImage = null;
   });
+
+  // ---- 28. 一人回しの席切替・タイルのフェイス化(25c) ----
+  await render(page, baseView());
+  check('★全公開部屋では着席者にも反転(操作席切替)ボタンが出る(25c)',
+    !(await page.locator('#btn-flip').getAttribute('class')).includes('d-none')
+      && (await page.locator('#btn-flip').textContent()).includes('操作: 席A')
+      && (await page.locator('#btn-spectator-view').getAttribute('class')).includes('d-none'),
+    await page.locator('#btn-flip').textContent());
+  await page.locator('#btn-flip').click();
+  await page.waitForTimeout(60);
+  check('★切替で下段が席Bの完全なUIになり、宣言も席Bとして送る(25c)',
+    (await page.locator('#seat-self-minions .minion-row').getAttribute('data-seat')) === 'B'
+      // eslint-disable-next-line no-undef
+      && (await page.evaluate(() => declareSeat)) === 'B'
+      && (await page.locator('#hand-count-line').textContent()).includes('席B'));
+  await page.locator('#btn-flip').click();
+  await page.waitForTimeout(60);
+
+  // 場のタイルのフェイス化(頭=コスト+名前 / 足=⚔・✎・♥ / 胴=効果テキスト)
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    applyCardLibrary({ cards: [{ id: 'c-f1', imageId: 'img-f1', text: 'タイル検証テキスト' }] });
+    // eslint-disable-next-line no-undef
+    renderAll(latestView);
+  });
+  const tileFoot = await page.locator('#seat-self-minions .manual-tile-face .mtf-foot').first();
+  check('★場のミニオンがフェイス形式になり足に現在値が出る(25c)',
+    (await page.locator('#seat-self-minions .manual-tile-face .mtf-cost').first().textContent()) === '3'
+      && (await tileFoot.locator('.mtf-atk').textContent()) === '⚔2'
+      && (await tileFoot.locator('.mtf-hp').textContent()) === '♥3'
+      && (await tileFoot.locator('.mtf-edit').count()) === 1);
+  check('★場のタイルにも効果テキストが載る(25c)',
+    (await page.locator('#seat-self-minions .manual-tile-face .mtf-text').first().textContent())
+      === 'タイル検証テキスト');
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    cardTextById = null;
+    // eslint-disable-next-line no-undef
+    cardTextByImage = null;
+  });
+
+  // 入室ゲート: 全公開部屋は席の選択肢を1つに畳む(25c)
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    gateRoomType = 'OPEN';
+    // eslint-disable-next-line no-undef
+    applyGateSeats({ A: null, B: null }, { A: null, B: null }, true, null);
+  });
+  check('★全公開部屋のゲートは「席に着く」1つに畳まれる(25c)',
+    (await page.evaluate(() => {
+      const a = document.querySelector('#seat-gate-a') || document.querySelector('[id$="seat-gate-a"]');
+      const b = document.querySelector('#seat-gate-b') || document.querySelector('[id$="seat-gate-b"]');
+      return a && b && a.textContent.includes('両方を操作できます')
+        && b.classList.contains('d-none');
+    })) === true);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    gateRoomType = 'VERSUS';
+    // eslint-disable-next-line no-undef
+    applyGateSeats({ A: null, B: null }, { A: null, B: null }, true, null);
+  });
+  check('★対戦部屋のゲートは従来どおり席A/Bを選べる(25c回帰)',
+    (await page.evaluate(() => {
+      const b = document.querySelector('#seat-gate-b') || document.querySelector('[id$="seat-gate-b"]');
+      return b && !b.classList.contains('d-none') && b.textContent.includes('席Bに座る');
+    })) === true);
 
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);

@@ -288,6 +288,10 @@ function closeGate() {
  * @param notes 名前に添える補足(「切断中 あと n 秒」など。無ければ null)
  */
 function applyGateSeats(names, notes, spectatorAllowed, mySeat) {
+    // ★25c: 全公開部屋は1人で両席を操作するモードなので、席の選択肢を出さない。
+    //   席Aのボタン1つに畳み、文言も「両方を操作できる」ことを言う。
+    //   (席Bに座り直したいという要求は、入室後の反転ボタンが吸収する)
+    const single = gateRoomType !== 'VERSUS';
     for (const seatId of ['A', 'B']) {
         const button = gateEl('seat-gate-' + seatId.toLowerCase());
         const name = names[seatId];
@@ -298,7 +302,10 @@ function applyGateSeats(names, notes, spectatorAllowed, mySeat) {
         button.disabled = occupied;
         button.textContent = name
             ? `席${seatId}: ${name}${note ? '(' + note + ')' : ''}${mine ? ' — あなた' : ''}`
-            : `席${seatId}に座る`;
+            : (single && seatId === 'A' ? '席に着く(A・B両方を操作できます)' : `席${seatId}に座る`);
+        // ★toggle は毎回通す。single のときだけ付ける形だと、部屋種別が変わった後の
+        //   再描画で前回の d-none が残る(25c 検証で検出)
+        button.classList.toggle('d-none', single && seatId === 'B' && !name);
     }
     const spectate = gateEl('seat-gate-spectate');
     // ★観戦を許可しない部屋では観戦ボタンを出さない(2-1)。届く宛先が存在しないためである。
@@ -610,13 +617,20 @@ function applyCivFrame(el, civ) {
  * `cardLocation` / `registerDropTarget` / 送信ペイロードが受け取る席は
  * 相変わらず `seatView.id`(実席)である(10章)。
  *
- * ★反転を観戦者に限るのは 3-1 が「プレイヤーは常に自席が下・切替UIなし」と
- * 定めているためである。プレイヤーに反転を許すと、自分の手札が上段に出た状態で
- * 相手の場へ落とす操作をすることになり、事故の温床になる。
+ * ★対戦部屋のプレイヤーには反転を出さない(3-1)。自分の手札が上段に出た状態で
+ * 相手の場へ落とす操作は事故の温床だからである。
+ * ★25c(マスター指示): <b>全公開部屋では着席者も反転できる</b>。一人回しは
+ * 1人で両席を回すモードであり、反転が「今どちらの席を操作するか」の切替そのものになる。
+ * 下段に来た席は手札・マナ・パイルまで完全なUIで操作できる(元からサーバは
+ * 全公開部屋で席の権限チェックをしない。ManualPermissions.denySeatAction)。
  */
+function canFlipBoard(view) {
+    return !view.viewerSeat || view.roomType !== 'VERSUS';
+}
+
 function bottomSeatId(view) {
     const own = view.viewerSeat || 'A';
-    if (!view.viewerSeat && boardFlipped) {
+    if (canFlipBoard(view) && boardFlipped) {
         return own === 'A' ? 'B' : 'A';
     }
     return own;
@@ -732,8 +746,11 @@ function renderHeader(view) {
     //   (21a の「公開範囲の判定を2箇所に書かない」と同型の罠)。
     document.getElementById('btn-start')
         .classList.toggle('d-none', !(view.start && view.start.canBegin));
-    // ★宣言は自席のぶんだけ(6-3・D4)。観戦者は席を持たないためサーバが弾く
-    declareSeat = view.viewerSeat;
+    // ★宣言は自席のぶんだけ(6-3・D4)。観戦者は席を持たないためサーバが弾く。
+    //   ★25c: 全公開部屋の着席者は「操作中の席(下段)」として宣言する(反転に追随)
+    declareSeat = view.viewerSeat
+        ? (view.roomType === 'VERSUS' ? view.viewerSeat : bottomSeatId(view))
+        : null;
 }
 
 /** 席を立つ / 席に着く(2-2)。文言は自席の有無だけで決まる。 */
@@ -767,16 +784,21 @@ function renderSpectatorControls(view) {
     const viewBtn = document.getElementById('btn-spectator-view');
     const flipBtn = document.getElementById('btn-flip');
     viewBtn.classList.toggle('d-none', !spectator);
-    flipBtn.classList.toggle('d-none', !spectator);
-    if (!spectator) {
-        // ★席に着いたら反転は解除する。自席=下が崩れたままになるのを防ぐ(3-1)
+    // ★25c: 反転は観戦者に加えて<b>全公開部屋の着席者</b>にも出す(canFlipBoard)。
+    //   一人回しの「操作する席の切替」ボタンである。対戦部屋の着席者には出さない(3-1)
+    flipBtn.classList.toggle('d-none', !canFlipBoard(view));
+    if (!canFlipBoard(view)) {
+        // ★対戦部屋で席に着いたら反転は解除する。自席=下が崩れたままになるのを防ぐ(3-1)
         boardFlipped = false;
+    } else {
+        flipBtn.textContent = `${spectator ? '下段' : '操作'}: 席${bottomSeatId(view)}`;
+    }
+    if (!spectator) {
         return;
     }
     const current = view.spectatorView || 'PUBLIC_ONLY';
     viewBtn.dataset.value = current;
     viewBtn.textContent = `視点: ${SPECTATOR_VIEW_LABELS[current] || current}`;
-    flipBtn.textContent = `下段: 席${bottomSeatId(view)}`;
 }
 
 /**
@@ -1646,7 +1668,7 @@ function renderManaRow(view) {
     //   表向きストリップだけの値ではない。20c で表ラベルへ寄せたのは
     //   行見出しを1行削るためだったが、置き場所としては正しくなかった。
     const head = document.createElement('div');
-    head.className = 'manual-mana-head small text-muted';
+    head.className = 'manual-mana-head small manual-count-label';
     head.id = 'mana-row-head';
     head.textContent = `マナ ${total}枚(表 ${faceUpCount} / 裏 ${faceDownCount}) MP ${seat.mp}`;
     el.appendChild(head);
@@ -1675,7 +1697,7 @@ function createManaStrip(label, cards, seatId, faceDown, backImageId) {
     strip.className = 'mana-strip' + (faceDown ? ' mana-strip-down' : ' mana-strip-up');
 
     const label_ = document.createElement('div');
-    label_.className = 'mana-strip-label small text-muted';
+    label_.className = 'mana-strip-label small manual-count-label';
     label_.textContent = label;
     strip.appendChild(label_);
 
@@ -1773,11 +1795,12 @@ function renderHand(view) {
     const el = document.getElementById('hand-row');
     el.innerHTML = '';
     const seat = bottomSeat(view);
-    const label = document.createElement('div');
-    label.className = 'small text-muted';
-    // ★中身が届かない席(公開のみ観戦の下段)でも枚数だけは出す(3-3)
-    label.textContent = `手札 ${zoneCount(seat, 'HAND')}枚`;
-    el.appendChild(label);
+    // ★25c: 行見出し(手札 n枚)は廃止した。薄い文字で読めないという指摘と、
+    //   1行ぶんの縦を手札の拡大に回すためである。枚数は右列の宣言ボタン下に出す
+    const countLine = document.getElementById('hand-count-line');
+    if (countLine) {
+        countLine.textContent = `手札 ${zoneCount(seat, 'HAND')}枚(席${seat.id})`;
+    }
 
     const row = document.createElement('div');
     row.className = 'hand-row';
@@ -1792,7 +1815,7 @@ function renderHand(view) {
     registerZoneAnchor(row, seat.id, 'HAND');
     el.appendChild(row);
     // ★実測幅で決めるため、DOMに載せてから最後に適用する(マナの重ね表示と同じ手順)
-    fitCardWidths(row, handCardMaxWidth(), 8);
+    fitCardWidths(row, handCardMaxWidth(row), 8);
 }
 
 /**
@@ -1805,10 +1828,23 @@ function renderHand(view) {
  * 縦を基準に決めるのが正しい。ミニオンのタイルがCSSで `min(180px, 16vh)` を
  * 上限にしているのと同じ考え方である。
  */
-function handCardMaxWidth() {
-    // ★25b: フェイス化でテキストを読む場所になったため上限を引き上げた
-    //   (0.105→0.13 / 120→150)。高さから決める原則(20c)は変えない。
-    return Math.max(60, Math.min(150, Math.round(window.innerHeight * 0.13)));
+function handCardMaxWidth(row) {
+    // ★25c(マスター指示): 手札は青線(区切り)から画面下端までを使い切る。
+    //   行の実位置から残り高さを測り、5:7 のアスペクトで幅上限へ換算する。
+    //   行がまだレイアウトされていない場合は従来の高さ比の式で近似する。
+    const fallback = Math.max(60, Math.min(190, Math.round(window.innerHeight * 0.14)));
+    if (!row || !row.isConnected) {
+        return fallback;
+    }
+    const top = row.getBoundingClientRect().top;
+    if (!top || top <= 0) {
+        return fallback;
+    }
+    const available = window.innerHeight - top - 12;
+    if (available < 84) {
+        return fallback;
+    }
+    return Math.max(60, Math.min(190, Math.floor(available * 5 / 7)));
 }
 function centerCardMaxWidth() {
     return Math.max(45, Math.min(90, Math.round(window.innerHeight * 0.075)));
@@ -1895,22 +1931,55 @@ function createFieldTile(card, seatId, zone) {
         tile.appendChild(name);
     } else {
         applyCivFrame(tile, card.civilization);
+        // ★25c(マスター指示): タイルをフェイスと同じ並びにする。
+        //   頭=コスト+名前 / 胴=効果テキスト(タグは余白に重なる) /
+        //   足=左⚔ATK・中央✎編集・右♥HP。数値は<b>現在値</b>のまま
+        //   (印刷値との差分チップも statSpan がそのまま出す)
+        tile.classList.add('manual-tile-face');
 
+        const head = document.createElement('div');
+        head.className = 'mtf-head';
+        if (card.cost !== null && card.cost !== undefined) {
+            const cost = document.createElement('span');
+            cost.className = 'mtf-cost';
+            cost.textContent = card.cost;
+            head.appendChild(cost);
+        }
         const name = document.createElement('div');
         name.className = 'manual-tile-name';
         name.textContent = card.name;
-        tile.appendChild(name);
+        head.appendChild(name);
+        tile.appendChild(head);
 
-        // ★22 4-3: ATK/HP も「押せば変えられる」形にする(枠+鉛筆)
-        const values = document.createElement('span');
-        values.appendChild(statSpan(card.attack, card.printedAttack));
+        const body = document.createElement('div');
+        body.className = 'mtf-body';
+        const text = document.createElement('div');
+        text.className = 'mtf-text';
+        text.textContent = cardFaceText(card);
+        body.appendChild(text);
+        tile.appendChild(body);
+
+        // ★22 4-3: ATK/HP は「押せば変えられる」形のまま(中央の✎が編集の入口)
+        const foot = document.createElement('div');
+        foot.className = 'mtf-foot';
+        const atk = document.createElement('span');
+        atk.className = 'mtf-atk';
+        atk.appendChild(document.createTextNode('⚔'));
+        atk.appendChild(statSpan(card.attack, card.printedAttack));
+        foot.appendChild(atk);
+        const stats = statButton('', () => openStatModal(card));
+        stats.classList.add('manual-tile-stats', 'mtf-edit');
+        foot.appendChild(stats);
         if (zone !== 'WEAPON' && card.hp !== null && card.hp !== undefined) {
-            values.appendChild(document.createTextNode(' / '));
-            values.appendChild(statSpan(card.hp, card.printedHp));
+            const hp = document.createElement('span');
+            hp.className = 'mtf-hp';
+            hp.appendChild(document.createTextNode('♥'));
+            hp.appendChild(statSpan(card.hp, card.printedHp));
+            foot.appendChild(hp);
+        } else {
+            foot.appendChild(document.createElement('span'));
         }
-        const stats = statButton(values, () => openStatModal(card));
-        stats.classList.add('manual-tile-stats');
-        tile.appendChild(stats);
+        tile.appendChild(foot);
 
         if (zone === 'WEAPON') {
             const usedBadge = document.createElement('div');

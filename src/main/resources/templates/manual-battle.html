@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QTE Battle - 手動モード</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=23)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=24)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -153,6 +153,8 @@
                 <button class="btn btn-outline-secondary" data-declaration="DRAW">引分</button>
                 <button class="btn btn-outline-warning" data-declaration="CONCEDE">投了</button>
             </div>
+            <!-- ★25c: 手札の枚数はここに出す(手札行の見出しは廃止した) -->
+            <div id="hand-count-line" class="small manual-count-label mt-1 text-end"></div>
         </div>
     </div>
 
@@ -435,6 +437,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=15)}"></script>
+<script th:src="@{/js/manual-battle.js(v=16)}"></script>
 </body>
 </html>
