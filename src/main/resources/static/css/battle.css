@@ -721,3 +721,19 @@ body.manual-drag-active .manual-band {
 .manual-opp-mana-card .mcard-back-mark, .manual-deck-row .mcard-back-mark {
     font-size: 6px; padding: 1px 3px; letter-spacing: 0.1em;
 }
+
+/* ---------- 25b: タイルとフェイスの統一・裏面画像 ---------- */
+/* タイル用の共通枠。フェイスと同じ文明色(--mc)を暗いトーンで敷き、文字は明色で固定する。
+   場のミニオン・リーダー・マナ・相手上段マナが同じ見た目の系統に乗る。 */
+.mcard-frame {
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--mc) 46%, #14121d),
+        color-mix(in srgb, var(--mc) 22%, #14121d)) !important;
+    border: 1px solid color-mix(in srgb, var(--mc) 65%, #000) !important;
+    color: #ece8f7 !important;
+}
+/* 裏面はカード画像に戻した(25b)。CSS紋章は画像ID未取得時のフォールバック */
+.mcard-backface img {
+    display: block; width: 100%; height: 100%;
+    object-fit: cover; border-radius: 5px;
+}

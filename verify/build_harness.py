@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=22)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=23)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=14)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=15)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 

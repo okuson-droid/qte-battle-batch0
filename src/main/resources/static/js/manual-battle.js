@@ -89,14 +89,28 @@ function cardFaceText(card) {
     return '';
 }
 
-/** 裏面。imageId を持たない(非公開情報を運ばない)。 */
+let faceBackImageId = null;   // renderAll がビューから拾う(裏面画像のID)
+
+/**
+ * 裏面。★裏面だけはカード画像を使う(25b・マスター指示)。実物の裏面デザインには
+ * テキスト情報が無く、フェイス描画に置き換える利益が無いためである。
+ * 個々のカードの imageId は持たない(非公開情報を運ばない)。
+ * 画像IDが未取得の間はCSS描画の紋章にフォールバックする。
+ */
 function cardBackFace() {
     const el = document.createElement('div');
     el.className = 'mcard mcard-backface';
-    const mark = document.createElement('div');
-    mark.className = 'mcard-back-mark';
-    mark.textContent = 'TABOO';
-    el.appendChild(mark);
+    if (faceBackImageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${faceBackImageId}.png`;
+        img.loading = 'lazy';
+        el.appendChild(img);
+    } else {
+        const mark = document.createElement('div');
+        mark.className = 'mcard-back-mark';
+        mark.textContent = 'TABOO';
+        el.appendChild(mark);
+    }
     return el;
 }
 
@@ -557,22 +571,17 @@ function openZoneOrDeny(el, seatView, zoneName) {
 // 3) 文明色(設計書 4-2)
 // ---------------------------------------------------------------
 
-const CIV_COLORS = {
-    WATER: '#5E17EB', FIRE: '#FF5757', DARK: '#CB6CE6',
-    LIGHT: '#FFDE59', WIND: '#7ED957', EARTH: '#FF66C4', NONE: '#B4B2A9',
-};
-
-/** 本体色に対する黒のコントラスト比が4.5未満なら白を返す(直書きしない計算) */
-function textColorFor(hex) {
-    const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
-    const lin = rgb.map(c => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
-    const luminance = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-    const contrastWithBlack = (luminance + 0.05) / 0.05;
-    return contrastWithBlack < 4.5 ? '#ffffff' : '#000000';
+// ★Batch 25b: パレットはカードフェイス(FACE_CIV_COLORS)と同一の1系統に統一した。
+//   タイルは明色ベタ塗り+コントラスト計算(textColorFor)をやめ、
+//   フェイスと同じ暗色トーン(.mcard-frame)+明色文字で描く。
+function civColor(civ) {
+    return FACE_CIV_COLORS[civ] || FACE_CIV_COLORS.NONE;
 }
 
-function civColor(civ) {
-    return CIV_COLORS[civ] || CIV_COLORS.NONE;
+/** タイルをフェイスと同じ見た目の枠にする(場・リーダー・マナ・相手上段マナ) */
+function applyCivFrame(el, civ) {
+    el.classList.add('mcard-frame');
+    el.style.setProperty('--mc', civ ? civColor(civ) : '#5a5468');
 }
 
 // ---------------------------------------------------------------
@@ -671,6 +680,7 @@ function isZoneVisible(seatView, zoneName) {
 }
 
 function renderAll(view) {
+    faceBackImageId = view.backImageId || faceBackImageId;
     cardLocation = new Map();
     zoneAnchors = new Map();
     renderHeader(view);
@@ -1120,9 +1130,7 @@ function createOpponentManaCard(card, seatId) {
     tile.draggable = true;
     tile.title = `${card.name || ''}${card.tapped ? '(タップ)' : ''}`;
     if (card.civilization) {
-        const bg = civColor(card.civilization);
-        tile.style.background = bg;
-        tile.style.color = textColorFor(bg);
+        applyCivFrame(tile, card.civilization);
     }
     const name = document.createElement('div');
     name.className = 'manual-opp-mana-name';
@@ -1712,9 +1720,7 @@ function createManaTile(card, seatId, backImageId) {
         chip.title = '裏向き(左クリックで中身を拡大)';
     } else {
         if (card.civilization) {
-            const bg = civColor(card.civilization);
-            chip.style.background = bg;
-            chip.style.color = textColorFor(bg);
+            applyCivFrame(chip, card.civilization);
         }
         const name = document.createElement('div');
         name.className = 'mana-tile-name';
@@ -1800,7 +1806,9 @@ function renderHand(view) {
  * 上限にしているのと同じ考え方である。
  */
 function handCardMaxWidth() {
-    return Math.max(60, Math.min(120, Math.round(window.innerHeight * 0.105)));
+    // ★25b: フェイス化でテキストを読む場所になったため上限を引き上げた
+    //   (0.105→0.13 / 120→150)。高さから決める原則(20c)は変えない。
+    return Math.max(60, Math.min(150, Math.round(window.innerHeight * 0.13)));
 }
 function centerCardMaxWidth() {
     return Math.max(45, Math.min(90, Math.round(window.innerHeight * 0.075)));
@@ -1886,9 +1894,7 @@ function createFieldTile(card, seatId, zone) {
         name.textContent = card.name || '(不明)';
         tile.appendChild(name);
     } else {
-        const bg = civColor(card.civilization);
-        tile.style.background = bg;
-        tile.style.color = textColorFor(bg);
+        applyCivFrame(tile, card.civilization);
 
         const name = document.createElement('div');
         name.className = 'manual-tile-name';
@@ -2026,13 +2032,11 @@ function createLeaderTile(seat, options) {
     const card = seat.leader;
     tile.dataset.instanceId = card.instanceId;
 
-    // ★20d: リーダーを文明の色で塗る(マスター指示)。場のタイル(createFieldTile)と
-    //   同じ civColor / textColorFor を使い、色と文字色の決め方を1箇所に揃える。
+    // ★20d→25b: リーダーを文明の色で塗る。場のタイルと同じ applyCivFrame を使い、
+    //   色と枠の決め方を1箇所に揃える(フェイスと同一パレット)。
     //   突合できていないリーダー(civilization が無い)は既定の灰色のままにする。
     if (card.civilization) {
-        const bg = civColor(card.civilization);
-        tile.style.background = bg;
-        tile.style.color = textColorFor(bg);
+        applyCivFrame(tile, card.civilization);
     }
 
     const name = document.createElement('div');

@@ -381,19 +381,19 @@ async function clearZoom(page) {
     `幅=${bPrivate.x + bPrivate.width - bLeader.x}`);
 
   // ---- 9-3. リーダーの文明色(★20d) ----
+  // ★25b: 塗りは inline background から .mcard-frame + --mc(フェイスと同一パレット)へ移った
   const leaderBg = await page.evaluate(() => {
     const el = document.querySelector('#pile-grid .manual-leader-tile');
-    return { bg: el.style.background || el.style.backgroundColor, color: el.style.color };
+    return { frame: el.classList.contains('mcard-frame'), mc: el.style.getPropertyValue('--mc') };
   });
-  check('自分のリーダーが文明の色で塗られる',
-    leaderBg.bg.replace(/\s/g, '').toLowerCase().includes('rgb(94,23,235)')
-      || leaderBg.bg.toLowerCase().includes('#5e17eb'),
+  check('自分のリーダーが文明の色の枠になる(25b: フェイスと同一パレット)',
+    leaderBg.frame && leaderBg.mc.toLowerCase() === '#2f6fb5',
     JSON.stringify(leaderBg));
   const oppLeaderBg = await page.evaluate(() => {
     const el = document.querySelector('#seat-opponent-top .manual-leader-tile');
-    return el.style.background || el.style.backgroundColor;
+    return el.classList.contains('mcard-frame') && el.style.getPropertyValue('--mc') !== '';
   });
-  check('相手のリーダーも文明の色で塗られる', !!oppLeaderBg, oppLeaderBg);
+  check('相手のリーダーも文明の色の枠になる(25b)', oppLeaderBg === true, String(oppLeaderBg));
   check('パイルにカードフェイスが敷かれている(25)',
     (await page.locator('#pile-grid .manual-pile-face .mcard').count()) >= 3);
   await clearSent(page);
@@ -679,8 +679,12 @@ async function clearZoom(page) {
 
   // ---- 22-2. マナ表示の統一(設計書2章)----
   await render(page, manaView);
-  check('★自席の裏向きマナが裏面フェイスになる(2-2/25)',
-    (await page.locator('.mana-strip-down .mana-tile.mana-tile-back .mcard-backface').count()) === 1);
+  check('★自席の裏向きマナが裏面カード画像になる(2-2/25b)',
+    (await page.locator('.mana-strip-down .mana-tile.mana-tile-back .mcard-backface img').count()) === 1
+      && (await page.evaluate(() => {
+        const img = document.querySelector('.mana-strip-down .mana-tile-back .mcard-backface img');
+        return img ? new URL(img.src).pathname : null;
+      })) === '/cards/back.png');
   check('自席の表向きマナは文明色タイル+カード名のままである(2-2)',
     (await page.locator('.mana-strip-up .mana-tile .mana-tile-name').first().textContent())
       === '表マナ1'
