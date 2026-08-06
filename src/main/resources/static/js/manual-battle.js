@@ -545,6 +545,10 @@ function renderAll(view) {
     refreshOverlay();
     refreshLpModal(view); // ★20a 2-4: LPモーダルが開いている間は数値だけ差し替える
     refreshWeaponModal(view); // ★20b 2-2: ウェポン操作モーダルも同じ扱い
+    // ★23: 開始シーケンスのモーダル・オーバーレイ・待機表示。
+    //   refreshOverlay の後に置くのは、マリガンオーバーレイの開閉をここが決めるためである
+    //   (開いていれば描くのは refreshOverlay 側で、二重に描かない)
+    renderStartUi(view);
     // ★21c 7-1: アンカー要素を作り直したので、表示中の矢印を引き直す
     renderDragCues();
 }
@@ -569,10 +573,12 @@ function renderHeader(view) {
     renderDeckButtons(view);
     renderLogLink();
     renderOccupantList(view.occupants);
-    // ★21c 6-3・E4: 先攻選択権は対戦部屋だけの操作である。
-    //   全公開部屋(一人回し)では相手が居ないため、押す意味が無い
-    document.getElementById('btn-first-player')
-        .classList.toggle('d-none', view.roomType !== 'VERSUS');
+    // ★23 2-3: [ゲームを始める] は「開始できる状態」のときだけ出す。
+    //   ★条件(全公開=1席以上 / 対戦=両席のデッキ読込 / 押せる人か)はサーバが判定して
+    //   view.start.canBegin に載せている。クライアントで組み立て直すと判定が2箇所に分かれる
+    //   (21a の「公開範囲の判定を2箇所に書かない」と同型の罠)。
+    document.getElementById('btn-start')
+        .classList.toggle('d-none', !(view.start && view.start.canBegin));
     // ★宣言は自席のぶんだけ(6-3・D4)。観戦者は席を持たないためサーバが弾く
     declareSeat = view.viewerSeat;
 }
@@ -2231,6 +2237,14 @@ function onDragStart(e, card, seatId, zone) {
         showTransientNotice('観戦中は盤面を操作できません');
         return;
     }
+    // ★23 7-1: 開始シーケンス中は掴ませない。★これも操作補助にすぎず、
+    //   実際に棄却しているのはサーバ(ManualPermissions.denyDuringStart)である。
+    //   掴めてしまうと落とすたびにエラーのトーストが出るだけになるので、手前で止める。
+    if (isStartLocked()) {
+        e.preventDefault();
+        showTransientNotice('ゲーム開始の手続き中は盤面を操作できません');
+        return;
+    }
     let ids;
     if (selected.has(card.instanceId) && selected.size > 1) {
         ids = [...selected];
@@ -2879,11 +2893,11 @@ document.getElementById('btn-flip').addEventListener('click', () => {
 });
 
 /**
- * 先攻選択権(★21c 6-3・E4)。★盤面には触らず、結果はログにだけ残る。
- * サーバがダイスを振る(総合ルール 2-5)。どちらの席でも押せるため席を送らない。
+ * ゲームを始める(★23 6-1)。★21c の [先攻決め] は廃止した(3-4)。
+ * 先攻を決める経路は1本でなければならない。押した後の段取りはサーバの状態機械が進める。
  */
-document.getElementById('btn-first-player').addEventListener('click', () => {
-    send('first-player', {});
+document.getElementById('btn-start').addEventListener('click', () => {
+    send('start-begin', {});
 });
 
 // 在室者ポップオーバー(2-3)。チップ列のクリックで開閉する
@@ -2983,6 +2997,9 @@ function refreshOverlay() {
         renderEvolutionBand();
     } else if (activeOverlay.kind === 'deck') {
         renderDeckFullscreen();
+    } else if (activeOverlay.kind === 'mulligan') {
+        // ★23 4-3: 開閉を決めるのは renderStartUi 側。ここは「開いていれば描き直す」だけ
+        renderMulliganOverlay();
     }
 }
 
@@ -3362,4 +3379,271 @@ function sendDeckMove(cardId, seatId, toZone, toIndex, faceDown) {
         cardIds: [cardId], toSeat: seatId, toZone, toIndex,
         faceDown: faceDown === undefined ? null : faceDown,
     });
+}
+
+// ---------------------------------------------------------------
+// 13) ゲーム開始シーケンス(★Batch 23。総合ルール 2-5)
+// ---------------------------------------------------------------
+//
+// ★ここにあるものはすべて「操作補助」であり、検証ではない(設計判断27・23 設計書 7-1)。
+//   開始中の盤面操作を実際に棄却しているのはサーバ
+//   (ManualPermissions.denyDuringStart)であり、このモーダルを消しても操作は通らない。
+//
+// ★「自分は今何を押せるか」はサーバが view.start に載せている(23 設計書9章)。
+//   フェーズ・部屋の種類・作成者席から押せる人を組み立て直すと、判定が2箇所に分かれる。
+//   ここが見るのは canBegin / canChooseMethod / canChooseOrder / myMulliganSeats の
+//   4つの真偽値(と席の一覧)だけである。
+
+/** 開始シーケンス中で盤面を触れない状態か。★ドラッグの抑止だけに使う */
+function isStartLocked() {
+    return !!(latestView && latestView.start && latestView.start.locking);
+}
+
+function startView() {
+    return (latestView && latestView.start) || {};
+}
+
+function toggleStartModal(id, show) {
+    document.getElementById(id).classList.toggle('d-none', !show);
+}
+
+/** 開始シーケンスの画面。renderAll の最後に呼ぶ(モーダル・オーバーレイ・待機表示) */
+function renderStartUi(view) {
+    const start = view.start || {};
+
+    // 1) 開始方法の3択(3-1)。★①の意味は部屋の種類で変わる
+    const solo = view.roomType !== 'VERSUS';
+    document.getElementById('start-method-dice').textContent =
+        solo ? 'ランダムで決める' : 'ダイスで決める(20面)';
+    document.getElementById('start-method-note').textContent = solo
+        // ★ソロで選択モーダルをもう1枚出しても、同じ人が続けて2回押すだけになる(3-1)
+        ? 'ランダムに選ぶと、勝った席がそのまま先攻になる。'
+        : 'ダイスで勝った側が先攻・後攻の選択権を得る(同じ出目なら振り直す)。';
+    toggleStartModal('start-method-modal', !!start.canChooseMethod);
+
+    // 2) 先攻・後攻の選択(3-3)。ダイスで勝った席のプレイヤーだけに出る
+    if (start.canChooseOrder) {
+        document.getElementById('start-order-title').textContent =
+            `席${start.orderChooser} が先攻・後攻を選ぶ`;
+    }
+    toggleStartModal('start-order-modal', !!start.canChooseOrder);
+
+    // 3) マリガン(4-3)。専用オーバーレイの開閉を決める
+    syncMulliganOverlay(start);
+
+    // 4) 待機表示(7-3)。★自分が今押すものが無いときだけ出す。
+    //    盤面が固まっている理由が画面に書かれていない状態を作らない(21 3-5)
+    const busy = start.canChooseMethod || start.canChooseOrder
+        || (start.myMulliganSeats || []).length > 0;
+    const banner = document.getElementById('start-banner');
+    banner.classList.toggle('d-none', !(start.locking && start.waiting && !busy));
+    document.getElementById('start-banner-text').textContent = start.waiting || '';
+}
+
+// ---- 開始方法・先攻後攻のボタン ----
+
+document.getElementById('start-method-modal').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-method]');
+    if (!btn) return;
+    send('start-method', { method: btn.dataset.method });
+});
+
+document.getElementById('start-order-first').addEventListener('click', () => {
+    send('start-order', { takeFirst: true });
+});
+document.getElementById('start-order-second').addEventListener('click', () => {
+    send('start-order', { takeFirst: false });
+});
+
+/**
+ * ★7-2 の逃げ道。開始シーケンス中でも<b>リセットだけは通る</b>(サーバも棄却しない)。
+ * 止まったまま抜けられない画面を作らないための1つ穴であり、
+ * 開始まわりの3つの画面すべてに同じボタンを置いてある。
+ */
+for (const btn of document.querySelectorAll('.manual-start-reset')) {
+    btn.addEventListener('click', () => {
+        if (confirm('リセットして最初から。よろしいですか?')) {
+            send('reset', {});
+        }
+    });
+}
+
+// ---- マリガン専用オーバーレイ(4-3) ----
+//
+// ★盤面の手札行を流用しない。22 のクリック規約は「左=見る / 右=動かす」であり、
+//   マリガンは「左=選択」である。同じ操作に別の意味を与えると、モードによって
+//   左クリックの意味が変わる画面になる。専用オーバーレイに閉じ込めれば
+//   「そこは別の画面である」と見た目で分かる。
+//   ★Ctrl+左の複数選択(22 1-4)は既にあるが、ここでは使わない。この画面では
+//   選ぶこと自体が主目的であり、修飾キーを要求するほうが操作を増やす。
+//   新しい選択操作を発明したのではなく、既存の選択の記法(黄枠)をそのまま使っている。
+
+function openMulliganOverlay(seatId) {
+    activeOverlay = { kind: 'mulligan', seatId, picked: new Set() };
+    renderMulliganOverlay();
+}
+
+/**
+ * オーバーレイの開閉。★描画そのものは refreshOverlay が行う(二重に描かない)。
+ * 自分の担当席が無くなったら閉じ、まだ残っていれば次の席へ移る
+ * (全公開部屋では1人が両席ぶんを順に確定する)。
+ */
+function syncMulliganOverlay(start) {
+    const mine = start.myMulliganSeats || [];
+    const open = activeOverlay && activeOverlay.kind === 'mulligan';
+    if (start.phase !== 'MULLIGAN' || mine.length === 0) {
+        if (open) closeOverlay();
+        return;
+    }
+    if (!open || mine.indexOf(activeOverlay.seatId) < 0) {
+        openMulliganOverlay(mine[0]);
+    }
+}
+
+function renderMulliganOverlay() {
+    if (!latestView) return;
+    const seatId = activeOverlay.seatId;
+    const seatView = seatOf(latestView, seatId);
+    // ★中身が届かない視点でここが開くことは無い(自席の手札である)が、
+    //   届かなければ空配列になるだけで壊れない(21b 1-4 と同じ守り方)
+    const hand = (seatView.zones && seatView.zones.HAND) || [];
+
+    const root = overlayRoot();
+    root.innerHTML = '';
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'manual-mulligan-backdrop';
+    // ★背景クリックでは閉じない。閉じても盤面は操作できず(7-1)、
+    //   「開き直せない画面」になるだけである。抜けたいならリセットを押す(7-2)
+    root.appendChild(backdrop);
+
+    const box = document.createElement('div');
+    box.className = 'manual-mulligan';
+
+    const head = document.createElement('div');
+    head.className = 'manual-mulligan-head';
+    const title = document.createElement('strong');
+    title.textContent = `席${seatId} のマリガン`;
+    head.appendChild(title);
+    const hint = document.createElement('span');
+    hint.className = 'small text-muted';
+    // ★このオーバーレイ内だけのローカル規約であることを明記する(4-3)
+    hint.textContent = 'クリックで選択 / もう一度で解除 / 右クリックで拡大'
+        + ' — 戻した枚数だけ引き直す。やり直しは1回だけ';
+    head.appendChild(hint);
+    box.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'manual-mulligan-body';
+
+    const row = document.createElement('div');
+    row.className = 'manual-mulligan-row';
+    for (const card of hand) {
+        row.appendChild(createMulliganCard(card, seatId));
+    }
+    if (hand.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'text-muted small';
+        empty.textContent = '手札がない(山札が尽きている)。そのまま確定してよい';
+        row.appendChild(empty);
+    }
+    body.appendChild(row);
+
+    // ★拡大はこのオーバーレイの中に出す(4-3)。右列の #zoom-panel はバックドロップの
+    //   下にあり、開いている間は見えない。「押しても何も起きない」を作らない(22 1-5)。
+    //   ★#zoom-panel にも同じカードを入れてある(createMulliganCard の setZoom)ので、
+    //   閉じた後は通常どおり右列に残る。
+    const preview = document.createElement('div');
+    preview.className = 'manual-mulligan-preview';
+    preview.id = 'mulligan-preview';
+    if (activeOverlay.zoomCard && activeOverlay.zoomCard.imageId) {
+        const big = document.createElement('img');
+        big.src = `/cards/${activeOverlay.zoomCard.imageId}.png`;
+        big.alt = activeOverlay.zoomCard.name || '';
+        preview.appendChild(big);
+    } else {
+        const note = document.createElement('span');
+        note.className = 'text-muted small';
+        note.textContent = '右クリックで拡大';
+        preview.appendChild(note);
+    }
+    body.appendChild(preview);
+    box.appendChild(body);
+
+    const foot = document.createElement('div');
+    foot.className = 'manual-mulligan-foot';
+    const picked = mulliganPicked(hand);
+    const count = document.createElement('span');
+    count.id = 'mulligan-count';
+    count.className = 'small';
+    count.textContent = `${picked.length}枚を戻す`;
+    foot.appendChild(count);
+
+    const confirm = document.createElement('button');
+    confirm.id = 'mulligan-confirm';
+    confirm.className = 'btn btn-sm btn-warning ms-auto';
+    confirm.textContent = '確定';
+    confirm.addEventListener('click', () => {
+        // ★引く枚数は載せない。サーバが戻した枚数と同数を引く(4-4・設計判断27)
+        send('mulligan', { seat: seatId, cardIds: mulliganPicked(hand) });
+    });
+    foot.appendChild(confirm);
+
+    const reset = document.createElement('button');
+    reset.className = 'btn btn-sm btn-outline-danger manual-start-reset';
+    reset.textContent = 'リセットして最初から';
+    reset.addEventListener('click', () => {
+        if (window.confirm('リセットして最初から。よろしいですか?')) {
+            send('reset', {});
+        }
+    });
+    foot.appendChild(reset);
+
+    box.appendChild(foot);
+    root.appendChild(box);
+}
+
+/** 今の手札に実在する選択だけを返す。★配り直しで消えた instanceId を送らないため */
+function mulliganPicked(hand) {
+    return hand.filter((c) => activeOverlay.picked.has(c.instanceId))
+        .map((c) => c.instanceId);
+}
+
+function createMulliganCard(card, seatId) {
+    const el = document.createElement('div');
+    el.className = 'manual-mulligan-card';
+    el.dataset.instanceId = card.instanceId;
+    if (activeOverlay.picked.has(card.instanceId)) {
+        el.classList.add('manual-mulligan-picked');
+    }
+    if (card.imageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${card.imageId}.png`;
+        img.alt = card.name || '';
+        el.appendChild(img);
+    } else {
+        const blank = document.createElement('div');
+        blank.className = 'manual-mulligan-card-blank';
+        blank.textContent = card.name || '(不明)';
+        el.appendChild(blank);
+    }
+    // ★左 = 選択(このオーバーレイ内のローカル規約。4-3)
+    el.addEventListener('click', () => {
+        if (activeOverlay.picked.has(card.instanceId)) {
+            activeOverlay.picked.delete(card.instanceId);
+        } else {
+            activeOverlay.picked.add(card.instanceId);
+        }
+        renderMulliganOverlay();
+    });
+    // ★右 = 拡大。1つの画面に「選択」と「拡大」の両方が要るための割り当てである。
+    //   preventDefault を忘れるとブラウザのメニューが出る(22 1-7)
+    el.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        activeOverlay.zoomCard = card;
+        // ★右列の拡大パネルにも入れる。オーバーレイを閉じた後もそのまま残る
+        setZoom(card);
+        renderMulliganOverlay();
+    });
+    return el;
 }

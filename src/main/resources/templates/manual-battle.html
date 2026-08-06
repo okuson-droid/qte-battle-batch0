@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QTE Battle - 手動モード</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=20)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=21)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -48,9 +48,12 @@
                  視点はサーバへ送り、上下反転はクライアント描画だけで完結する -->
             <button id="btn-spectator-view" class="btn btn-sm btn-outline-info d-none">視点</button>
             <button id="btn-flip" class="btn btn-sm btn-outline-secondary d-none">上下反転</button>
-            <!-- ★21c 6-3・E4: 先攻選択権。対戦部屋のみ表示。盤面に触らずログだけが結果 -->
-            <button id="btn-first-player" class="btn btn-sm btn-outline-warning d-none"
-                    title="ダイスで先攻・後攻の選択権を決める(ログのみ)">先攻決め</button>
+            <!-- ★Batch 23 6-1: ゲーム開始シーケンス(総合ルール 2-5)の入口。
+                 21c の [先攻決め] は廃止した(23 設計書 3-4。先攻を決める経路は1本にする)。
+                 出るのは「開始できる状態」のときだけである。全公開部屋は1席以上、
+                 対戦部屋は両席のデッキ読込が条件で、判定はサーバ(view.start.canBegin)が持つ -->
+            <button id="btn-start" class="btn btn-sm btn-outline-warning d-none"
+                    title="シャッフル・先攻後攻の決定・初期ドロー・マリガンを行う">ゲームを始める</button>
             <!-- ★21b 2-2: 席を立つ / 席に着く。文言は viewerSeat から決める -->
             <button id="btn-seat" class="btn btn-sm btn-outline-primary">席</button>
             <button id="btn-undo" class="btn btn-sm btn-outline-warning" disabled>元に戻す</button>
@@ -200,6 +203,65 @@
         </div>
     </div>
 
+    <!--
+      ★Batch 23: ゲーム開始シーケンス(総合ルール 2-5)。
+
+      ★ここに置いた3つは<b>操作補助</b>にすぎない(設計判断27・23 設計書 7-1)。
+      開始中の盤面操作を実際に棄却しているのはサーバ(ManualPermissions.denyDuringStart)で
+      あり、このモーダルを消しても操作は通らない。
+      ★どれにも「リセットして最初から」を置いてある(7-2)。開始シーケンスが何かの理由で
+      詰まったときの逃げ道であり、<b>止まったまま抜けられない画面を作らない</b>ため、
+      リセットだけはサーバ側でも通してある。
+    -->
+
+    <!-- 開始方法モーダル(3-1)。★①の文言は部屋の種類で変わる(ソロは「ランダムで決める」) -->
+    <div id="start-method-modal" class="info-modal d-none">
+        <div class="info-modal-body" style="max-width:420px;">
+            <h6>ゲームを始める — 先攻・後攻の決め方</h6>
+            <p class="small text-muted mb-2" id="start-method-note"></p>
+            <div class="d-flex flex-column gap-1 mb-2">
+                <button id="start-method-dice" class="btn btn-sm btn-outline-warning"
+                        data-method="DICE">ダイスで決める</button>
+                <button id="start-method-first" class="btn btn-sm btn-outline-light"
+                        data-method="FIRST">自分が先攻をとる</button>
+                <button id="start-method-second" class="btn btn-sm btn-outline-light"
+                        data-method="SECOND">自分が後攻をとる</button>
+            </div>
+            <div class="d-flex justify-content-end">
+                <button class="btn btn-sm btn-outline-danger manual-start-reset">
+                    リセットして最初から</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 先攻・後攻の選択モーダル(3-3)。★ダイスで勝った席のプレイヤーだけに出る -->
+    <div id="start-order-modal" class="info-modal d-none">
+        <div class="info-modal-body" style="max-width:420px;">
+            <h6 id="start-order-title">先攻・後攻を選ぶ</h6>
+            <p class="small text-muted mb-2">
+                先攻は初期手札4枚、後攻は5枚と【ピュア・エレメント】を受け取る(総合ルール 2-5)。</p>
+            <div class="d-flex gap-1 mb-2">
+                <button id="start-order-first" class="btn btn-sm btn-outline-light flex-fill">
+                    先攻をとる</button>
+                <button id="start-order-second" class="btn btn-sm btn-outline-light flex-fill">
+                    後攻をとる</button>
+            </div>
+            <div class="d-flex justify-content-end">
+                <button class="btn btn-sm btn-outline-danger manual-start-reset">
+                    リセットして最初から</button>
+            </div>
+        </div>
+    </div>
+
+    <!--
+      待機バナー(7-3)。★開始シーケンス中で、自分が今押すものが無いときに全員へ出す。
+      盤面が固まっている理由が画面に書かれていない状態を作らない(21 設計書 3-5)。
+    -->
+    <div id="start-banner" class="manual-start-banner d-none">
+        <span id="start-banner-text"></span>
+        <button class="btn btn-sm btn-outline-danger manual-start-reset">リセットして最初から</button>
+    </div>
+
     <!-- 札編集モーダル -->
     <div id="label-modal" class="info-modal d-none">
         <div class="info-modal-body">
@@ -304,8 +366,15 @@
                     <li><strong>在室者</strong>ヘッダの名前チップをクリックすると、
                         全員の役割・観戦の視点・切断中の残り時間</li>
                     <li><strong>観戦中</strong>だけ [視点](全見え / 公開のみ)と [上下反転] が出る</li>
-                    <li><strong>先攻決め</strong>(対戦部屋のみ)ダイスで先攻・後攻の選択権を決め、
-                        ログに残す</li>
+                    <li><strong>ゲームを始める</strong>デッキが揃うと出る。
+                        先攻・後攻の決め方(20面ダイス / 自分が先攻 / 自分が後攻)を選ぶと、
+                        シャッフル → 初期ドロー(<strong>先攻4枚 / 後攻5枚</strong>)→
+                        マリガン → 後攻へ【ピュア・エレメント】まで進む。
+                        <strong>この間は盤面を操作できない</strong>(リセットだけは押せる)</li>
+                    <li><strong>マリガン</strong>専用の画面が開く。
+                        <strong>戻したい手札をクリックで選び</strong>(もう一度で解除。
+                        右クリックで拡大)、[確定] で同じ枚数を引き直す。
+                        1枚も選ばずに確定してもよく、<strong>やり直しは1回だけ</strong></li>
                     <li><strong>元に戻す</strong>は全公開部屋が深さ200・やり直しあり、
                         対戦部屋は直前の1手のみ・やり直しなし</li>
                     <li><strong>矢印</strong>相手がドラッグしている間だけ出る。ログには残らない</li>
@@ -366,6 +435,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=12)}"></script>
+<script th:src="@{/js/manual-battle.js(v=13)}"></script>
 </body>
 </html>

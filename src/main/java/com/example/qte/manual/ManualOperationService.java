@@ -55,9 +55,6 @@ public class ManualOperationService {
     /** 自由メモの最大文字数(設計書 5-5) */
     private static final int MAX_NOTE_LENGTH = 500;
 
-    /** 先攻選択権の判定に使うダイスの面数(総合ルール 2-5)。 */
-    private static final int DICE_SIDES = 6;
-
     /**
      * 表向きへ正規化するゾーン(Batch 20a 設計書 2-3・C1・C2)。
      * TABOO / DECK は正規化しない(C3)。MANA も対象外であり、
@@ -103,6 +100,13 @@ public class ManualOperationService {
      */
     public void apply(ManualRoom room, ManualActor actor,
             Function<ManualGameState, ManualLogEvent> mutation) {
+        // ★★Batch 23 7-1: 開始シーケンス中の盤面操作はサーバで棄却する。
+        //   盤面を変える操作(move / evolve / lp / stat / label / tap / flip / used /
+        //   turn / phase / draw / shuffle)はすべてここを通るため、判定は1箇所で足りる。
+        //   ★操作ごとに書き足す形にすると、操作を1つ足すたびに漏れる。
+        //   ★開始シーケンス自身({@link ManualStartService})はこの経路を通らない。
+        //   通すと履歴に積まれ、しかも自分自身の denyDuringStart に弾かれる。
+        ManualPermissions.require(ManualPermissions.denyDuringStart(room));
         ManualGameState state = room.getGameState();
         ManualGameState snapshot = state.copy();
         ManualLogEvent event;
@@ -664,35 +668,12 @@ public class ManualOperationService {
                 "%s%sを宣言した%s".formatted(seatText, request.declaration().getDisplayName(), note));
     }
 
-    /**
-     * 先攻選択権の判定(21 設計書 6-3・E4)。★<b>盤面には一切触らない。</b>
-     *
-     * <h3>★これは「判断」ではない(設計書16 5-1 との関係)</h3>
-     * 手動モードはゲームの裁定を実装しない。ここで行うのは総合ルール 2-5 の
-     * 「ダイスを振り、出目の高い側が先攻/後攻を選択する」のうち<b>ダイスを振る部分だけ</b>で
-     * あり、選んだ結果を盤面へ反映することもターンを進めることもしない。
-     * 出目が公平であることを両者に保証するのが役割であって、ルールの適用ではない。
-     *
-     * <h3>★同値は振り直す</h3>
-     * 引き分けを表示して「もう一度押してください」と促すこともできるが、
-     * 押し直しの回数だけログが伸びる。決まるまで振るのが1回の操作として自然である。
-     *
-     * <h3>★どちらの席でも押せる(6-3)</h3>
-     * 結果が席の持ち物ではないため {@code denySeatAction} ではなく
-     * {@code denyOperate} で判定する。観戦者は押せない。
-     */
-    public ManualLogEvent firstPlayer(ManualActor actor) {
-        ManualPermissions.require(ManualPermissions.denyOperate(actor));
-        int a;
-        int b;
-        do {
-            a = gameService.rollDie(DICE_SIDES);
-            b = gameService.rollDie(DICE_SIDES);
-        } while (a == b);
-        ManualSeatId winner = a > b ? ManualSeatId.A : ManualSeatId.B;
-        return ManualLogEvent.plain(ManualLogKind.FIRST_PLAYER, actor.seat(),
-                "先攻選択権の判定: 席A %d / 席B %d → 席%s が先攻・後攻を選ぶ".formatted(a, b, winner));
-    }
+    // ★21c の firstPlayer は Batch 23 で削除した(23 設計書 3-4)。
+    //   開始シーケンス({@link ManualStartService})が「同じ役割を、盤面に反映する形で」
+    //   引き受けたためである。2つ残すと「ヘッダの先攻決めとモーダルの先攻決めの
+    //   どちらが正か」が決まらなくなる。★先攻を決める経路は1本でなければならない。
+    //   ログ種別 FIRST_PLAYER も START に統合した(読み手にとっては同じ「開始の記録」である)。
+    //   ★ManualGameService.rollDie は残っている(23 が 20 を渡して使う)。
 
     /**
      * 自由メモ(設計書 5-3 の13 / 5-5)。
@@ -727,6 +708,8 @@ public class ManualOperationService {
      * {@link ManualPermissions#denyUndo} が持ち、ビューの活性判定も同じものを呼ぶ。
      */
     public ManualLogEvent undo(ManualRoom room, ManualActor actor) {
+        // ★Batch 23 7-1: Undo / Redo は apply を通らないため、ここで個別に棄却する
+        ManualPermissions.require(ManualPermissions.denyDuringStart(room));
         ManualPermissions.require(ManualPermissions.denyUndo(actor, room));
         ManualGameState restored = room.getHistory().undo(room.getGameState(), actor.seat())
                 .orElseThrow(() -> new IllegalStateException("取り消せる操作がありません"));
@@ -737,6 +720,7 @@ public class ManualOperationService {
 
     /** 取り消した操作をやり直す(設計書 5-6)。★対戦部屋では提供しない(21 D6)。 */
     public ManualLogEvent redo(ManualRoom room, ManualActor actor) {
+        ManualPermissions.require(ManualPermissions.denyDuringStart(room));
         ManualPermissions.require(ManualPermissions.denyRedo(actor, room));
         ManualGameState restored = room.getHistory().redo(room.getGameState(), actor.seat())
                 .orElseThrow(() -> new IllegalStateException("やり直せる操作がありません"));

@@ -33,6 +33,8 @@ import com.example.qte.manual.ManualZone;
  * @param canUndo       履歴の状態。★対戦部屋では権限(6-3)も含めた結果である。
  *                      ボタンの活性と実際の可否が同じ関数を通るため、表示と検証がズレない
  * @param shared        プレイヤー間で共有するゾーン(PLAY / REVEAL)。席に属さない(20b 3-2)
+ * @param start         ★Batch 23: 開始シーケンスの状態と「自分が今押せること」。
+ *                      クライアントがフェーズから押せる人を組み立て直すと判定が2箇所に分かれる
  */
 public record ManualGameView(
         String roomId,
@@ -49,6 +51,7 @@ public record ManualGameView(
         ManualSeatView seatA,
         ManualSeatView seatB,
         Map<ManualZone, List<ManualCardView>> shared,
+        ManualStartView start,
         List<ManualOccupantView> occupants,
         List<ManualLogView> log,
         boolean canUndo,

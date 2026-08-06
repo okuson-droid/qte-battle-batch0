@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=20)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=21)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=12)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=13)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -96,6 +96,11 @@ stub = """
   .py-0 { padding-top: 0; padding-bottom: 0; }
   .px-1 { padding-left: 4px; padding-right: 4px; }
   .mb-1 { margin-bottom: 4px; }
+  /* ★Batch 23: 開始モーダル・マリガンオーバーレイが使うユーティリティ。
+     代替に漏れがあると「ハーネスでだけ壊れる」(20c・21c・22 と同じ罠)。 */
+  .flex-fill { flex: 1 1 auto; }
+  .btn-warning { background: #ffc107; color: #000; }
+  .text-muted { color: #adb5bd; }
 </style>
 <script>
   window.__sent = [];

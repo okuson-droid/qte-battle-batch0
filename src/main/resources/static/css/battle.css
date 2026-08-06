@@ -539,3 +539,75 @@ body.manual-drag-active .manual-band {
 /* ★裏向きのタップぶん(2-7)。減光は .manual-opp-tapped が持つ(2-5 の相手側の記法)。
    アンタップぶんと並ぶので、枠線でも区別が付くようにしておく */
 .manual-opp-mana-back-tapped { border-color: #6c757d; }
+
+/* ===========================================================================
+   ★Batch 23: ゲーム開始シーケンス(総合ルール 2-5 / 23 設計書)
+   ★共有クラス(.leader-card / .minion-row / .mana-chip / .mana-row)には触れていない。
+     ここに足したものはすべて .manual- 接頭辞の新規クラスであり、末尾への追記で済ませてある。
+   =========================================================================== */
+
+/* 待機バナー(7-3)。盤面が固まっている理由を全員に出す。
+   ★z-index は帯(1040)より上、モーダル(2000)より下。開始方法モーダルが開いている
+   ときはそちらが手前に来る。 */
+.manual-start-banner {
+    /* ★ヘッダ(約40px)の下に置く。上に重ねると [リセット] や在室者チップを
+       隠してしまい、7-2 で用意した逃げ道そのものが押せなくなる。 */
+    position: fixed; top: 46px; left: 50%; transform: translateX(-50%);
+    z-index: 1900; display: flex; align-items: center; gap: 10px;
+    padding: 6px 12px; border-radius: 6px;
+    background: rgba(33, 33, 33, 0.95); border: 1px solid #ffca28; color: #ffe082;
+    font-size: 13px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+/* ---- マリガン専用オーバーレイ(4-3) ----
+   ★盤面の手札行を流用しない。22 のクリック規約は「左=見る / 右=動かす」であり、
+     マリガンは「左=選択」である。同じ操作に別の意味を与えることになるため、
+     別の画面であることが見た目で分かる形に閉じ込める。
+     21b が席選択を「盤面ページ内のゲート」にしたのと同じ考え方で、
+     守りたい性質を分岐ではなく構造で表す。 */
+.manual-mulligan-backdrop {
+    position: fixed; inset: 0; z-index: 1950; background: rgba(0, 0, 0, 0.75);
+}
+/* ★高さは中身で決める(全画面にしない)。手札は4〜6枚しかなく、画面いっぱいの箱に
+   数枚だけ浮いていると「何をする画面なのか」が読み取りにくい。
+   ★上限は 92vh。手札が増えても画面から溢れないようにする(20c と同じ考え方)。 */
+.manual-mulligan {
+    position: fixed; left: 6%; right: 6%; top: 50%; transform: translateY(-50%);
+    max-height: 92vh; z-index: 1960; overflow: auto;
+    background: #212529; border: 1px solid #ffca28; border-radius: 8px; padding: 12px;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.manual-mulligan-head { display: flex; align-items: center; gap: 8px; }
+.manual-mulligan-head strong { font-size: 15px; }
+.manual-mulligan-body { display: flex; gap: 12px; flex: 1 1 auto; min-height: 0; }
+.manual-mulligan-row {
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; align-content: center;
+    justify-content: center; flex: 1 1 auto; min-width: 0; overflow: auto;
+}
+/* ★拡大はこのオーバーレイの中に出す。右列の #zoom-panel はバックドロップの下にあり、
+   開いている間は見えない(「押しても何も起きない」を作らない。22 1-5)。 */
+.manual-mulligan-preview {
+    flex: 0 0 204px; width: 204px; min-height: 200px; display: flex;
+    align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, 0.05); border: 1px solid #495057; border-radius: 4px;
+}
+.manual-mulligan-preview img { max-width: 100%; max-height: 100%; display: block; }
+/* ★幅は固定ではなくウィンドウの高さから決める(20c と同じ考え方)。
+   カードは縦長であり、幅を広げるとそのぶん確実に縦を食う。
+   マリガンで見たいのは効果テキストであり、手札行(上限120px)より大きくてよい。 */
+.manual-mulligan-card {
+    flex: 0 0 auto; width: min(160px, 17vh); cursor: pointer; border-radius: 4px;
+    border: 2px solid transparent; padding: 2px;
+}
+.manual-mulligan-card img { display: block; width: 100%; border-radius: 3px; }
+.manual-mulligan-card-blank {
+    width: 100%; aspect-ratio: 5 / 7; background: #37474f; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; text-align: center; padding: 2px;
+}
+/* ★選択の表現は既存の .manual-tile-selected と同じ黄枠にする(4-3)。
+   新しい選択の記法を発明しない。 */
+.manual-mulligan-card.manual-mulligan-picked {
+    border-color: #ffca28; background: rgba(255, 202, 40, 0.15);
+}
+.manual-mulligan-foot { display: flex; align-items: center; gap: 8px; }

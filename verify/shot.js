@@ -1,5 +1,5 @@
 const http=require('http'),fs=require('fs'),path=require('path');
-const {chromium}=require('playwright');const {baseView,card,syncCounts}=require('./fixture');
+const {chromium}=require('playwright');const {baseView,card,syncCounts,startState}=require('./fixture');
 const RES=path.join(path.resolve(__dirname,'..'),'src/main/resources');
 const PNG=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==','base64');
 const server=http.createServer((req,res)=>{const u=req.url.split('?')[0];
@@ -29,7 +29,18 @@ server.listen(0,async()=>{
  v.seatB.zones.WEAPON=[card('bw1','相手の武器',{type:'WEAPON',hp:null,printedHp:null})];
  syncCounts(v.seatA); syncCounts(v.seatB);
  v.seatA.mp=2; v.seatB.mp=3;
- await p.evaluate((view)=>{window.latestView=view;renderAll(view);},v);
+ // ★Batch 23: 開始シーケンスの画面も撮れるようにする(START=method|order|mulligan|banner)
+ const stage=process.env.START||'';
+ if(stage==='method') v.start=startState({phase:'ORDER_METHOD',locking:true,canChooseMethod:true});
+ else if(stage==='order') v.start=startState({phase:'ORDER_CHOICE',locking:true,orderChooser:'A',canChooseOrder:true});
+ else if(stage==='mulligan') v.start=startState({phase:'MULLIGAN',locking:true,firstSeat:'A',
+   mulliganSeats:['A','B'],mulliganDone:[],myMulliganSeats:['A'],
+   waiting:'マリガンの確定を待っています(席A: 選択中 / 席B: 選択中)'});
+ else if(stage==='banner') v.start=startState({phase:'MULLIGAN',locking:true,firstSeat:'A',
+   mulliganSeats:['A','B'],mulliganDone:['A'],myMulliganSeats:[],
+   waiting:'マリガンの確定を待っています(席A: 確定済み / 席B: 選択中)'});
+ else if(stage==='begin') v.start=startState({canBegin:true});
+ await p.evaluate((view)=>{window.latestView=view;latestView=view;renderAll(view);},v);
  await p.waitForTimeout(300);
  await p.screenshot({path:process.env.OUT||'verify/layout.png',fullPage:false});
  await b.close();server.close();console.log('shot ok');});

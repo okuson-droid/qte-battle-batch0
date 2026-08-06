@@ -12,6 +12,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import com.example.qte.manual.ManualActor;
+import com.example.qte.manual.ManualDeckImport;
+import com.example.qte.manual.ManualGameService;
 import com.example.qte.manual.ManualCardInstance;
 import com.example.qte.manual.ManualHistory;
 import com.example.qte.manual.ManualLogEntry;
@@ -27,6 +29,8 @@ import com.example.qte.manual.ManualRoomOptions;
 import com.example.qte.manual.ManualRoomType;
 import com.example.qte.manual.ManualSeatId;
 import com.example.qte.manual.ManualSpectatorView;
+import com.example.qte.manual.ManualStartMethod;
+import com.example.qte.manual.ManualStartService;
 import com.example.qte.manual.ManualViewpoint;
 import com.example.qte.manual.ManualZone;
 import com.example.qte.manual.view.ManualGameView;
@@ -56,6 +60,13 @@ class ManualVersusTest {
 
     @Autowired
     ManualLogRenderer logRenderer;
+
+    /** ★Batch 23: 開始シーケンス(総合ルール 2-5) */
+    @Autowired
+    ManualStartService startService;
+
+    @Autowired
+    ManualGameService gameService;
 
     // ================= 3章 視点フィルタ =================
 
@@ -580,57 +591,72 @@ class ManualVersusTest {
                 .isGreaterThanOrEqualTo(Duration.ofMinutes(5));
     }
 
-    // ================= 6-3・E4 先攻選択権(★Batch 21c) =================
+    // ================= ★Batch 23: 開始シーケンス(21c の先攻決め4件を書き換え) =================
+    //
+    // ★21c は「ヘッダの先攻決めボタン」を検証していた。23 でボタンもエンドポイントも
+    //   廃止し、先攻を決める経路を1本にした(23 設計書 3-4・P14)ため、
+    //   落ちた項目を直すのではなく<b>新しい仕様に合わせて書き換えている</b>。
+    // ★開始シーケンスそのものの検証は ManualStartSequenceTest が持つ。
+    //   ここに残すのは 21a の主題(視点・ログ・権限)と交わる4件だけである。
 
     @Test
-    void 先攻選択権はどちらの席でも押せて結果はログにだけ残る() {
-        ManualRoom room = versusRoom();
-        ManualOccupant a = room.join("あかり", ManualSeatId.A);
-        ManualOccupant b = room.join("ばんり", ManualSeatId.B);
-        int handBefore = room.getGameState().seat(ManualSeatId.A).zone(ManualZone.HAND).size();
-
-        ManualLogEvent byA = operations.firstPlayer(ManualActor.of(room, a));
-        ManualLogEvent byB = operations.firstPlayer(ManualActor.of(room, b));
-
-        assertThat(byA.kind()).isEqualTo(ManualLogKind.FIRST_PLAYER);
-        assertThat(byB.kind()).isEqualTo(ManualLogKind.FIRST_PLAYER);
-        // ★盤面には一切触らない(E4)
-        assertThat(room.getGameState().seat(ManualSeatId.A).zone(ManualZone.HAND))
-                .hasSize(handBefore);
+    void 開始のログは視点で変わらずそのまま全員に出る() {
+        ManualRoom room = startedRoom();
+        ManualLogEntry entry = room.getLog().get(room.getLog().size() - 1);
+        // ★START は plain 種別である(5-3)。出目も枚数も両者に同じ内容が見えてよい
+        assertThat(entry.event().kind()).isEqualTo(ManualLogKind.START);
+        assertThat(entry.event().kind().isPlain()).isTrue();
+        assertThat(logRenderer.render(entry.event(),
+                new ManualViewpoint(room.getType(), ManualSeatId.B, ManualSpectatorView.PUBLIC_ONLY)))
+                .isEqualTo(entry.event().text());
     }
 
     @Test
-    void 先攻選択権の判定は必ずどちらかの席に決まる() {
+    void 先攻の決定は開始のログ1本に統合されている() {
+        ManualRoom room = startedRoom();
+        // ★21c の FIRST_PLAYER は START に吸収した(3-4)。
+        //   経路が2本あると「どちらが正か」が決まらなくなる
+        assertThat(ManualLogKind.values())
+                .noneMatch(kind -> kind.name().equals("FIRST_PLAYER"));
+        assertThat(room.getLog().stream().map(e -> e.event().kind()))
+                .contains(ManualLogKind.START);
+        assertThat(room.getFirstSeat()).isNotNull();
+    }
+
+    @Test
+    void 観戦者はゲームを開始できない() {
         ManualRoom room = versusRoom();
-        ManualOccupant a = room.join("あかり", ManualSeatId.A);
-        ManualActor actor = ManualActor.of(room, a);
-        // ★同値は振り直す。1回でも引き分けが出れば「どちらでもない」行になってしまう
-        for (int i = 0; i < 50; i++) {
-            String text = operations.firstPlayer(actor).text();
-            assertThat(text).contains("先攻選択権の判定");
-            assertThat(text.contains("→ 席A") || text.contains("→ 席B")).isTrue();
+        room.setCreatorSeat(ManualSeatId.A);
+        room.join("あかり", ManualSeatId.A);
+        room.join("ばんり", ManualSeatId.B);
+        ManualOccupant watcher = room.join("みるひと", null);
+        for (ManualSeatId seatId : ManualSeatId.values()) {
+            gameService.loadDeck(room, seatId, testDeck("デッキ" + seatId));
         }
+        assertThatThrownBy(() -> startService.begin(room, ManualActor.of(room, watcher)))
+                .hasMessageContaining("観戦者");
     }
 
     @Test
-    void 先攻選択権は視点で変わらずそのまま全員に出る() {
+    void 開始シーケンス中でもメモと勝敗宣言は通る() {
         ManualRoom room = versusRoom();
+        room.setCreatorSeat(ManualSeatId.A);
         ManualOccupant a = room.join("あかり", ManualSeatId.A);
         room.join("ばんり", ManualSeatId.B);
-        ManualLogEvent event = operations.firstPlayer(ManualActor.of(room, a));
-        // ★plain 種別である(5-3)。どの視点でも本文がそのまま出る
-        assertThat(event.kind().isPlain()).isTrue();
-        assertThat(logRenderer.render(event,
-                new ManualViewpoint(room.getType(), ManualSeatId.B, ManualSpectatorView.PUBLIC_ONLY)))
-                .isEqualTo(event.text());
-    }
+        for (ManualSeatId seatId : ManualSeatId.values()) {
+            gameService.loadDeck(room, seatId, testDeck("デッキ" + seatId));
+        }
+        ManualActor actor = ManualActor.of(room, a);
+        startService.begin(room, actor);
 
-    @Test
-    void 観戦者は先攻選択権を押せない() {
-        ManualRoom room = versusRoom();
-        ManualOccupant watcher = room.join("みるひと", null);
-        assertThatThrownBy(() -> operations.firstPlayer(ManualActor.of(room, watcher)))
-                .hasMessageContaining("観戦者");
+        // ★7-2「止めないもの」。棄却は apply(盤面を変える操作)だけに掛かっている
+        assertThat(operations.note(actor,
+                new ManualOpRequest.Note(a.getOccupantId(), "開始前のメモ")).kind())
+                .isEqualTo(ManualLogKind.NOTE);
+        assertThat(operations.declare(actor, new ManualOpRequest.Declare(
+                a.getOccupantId(), ManualSeatId.A,
+                com.example.qte.manual.ManualDeclaration.CONCEDE, null)).kind())
+                .isEqualTo(ManualLogKind.DECLARE);
     }
 
     // ================= 補助 =================
@@ -638,6 +664,36 @@ class ManualVersusTest {
     private ManualRoom versusRoom() {
         return new ManualRoom("VSROOM", new ManualRoomOptions(
                 "対戦部屋", ManualRoomType.VERSUS, true, false));
+    }
+
+    /**
+     * ★Batch 23: 開始シーケンスを PLAYING まで進めた部屋。
+     * ★カードIDをリテラルで書かないため、突合しないカードだけのデッキを使う(17a 3-2)。
+     */
+    private ManualRoom startedRoom() {
+        ManualRoom room = versusRoom();
+        room.setCreatorSeat(ManualSeatId.A);
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        ManualOccupant b = room.join("ばんり", ManualSeatId.B);
+        for (ManualSeatId seatId : ManualSeatId.values()) {
+            gameService.loadDeck(room, seatId, testDeck("デッキ" + seatId));
+        }
+        ManualActor actor = ManualActor.of(room, a);
+        startService.begin(room, actor);
+        startService.chooseMethod(room, actor, ManualStartMethod.FIRST);
+        startService.mulligan(room, actor, ManualSeatId.A, List.of());
+        startService.mulligan(room, ManualActor.of(room, b), ManualSeatId.B, List.of());
+        return room;
+    }
+
+    private ManualDeckImport testDeck(String name) {
+        List<ManualDeckImport.Entry> main = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            main.add(new ManualDeckImport.Entry(null, "%s-カード%d".formatted(name, i), null));
+        }
+        return new ManualDeckImport(name,
+                new ManualDeckImport.Entry(null, name + "-リーダー", null),
+                main, List.of(), List.of());
     }
 
     /** 突合しないカードを1枚ゾーンへ置く。★カードIDをリテラルで書かないため(17a 3-2)。 */

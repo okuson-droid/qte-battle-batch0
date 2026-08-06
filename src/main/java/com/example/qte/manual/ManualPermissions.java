@@ -152,6 +152,92 @@ public final class ManualPermissions {
         return null;
     }
 
+    // ================= ★Batch 23: 開始シーケンス(23 設計書 7章) =================
+
+    /**
+     * 開始シーケンス中の盤面操作を止める(★23 設計書 7-1)。
+     *
+     * <h3>★★止めるのはサーバである(設計判断27)</h3>
+     * クライアントのモーダル・オーバーレイは<b>操作補助</b>にすぎず、検証ではない。
+     * 21b 1-5 の「表示と検証が同じ事実を見ている状態を保つ」がそのまま当てはまる。
+     * 理由を返す形にしてあるので、ビューが同じ判定を呼んでボタンを無効化できる(設計判断34)。
+     *
+     * <h3>★呼び出し点は1つである</h3>
+     * 盤面を変える操作はすべて {@link ManualOperationService#apply} を通る
+     * (move / evolve / lp / stat / label / tap / flip / used / turn / phase / draw / shuffle)。
+     * したがって棄却もそこ1箇所で足りる。操作を1つ足すたびに書き足す形にすると、
+     * 必ずどれかが漏れる。Undo / Redo だけは {@code apply} を通らないため、
+     * {@link ManualOperationService#undo} / {@link ManualOperationService#redo} が個別に呼ぶ。
+     *
+     * <h3>★止めないもの(7-2)</h3>
+     * <b>リセット</b>(逃げ道。詰まったら抜けられること)・自由メモ・勝敗宣言・退室・
+     * 席の移動・観戦の視点切替・ログ書出。
+     * ★リセットを止めないのが最重要である。<b>止まったまま抜けられない画面を作らない。</b>
+     */
+    public static String denyDuringStart(ManualRoom room) {
+        ManualStartPhase phase = room.getStartPhase();
+        if (phase == null || !phase.isLocking()) {
+            return null;
+        }
+        return "ゲーム開始の手続き中です(%s)。終わるまで盤面は操作できません(リセットは可能です)"
+                .formatted(phase.getDisplayName());
+    }
+
+    /**
+     * 開始方法(3択)を選べるか(★23 設計書 2-4・P8)。
+     *
+     * <ul>
+     *   <li>対戦部屋の観戦者 — 不可({@link #denyOperate} が弾く)</li>
+     *   <li>対戦部屋のプレイヤー — <b>作成者の席</b>のみ。
+     *       ★作成者席が空席(誰も座っていない)なら、どちらの席のプレイヤーでも可。
+     *       「押せる人が居ない画面」を作らないためのフォールバックである</li>
+     *   <li>全公開部屋 — 誰でも可。1人が両席を操作する運用であり、席の有無に意味が無い(21 6-1)</li>
+     * </ul>
+     */
+    public static String denyStartControl(ManualActor actor, ManualRoom room) {
+        String base = denyOperate(actor);
+        if (base != null) {
+            return base;
+        }
+        if (!actor.isRestricted()) {
+            return null;
+        }
+        ManualSeatId creator = room.getCreatorSeat();
+        if (creator == null || room.occupantOfSeat(creator).isEmpty()) {
+            // ★フォールバック: 作成者が居ない部屋を永久に開始できなくしない(2-4)
+            return null;
+        }
+        if (actor.seat() != creator) {
+            return "ゲームの開始方法を選べるのは、部屋を作った席%s のプレイヤーだけです".formatted(creator);
+        }
+        return null;
+    }
+
+    /**
+     * 先攻 / 後攻を選べるか(★23 設計書 3-3)。★<b>ダイスで勝った席だけ</b>が押せる。
+     *
+     * ★{@link #denyStartControl} と分けてあるのは、押せる人が違うからである。
+     * 開始方法は作成者、先攻の選択はダイスの勝者であり、
+     * 同じ判定にまとめると「どちらの権利で押しているのか」が読めなくなる。
+     */
+    public static String denyOrderChoice(ManualActor actor, ManualRoom room) {
+        String base = denyOperate(actor);
+        if (base != null) {
+            return base;
+        }
+        ManualSeatId chooser = room.getOrderChooserSeat();
+        if (chooser == null) {
+            return "先攻・後攻を選ぶ場面ではありません";
+        }
+        if (!actor.isRestricted()) {
+            return null; // 全公開部屋は1人が両席を操作する(6-1)
+        }
+        if (actor.seat() != chooser) {
+            return "先攻・後攻を選べるのは、ダイスで勝った席%s のプレイヤーだけです".formatted(chooser);
+        }
+        return null;
+    }
+
     /**
      * Redo(6-3・D6)。★対戦部屋では提供しない。
      * 取り消しの取り消しまで相手に見せると、盤面がどこへ向かっているのか分からなくなる。

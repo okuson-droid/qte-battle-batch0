@@ -81,6 +81,28 @@ function occupant(displayName, seatId, overrides = {}) {
   };
 }
 
+/**
+ * 開始シーケンスのビュー(★Batch 23。ManualStartView 相当)。
+ * ★既定は IDLE(何も起きていない状態)である。個々の検証が必要なぶんだけ上書きする。
+ */
+function startState(overrides = {}) {
+  return {
+    phase: 'IDLE',
+    locking: false,
+    firstSeat: null,
+    orderChooser: null,
+    canBegin: false,
+    canChooseMethod: false,
+    canChooseOrder: false,
+    mulliganSeats: [],
+    mulliganDone: [],
+    myMulliganSeats: [],
+    waiting: null,
+    pureElement: true,
+    ...overrides,
+  };
+}
+
 function baseView() {
   const view = {
     roomId: 'TESTRM',
@@ -98,6 +120,8 @@ function baseView() {
     seatA: seat('A'),
     seatB: seat('B'),
     shared: { PLAY: [], REVEAL: [] },
+    // ★Batch 23: 開始シーケンス。サーバが「自分は今何を押せるか」まで載せる(設計書9章)
+    start: startState(),
     occupants: [occupant('テスト', 'A', { self: true })],
     log: [
       { seq: 1, time: '10:00:00', text: 'ログ1' },
@@ -178,4 +202,6 @@ function roomSummary(overrides = {}) {
   };
 }
 
-module.exports = { baseView, versusView, roomSummary, card, occupant, emptyZones, syncCounts };
+module.exports = {
+  baseView, versusView, roomSummary, card, occupant, emptyZones, syncCounts, startState,
+};

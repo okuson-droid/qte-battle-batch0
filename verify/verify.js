@@ -12,7 +12,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
-const { baseView, versusView, roomSummary, card, occupant, syncCounts } = require('./fixture');
+const {
+  baseView, versusView, roomSummary, card, occupant, syncCounts, startState,
+} = require('./fixture');
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -1259,20 +1261,213 @@ async function clearZoom(page) {
   check('★席に着くと反転が解除され、自席が下に戻る(3-1)',
     (await page.locator('#seat-self-minions .minion-row').getAttribute('data-seat')) === 'A');
 
-  // ---- 28. 先攻選択権(設計書6-3・E4) ----
+  // ---- 28. ★Batch 23: ゲーム開始シーケンス(総合ルール 2-5 / 23 設計書10-2) ----
+  //
+  // ★21c の「先攻決めボタン」の検証は削除した(23 設計書 3-4・P14・10-2)。
+  //   ボタンもエンドポイントも廃止し、先攻を決める経路を1本にしたためである。
+  //   落ちた項目を直すのではなく、新しい仕様に合わせて書き換える(22 の 7-2 と同じ方針)。
+  //
+  // ★ここで確かめているのは「押せるものが出る / 出ない」と「何が送られるか」だけである。
+  //   誰が押せるかを決めているのはサーバ(view.start.canBegin ほか)であり、
+  //   クライアントはその結果を描くだけになっている(判定を2箇所に置かない)。
+
+  // 28-1. [ゲームを始める] の出し分け
   await render(page, baseView());
-  check('全公開部屋では先攻決めボタンを出さない(E4)',
-    (await page.locator('#btn-first-player').getAttribute('class')).includes('d-none'));
-  await render(page, versusView('A'));
-  check('対戦部屋では先攻決めボタンを出す(E4)',
-    !(await page.locator('#btn-first-player').getAttribute('class')).includes('d-none'));
+  check('開始できない状態では [ゲームを始める] を出さない(2-3)',
+    (await page.locator('#btn-start').getAttribute('class')).includes('d-none'));
+  check('21c の先攻決めボタンは廃止されている(3-4・P14)',
+    (await page.locator('#btn-first-player').count()) === 0);
+
+  let v = baseView();
+  v.start = startState({ canBegin: true });
+  await render(page, v);
+  check('★canBegin なら [ゲームを始める] が出る(全公開部屋の入口。6-1)',
+    !(await page.locator('#btn-start').getAttribute('class')).includes('d-none'));
   await clearSent(page);
-  await page.locator('#btn-first-player').click();
+  await page.locator('#btn-start').click();
   await page.waitForTimeout(40);
-  msgs = await sent(page);
-  check('★先攻決めは first-player を送り、席を載せない(E4)',
-    msgs.length === 1 && msgs[0].destination.endsWith('/first-player')
-      && msgs[0].body.seat === undefined, JSON.stringify(msgs));
+  msgs = boardMessages(await sent(page));
+  check('★[ゲームを始める] は start-begin を1件だけ送る',
+    msgs.length === 1 && msgs[0].destination.endsWith('/start-begin'), JSON.stringify(msgs));
+
+  v = versusView('B');
+  v.start = startState({ canBegin: false, phase: 'IDLE' });
+  await render(page, v);
+  check('★対戦部屋で作成者席でない側には [ゲームを始める] を出さない(2-4)',
+    (await page.locator('#btn-start').getAttribute('class')).includes('d-none'));
+
+  // 28-2. 開始方法モーダル(3-1)。★①の文言が部屋の種類で切り替わる
+  v = versusView('A');
+  v.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: true,
+    waiting: 'ゲームの開始方法を選んでいます' });
+  await render(page, v);
+  check('ORDER_METHOD で作成者に開始方法モーダルが出る(3-1)',
+    !(await page.locator('#start-method-modal').getAttribute('class')).includes('d-none'));
+  check('★対戦部屋の①は「ダイスで決める(20面)」(3-2)',
+    (await page.locator('#start-method-dice').textContent()).includes('20面'),
+    await page.locator('#start-method-dice').textContent());
+  check('開始方法は3択である(3-1)',
+    (await page.locator('#start-method-modal button[data-method]').count()) === 3);
+  await clearSent(page);
+  await page.locator('#start-method-first').click();
+  await page.waitForTimeout(40);
+  msgs = boardMessages(await sent(page));
+  check('★「自分が先攻」は start-method に FIRST を載せて送る',
+    msgs.length === 1 && msgs[0].destination.endsWith('/start-method')
+      && msgs[0].body.method === 'FIRST', JSON.stringify(msgs));
+
+  v = baseView();
+  v.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: true });
+  await render(page, v);
+  check('★ソロ(全公開部屋)の①は「ランダムで決める」に変わる(3-1)',
+    (await page.locator('#start-method-dice').textContent()).includes('ランダム'),
+    await page.locator('#start-method-dice').textContent());
+
+  v = versusView('B');
+  v.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: false,
+    waiting: 'ゲームの開始方法を選んでいます' });
+  await render(page, v);
+  check('★開始方法モーダルは押せない席には出ない(2-4)',
+    (await page.locator('#start-method-modal').getAttribute('class')).includes('d-none'));
+  check('★押せない側には待機表示が出る(7-3)',
+    !(await page.locator('#start-banner').getAttribute('class')).includes('d-none')
+      && (await page.locator('#start-banner-text').textContent()).includes('開始方法'));
+
+  // 28-3. 先攻・後攻の選択(3-3)
+  v = versusView('A');
+  v.start = startState({ phase: 'ORDER_CHOICE', locking: true, orderChooser: 'A',
+    canChooseOrder: true });
+  await render(page, v);
+  check('ORDER_CHOICE で勝った席に選択モーダルが出る(3-3)',
+    !(await page.locator('#start-order-modal').getAttribute('class')).includes('d-none'));
+  check('★選択モーダルの見出しに勝った席が出る(3-3)',
+    (await page.locator('#start-order-title').textContent()).includes('席A'));
+  await clearSent(page);
+  await page.locator('#start-order-second').click();
+  await page.waitForTimeout(40);
+  msgs = boardMessages(await sent(page));
+  check('★「後攻をとる」は start-order に takeFirst=false を載せる(席は載せない)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/start-order')
+      && msgs[0].body.takeFirst === false && msgs[0].body.seat === undefined,
+    JSON.stringify(msgs));
+
+  v = versusView('B');
+  v.start = startState({ phase: 'ORDER_CHOICE', locking: true, orderChooser: 'A',
+    canChooseOrder: false, waiting: '席A が先攻・後攻を選んでいます' });
+  await render(page, v);
+  check('★勝っていない席には選択モーダルを出さず、待機表示にする(3-3・7-3)',
+    (await page.locator('#start-order-modal').getAttribute('class')).includes('d-none')
+      && (await page.locator('#start-banner-text').textContent()).includes('席A'));
+
+  // 28-4. マリガン専用オーバーレイ(4-3)
+  v = versusView('A');
+  v.start = startState({ phase: 'MULLIGAN', locking: true, firstSeat: 'A',
+    mulliganSeats: ['A', 'B'], mulliganDone: [], myMulliganSeats: ['A'],
+    waiting: 'マリガンの確定を待っています(席A: 選択中 / 席B: 選択中)' });
+  await render(page, v);
+  check('★マリガンは盤面の手札行ではなく専用オーバーレイで行う(4-3)',
+    (await page.locator('.manual-mulligan').count()) === 1);
+  check('マリガンオーバーレイに自席の手札が並ぶ',
+    (await page.locator('.manual-mulligan-card').count())
+      === v.seatA.zones.HAND.length,
+    `${await page.locator('.manual-mulligan-card').count()}枚`);
+  check('★選択の記法は既存の黄枠と同じで、初期状態では誰も選ばれていない(4-3)',
+    (await page.locator('.manual-mulligan-picked').count()) === 0
+      && (await page.locator('#mulligan-count').textContent()) === '0枚を戻す');
+
+  await page.locator('.manual-mulligan-card').first().click();
+  await page.waitForTimeout(30);
+  check('★左クリックで選択できる(オーバーレイ内のローカル規約。4-3)',
+    (await page.locator('.manual-mulligan-picked').count()) === 1
+      && (await page.locator('#mulligan-count').textContent()) === '1枚を戻す',
+    await page.locator('#mulligan-count').textContent());
+  await page.locator('.manual-mulligan-card').first().click();
+  await page.waitForTimeout(30);
+  check('★もう一度の左クリックで選択を解除できる',
+    (await page.locator('.manual-mulligan-picked').count()) === 0);
+
+  await page.locator('.manual-mulligan-card').nth(1).click({ button: 'right' });
+  await page.waitForTimeout(30);
+  check('★右クリックはオーバーレイ内の拡大に割り当てる(4-3)',
+    (await page.locator('#mulligan-preview img').count()) === 1
+      && (await page.locator('.manual-mulligan-picked').count()) === 0);
+  check('★右クリックの拡大は右列の拡大パネルにも入る(閉じた後に残る)',
+    (await zoomedImage(page)) !== null, String(await zoomedImage(page)));
+
+  await page.locator('.manual-mulligan-card').first().click();
+  await page.waitForTimeout(30);
+  await clearSent(page);
+  await page.locator('#mulligan-confirm').click();
+  await page.waitForTimeout(40);
+  msgs = boardMessages(await sent(page));
+  check('★[確定] は mulligan を1件だけ送る(move の並びにしない。4-4)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/mulligan'), JSON.stringify(msgs));
+  check('★mulligan には戻す手札と席だけを載せ、引く枚数は載せない(4-4・設計判断27)',
+    msgs.length === 1 && msgs[0].body.seat === 'A'
+      && Array.isArray(msgs[0].body.cardIds) && msgs[0].body.cardIds.length === 1
+      && msgs[0].body.count === undefined && msgs[0].body.drawCount === undefined,
+    JSON.stringify(msgs[0] && msgs[0].body));
+
+  // 確定済みになったらオーバーレイを閉じ、相手を待つ表示に切り替わる
+  v = versusView('A');
+  v.start = startState({ phase: 'MULLIGAN', locking: true, firstSeat: 'A',
+    mulliganSeats: ['A', 'B'], mulliganDone: ['A'], myMulliganSeats: [],
+    waiting: 'マリガンの確定を待っています(席A: 確定済み / 席B: 選択中)' });
+  await render(page, v);
+  check('★確定するとオーバーレイが閉じ、待機表示に変わる(7-3)',
+    (await page.locator('.manual-mulligan').count()) === 0
+      && !(await page.locator('#start-banner').getAttribute('class')).includes('d-none'));
+  check('★待機表示は「選択中 / 確定済み」だけで、枚数を出さない(P11)',
+    !/\d+枚/.test(await page.locator('#start-banner-text').textContent()),
+    await page.locator('#start-banner-text').textContent());
+
+  // 28-5. ★開始中は盤面を操作できない(7-1)。★実マウスで確かめる
+  v = baseView();
+  v.start = startState({ phase: 'MULLIGAN', locking: true, firstSeat: 'A',
+    mulliganSeats: ['A'], mulliganDone: ['A'], myMulliganSeats: [],
+    waiting: 'マリガンの確定を待っています(席A: 確定済み)' });
+  await render(page, v);
+  await clearSent(page);
+  await realDrag(page, '#hand-row .manual-hand-card',
+    '#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
+  msgs = boardMessages(await sent(page));
+  check('★★開始シーケンス中は実マウスでドラッグしても何も送られない(7-1)',
+    msgs.length === 0, JSON.stringify(msgs));
+  await clearSent(page);
+  await page.locator('#seat-self-minions .manual-tile-name').first()
+    .click({ button: 'right' });
+  await page.waitForTimeout(40);
+  check('★開始中でもタップの右クリックはサーバが棄却する(送っても構わないが盤面は動かない)',
+    true, '検証はサーバ側の JUnit が持つ(ManualPermissions.denyDuringStart)');
+
+  // ★リセットだけは通る(7-2)。抜けられない画面を作らない
+  await clearSent(page);
+  page.once('dialog', (d) => d.accept());
+  await page.locator('#start-banner .manual-start-reset').click();
+  await page.waitForTimeout(60);
+  msgs = boardMessages(await sent(page));
+  check('★★開始中でも待機表示からリセットへ抜けられる(7-2)',
+    msgs.some((m) => m.destination.endsWith('/reset')), JSON.stringify(msgs));
+
+  // 28-6. 開始後(PLAYING)は元どおり操作できる
+  v = baseView();
+  v.start = startState({ phase: 'PLAYING', locking: false, firstSeat: 'A' });
+  await render(page, v);
+  check('PLAYING では開始まわりの画面が全部消える(1-4)',
+    (await page.locator('.manual-mulligan').count()) === 0
+      && (await page.locator('#start-banner').getAttribute('class')).includes('d-none')
+      && (await page.locator('#start-method-modal').getAttribute('class')).includes('d-none')
+      && (await page.locator('#btn-start').getAttribute('class')).includes('d-none'));
+  await clearSent(page);
+  await realDrag(page, '#hand-row .manual-hand-card',
+    '#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
+  msgs = boardMessages(await sent(page));
+  // ★★22 2章の教訓: 「送られないこと」だけを確かめると、<b>何も起きなかった</b>ときと
+  //   区別が付かない。同じ操作が PLAYING では通ることを対で確かめて初めて、
+  //   1つ上の「開始中は送られない」が意味を持つ。
+  check('★開始後は同じドラッグが通る(ロックが外れている)',
+    msgs.length === 1 && msgs[0].destination.endsWith('/move')
+      && msgs[0].body.toZone === 'TRASH', JSON.stringify(msgs));
 
   // ---- 29. 超ワイド画面(★21b の積み残し。相手上段の左右の離れ) ----
   const wide = await browser.newPage({ viewport: { width: 1920, height: 1080 } });

@@ -80,6 +80,17 @@ public class ManualCardRepository {
     }
 
     /**
+     * カードIDで引く。★見つからないことを呼び出し側が扱える形(Batch 23 5-2)。
+     *
+     * 起動時の設定検証(ピュア・エレメントのID)で使う。{@link #findById} は
+     * 存在しないIDで例外を投げるが、設定漏れで<b>アプリ全体が上がらなくなるほうが害が大きい</b>
+     * ため、あちらの経路は使えない。
+     */
+    public Optional<ManualCardMaster> findOptionalById(String cardId) {
+        return Optional.ofNullable(cardId == null ? null : cardsById.get(cardId));
+    }
+
+    /**
      * 表面画像IDで引く。デッキ取り込み(Batch 17b)の入口になる。
      * 見つからない場合を呼び出し側が扱えるよう、例外ではなく Optional を返す。
      */

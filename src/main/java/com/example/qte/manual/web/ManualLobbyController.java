@@ -191,6 +191,10 @@ public class ManualLobbyController {
                 ? request.seat()
                 : ManualSeatId.A;
         ManualOccupant occupant = room.join(request == null ? null : request.displayName(), seat);
+        // ★Batch 23 2-4: 開始方法を選べる人を「作成者の席」で記録する。
+        //   occupantId で持つと、作成者が居なくなった部屋は永久に開始できなくなる。
+        //   席で持てば座り直した人が権利を引き継ぐ(共有ゾーンの所有と同じ判断)。
+        room.setCreatorSeat(seat);
         return toJoinResponse(room, occupant);
     }
 

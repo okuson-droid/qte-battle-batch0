@@ -2,8 +2,10 @@ package com.example.qte.manual;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -36,6 +38,13 @@ import lombok.Setter;
  * 席の割り当ては在室者({@link ManualOccupant#getSeatId()})が持ち、部屋は
  * 「二重着席させない」検査だけを引き受ける。席を部屋側の配列で持たなかったのは、
  * 在室者と席の対応を2箇所に置くと、切断・退室・着席のたびに同期が要るためである。
+ *
+ * <h2>★Batch 23: 開始シーケンスの状態も盤面の外に置く(23 設計書 2-6)</h2>
+ * {@link ManualStartPhase} と先攻席は {@link ManualGameState} ではなく<b>ここ</b>が持つ。
+ * {@code ManualGameState.copy()} は Undo のための複製であり、
+ * 開始フェーズが Undo で巻き戻ってはならない。状態に混ぜると
+ * 「{@code copy()} に含めるかどうか」で必ず迷うことになる。
+ * ログと同じ側に置けば「盤面の外にある情報」という位置づけが1つに揃う。
  */
 @Getter
 public class ManualRoom {
@@ -68,6 +77,71 @@ public class ManualRoom {
 
     @Setter
     private ManualGameState gameState;
+
+    // ================= ★Batch 23: 開始シーケンス(設計書 2章) =================
+
+    /** 開始シーケンスのフェーズ。★{@link ManualGameState} には置かない(2-6) */
+    @Setter
+    private ManualStartPhase startPhase = ManualStartPhase.IDLE;
+
+    /**
+     * 先攻の席。決まるまでは null。
+     * ★<b>リセットされるまで固定である</b>(1-4)。途中で前提が変わると、
+     * それまでの盤面の意味が崩れるためである。
+     */
+    @Setter
+    private ManualSeatId firstSeat;
+
+    /**
+     * 部屋の作成者の席(2-4)。
+     *
+     * ★<b>occupantId ではなく席で持つ。</b>occupant は入れ替わる(席を立つ・切断・猶予切れ)
+     * ため、occupantId で持つと作成者が居なくなった部屋は永久に開始できなくなる。
+     * 席で持てば、座り直した人が権利を引き継ぐ。共有ゾーンの所有({@code placedBySeat})を
+     * 席基準にしたのと同じ判断である(21 設計書 6-2)。
+     *
+     * ★作成者席が空席のときは、どちらの席のプレイヤーでも開始方法を選べる
+     * ({@link ManualPermissions#denyStartControl})。「押せる人が居ない画面」を作らないためである。
+     */
+    @Setter
+    private ManualSeatId creatorSeat;
+
+    /** ダイスで選択権を得た席({@link ManualStartPhase#ORDER_CHOICE} の間だけ意味を持つ) */
+    @Setter
+    private ManualSeatId orderChooserSeat;
+
+    /**
+     * マリガンを確定した席(4-2)。★相手には「選択中 / 確定済み」だけを出す。
+     * <b>何枚選んだかは出さない</b>(確定前の情報であり、相手の手札の質を推測させる。P11)。
+     */
+    private final Set<ManualSeatId> mulliganDone = EnumSet.noneOf(ManualSeatId.class);
+
+    /** マリガンを待っている席(デッキを読み込んでいる席だけが対象。6-2) */
+    private final Set<ManualSeatId> mulliganPending = EnumSet.noneOf(ManualSeatId.class);
+
+    /**
+     * 開始シーケンスを未開始へ戻す(★11章の最重要項目)。
+     *
+     * ★<b>リセットでフェーズも {@code IDLE} へ戻すこと。</b>
+     * 盤面だけ初期化されてフェーズが {@code PLAYING} のまま残るのが最悪の状態である
+     * (盤面は仕切り直されているのに「開始済み」として扱われる)。
+     * デッキの読み直しでも同じ経路を通る(P6)。
+     */
+    public void resetStart() {
+        startPhase = ManualStartPhase.IDLE;
+        firstSeat = null;
+        orderChooserSeat = null;
+        mulliganDone.clear();
+        mulliganPending.clear();
+    }
+
+    /** 後攻の席。先攻が決まっていなければ null。 */
+    public ManualSeatId secondSeat() {
+        if (firstSeat == null) {
+            return null;
+        }
+        return firstSeat == ManualSeatId.A ? ManualSeatId.B : ManualSeatId.A;
+    }
 
     /** 従来どおりの全公開部屋。★既存のテストと 20c までの入口はこれを使う。 */
     public ManualRoom(String roomId) {

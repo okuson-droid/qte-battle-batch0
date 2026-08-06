@@ -17,10 +17,15 @@ import org.springframework.stereotype.Service;
  *
  * <h2>自動処理の範囲(設計書 5-1・5-2)</h2>
  * アプリが担うのは「同じ盤面を見ていることの保証」だけである。判断を要するものは全部切る。
- * ゲーム開始でアプリが行うのは<b>シャッフルと初期手札4枚とLP20</b>だけであり、ここに判断は無い。
- * マリガンは手動(戻したい札を山札へドラッグして引き直す)、
- * ダイス・先攻後攻の決定は行わず、ターンは人間が進める。
- * ピュア・エレメントの自動配布もしない。
+ * ゲーム開始でアプリが行うのは<b>シャッフルと初期手札とLP20</b>だけであり、ここに判断は無い。
+ *
+ * <h2>★Batch 23 で自動化した範囲(23 設計書 1-3)</h2>
+ * 総合ルール <b>2-5(ゲーム開始前の処理)だけ</b>を自動化する。ダイス・先攻後攻の決定・
+ * マリガン・ピュア・エレメントの配布は {@link ManualStartService} が引き受けるが、
+ * <b>2-6(ターン進行)には一切踏み込まない</b>。ターンもフェイズも人間が進める。
+ * 勝敗・コスト・デッキ切れの判断は1つも増えていない。
+ * このクラスが提供するのは、その段取りが使う部品
+ * ({@link #shuffleDeck} / {@link #drawCards} / {@link #dealForStart} / {@link #rollDie})だけである。
  *
  * ★このクラスは呼び出し側が {@code synchronized (room.getLock())} の中で呼ぶ前提で書く。
  * 自前ではロックを取らない。ロックの範囲を決めるのは、
@@ -32,8 +37,14 @@ public class ManualGameService {
     /** 開始時のLP(総合ルール 2-2)。上限は強制しない */
     public static final int INITIAL_LP = 20;
 
-    /** 開始時の手札枚数 */
+    /** デッキ読み込み直後の手札枚数(★開始シーケンスを通さないときの既定) */
     public static final int INITIAL_HAND_SIZE = 4;
+
+    /** 先攻の初期ドロー(総合ルール 2-5 の2 / ★Batch 23 4-1) */
+    public static final int FIRST_PLAYER_HAND_SIZE = 4;
+
+    /** 後攻の初期ドロー(総合ルール 2-5 の2 / ★Batch 23 4-1) */
+    public static final int SECOND_PLAYER_HAND_SIZE = 5;
 
     private final Random random = new SecureRandom();
 
@@ -51,6 +62,9 @@ public class ManualGameService {
         room.getGameState().clearSharedZones();
 
         room.getHistory().clear();
+        // ★Batch 23 P6: デッキを読み直したら開始シーケンスは未開始へ戻す。
+        //   読み直した山札の上に「開始済み」という前提だけが残るのが最悪の状態である。
+        room.resetStart();
         // ★デッキ名と枚数は全員に見せる(21 設計書 5-3)。名前を見せたくなければ
         //   デッキファイルに名前を付けずに読み込めばよい、というのが確定した方針である。
         room.addLog(ManualLogEvent.plain(ManualLogKind.DECK, seatId,
@@ -70,6 +84,18 @@ public class ManualGameService {
      * 「直近のデッキ」は必ず最新化される。
      */
     private void applyImport(ManualSeat seat, ManualDeckImport imported) {
+        applyImport(seat, imported, INITIAL_HAND_SIZE);
+    }
+
+    /**
+     * 初期手札の枚数を指定して適用する(★Batch 23 4-1)。
+     *
+     * ★<b>新しい初期化処理を書かない</b>(23 設計書 6-3)。開始シーケンスの
+     * 「シャッフル → 初期ドロー(先攻4 / 後攻5)」も、リセットもデッキ読込も、
+     * 通るのはこの1本だけである。2種類の「初期化」が存在すると、どちらを通ったかで
+     * 盤面の残り方が変わる。違うのは引く枚数だけであり、それは引数で表す。
+     */
+    private void applyImport(ManualSeat seat, ManualDeckImport imported, int handSize) {
         seat.clearAll();
         seat.setDeckName(imported.deckName());
         seat.setLastImport(imported);
@@ -92,8 +118,27 @@ public class ManualGameService {
             seat.zone(ManualZone.TABOO).add(instance);
         }
 
-        drawCards(seat, INITIAL_HAND_SIZE);
+        drawCards(seat, handSize);
         seat.setLp(INITIAL_LP);
+    }
+
+    /**
+     * 開始シーケンスの配り直し(★Batch 23 4-1)。
+     * 直近に読み込んだデッキを、指定枚数の初期手札で配り直す。
+     *
+     * ★山札が足りなければ引ける枚数だけ引く({@link #drawCards})。
+     * <b>デッキ切れ敗北は判定しない</b>(23 設計書 1-3・P16)。
+     *
+     * @return 実際に引いた枚数。★デッキ未読込の席は -1(呼び出し側が「配らない」を判断する)
+     */
+    public int dealForStart(ManualRoom room, ManualSeatId seatId, int handSize) {
+        ManualSeat seat = room.getGameState().seat(seatId);
+        ManualDeckImport imported = seat.getLastImport();
+        if (imported == null) {
+            return -1;
+        }
+        applyImport(seat, imported, handSize);
+        return seat.zone(ManualZone.HAND).size();
     }
 
     /**
@@ -123,6 +168,10 @@ public class ManualGameService {
             throw new IllegalStateException("まだデッキを読み込んでいないため、リセットできません");
         }
         room.getHistory().clear();
+        // ★★Batch 23 11章の最重要項目: リセットでフェーズも IDLE へ戻す。
+        //   盤面だけ初期化されて PLAYING が残るのが最悪の状態である。
+        //   ★リセットは開始シーケンス中でも通る唯一の操作でもある(7-2)。
+        room.resetStart();
         room.addLog(ManualLogEvent.plain(ManualLogKind.DECK, null, "リセットして引き直した"));
     }
 
@@ -151,10 +200,17 @@ public class ManualGameService {
      * ダイスを1つ振る(総合ルール 2-5 の先後判定 / 21 設計書 6-3・E4)。
      *
      * ★<b>乱数の出所をこのクラス1つに保つ</b>ためにここへ置いた。
-     * 呼び出し側({@code ManualOperationService.firstPlayer})に
-     * {@code Random} をもう1つ持たせると、乱数源が2箇所に分かれる。
+     * 呼び出し側({@link ManualStartService})に {@code Random} をもう1つ持たせると、
+     * 乱数源が2箇所に分かれる。
      * 「機械のほうが公平である」というシャッフルの理由がそのまま当てはまる処理であり、
      * 同じ場所に置くのが素直である。★盤面には一切触らない。
+     *
+     * <h3>★面数は引数である(Batch 23 3-2)</h3>
+     * 21c は6面で使っていたが、23 は総合ルール 2-5 の先後判定に<b>20面</b>を使う。
+     * 定数 {@code DICE_SIDES = 6} を書き換えるのではなく、呼び出し側が 20 を渡す。
+     * 定数の名前はそのままで意味だけが変わるのが、最も気づきにくい壊し方だからである。
+     * ★23 では 21c の呼び出し側({@code ManualOperationService.firstPlayer})ごと
+     * 削除したため、6面の定数自体が残っていない(3-4。経路を1本にする)。
      */
     public int rollDie(int sides) {
         return random.nextInt(sides) + 1;

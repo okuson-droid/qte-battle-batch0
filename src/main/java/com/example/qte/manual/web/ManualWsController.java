@@ -25,6 +25,7 @@ import com.example.qte.manual.ManualRoom;
 import com.example.qte.manual.ManualRoomManager;
 import com.example.qte.manual.ManualSeatId;
 import com.example.qte.manual.ManualSpectatorView;
+import com.example.qte.manual.ManualStartService;
 
 import lombok.RequiredArgsConstructor;
 
@@ -78,6 +79,9 @@ public class ManualWsController {
     private final ManualOperationService operations;
 
     private final ManualGameService gameService;
+
+    /** ★Batch 23: 開始シーケンス(総合ルール 2-5)。盤面操作とは別の経路である */
+    private final ManualStartService startService;
 
     // ---- 在室(設計書 6-3) ----
 
@@ -186,6 +190,12 @@ public class ManualWsController {
     /**
      * リセットして引き直す(設計書 7-1・5-6)。
      * ★対戦部屋ではどちらの席でも押せる(21 6-3)。確認ダイアログは画面側の責務である。
+     *
+     * ★★Batch 23 7-2: <b>開始シーケンス中でもリセットだけは通す。</b>
+     * {@code denyDuringStart} を通る {@code mutate} / Undo とは違い、この経路は
+     * {@code execute} であり棄却されない。開始シーケンスが何かの理由で詰まったときの
+     * 逃げ道であり、<b>止まったまま抜けられない画面を作らない</b>ためである。
+     * {@code ManualGameService.resetRoom} がフェーズも {@code IDLE} へ戻す。
      */
     @MessageMapping("/manual/{roomId}/reset")
     public void reset(@DestinationVariable String roomId, OccupantRequest request) {
@@ -299,16 +309,44 @@ public class ManualWsController {
         direct(roomId, request.occupantId(), (room, actor) -> operations.note(actor, request));
     }
 
+    // ---- ★Batch 23. ゲーム開始シーケンス(総合ルール 2-5 / 23 設計書2章) ----
+    //
+    // ★21c の /first-player は削除した(23 設計書 3-4)。先攻を決める経路は1本でなければ
+    //   ならない。2つ残すと「ヘッダの先攻決めとモーダルの先攻決めのどちらが正か」が
+    //   決まらなくなる。
+    //
+    // ★開始シーケンスは direct(履歴に積まない)を通す。開始処理は複数の状態変更を含み、
+    //   途中まで戻せると意味のない中間状態が作れてしまう(2-5・P12)。
+    //   完了時に ManualStartService が履歴をクリアする。戻したいならリセットする。
+
+    /** 開始シーケンスを始める(2-3)。全公開部屋は [ゲームを始める]、対戦部屋は両者のデッキ読込が合図 */
+    @MessageMapping("/manual/{roomId}/start-begin")
+    public void startBegin(@DestinationVariable String roomId, OccupantRequest request) {
+        direct(roomId, request.occupantId(), startService::begin);
+    }
+
+    /** 開始方法の3択(3-1)。★ソロでは DICE が「ランダムで先攻を決める」になる */
+    @MessageMapping("/manual/{roomId}/start-method")
+    public void startMethod(@DestinationVariable String roomId, ManualOpRequest.StartMethod request) {
+        direct(roomId, request.occupantId(),
+                (room, actor) -> startService.chooseMethod(room, actor, request.method()));
+    }
+
+    /** ダイスの勝者が先攻 / 後攻を選ぶ(3-3)。★押せるのは勝った席だけである */
+    @MessageMapping("/manual/{roomId}/start-order")
+    public void startOrder(@DestinationVariable String roomId, ManualOpRequest.StartOrder request) {
+        direct(roomId, request.occupantId(), (room, actor) -> startService.chooseOrder(room, actor,
+                Boolean.TRUE.equals(request.takeFirst())));
+    }
+
     /**
-     * 先攻選択権の判定(21 設計書 6-3・E4)。★盤面に触らないので履歴に積まない。
-     *
-     * ★{@code note} 経路での代用を採らなかった理由は {@code ManualLogKind.FIRST_PLAYER} に書いた。
-     * 引数は occupantId だけである。どちらの席でも押せるため席を受け取る必要が無く、
-     * 受け取らなければ「相手の席として振る」偽装の余地も生まれない。
+     * マリガン(4-2・4-4)。★<b>サーバが「戻す → シャッフル → 同数ドロー」を1操作で行う。</b>
+     * クライアントが {@code move} を並べて送る形にしてはならない(設計判断27)。
      */
-    @MessageMapping("/manual/{roomId}/first-player")
-    public void firstPlayer(@DestinationVariable String roomId, OccupantRequest request) {
-        direct(roomId, request.occupantId(), (room, actor) -> operations.firstPlayer(actor));
+    @MessageMapping("/manual/{roomId}/mulligan")
+    public void mulligan(@DestinationVariable String roomId, ManualOpRequest.Mulligan request) {
+        direct(roomId, request.occupantId(), (room, actor) ->
+                startService.mulligan(room, actor, request.seat(), request.cardIds()));
     }
 
     // ---- Undo / Redo(★履歴そのものを動かすので積まない) ----

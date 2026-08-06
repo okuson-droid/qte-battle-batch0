@@ -22,6 +22,9 @@ import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualPermissions;
 import com.example.qte.manual.ManualRoom;
 import com.example.qte.manual.ManualSeat;
+import com.example.qte.manual.ManualSeatId;
+import com.example.qte.manual.ManualStartPhase;
+import com.example.qte.manual.ManualStartService;
 import com.example.qte.manual.ManualViewpoint;
 import com.example.qte.manual.ManualZone;
 
@@ -68,6 +71,13 @@ public class ManualViewBuilder {
 
     private final ManualLogRenderer logRenderer;
 
+    /**
+     * ★開始シーケンス(Batch 23)。ビューが参照するのは
+     * {@link ManualStartService#isPureElementAvailable()} だけである。
+     * 設定の有無を判断する場所を2つ作らないため、サービスに聞く。
+     */
+    private final ManualStartService startService;
+
     public ManualGameView build(ManualRoom room, ManualOccupant viewer) {
         ManualGameState state = room.getGameState();
         ManualViewpoint viewpoint = ManualViewpoint.of(room, viewer);
@@ -110,11 +120,88 @@ public class ManualViewBuilder {
                 buildSeat(state.getSeatA(), viewpoint),
                 buildSeat(state.getSeatB(), viewpoint),
                 buildShared(state),
+                buildStart(room, actor),
                 occupants,
                 log,
                 // ★ボタンの活性と実際の可否が同じ判定を通る(設計判断34 の型)
                 ManualPermissions.denyUndo(actor, room) == null,
                 ManualPermissions.denyRedo(actor, room) == null && room.getHistory().canRedo());
+    }
+
+    /**
+     * 開始シーケンスのビュー(★Batch 23 設計書9章)。
+     *
+     * ★<b>「押せるか」はすべて {@link ManualPermissions} の結果である。</b>
+     * ここで条件を組み立て直さない。ボタンの活性と実際の可否が同じ関数を通るため、
+     * 表示と検証が構造的にズレない(設計判断34。21a の canUndo / canRedo と同じ形)。
+     */
+    private ManualStartView buildStart(ManualRoom room, ManualActor actor) {
+        ManualStartPhase phase = room.getStartPhase();
+        boolean mayControl = ManualPermissions.denyStartControl(actor, room) == null;
+        boolean mayOrder = ManualPermissions.denyOrderChoice(actor, room) == null;
+
+        List<ManualSeatId> pending = new ArrayList<>(room.getMulliganPending());
+        List<ManualSeatId> done = new ArrayList<>(room.getMulliganDone());
+        List<ManualSeatId> mine = new ArrayList<>();
+        if (phase == ManualStartPhase.MULLIGAN) {
+            for (ManualSeatId seatId : pending) {
+                if (!done.contains(seatId)
+                        && ManualPermissions.denySeatAction(actor, seatId) == null) {
+                    mine.add(seatId);
+                }
+            }
+        }
+
+        return new ManualStartView(
+                phase,
+                phase.isLocking(),
+                room.getFirstSeat(),
+                room.getOrderChooserSeat(),
+                phase == ManualStartPhase.IDLE && mayControl && beginnable(room, actor),
+                phase == ManualStartPhase.ORDER_METHOD && mayControl,
+                phase == ManualStartPhase.ORDER_CHOICE && mayOrder,
+                pending,
+                done,
+                mine,
+                waitingText(room, phase, pending, done),
+                startService.isPureElementAvailable());
+    }
+
+    /**
+     * 開始できる条件(2-3)。★対戦部屋は両席、全公開部屋は1席以上のデッキ読込が要る。
+     * ★{@link com.example.qte.manual.ManualStartService#begin} と同じ条件である。
+     * 判定が2つに分かれるのは避けたいが、片方は「押せるか」でもう片方は「押されたときの検証」で
+     * あり、後者が唯一の正である(クライアントの活性は操作補助にすぎない。設計判断27)。
+     */
+    private boolean beginnable(ManualRoom room, ManualActor actor) {
+        int loaded = 0;
+        for (ManualSeatId seatId : ManualSeatId.values()) {
+            if (room.getGameState().seat(seatId).getLastImport() != null) {
+                loaded++;
+            }
+        }
+        return actor.isRestricted() ? loaded == ManualSeatId.values().length : loaded > 0;
+    }
+
+    /**
+     * 待機中の説明(7-3)。★<b>全員に同じ文を出す。</b>
+     * 盤面が固まっている理由が画面に書かれていない状態を作らない(21 設計書 3-5)。
+     * ★マリガンでは「選択中 / 確定済み」だけを出し、<b>何枚選んだかは出さない</b>(P11)。
+     */
+    private String waitingText(ManualRoom room, ManualStartPhase phase,
+            List<ManualSeatId> pending, List<ManualSeatId> done) {
+        return switch (phase) {
+            case ORDER_METHOD -> "ゲームの開始方法を選んでいます";
+            case ORDER_CHOICE -> "席%s が先攻・後攻を選んでいます".formatted(room.getOrderChooserSeat());
+            case MULLIGAN -> {
+                List<String> parts = new ArrayList<>();
+                for (ManualSeatId seatId : pending) {
+                    parts.add("席%s: %s".formatted(seatId, done.contains(seatId) ? "確定済み" : "選択中"));
+                }
+                yield "マリガンの確定を待っています(%s)".formatted(String.join(" / ", parts));
+            }
+            default -> null;
+        };
     }
 
     /**

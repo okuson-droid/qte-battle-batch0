@@ -130,4 +130,31 @@ public final class ManualOpRequest {
     /** 自由メモ(設計書 5-3 の13 / 5-5)。★このモードの成果物を生む中核機能である。 */
     public record Note(String occupantId, String text) {
     }
+
+    // ================= ★Batch 23: 開始シーケンス =================
+
+    /** 開始方法の選択(23 設計書 3-1)。★どの席が先攻かは<b>押した人の席</b>から決まる。 */
+    public record StartMethod(String occupantId, ManualStartMethod method) {
+    }
+
+    /**
+     * ダイスの勝者による先攻 / 後攻の選択(23 設計書 3-3)。
+     * ★席を受け取らない。押せる席はサーバが {@code orderChooserSeat} で知っている。
+     * 受け取らなければ「相手の席として選ぶ」偽装の余地も生まれない(21c firstPlayer と同じ判断)。
+     */
+    public record StartOrder(String occupantId, Boolean takeFirst) {
+    }
+
+    /**
+     * マリガン(23 設計書 4-2・4-4)。
+     *
+     * ★{@code cardIds} は<b>戻す手札</b>である。空でよい(= マリガンしない。1回として消費する)。
+     * ★引く枚数を載せない。<b>サーバが戻した枚数と同数を引く</b>(4-4。設計判断27)。
+     * クライアントが引く枚数を決められると、戻した枚数と引く枚数を食い違わせられる。
+     *
+     * @param seat 対象の席。★全公開部屋では1人が両席ぶんを順に確定するため必要である。
+     *             対戦部屋では {@code denySeatAction} が自席以外を弾く
+     */
+    public record Mulligan(String occupantId, ManualSeatId seat, List<String> cardIds) {
+    }
 }
