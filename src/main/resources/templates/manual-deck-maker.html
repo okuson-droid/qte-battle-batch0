@@ -356,7 +356,7 @@ input[type=file]{display:none;}
 
 <div class="toast" id="toast"></div>
 
-<script>
+<script th:inline="none">
 /* ============================================================
  * カードデータはサーバの /manual/api/card-library から取得する。
  * これは manual-cards.json そのものであり、盤面とデッキメーカーは
@@ -677,7 +677,12 @@ function buildStaticUi(){
     rowCiv.appendChild(b);
   });
   const rowType=document.getElementById('row-type');
-  [['MINION','ミニオン'],['EVOLUTION','進化'],['SPELL','スペル'],['WEAPON','ウェポン']].forEach(([k,lbl])=>{
+  // ★角括弧の開きを2つ連ねる書き方(二重配列リテラル等)をこのファイルに書かないこと。
+  // Thymeleaf が自然インライン式の開始として解釈し、スクリプトごと破壊する
+  // (Batch 24 hotfix で実際に起きた)。th:inline="none" で二重に防いでいるが、
+  // 書き方としても避ける。
+  const TYPE_FILTER_LABELS = {MINION:'ミニオン', EVOLUTION:'進化', SPELL:'スペル', WEAPON:'ウェポン'};
+  Object.entries(TYPE_FILTER_LABELS).forEach(([k,lbl])=>{
     const b=document.createElement('button');
     b.className='flt-btn on'; b.textContent=lbl;
     b.onclick=()=>{ filters.type[k]=!filters.type[k]; b.classList.toggle('on'); renderAll(); };
