@@ -359,15 +359,23 @@ public class ManualStartService {
     }
 
     /**
-     * 後攻へピュア・エレメントを裏向きで渡す(★設計書5章 / 総合ルール 2-5 の4)。
+     * 後攻へピュア・エレメントを渡す(★設計書5章 / 総合ルール 2-5 の4)。
      *
-     * <h3>★{@code HAND} の表向き正規化を通さない(5-3)</h3>
-     * {@code ManualOperationService.FACE_UP_ON_ARRIVAL} には {@code HAND} が入っている。
-     * {@code move} 経由で渡すと表向きに直されてしまうため、ゾーンへ直接置く。
+     * <h3>★★<b>表向きで渡す</b>(マスター裁定 2026-08-06)</h3>
+     * 総合ルール 2-5 の4は「裏向きで渡す」と書いているが、<b>この文言は語弊がある</b>。
+     * 手札は持ち主しか見ないゾーンであり(対戦部屋では相手にカードオブジェクトが
+     * そもそも届かない。21 設計書 3-3)、裏向きにしても<b>情報上の意味が1ビットも無い</b>。
+     * 実物のカードゲームで「裏向きで渡す」のは相手に見せないためであって、
+     * 受け取った本人が中身を見られない状態にするためではない。
+     * したがって<b>他の手札と同じ扱いにする</b>。
      *
-     * <h3>★裏向きに「相手へ公開しない」の意味は無い(21 設計書 3-4)</h3>
-     * 対戦部屋で相手に見えないのは<b>手札が非公開ゾーンだから</b>である。
-     * ここでの裏向きは「まだ使っていない配布物」という<b>持ち主向けの目印</b>にすぎない。
+     * ★裏向きにしていた当初の実装では、手札行で
+     * 「灰色の箱に(裏向き)と書かれただけのタイル」になり、
+     * <b>持ち主にも何のカードか分からない</b>という実害だけが残っていた。
+     *
+     * ★この判断により {@code HAND} の表向き正規化
+     * ({@code ManualOperationService.FACE_UP_ON_ARRIVAL})との衝突も消えた。
+     * 正規化を避ける特別な経路が要らなくなり、ゾーンへ素直に置くだけで済む。
      *
      * @return ログに足す説明。配布しなかったときは null
      */
@@ -383,10 +391,10 @@ public class ManualStartService {
         if (master.isEmpty()) {
             return "ピュア・エレメントが台帳に無いため配布を省略した";
         }
+        // ★表向きのまま置く。ManualCardInstance.of は faceDown = false で作る
         ManualCardInstance instance = ManualCardInstance.of(master.get());
-        instance.setFaceDown(true);
         room.getGameState().seat(second).zone(ManualZone.HAND).add(instance);
-        return "席%s(後攻)にピュア・エレメントを裏向きで渡した".formatted(second);
+        return "席%s(後攻)にピュア・エレメントを渡した".formatted(second);
     }
 
     // ================= 補助 =================

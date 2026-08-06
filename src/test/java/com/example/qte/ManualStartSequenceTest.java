@@ -300,7 +300,7 @@ class ManualStartSequenceTest {
     // ================= 5章. ピュア・エレメント =================
 
     @Test
-    void 両者のマリガンが終わると後攻へピュアエレメントが裏向きで入る() {
+    void 両者のマリガンが終わると後攻へピュアエレメントが表向きで入る() {
         ManualRoom room = toMulligan(ManualSeatId.A);
         finishMulligan(room);
 
@@ -309,8 +309,11 @@ class ManualStartSequenceTest {
         // 後攻5枚 + ピュア・エレメント1枚
         assertThat(second).hasSize(6);
         ManualCardInstance pure = second.get(second.size() - 1);
-        // ★HAND の表向き正規化(FACE_UP_ON_ARRIVAL)を通さない経路で置く(5-3)
-        assertThat(pure.isFaceDown()).isTrue();
+        // ★★他の手札と同じ扱いにする(マスター裁定 2026-08-06)。
+        //   総合ルール 2-5 の4は「裏向きで渡す」と書くが、手札は持ち主しか見ないゾーンであり
+        //   (対戦部屋では相手にカードオブジェクトが届かない)、裏向きに情報上の意味が無い。
+        //   裏向きにすると持ち主にも何のカードか分からなくなる実害だけが残る。
+        assertThat(pure.isFaceDown()).isFalse();
         assertThat(pure.isResolved()).isTrue();
         // ★先攻には渡らない
         assertThat(hand(room, ManualSeatId.A)).hasSize(4);
