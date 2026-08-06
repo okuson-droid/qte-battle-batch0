@@ -611,3 +611,113 @@ body.manual-drag-active .manual-band {
     border-color: #ffca28; background: rgba(255, 202, 40, 0.15);
 }
 .manual-mulligan-foot { display: flex; align-items: center; gap: 8px; }
+
+
+/* ============================================================
+   ★Batch 25: カードフェイス(画像の代わりにテキストから描画)
+   .mcard-* は手動モード専用の新設クラスである(通常モードは使わない)。
+   文明色は --mc カスタムプロパティで受け取る。
+   variant: large(拡大) / full(手札・マリガン) / mini(帯・パイル) / micro(相手上段・行)
+   ============================================================ */
+.mcard {
+    position: relative; width: 100%; height: 100%;
+    border-radius: 6px; padding: 2px; box-sizing: border-box;
+    background: linear-gradient(160deg,
+        color-mix(in srgb, var(--mc) 78%, #fff 6%) 0%,
+        color-mix(in srgb, var(--mc) 55%, #000 30%) 45%,
+        color-mix(in srgb, var(--mc) 70%, #000 45%) 100%);
+    user-select: none;
+}
+.mcard-inner {
+    height: 100%; display: flex; flex-direction: column;
+    background: linear-gradient(180deg, #16141f, #1c1929);
+    border-radius: 4px; overflow: hidden; border: 1px solid rgba(0, 0, 0, 0.4);
+}
+.mcard-head {
+    display: flex; align-items: center; gap: 4px; padding: 3px 4px;
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--mc) 38%, #14121d),
+        color-mix(in srgb, var(--mc) 18%, #14121d));
+    border-bottom: 1px solid color-mix(in srgb, var(--mc) 45%, transparent);
+}
+.mcard-cost {
+    flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; font-weight: 900; font-size: 10px; color: #fff;
+    background: radial-gradient(circle at 35% 30%,
+        color-mix(in srgb, var(--mc) 60%, #fff 25%),
+        color-mix(in srgb, var(--mc) 75%, #000 25%));
+    clip-path: polygon(50% 0%, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%);
+}
+.mcard-name {
+    font-weight: 700; font-size: 9.5px; line-height: 1.2; color: #ece8f7;
+    overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.mcard-type {
+    padding: 1px 4px; font-size: 7.5px; letter-spacing: 0.12em;
+    color: color-mix(in srgb, var(--mc) 70%, #fff 25%); background: rgba(0, 0, 0, 0.25);
+}
+.mcard-text {
+    flex: 1; min-height: 0; padding: 3px 4px; font-size: 9.5px; line-height: 1.5;
+    color: #cfc9e4; overflow-y: auto; scrollbar-width: thin; text-align: left;
+}
+.mcard-spacer { flex: 1; }
+.mcard-foot {
+    display: flex; justify-content: space-between; padding: 2px 5px; min-height: 15px;
+    background: linear-gradient(0deg,
+        color-mix(in srgb, var(--mc) 22%, #14121d), rgba(0, 0, 0, 0.15));
+    border-top: 1px solid color-mix(in srgb, var(--mc) 35%, transparent);
+    font-weight: 900; font-size: 10px;
+}
+.mcard-atk { color: #f0c869; }
+.mcard-hp { color: #e88a9a; }
+.mcard-foot-leader {
+    justify-content: center; color: #c9a15a;
+    font-size: 7px; font-weight: 700; letter-spacing: 0.3em;
+}
+
+/* micro: 名前とコストだけの極小フェイス(相手上段 40〜48px・山札行 40px) */
+.mcard-micro .mcard-head { padding: 2px 3px; gap: 3px; }
+.mcard-micro .mcard-cost { width: 12px; height: 12px; font-size: 8px; }
+.mcard-micro .mcard-name { font-size: 8px; -webkit-line-clamp: 3; }
+.mcard-micro .mcard-foot { min-height: 12px; font-size: 8px; padding: 1px 3px; }
+
+/* large: 拡大パネル・マリガンプレビュー */
+.mcard-large { padding: 4px; border-radius: 8px; }
+.mcard-large .mcard-head { padding: 6px 8px; gap: 6px; }
+.mcard-large .mcard-cost { width: 24px; height: 24px; font-size: 13px; }
+.mcard-large .mcard-name { font-size: 13.5px; line-height: 1.3; }
+.mcard-large .mcard-type { padding: 2px 8px; font-size: 9.5px; }
+.mcard-large .mcard-text { padding: 7px 8px; font-size: 13px; line-height: 1.7; color: #e2ddf2; }
+.mcard-large .mcard-foot { min-height: 26px; font-size: 14px; padding: 4px 8px; }
+.mcard-large .mcard-foot-leader { font-size: 9px; }
+
+/* 裏面。表と同じ寸法規則で振る舞う。非公開情報を一切持たない */
+.mcard-backface {
+    position: relative; width: 100%; height: 100%;
+    border-radius: 6px; box-sizing: border-box;
+    border: 1px solid #4a4361;
+    background:
+        repeating-linear-gradient(135deg, rgba(201, 161, 90, 0.07) 0 3px, transparent 3px 9px),
+        radial-gradient(circle at 50% 38%, #2a2640 0%, #17151f 70%);
+    display: flex; align-items: center; justify-content: center;
+}
+.mcard-back-mark {
+    font-family: Georgia, serif; font-weight: 900; font-size: 9px; letter-spacing: 0.2em;
+    color: #8a744a; border: 1px solid #5d4f33; border-radius: 2px; padding: 2px 5px;
+}
+
+/* 幅から高さが決まる置き場(固定高の入れ物ではアスペクトを使わず height:100% のまま) */
+.manual-hand-card .mcard, .manual-hand-card .mcard-backface,
+.manual-mulligan-card .mcard, .manual-mulligan-card .mcard-backface,
+.manual-band-card .mcard, .manual-band-card .mcard-backface,
+#zoom-panel .mcard, .manual-mulligan-preview .mcard {
+    height: auto; aspect-ratio: 5 / 7;
+}
+/* 山札の全面表示の行: 40px のサムネイル */
+.manual-deck-row .mcard, .manual-deck-row .mcard-backface {
+    flex: 0 0 auto; width: 40px; height: 56px;
+}
+/* 極小の入れ物では裏面の紋章をさらに小さく */
+.manual-opp-mana-card .mcard-back-mark, .manual-deck-row .mcard-back-mark {
+    font-size: 6px; padding: 1px 3px; letter-spacing: 0.1em;
+}

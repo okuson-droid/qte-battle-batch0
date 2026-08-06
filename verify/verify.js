@@ -47,6 +47,13 @@ function startServer() {
       res.end(PNG);
       return;
     }
+    // ★25: カード定義。本物と同じ経路で返す(空でよい。テキスト表示の検証は
+    //   セクション26が applyCardLibrary で明示的にフィクスチャを入れて行う)
+    if (url === '/manual/api/card-library') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ cards: [] }));
+      return;
+    }
     // ★21b: ロビーは実際に一覧APIを叩く。fetch をスタブせず本物の経路で確かめる
     if (url === '/manual/api/rooms') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -140,8 +147,10 @@ async function clearSent(page) {
  */
 async function zoomedImage(page) {
   return page.evaluate(() => {
-    const img = document.querySelector('#zoom-panel img');
-    return img ? new URL(img.src).pathname : null;
+    // ★Batch 25: 画像をやめてカードフェイスになった。同一性は dataset.imageId で確かめる。
+    //   戻り値の形('/cards/<id>.png')は既存の期待値と互換のまま維持する。
+    const face = document.querySelector('#zoom-panel .mcard');
+    return face && face.dataset.imageId ? '/cards/' + face.dataset.imageId + '.png' : null;
   });
 }
 async function clearZoom(page) {
@@ -268,7 +277,7 @@ async function clearZoom(page) {
   check('★相手の合体タイルにはミニタイルが出る(W3・現状維持)',
     (await page.locator('#seat-opponent-top .manual-weapon-mini').count()) === 1);
   check('★装備中のウェポン枠に画像・ATKチップ・使用済トグルがその場に出る(3-3)',
-    (await page.locator('#pile-grid .manual-weapon-slot .manual-pile-face img').count()) === 1
+    (await page.locator('#pile-grid .manual-weapon-slot .manual-pile-face .mcard').count()) === 1
       && (await page.locator('#pile-grid .manual-weapon-slot .manual-stat-button').count()) === 1
       && (await page.locator('#pile-grid .manual-weapon-slot .manual-weapon-slot-used')
         .count()) === 1);
@@ -385,8 +394,8 @@ async function clearZoom(page) {
     return el.style.background || el.style.backgroundColor;
   });
   check('相手のリーダーも文明の色で塗られる', !!oppLeaderBg, oppLeaderBg);
-  check('パイルにカード画像が敷かれている',
-    (await page.locator('#pile-grid .manual-pile-face img').count()) >= 3);
+  check('パイルにカードフェイスが敷かれている(25)',
+    (await page.locator('#pile-grid .manual-pile-face .mcard').count()) >= 3);
   await clearSent(page);
   await realDrag(page, '#pile-grid .manual-pile[data-zone="DECK"] .manual-pile-face',
     '#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
@@ -670,12 +679,8 @@ async function clearZoom(page) {
 
   // ---- 22-2. マナ表示の統一(設計書2章)----
   await render(page, manaView);
-  check('★自席の裏向きマナが裏面カード画像になる(2-2)',
-    (await page.locator('.mana-strip-down .mana-tile.mana-tile-back img').count()) === 1
-      && (await page.evaluate(() => {
-        const img = document.querySelector('.mana-strip-down .mana-tile-back img');
-        return img ? new URL(img.src).pathname : null;
-      })) === '/cards/back.png');
+  check('★自席の裏向きマナが裏面フェイスになる(2-2/25)',
+    (await page.locator('.mana-strip-down .mana-tile.mana-tile-back .mcard-backface').count()) === 1);
   check('自席の表向きマナは文明色タイル+カード名のままである(2-2)',
     (await page.locator('.mana-strip-up .mana-tile .mana-tile-name').first().textContent())
       === '表マナ1'
@@ -1413,7 +1418,7 @@ async function clearZoom(page) {
   await page.locator('.manual-mulligan-card').nth(1).click({ button: 'right' });
   await page.waitForTimeout(30);
   check('★右クリックはオーバーレイ内の拡大に割り当てる(4-3)',
-    (await page.locator('#mulligan-preview img').count()) === 1
+    (await page.locator('#mulligan-preview .mcard').count()) === 1
       && (await page.locator('.manual-mulligan-picked').count()) === 0);
   check('★右クリックの拡大は右列の拡大パネルにも入る(閉じた後に残る)',
     (await zoomedImage(page)) !== null, String(await zoomedImage(page)));
@@ -1497,6 +1502,36 @@ async function clearZoom(page) {
   const wide = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   const wideErrors = [];
   wide.on('pageerror', (e) => wideErrors.push(String(e)));
+  // ---- 26. カードフェイス(Batch 25) ----
+  // 画像を廃し、ビューの項目+カード定義のテキストからフェイスを描く。
+  // ★「ライブラリ未取得でも描ける」はここまでの全セクションが
+  //   ライブラリ無しで走っていることが証明している。
+  await render(page, baseView());
+  check('★手札がテキストのカードフェイスで描かれ、印刷値が出る(25)',
+    (await page.locator('.manual-hand-card .mcard.mcard-full').count()) === 2
+      && (await page.locator('.manual-hand-card .mcard .mcard-atk').first().textContent()) === '⚔2'
+      && (await page.locator('.manual-hand-card .mcard .mcard-hp').first().textContent()) === '♥3');
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    applyCardLibrary({ cards: [{ id: 'c-h1', imageId: 'img-h1', text: '検証用の効果テキスト' }] });
+    // eslint-disable-next-line no-undef
+    renderAll(latestView);
+  });
+  check('★カード定義の取得後は効果テキストがフェイスに載る(25)',
+    (await page.locator('.manual-hand-card .mcard-text').first().textContent()) === '検証用の効果テキスト');
+  await clearZoom(page);
+  await page.locator('.manual-hand-card').first().click();
+  await page.waitForTimeout(60);
+  check('★拡大パネルの大フェイスにも効果テキストが出る(25)',
+    (await page.locator('#zoom-panel .mcard-large .mcard-text').textContent()) === '検証用の効果テキスト');
+  await page.evaluate(() => {
+    // ★以降のセクションに影響を残さない(ライブラリ未取得状態へ戻す)
+    // eslint-disable-next-line no-undef
+    cardTextById = null;
+    // eslint-disable-next-line no-undef
+    cardTextByImage = null;
+  });
+
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);
   await render(wide, versusView('A'));

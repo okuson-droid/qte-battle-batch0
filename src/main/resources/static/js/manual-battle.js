@@ -35,6 +35,146 @@
  */
 
 let latestView = null;
+
+// ---------------------------------------------------------------
+// カードフェイス描画(Batch 25)
+// 画像ファイルの代わりに、ビューの項目(名前・コスト・文明・種別・印刷値)から
+// カードの見た目を組み立てる。デッキメーカーと同じ描画方針である。
+// 効果テキストだけはビューに載らないため、カード定義(/manual/api/card-library)を
+// 起動時に1回取得して cardId で引く。
+// ★取得前・取得失敗時でも壊れない: テキスト欄が空のフェイスで描画し続け、
+//   取得できた時点で最新ビューを描き直す。
+// ---------------------------------------------------------------
+let cardTextById = null;    // cardId -> text(取得前は null)
+let cardTextByImage = null; // imageId -> text(グレー個体やID欠落への保険)
+
+function applyCardLibrary(lib) {
+    if (!lib || !Array.isArray(lib.cards)) {
+        return;
+    }
+    cardTextById = new Map();
+    cardTextByImage = new Map();
+    lib.cards.forEach((c) => {
+        if (c.id) cardTextById.set(c.id, c.text || '');
+        if (c.imageId) cardTextByImage.set(c.imageId, c.text || '');
+    });
+}
+
+function loadCardLibrary() {
+    fetch('/manual/api/card-library')
+        .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then((lib) => {
+            applyCardLibrary(lib);
+            if (latestView) renderAll(latestView);
+        })
+        .catch(() => { /* テキスト欄なしで動き続ける */ });
+}
+
+const FACE_TYPE_LABELS = {
+    LEADER: 'リーダー', MINION: 'ミニオン', EVOLUTION: '進化ミニオン',
+    SPELL: 'スペル', WEAPON: 'ウェポン',
+};
+const FACE_CIV_COLORS = {
+    WATER: '#2f6fb5', FIRE: '#b53a3a', WIND: '#3a8f57',
+    LIGHT: '#b8952f', DARK: '#6b42a8', EARTH: '#c05a8e', NONE: '#6f6f7c',
+};
+
+function cardFaceText(card) {
+    if (cardTextById && card.cardId && cardTextById.has(card.cardId)) {
+        return cardTextById.get(card.cardId);
+    }
+    if (cardTextByImage && card.imageId && cardTextByImage.has(card.imageId)) {
+        return cardTextByImage.get(card.imageId);
+    }
+    return '';
+}
+
+/** 裏面。imageId を持たない(非公開情報を運ばない)。 */
+function cardBackFace() {
+    const el = document.createElement('div');
+    el.className = 'mcard mcard-backface';
+    const mark = document.createElement('div');
+    mark.className = 'mcard-back-mark';
+    mark.textContent = 'TABOO';
+    el.appendChild(mark);
+    return el;
+}
+
+/**
+ * カードの表面。variant は大きさと情報量を決める。
+ *   'large' = 拡大(効果テキストあり) / 'full' = 手札・マリガン(テキストあり)
+ *   'mini'  = 帯・パイル・ウェポン枠(テキストなし) / 'micro' = 相手上段・山札行
+ * ★数値は<b>印刷値</b>を出す。現在値は盤面タイルの数値チップの仕事であり、
+ *   フェイスは「カードに印刷されているもの」を再現する(画像時代と同じ意味論)。
+ */
+function cardFace(card, variant) {
+    const el = document.createElement('div');
+    el.className = 'mcard mcard-' + variant;
+    if (card.imageId) {
+        // 検証がカードの同一性を確かめるためのキー(verify/verify.js の zoomedImage)
+        el.dataset.imageId = card.imageId;
+    }
+    el.style.setProperty('--mc', FACE_CIV_COLORS[card.civilization] || '#5a5468');
+
+    const inner = document.createElement('div');
+    inner.className = 'mcard-inner';
+
+    const head = document.createElement('div');
+    head.className = 'mcard-head';
+    if (card.type !== 'LEADER' && card.cost !== null && card.cost !== undefined) {
+        const cost = document.createElement('span');
+        cost.className = 'mcard-cost';
+        cost.textContent = card.cost;
+        head.appendChild(cost);
+    }
+    const name = document.createElement('span');
+    name.className = 'mcard-name';
+    name.textContent = card.name || '(不明)';
+    head.appendChild(name);
+    inner.appendChild(head);
+
+    if (variant === 'large' || variant === 'full') {
+        const type = document.createElement('div');
+        type.className = 'mcard-type';
+        type.textContent = FACE_TYPE_LABELS[card.type] || '';
+        inner.appendChild(type);
+        const text = document.createElement('div');
+        text.className = 'mcard-text';
+        text.textContent = cardFaceText(card);
+        inner.appendChild(text);
+    } else {
+        const spacer = document.createElement('div');
+        spacer.className = 'mcard-spacer';
+        inner.appendChild(spacer);
+    }
+
+    if (card.type === 'LEADER') {
+        const foot = document.createElement('div');
+        foot.className = 'mcard-foot mcard-foot-leader';
+        foot.textContent = 'LEADER';
+        inner.appendChild(foot);
+    } else if (card.printedAttack !== null && card.printedAttack !== undefined
+            || card.printedHp !== null && card.printedHp !== undefined) {
+        const foot = document.createElement('div');
+        foot.className = 'mcard-foot';
+        if (card.printedAttack !== null && card.printedAttack !== undefined) {
+            const atk = document.createElement('span');
+            atk.className = 'mcard-atk';
+            atk.textContent = '⚔' + card.printedAttack;
+            foot.appendChild(atk);
+        }
+        if (card.printedHp !== null && card.printedHp !== undefined) {
+            const hp = document.createElement('span');
+            hp.className = 'mcard-hp';
+            hp.textContent = '♥' + card.printedHp;
+            foot.appendChild(hp);
+        }
+        inner.appendChild(foot);
+    }
+
+    el.appendChild(inner);
+    return el;
+}
 let selected = new Set();
 let cardLocation = new Map();
 let pinnedZoom = null;
@@ -285,6 +425,9 @@ client.onConnect = () => {
 };
 
 client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)');
+
+// ★カード定義の取得は接続と独立に始める(Batch 25)。失敗しても対戦は続けられる
+loadCardLibrary();
 
 /** occupantId が決まってから初めて STOMP 接続を始める(0章)。 */
 resolveOccupant()
@@ -848,11 +991,10 @@ function createOpponentPile(seat, zoneName) {
     const count = zoneCount(seat, zoneName);
     // ★公開パイルの最上段は末尾である(20a 2-1。山札とは逆)
     const top = cards.length > 0 ? cards[cards.length - 1] : null;
-    if (top && top.imageId) {
-        const img = document.createElement('img');
-        img.src = `/cards/${top.imageId}.png`;
-        img.loading = 'lazy';
-        face.appendChild(img);
+    if (top && !top.faceDown) {
+        face.appendChild(cardFace(top, 'micro'));
+    } else if (top) {
+        face.appendChild(cardBackFace());
     } else if (count === 0) {
         face.classList.add('manual-opp-face-empty');
     } else {
@@ -1014,12 +1156,7 @@ function createOpponentManaBack(count, backImageId, tapped) {
         + (tapped ? ' manual-opp-tapped manual-opp-mana-back-tapped' : '');
     tile.dataset.tapped = tapped ? 'true' : 'false';
     tile.title = `裏向き ${count}枚(${tapped ? 'タップ' : 'アンタップ'})`;
-    if (backImageId) {
-        const img = document.createElement('img');
-        img.src = `/cards/${backImageId}.png`;
-        img.loading = 'lazy';
-        tile.appendChild(img);
-    }
+    tile.appendChild(cardBackFace());
     const badge = document.createElement('div');
     badge.className = 'manual-opp-count';
     badge.textContent = count;
@@ -1251,14 +1388,10 @@ function createWeaponSlot(seat) {
 
     const face = document.createElement('div');
     face.className = 'manual-pile-face';
-    if (card && card.imageId && !card.faceDown) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.loading = 'lazy';
-        face.appendChild(img);
+    if (card && !card.faceDown) {
+        face.appendChild(cardFace(card, 'mini'));
     } else if (card) {
-        face.classList.add('manual-pile-blank');
-        face.textContent = card.faceDown ? '(裏向き)' : (card.name || '(画像なし)');
+        face.appendChild(cardBackFace());
     } else {
         face.classList.add('manual-pile-blank', 'manual-weapon-slot-empty');
         face.textContent = '未装備';
@@ -1360,15 +1493,12 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     // ★公開パイルの最上段は末尾。山札(index 0 が最上段)とは逆である(20a 2-1)。
     //   ここは「見た目として何を敷くか」の話であり、山札は裏面なので取り違えは起きない。
     const top = pile.length > 0 ? pile[pile.length - 1] : null;
-    const imageId = pile.length === 0 ? null : (hidden ? backImageId : (top ? top.imageId : null));
-    if (imageId) {
-        const img = document.createElement('img');
-        img.src = `/cards/${imageId}.png`;
-        img.loading = 'lazy';
-        face.appendChild(img);
-    } else {
+    if (pile.length === 0) {
         face.classList.add('manual-pile-blank');
-        face.textContent = pile.length === 0 ? '' : ((top && top.name) || '(画像なし)');
+    } else if (hidden || (top && top.faceDown)) {
+        face.appendChild(cardBackFace());
+    } else {
+        face.appendChild(cardFace(top, 'mini'));
     }
 
     const count = document.createElement('div');
@@ -1576,18 +1706,9 @@ function createManaTile(card, seatId, backImageId) {
     chip.draggable = true;
 
     if (card.faceDown) {
-        // ★裏面のカード画像(相手上段の記法に揃える)。画像が無い環境では従来の簡略タイルへ落ちる
-        if (backImageId) {
-            const img = document.createElement('img');
-            img.src = `/cards/${backImageId}.png`;
-            img.loading = 'lazy';
-            chip.classList.add('mana-tile-back');
-            chip.appendChild(img);
-        } else {
-            const name = document.createElement('div');
-            name.className = 'mana-tile-name';
-            chip.appendChild(name);
-        }
+        // ★裏面フェイス(Batch 25: 画像をやめた。相手上段と絵は揃ったまま)
+        chip.classList.add('mana-tile-back');
+        chip.appendChild(cardBackFace());
         chip.title = '裏向き(左クリックで中身を拡大)';
     } else {
         if (card.civilization) {
@@ -2006,14 +2127,10 @@ function appendWeaponMini(tile, seat) {
     mini.draggable = true;
     mini.title = `${card.name || 'ウェポン'} / クリック=拡大 ダブルクリック=編集`;
 
-    if (card.imageId && !card.faceDown) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.loading = 'lazy';
-        mini.appendChild(img);
+    if (!card.faceDown) {
+        mini.appendChild(cardFace(card, 'micro'));
     } else {
-        mini.classList.add('manual-weapon-mini-blank');
-        mini.textContent = card.faceDown ? '裏' : (card.name || '?');
+        mini.appendChild(cardBackFace());
     }
     if (weapons.length > 1) {
         const badge = document.createElement('div');
@@ -2060,15 +2177,10 @@ function createHandCard(card, width, seatId, zoneName) {
     wrap.dataset.instanceId = card.instanceId;
     wrap.draggable = true;
 
-    if (card.imageId && !card.faceDown) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.loading = 'lazy';
-        img.style.width = '100%';
-        wrap.appendChild(img);
+    if (!card.faceDown) {
+        wrap.appendChild(cardFace(card, 'full'));
     } else {
-        wrap.classList.add('manual-hand-card-blank');
-        wrap.textContent = card.faceDown ? '(裏向き)' : (card.name || '(不明)');
+        wrap.appendChild(cardBackFace());
     }
     if (selected.has(card.instanceId)) {
         wrap.classList.add('manual-tile-selected');
@@ -2188,23 +2300,13 @@ function setZoom(card) {
 function renderZoom(card) {
     const panel = document.getElementById('zoom-panel');
     panel.innerHTML = '';
-    if (card.imageId) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.style.maxWidth = '100%';
-        img.style.maxHeight = '100%';
-        panel.appendChild(img);
-        if (card.faceDown) {
-            const badge = document.createElement('div');
-            badge.className = 'manual-facedown-badge';
-            badge.textContent = '裏向き';
-            panel.appendChild(badge);
-        }
-    } else {
-        const span = document.createElement('span');
-        span.className = 'text-muted small';
-        span.textContent = card.name || '(画像なし)';
-        panel.appendChild(span);
+    // ★裏向きでも表面フェイス+バッジ(拡大は「中身の確認」のための操作である)
+    panel.appendChild(cardFace(card, 'large'));
+    if (card.faceDown) {
+        const badge = document.createElement('div');
+        badge.className = 'manual-facedown-badge';
+        badge.textContent = '裏向き';
+        panel.appendChild(badge);
     }
 }
 
@@ -3160,14 +3262,10 @@ function createBandItem(card, seatId, zoneName) {
     wrap.dataset.instanceId = card.instanceId;
     wrap.draggable = true;
 
-    if (card.imageId && !card.faceDown) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.loading = 'lazy';
-        wrap.appendChild(img);
+    if (!card.faceDown) {
+        wrap.appendChild(cardFace(card, 'mini'));
     } else {
-        wrap.classList.add('manual-band-card-blank');
-        wrap.textContent = card.faceDown ? '(裏向き)' : (card.name || '(不明)');
+        wrap.appendChild(cardBackFace());
     }
     if (selected.has(card.instanceId)) {
         wrap.classList.add('manual-tile-selected');
@@ -3291,16 +3389,10 @@ function createDeckRow(card, index, seatId, dragDisabled) {
     row.dataset.index = index;
     row.draggable = !dragDisabled;
 
-    if (card.imageId && !card.faceDown) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.loading = 'lazy';
-        row.appendChild(img);
+    if (!card.faceDown) {
+        row.appendChild(cardFace(card, 'micro'));
     } else {
-        const blank = document.createElement('div');
-        blank.className = 'manual-deck-row-blank';
-        blank.textContent = card.faceDown ? '(裏向き)' : (card.name || '(不明)');
-        row.appendChild(blank);
+        row.appendChild(cardBackFace());
     }
 
     const name = document.createElement('div');
@@ -3564,11 +3656,8 @@ function renderMulliganOverlay() {
     const preview = document.createElement('div');
     preview.className = 'manual-mulligan-preview';
     preview.id = 'mulligan-preview';
-    if (activeOverlay.zoomCard && activeOverlay.zoomCard.imageId) {
-        const big = document.createElement('img');
-        big.src = `/cards/${activeOverlay.zoomCard.imageId}.png`;
-        big.alt = activeOverlay.zoomCard.name || '';
-        preview.appendChild(big);
+    if (activeOverlay.zoomCard) {
+        preview.appendChild(cardFace(activeOverlay.zoomCard, 'large'));
     } else {
         const note = document.createElement('span');
         note.className = 'text-muted small';
@@ -3624,17 +3713,7 @@ function createMulliganCard(card, seatId) {
     if (activeOverlay.picked.has(card.instanceId)) {
         el.classList.add('manual-mulligan-picked');
     }
-    if (card.imageId) {
-        const img = document.createElement('img');
-        img.src = `/cards/${card.imageId}.png`;
-        img.alt = card.name || '';
-        el.appendChild(img);
-    } else {
-        const blank = document.createElement('div');
-        blank.className = 'manual-mulligan-card-blank';
-        blank.textContent = card.name || '(不明)';
-        el.appendChild(blank);
-    }
+    el.appendChild(cardFace(card, 'full'));
     // ★左 = 選択(このオーバーレイ内のローカル規約。4-3)
     el.addEventListener('click', () => {
         if (activeOverlay.picked.has(card.instanceId)) {
