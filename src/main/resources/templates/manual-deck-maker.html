@@ -138,7 +138,7 @@ input[type=file]{display:none;}
 .pool-scroll{flex:1;overflow-y:auto;padding:13px;}
 
 /* ---------- カードタイル(共通レンダラ・コンパクト) ---------- */
-.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;align-content:start;}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(126px,1fr));gap:10px;align-content:start;}
 .tile{
   aspect-ratio:5/7;border-radius:7px;padding:3px;position:relative;cursor:pointer;
   background:linear-gradient(160deg,
@@ -185,13 +185,7 @@ input[type=file]{display:none;}
   background:rgba(0,0,0,.25);
 }
 .t-body{flex:1;padding:4px 5px;display:flex;flex-direction:column;gap:3px;overflow:hidden;}
-.t-kw{display:flex;flex-wrap:wrap;gap:2px;}
-.t-kw span{
-  font-size:7.5px;font-weight:700;padding:1px 4px;border-radius:2px;color:#fff;
-  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 65%, #333),color-mix(in srgb,var(--c) 45%, #000));
-  border:1px solid color-mix(in srgb,var(--c) 70%, #fff 10%);
-}
-.t-text{font-size:7.5px;line-height:1.4;color:var(--text-faint);overflow:hidden;}
+.t-text{font-size:9.5px;line-height:1.5;color:#cfc9e4;overflow:hidden;}
 .t-foot{
   display:flex;justify-content:space-between;padding:3px 6px;min-height:19px;
   background:linear-gradient(0deg,color-mix(in srgb,var(--c) 22%, #14121d),rgba(0,0,0,.15));
@@ -245,13 +239,7 @@ input[type=file]{display:none;}
   color:color-mix(in srgb,var(--c) 70%, #fff 25%);background:rgba(0,0,0,.25);
 }
 .bc-body{flex:1;padding:9px;display:flex;flex-direction:column;gap:6px;min-height:0;}
-.bc-kw{display:flex;flex-wrap:wrap;gap:4px;}
-.bc-kw span{
-  font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;color:#fff;
-  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 65%, #333),color-mix(in srgb,var(--c) 45%, #000));
-  border:1px solid color-mix(in srgb,var(--c) 70%, #fff 10%);
-}
-.bc-text{font-size:11px;line-height:1.6;color:var(--text-dim);overflow-y:auto;flex:1;scrollbar-width:thin;}
+.bc-text{font-size:13px;line-height:1.7;color:#e2ddf2;overflow-y:auto;flex:1;scrollbar-width:thin;}
 .bc-foot{
   display:flex;justify-content:space-between;align-items:center;padding:7px 10px;min-height:30px;
   background:linear-gradient(0deg,color-mix(in srgb,var(--c) 22%, #14121d),rgba(0,0,0,.15));
@@ -403,7 +391,7 @@ function loadLibrary(lib){
   CARDS = lib.cards
     .map(c=>({id:c.id, name:c.name, type:c.type, civ:CIV_JA[c.civilization]||c.civilization,
               cost:c.cost, atk:c.attack, hp:c.hp,
-              text:c.text||'', kw:c.keywords||[],
+              text:c.text||'',
               unlimited:!!c.unlimitedCopies}))
     .filter(c=>c.civ!=='無');   // ピュア・エレメントは構築対象外(後攻へ自動配布される)
   byId = new Map(CARDS.map(c=>[c.id,c]));
@@ -466,7 +454,6 @@ function tileHtml(c, context){
   const hasAtk = ['MINION','EVOLUTION','WEAPON'].includes(c.type);
   const hasHp  = ['MINION','EVOLUTION'].includes(c.type);
   const qty = isL ? (deck.leaderId===c.id?1:0) : (deck.counts.get(c.id)||0);
-  const kws = c.kw&&c.kw.length ? `<div class="t-kw">${c.kw.map(k=>`<span>${esc(k)}</span>`).join('')}</div>` : '';
   const foot = isL
     ? `<div class="t-leader">LEADER</div>`
     : `${hasAtk?`<div class="t-stat atk">⚔${c.atk??'-'}</div>`:'<span></span>'}${hasHp?`<div class="t-stat hp">♥${c.hp??'-'}</div>`:'<span></span>'}`;
@@ -479,7 +466,7 @@ function tileHtml(c, context){
         <div class="t-name">${esc(c.name)}</div>
       </div>
       <div class="t-type">${TYPE_LABEL[c.type]}</div>
-      <div class="t-body">${kws}<div class="t-text">${esc(c.text)}</div></div>
+      <div class="t-body"><div class="t-text">${esc(c.text)}</div></div>
       <div class="t-foot">${foot}</div>
     </div>
   </div>`;
@@ -498,7 +485,6 @@ function renderDetail(){
   const hasAtk = ['MINION','EVOLUTION','WEAPON'].includes(c.type);
   const hasHp  = ['MINION','EVOLUTION'].includes(c.type);
   const qty = isL ? (deck.leaderId===c.id?1:0) : (deck.counts.get(c.id)||0);
-  const kws = c.kw&&c.kw.length ? `<div class="bc-kw">${c.kw.map(k=>`<span>${esc(k)}</span>`).join('')}</div>` : '';
   const foot = isL
     ? `<div class="bc-leader">— L E A D E R —</div>`
     : `${hasAtk?`<div class="bc-stat atk">⚔ ${c.atk??'-'}</div>`:'<span></span>'}${hasHp?`<div class="bc-stat hp">♥ ${c.hp??'-'}</div>`:'<span></span>'}`;
@@ -510,7 +496,7 @@ function renderDetail(){
           <div class="bc-name">${esc(c.name)}</div>
         </div>
         <div class="bc-type"><span>${TYPE_LABEL[c.type]}</span><span>${esc(c.civ)}文明</span></div>
-        <div class="bc-body">${kws}<div class="bc-text">${c.text?esc(c.text):'<i style="color:var(--text-faint)">（効果なし）</i>'}</div></div>
+        <div class="bc-body"><div class="bc-text">${c.text?esc(c.text):'<i style="color:var(--text-faint)">（効果なし）</i>'}</div></div>
         <div class="bc-foot">${foot}</div>
       </div>
     </div>
@@ -570,7 +556,7 @@ function renderAll(){
       return true;
     });
   }
-  if(q) pool = pool.filter(c=>c.name.includes(q)||(c.text||'').includes(q)||(c.kw||[]).some(k=>k.includes(q)));
+  if(q) pool = pool.filter(c=>c.name.includes(q)||(c.text||'').includes(q));
   pool.sort(sortLogic);
   document.getElementById('pool-grid').innerHTML = pool.map(c=>tileHtml(c,'pool')).join('');
 }
