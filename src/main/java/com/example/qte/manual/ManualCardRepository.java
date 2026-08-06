@@ -136,13 +136,15 @@ public class ManualCardRepository {
             Integer attack,
             Integer hp,
             String imageId,
-            String ledgerCardId) {
+            String ledgerCardId,
+            Boolean unlimitedCopies) {
 
         ManualCardMaster toMaster() {
             return new ManualCardMaster(id, name,
                     ManualCardType.valueOf(type),
                     ManualCivilization.valueOf(civilization),
-                    cost, attack, hp, imageId, ledgerCardId);
+                    cost, attack, hp, imageId, ledgerCardId,
+                    Boolean.TRUE.equals(unlimitedCopies));
         }
     }
 }

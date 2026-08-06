@@ -225,7 +225,9 @@ public class ManualLobbyController {
     }
 
     /**
-     * デッキ zip を席に読み込む。本文は zip のバイト列そのものである。
+     * デッキファイルを席に読み込む。本文はファイルのバイト列そのものである。
+     * ★Batch 24: JSON(標準)と zip(後方互換)の両形式を受け付ける。
+     * 判別は拡張子ではなくサーバが中身で行う({@link ManualDeckImporter#importAuto})。
      * 検証違反は拒否せず、警告として返す(設計書 7-4)。
      *
      * ★対戦部屋では自席のぶんだけ読み込める(21 6-3・E3)。
@@ -239,7 +241,7 @@ public class ManualLobbyController {
             @RequestParam(required = false) String occupantId,
             @RequestBody byte[] body) {
         ManualRoom room = roomManager.requireRoom(roomId);
-        ManualDeckImport imported = deckImporter.importZip(body);
+        ManualDeckImport imported = deckImporter.importAuto(body);
         ManualGameView view;
         synchronized (room.getLock()) {
             ManualOccupant viewer = room.findOccupant(occupantId).orElse(null);

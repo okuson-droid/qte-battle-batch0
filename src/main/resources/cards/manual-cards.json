@@ -1,9 +1,9 @@
 {
   "meta": {
     "game": "クイン・タブーエレメント",
-    "purpose": "手動モード(一人回し)用のカード定義。効果テキストとキーワードは持たない",
+    "purpose": "手動モードとデッキメーカーの共通カード定義。テキスト・数値の正はDeckMaker Verβ(QTE-Vol1-Vol2-Vol3-Ver-1.1)、ピュア・エレメントのみ台帳(Batch 24)",
     "generatedBy": "tools/convert_manual_cards.py",
-    "generatedAt": "2026-08-03",
+    "generatedAt": "2026-08-06",
     "total": 235,
     "counts": {
       "LEADER": 18,
@@ -24,7 +24,9 @@
       "attack": null,
       "hp": null,
       "imageId": "cd68ba0b11e93a5ffd95e2c4dae1bbfce3587c9641b0ad07e37d9430dab3cdff",
-      "ledgerCardId": "QTE-L002"
+      "ledgerCardId": "QTE-L002",
+      "text": "【起動：１】自分の手札を1枚デッキの一番下に戻す。自分のリーダーの体力を2回復。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-2",
@@ -35,7 +37,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "d96aaa7638970831b8eac0975936c3293e1b2c5e2bc7a94075bf3f8b53890ba2",
-      "ledgerCardId": "QTE-0026"
+      "ledgerCardId": "QTE-0026",
+      "text": "【知識】",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WATER-3",
@@ -46,7 +52,11 @@
       "attack": 2,
       "hp": 2,
       "imageId": "0d3f2063054f419b10e14246afd4b1fc515ef436f62f28a0de6a975ffd829d8f",
-      "ledgerCardId": "QTE-0029"
+      "ledgerCardId": "QTE-0029",
+      "text": "【召喚時】自分の手札が5枚以上なら、自分のリーダーの体力を3回復。\n【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WATER-4",
@@ -57,7 +67,11 @@
       "attack": 3,
       "hp": 2,
       "imageId": "af37f13518fd657eaae5dab48d5f49719494ff6facd8a95743671bccff055b8d",
-      "ledgerCardId": "QTE-0034"
+      "ledgerCardId": "QTE-0034",
+      "text": "【召喚時】自分の手札を1枚捨てる。そうしたらミニオン1体を持ち主の手札に戻す。\n【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WATER-5",
@@ -68,7 +82,11 @@
       "attack": 0,
       "hp": 5,
       "imageId": "6433b6c92ede4f97942b57687c95cd6512457429479dc9f68988fdaa110b10d5",
-      "ledgerCardId": "QTE-0037"
+      "ledgerCardId": "QTE-0037",
+      "text": "【守護】\nこのミニオンの攻撃力は、自分の手札の枚数と同じになる。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WATER-6",
@@ -79,7 +97,12 @@
       "attack": 4,
       "hp": 3,
       "imageId": "a6b8dd84cadc1749ce622af958566ea21971860641c296d83d368e9edcf6bcfa",
-      "ledgerCardId": "QTE-0011"
+      "ledgerCardId": "QTE-0011",
+      "text": "【突進】\n【威圧】（相手の攻撃対象にならない）",
+      "keywords": [
+        "突進",
+        "威圧"
+      ]
     },
     {
       "id": "QTE-M-WATER-7",
@@ -90,7 +113,12 @@
       "attack": 5,
       "hp": 3,
       "imageId": "4da81c07c97b3d96efd096d4e22e1602a76935550f28d5a766eeb5ed5e2ca100",
-      "ledgerCardId": "QTE-0042"
+      "ledgerCardId": "QTE-0042",
+      "text": "【召喚時】カードを2枚引く。\n【突進】\n【守護】",
+      "keywords": [
+        "突進",
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WATER-8",
@@ -101,7 +129,11 @@
       "attack": 6,
       "hp": 5,
       "imageId": "2630dcf0bb806ddca4c7593bf0ec9bbe2ae2e76ed0757de0dbce1491b4523dd8",
-      "ledgerCardId": "QTE-0038"
+      "ledgerCardId": "QTE-0038",
+      "text": "【特殊召喚】\n（自分のメインフェーズ開始時、自分の手札が7枚以上あるなら、手札を3枚捨ててコストを支払わずに場に出せる）",
+      "keywords": [
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WATER-9",
@@ -112,7 +144,9 @@
       "attack": null,
       "hp": null,
       "imageId": "d36deabf77864722d808e1d3868d5ad8733a67942d2dc1bd6857eaeb332a379c",
-      "ledgerCardId": "QTE-0025"
+      "ledgerCardId": "QTE-0025",
+      "text": "カードを2枚引く",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-10",
@@ -123,7 +157,9 @@
       "attack": null,
       "hp": null,
       "imageId": "e49a8d0c6e50ada5627d53d36e6fd30ab6210620dfa4ae9a149c8497f0a4854d",
-      "ledgerCardId": "QTE-0002"
+      "ledgerCardId": "QTE-0002",
+      "text": "自分のリーダーの体力を4回復。カードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-11",
@@ -134,7 +170,9 @@
       "attack": null,
       "hp": null,
       "imageId": "e5fee43bce8c874b17aab3c232518af81098ba1b21af536e158a4f0f04f7fa6b",
-      "ledgerCardId": "QTE-0023"
+      "ledgerCardId": "QTE-0023",
+      "text": "相手の場にいるコスト4以下のミニオンすべてを持ち主の手札に戻す",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-12",
@@ -145,7 +183,9 @@
       "attack": null,
       "hp": null,
       "imageId": "50a56cc15d684bba0c87434f357e5b520ee86ccb4dbc2d6e82e4cbe31c77a527",
-      "ledgerCardId": "QTE-0024"
+      "ledgerCardId": "QTE-0024",
+      "text": "カードを2枚引く。\nこのターン中、自分の手札の枚数分、自分の水文明のミニオンすべての攻撃力を+1する。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-13",
@@ -156,7 +196,9 @@
       "attack": 2,
       "hp": null,
       "imageId": "aa6aa7ad989b45fcb98b464e0af3a2d0dc3b811431c0fb1b30500d712c0ee7fd",
-      "ledgerCardId": "QTE-0030"
+      "ledgerCardId": "QTE-0030",
+      "text": "自分のリーダーが攻撃した時、カードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-14",
@@ -167,7 +209,11 @@
       "attack": 1,
       "hp": null,
       "imageId": "5404849177ba73505dd5ebde668a856ac718f2d2bcef0e590e19b3c8a8d75574",
-      "ledgerCardId": "QTE-0031"
+      "ledgerCardId": "QTE-0031",
+      "text": "このウェポンで攻撃されたリーダーまたはミニオンは、次のターン攻撃できない。\n【知識】",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WATER-15",
@@ -178,7 +224,9 @@
       "attack": null,
       "hp": null,
       "imageId": "a6556630da7138345f0d47c65f7c65eec615596b36a5f1d1067ee7253a303aa2",
-      "ledgerCardId": "QTE-L003"
+      "ledgerCardId": "QTE-L003",
+      "text": "【 起動：2】マナを1枚手札に戻して2ドロー",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-16",
@@ -189,7 +237,12 @@
       "attack": 2,
       "hp": 1,
       "imageId": "3833eaac9cb12fcf46937a1958ec55733b5185536a93058a306a395be55b510c",
-      "ledgerCardId": "QTE-0039"
+      "ledgerCardId": "QTE-0039",
+      "text": "【知識】【貫通】",
+      "keywords": [
+        "貫通",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WATER-17",
@@ -200,7 +253,14 @@
       "attack": 1,
       "hp": 1,
       "imageId": "b79cedfc0bbd47c3b3f50865d6aa87c5a4214b19e6e679f6dadab0962c2cc9a6",
-      "ledgerCardId": "QTE-0027"
+      "ledgerCardId": "QTE-0027",
+      "text": "【知識】【還元】【守護】【突進】",
+      "keywords": [
+        "突進",
+        "守護",
+        "知識",
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-WATER-18",
@@ -211,7 +271,12 @@
       "attack": 3,
       "hp": 1,
       "imageId": "e3798e90ec5c42218271dc235e2b73ce05a40373b38b8e82489fa1c5b443259b",
-      "ledgerCardId": "QTE-0003"
+      "ledgerCardId": "QTE-0003",
+      "text": "【潜伏】【突進】攻撃時1枚引く。",
+      "keywords": [
+        "突進",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WATER-19",
@@ -222,7 +287,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "7191e2a621f5edbc3f74aced0f19ce4728ee96664f6893a1fbd00633054211c4",
-      "ledgerCardId": "QTE-0021"
+      "ledgerCardId": "QTE-0021",
+      "text": "【召喚時】カードを4枚引く。その後カードを3枚捨てる",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-20",
@@ -230,10 +297,15 @@
       "type": "MINION",
       "civilization": "WATER",
       "cost": 5,
-      "attack": 4,
-      "hp": 4,
+      "attack": 3,
+      "hp": 3,
       "imageId": "0882520394cbddc32b566072743f7cf64b2e43fbff533ffe3e7a12efa9399a76",
-      "ledgerCardId": "QTE-0040"
+      "ledgerCardId": "QTE-0040",
+      "text": "【突進】【潜伏】自分のマナのカードがマナから離れたときこのカードが墓地にあれば場に出す。",
+      "keywords": [
+        "突進",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WATER-21",
@@ -241,10 +313,14 @@
       "type": "MINION",
       "civilization": "WATER",
       "cost": 7,
-      "attack": 3,
+      "attack": 2,
       "hp": 2,
       "imageId": "398d96f4d9509cf5ef1c06fecfbb6ce8c284fcb54bd8f4410c231536d37ca3c9",
-      "ledgerCardId": "QTE-0041"
+      "ledgerCardId": "QTE-0041",
+      "text": "場に居る【知識】を持つミニオンの数Cost-1\n【知識】【召喚時】ミニオンを3体選び持ち主の手札に戻す",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WATER-22",
@@ -255,18 +331,30 @@
       "attack": 4,
       "hp": 4,
       "imageId": "f8c28aad0a1cdb5bbc89dcabfed51a37e2795024a05203f8d0574ead0730e6c6",
-      "ledgerCardId": "QTE-0032"
+      "ledgerCardId": "QTE-0032",
+      "text": "【知識】【守護】【特殊召喚】（自分の【知識】を持つミニオンを2体手札に戻したとき手札から0コストとして出せる。）",
+      "keywords": [
+        "守護",
+        "知識",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WATER-23",
       "name": "智将 ポセイドン・コア",
       "type": "MINION",
       "civilization": "WATER",
-      "cost": 9,
-      "attack": 5,
-      "hp": 5,
+      "cost": 10,
+      "attack": 4,
+      "hp": 4,
       "imageId": "e9489627acefb2cd185928312b1c363ed0da7a414efe4b6e05c81def562485a5",
-      "ledgerCardId": "QTE-0035"
+      "ledgerCardId": "QTE-0035",
+      "text": "【知識】【守護】【特殊召喚】自分の【知識】を持つミニオンの合計体力が9以上なら手札から0コストとして出せる。【召喚時】自分の【知識】ミニオン2体につきカードを1枚引く",
+      "keywords": [
+        "守護",
+        "知識",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WATER-24",
@@ -274,10 +362,15 @@
       "type": "MINION",
       "civilization": "WATER",
       "cost": 10,
-      "attack": 6,
-      "hp": 6,
+      "attack": 5,
+      "hp": 3,
       "imageId": "16e84a7baceb66e884861eacd1106653a5ee31c5f45fae537d4fe328879f101d",
-      "ledgerCardId": "QTE-0020"
+      "ledgerCardId": "QTE-0020",
+      "text": "【知識】【特殊召喚】自分の知識を持つカードを手札から3枚山札の下に置いてこのカードを手札から0コストとして出せる",
+      "keywords": [
+        "知識",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WATER-25",
@@ -288,18 +381,22 @@
       "attack": null,
       "hp": null,
       "imageId": "cc501feff6798f00b90aa72ef32129183621332e8c44eee87ed685f2c5e94f99",
-      "ledgerCardId": "QTE-0028"
+      "ledgerCardId": "QTE-0028",
+      "text": "カードを2枚引く。その後手札のカードを2枚捨てる。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-26",
       "name": "静寂の瞑想",
       "type": "SPELL",
       "civilization": "WATER",
-      "cost": 2,
+      "cost": 1,
       "attack": null,
       "hp": null,
       "imageId": "fa9c30ec3dd79e5cafa351cdbd0e5eeac9dae1490a2cc0ad9812eb753163cda7",
-      "ledgerCardId": "QTE-0033"
+      "ledgerCardId": "QTE-0033",
+      "text": "2枚引く。このカードはメインフェーズの最初にしか使えない",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-27",
@@ -310,7 +407,11 @@
       "attack": null,
       "hp": null,
       "imageId": "89dbd27a8fd5f5b292948c3efa6326874b12c7eadd285af0f2c254d1f2ea5268",
-      "ledgerCardId": "QTE-0036"
+      "ledgerCardId": "QTE-0036",
+      "text": "1枚引く【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-WATER-28",
@@ -321,7 +422,11 @@
       "attack": 0,
       "hp": null,
       "imageId": "dfbbcb684b55d7f4bdad728e41b09b15649b7f2b049be5ebdff467a2e0970e86",
-      "ledgerCardId": "QTE-0022"
+      "ledgerCardId": "QTE-0022",
+      "text": "【貫通】自分の場の潜伏の数Attack+1",
+      "keywords": [
+        "貫通"
+      ]
     },
     {
       "id": "QTE-M-WATER-29",
@@ -332,7 +437,12 @@
       "attack": null,
       "hp": null,
       "imageId": "2e3042dcce9672ca1699618341ebe52b9ddcf9852fae42da08c7b3ebf4360096",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】ターンに一回【守護】のミニオンが場に出るたびカードを1枚引く。ターンに一回【潜伏】のミニオンが場に出るたびカードを1枚引く",
+      "keywords": [
+        "守護",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WATER-30",
@@ -343,7 +453,12 @@
       "attack": 2,
       "hp": 2,
       "imageId": "ad338cb7030000e1ea2f8c0aacc1d58e7ad8a45a07ad5cc11a2ecfcc973292f9",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（水文明の潜伏を持たないミニオン1体）【潜伏】【知識】",
+      "keywords": [
+        "潜伏",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WATER-31",
@@ -354,7 +469,9 @@
       "attack": 1,
       "hp": 3,
       "imageId": "dc2bb0542c7890c71baf10565f92cd3be08955f1b379b7a15360fd8b2680e643",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（水文明の潜伏を持つミニオン1体）【召喚時】カードを3枚引く。その後カードを1枚捨てる。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-32",
@@ -362,10 +479,12 @@
       "type": "EVOLUTION",
       "civilization": "WATER",
       "cost": 3,
-      "attack": 3,
+      "attack": 2,
       "hp": 1,
       "imageId": "a28066858d911529e2ddd4da2155a89012872e6f2249977e8afbce5c383f2b0e",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（水文明ではないミニオン1体）カードを2枚引く。【破壊時】カードを2枚捨てる。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-33",
@@ -376,7 +495,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "de3f5e698c6e09179c45edfd419ce379168625b1bd4f83bcfd2a85d3d38c982d",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【潜伏】",
+      "keywords": [
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WATER-34",
@@ -387,7 +510,12 @@
       "attack": 2,
       "hp": 2,
       "imageId": "cbb3b9f7392e261f4aab15714149524c64f9306f5daa4f3d186c446aa5d0b658",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【潜伏】【守護】",
+      "keywords": [
+        "守護",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WATER-35",
@@ -398,7 +526,13 @@
       "attack": 3,
       "hp": 1,
       "imageId": "0f88ee3fd5096e41772ce7db26d1f7fcc8449b1e9165f3fa2605ff26eb178598",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【知識】【突進】【召喚時】自分の場に【潜伏】を持つミニオンが居るならカードを1枚引く",
+      "keywords": [
+        "突進",
+        "潜伏",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WATER-36",
@@ -409,7 +543,11 @@
       "attack": null,
       "hp": null,
       "imageId": "a6325fdb0d8b7dd2bc2b9c8d76b7dbe9e804d902b38ba80fcfcbe34082b2dddc",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分の【潜伏】の数自分のリーダーのHPを1回復を行う。",
+      "keywords": [
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WATER-37",
@@ -420,18 +558,24 @@
       "attack": null,
       "hp": null,
       "imageId": "d07f6822998227645cac617acb1d0d0cbc911c4fd81345e05be7de7b41c37ecf",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分のリーダーのHPを2回復。カードを1枚引き、カードを1枚捨てる。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WATER-38",
       "name": "ギガマウス・バイト",
       "type": "SPELL",
       "civilization": "WATER",
-      "cost": 13,
+      "cost": 15,
       "attack": null,
       "hp": null,
       "imageId": "e2d9568f24bc21dbbf6b09306ebc0557a5f98a3f62b0c8489057f131afd695bc",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分の手札の枚数このカードのコスト-1 自分の手札から水文明のミニオンを3体場に出す。それは【突進】を得る。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-WATER-39",
@@ -442,7 +586,11 @@
       "attack": 0,
       "hp": null,
       "imageId": "90bbb632422fd3d6eec361fe073e2b3bb00e62e92f75f9d2d840e02143f32f2e",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】自分の場の【知識】の枚数Attackを+1する",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-FIRE-1",
@@ -453,7 +601,11 @@
       "attack": null,
       "hp": null,
       "imageId": "23c1819e3ffbc5bbc5bbc41c15500cdb5a3685fc195988ccca4af21302e1eb7e",
-      "ledgerCardId": "QTE-L004"
+      "ledgerCardId": "QTE-L004",
+      "text": "場にある【速攻】を持つカードのHPを+2する",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-FIRE-2",
@@ -464,7 +616,9 @@
       "attack": 2,
       "hp": 1,
       "imageId": "d6457b9d9d6be4a749d160f6476bdf25d713bfb45d0ac58eec33844447a910c5",
-      "ledgerCardId": "QTE-0047"
+      "ledgerCardId": "QTE-0047",
+      "text": "効果なし",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-3",
@@ -475,7 +629,9 @@
       "attack": 3,
       "hp": 3,
       "imageId": "baa8e49f342e4df42959ee4ec4866e16cb1bc49645aab29150c19533d3253ab1",
-      "ledgerCardId": "QTE-0055"
+      "ledgerCardId": "QTE-0055",
+      "text": "【召喚時】自分のリーダーに2ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-4",
@@ -486,7 +642,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "be57027a9c342bec1f927b5b006e26969ad700143b1bb2075781711df9049fb5",
-      "ledgerCardId": "QTE-0045"
+      "ledgerCardId": "QTE-0045",
+      "text": "自分のリーダーがダメージを受けるたび、自身の攻撃力+2。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-5",
@@ -497,7 +655,11 @@
       "attack": 4,
       "hp": 4,
       "imageId": "08982bbca1d108c96e71782b8766574fb5dbbbdb04c8abec01e73fc7b47a7452",
-      "ledgerCardId": "QTE-0050"
+      "ledgerCardId": "QTE-0050",
+      "text": "【召喚時】自分のリーダーの体力が10以下ならこれは【速攻】を得る。",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-FIRE-6",
@@ -508,7 +670,11 @@
       "attack": 4,
       "hp": 1,
       "imageId": "e7f7cb58d85e19c2af87a62404d360dd89708fe825cb79c669d6ac6432f8c692",
-      "ledgerCardId": "QTE-0001"
+      "ledgerCardId": "QTE-0001",
+      "text": "【速攻】",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-FIRE-7",
@@ -519,7 +685,11 @@
       "attack": 3,
       "hp": 5,
       "imageId": "65d66db9161d961ad7de3ea5e71dc09af5f75000014274f909d3a7568f87198c",
-      "ledgerCardId": "QTE-0063"
+      "ledgerCardId": "QTE-0063",
+      "text": "【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-FIRE-8",
@@ -530,7 +700,12 @@
       "attack": 6,
       "hp": 2,
       "imageId": "b6df756eb27ded4313d884a1857a8477a37fa50776c5a74a057a60c7e38d17fc",
-      "ledgerCardId": "QTE-0051"
+      "ledgerCardId": "QTE-0051",
+      "text": "【速攻】\n【特殊召喚】（自分のターン中に自分のリーダーが合計4回以上受けている時、コストを1にして場に出せる）",
+      "keywords": [
+        "速攻",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-FIRE-9",
@@ -541,7 +716,9 @@
       "attack": null,
       "hp": null,
       "imageId": "59e2ef0ea20180b4dbc13c16fc3b221ec77d5d563e28c3dac068f907386e14aa",
-      "ledgerCardId": "QTE-0064"
+      "ledgerCardId": "QTE-0064",
+      "text": "自分のリーダーに2ダメージ。カードを2枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-10",
@@ -552,7 +729,9 @@
       "attack": null,
       "hp": null,
       "imageId": "558b8839d8eb5c0dd3b5b8b53f8667f50980469b5680347140d70e3cc08fb542",
-      "ledgerCardId": "QTE-0046"
+      "ledgerCardId": "QTE-0046",
+      "text": "ミニオン1体に3ダメージ",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-11",
@@ -563,7 +742,9 @@
       "attack": null,
       "hp": null,
       "imageId": "5d08062a4c4b1e22dbe22cf65f7f6891be0fb94743a199926bed10033299b5a2",
-      "ledgerCardId": "QTE-0056"
+      "ledgerCardId": "QTE-0056",
+      "text": "自分のリーダーに3ダメージ。相手の場にいるミニオンすべてに3ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-12",
@@ -574,7 +755,11 @@
       "attack": null,
       "hp": null,
       "imageId": "918e11ca2995192a5cd68c4bb91ff15ca399e06fa4cda455d834810ee0e9b468",
-      "ledgerCardId": "QTE-0053"
+      "ledgerCardId": "QTE-0053",
+      "text": "このターン中、自分のミニオンすべての攻撃力+1、および【突進】付与。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-FIRE-13",
@@ -585,7 +770,11 @@
       "attack": 1,
       "hp": null,
       "imageId": "22488ec076aef8adaff21b985c8e1efd010acc7ffd770369eb5ebb4eb5c326b8",
-      "ledgerCardId": "QTE-0067"
+      "ledgerCardId": "QTE-0067",
+      "text": "【知識】",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-FIRE-14",
@@ -596,7 +785,9 @@
       "attack": 5,
       "hp": null,
       "imageId": "de7d0c833fd38c8b28ac0e7a150d34cd271ab98adf49d0f57983ca769fd37b22",
-      "ledgerCardId": "QTE-0061"
+      "ledgerCardId": "QTE-0061",
+      "text": "自分のミニオンが攻撃した時、自分のリーダーに1ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-15",
@@ -607,7 +798,9 @@
       "attack": null,
       "hp": null,
       "imageId": "9d10a4fe376b3772803a11c5c77c85066ced8b61a126087e480e0add75f3c0c6",
-      "ledgerCardId": "QTE-L001"
+      "ledgerCardId": "QTE-L001",
+      "text": "【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-16",
@@ -618,7 +811,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "ac15c1e90df4b0d31b4ff8f449c45ff764b87601e4874ecae12ad8c91489c8b0",
-      "ledgerCardId": "QTE-0044"
+      "ledgerCardId": "QTE-0044",
+      "text": "【召喚時】自分のリーダーに1ダメージ。自分のリーダーの体力が10以上なら追加で2ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-17",
@@ -629,7 +824,9 @@
       "attack": 1,
       "hp": 1,
       "imageId": "3261c795ea0f0cc9903276110083b6bb307b25ad79e0f54d82571aa4e77c4f86",
-      "ledgerCardId": "QTE-0066"
+      "ledgerCardId": "QTE-0066",
+      "text": "【召喚時】自分の体力が10以下なら手札からコスト4以下のミニオンを1体場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-18",
@@ -640,7 +837,11 @@
       "attack": 1,
       "hp": 2,
       "imageId": "9828d66b91a00c461627ec9ad8342ea6b5616efaebf0aaf7bd9a36801d12a0c9",
-      "ledgerCardId": "QTE-0049"
+      "ledgerCardId": "QTE-0049",
+      "text": "【知識】自分のリーダーの体力が10以上なら自分のリーダーに1ダメージ。",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-FIRE-19",
@@ -651,7 +852,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "36b4a8e9983e63feeb2f75e251d031ceaec709064b985ef1557212116c3e74db",
-      "ledgerCardId": "QTE-0059"
+      "ledgerCardId": "QTE-0059",
+      "text": "【召喚時】以下の効果を2回行う。自分のリーダーに2ダメージ、相手のリーダーに2ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-20",
@@ -659,10 +862,15 @@
       "type": "MINION",
       "civilization": "FIRE",
       "cost": 4,
-      "attack": 1,
-      "hp": 1,
+      "attack": 0,
+      "hp": 0,
       "imageId": "039da36aca19530383470daf64f0f53157c72308460430f11dbed583f1f6c7a5",
-      "ledgerCardId": "QTE-0062"
+      "ledgerCardId": "QTE-0062",
+      "text": "【知識】【特殊召喚】自分のリーダーの体力が10以下のときこのカードのコストを0にする。【召喚時】自分のリーダーの体力を1回復する",
+      "keywords": [
+        "知識",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-FIRE-21",
@@ -670,10 +878,15 @@
       "type": "MINION",
       "civilization": "FIRE",
       "cost": 7,
-      "attack": 5,
+      "attack": 3,
       "hp": 3,
       "imageId": "f06c3a4102281244a109dbe7b6edfdb9f2495741d408120ba0ded57ca400e048",
-      "ledgerCardId": "QTE-0057"
+      "ledgerCardId": "QTE-0057",
+      "text": "【守護】【特殊召喚】このターン中3回以上リーダーがダメージを受けていた場合手札から1コストで出せる。これで出したとき1回復。【召喚時】2回復",
+      "keywords": [
+        "守護",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-FIRE-22",
@@ -681,10 +894,15 @@
       "type": "MINION",
       "civilization": "FIRE",
       "cost": 13,
-      "attack": 3,
-      "hp": 8,
+      "attack": 4,
+      "hp": 6,
       "imageId": "1d3e43f8f2da15a2e78f6e42d06cc218e295bbb3ee9d8a1badff0ea03d4cb601",
-      "ledgerCardId": "QTE-0058"
+      "ledgerCardId": "QTE-0058",
+      "text": "【速攻】【特殊召喚】このターン5LP以上火文明のカードで回復したときこのカードを手札から1コストとして出せる。",
+      "keywords": [
+        "速攻",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-FIRE-23",
@@ -695,7 +913,11 @@
       "attack": null,
       "hp": null,
       "imageId": "9677c761d58522cdba6de6866e441cb75a4d14ad2b77d7e7a3a641bbad2896c9",
-      "ledgerCardId": "QTE-0054"
+      "ledgerCardId": "QTE-0054",
+      "text": "相手の【守護】を持つHP5以下のミニオンを1体選び破壊",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-FIRE-24",
@@ -706,7 +928,9 @@
       "attack": null,
       "hp": null,
       "imageId": "d0b8fe5c5e7caab8d995ed85032f5f02660a9835e5c274c22c4e147d37f3539f",
-      "ledgerCardId": "QTE-0043"
+      "ledgerCardId": "QTE-0043",
+      "text": "ウェポンを1枚破壊する。そうしたら自分のリーダーを2回復。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-25",
@@ -717,7 +941,9 @@
       "attack": null,
       "hp": null,
       "imageId": "026519269e3fde15f55e2ac26ddd4a47c9543349ce604dc86996cd815abb521a",
-      "ledgerCardId": "QTE-0065"
+      "ledgerCardId": "QTE-0065",
+      "text": "手札を1枚捨てる。そうしたら4回復",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-26",
@@ -728,18 +954,26 @@
       "attack": null,
       "hp": null,
       "imageId": "8b717a33264deceff5b72e0c7306f01f5dfc530ce92e9b7af116eb4bc6a4796f",
-      "ledgerCardId": "QTE-0052"
+      "ledgerCardId": "QTE-0052",
+      "text": "1枚捨てる。そうしたら2枚引く。【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-FIRE-27",
       "name": "命喰いの火種",
       "type": "SPELL",
       "civilization": "FIRE",
-      "cost": 2,
+      "cost": 3,
       "attack": null,
       "hp": null,
       "imageId": "cf74488f1ccff4e72250cc478c0d17ffff0681a90511d86f19ccf475780c34c3",
-      "ledgerCardId": "QTE-0060"
+      "ledgerCardId": "QTE-0060",
+      "text": "自分のリーダーに4ダメージその後カードを2枚引く。【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-FIRE-28",
@@ -747,10 +981,12 @@
       "type": "WEAPON",
       "civilization": "FIRE",
       "cost": 3,
-      "attack": 1,
+      "attack": 0,
       "hp": null,
       "imageId": "c5b582cb6da96f8624fccfafae4e10a7744beb0b63d3413e09ad794e93dd9f37",
-      "ledgerCardId": "QTE-0048"
+      "ledgerCardId": "QTE-0048",
+      "text": "自分のターン中このカード以外の効果で自分のリーダーにダメージを与えられたとき自分のリーダーに2ダメージ。その後1回復。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-29",
@@ -761,7 +997,9 @@
       "attack": null,
       "hp": null,
       "imageId": "814128a9f5ccca72811583d7b0d93485f318d4274fb902792be8adc883f96732",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【起動：1】場の進化ミニオン1枚の下に手札からミニオンを選び入れる。そうしたらカードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-30",
@@ -772,7 +1010,9 @@
       "attack": 0,
       "hp": 0,
       "imageId": "99d6c19d78b701c4bba4a11b554b4a60dba10f1084012fd1db2b9b91a8a614e3",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（自分ミニオン1体以上）【常在】このカードのAttackとHPは下にあるミニオン1枚につき+2",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-31",
@@ -783,7 +1023,9 @@
       "attack": 2,
       "hp": 5,
       "imageId": "9a4acdf773175f3be014ca7512d5f4e41b7f04e600d3ae605051459df9fcd3ad",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（自分の進化ミニオン1体）【常在】このカードは2回攻撃できる",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-32",
@@ -794,7 +1036,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "c38db81fb32dbf99c9388220fb3a7797f702719e6acc16f989f744a32d2e9de9",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（ミニオン1体）【特殊召喚】（場にミニオンが3体以上いる時このカードは手札から場に0コストとして出せる）",
+      "keywords": [
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-FIRE-33",
@@ -805,7 +1051,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "0ceef718c05b58e44aed430d2e053eb47afc112a0350afa2dfaf49411a2e8878",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【守護】このミニオンは攻撃できない。【破壊時】自分のリーダーに1ダメージ",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-FIRE-34",
@@ -816,7 +1066,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "3963ae967ed487c18b1c52fb5f8365501e71d7808a3e461e0cd41ce6536ca1ae",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【速攻】【召喚時】自分のリーダーに1ダメージ。自分のリーダーの体力が10以下なら代わりに相手のリーダーに1ダメージ。",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-FIRE-35",
@@ -827,7 +1081,12 @@
       "attack": 3,
       "hp": 1,
       "imageId": "625ae45220620c024d535cedafa1bac0d3984e219258e4622d020fca33bb8908",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【特殊召喚】（場に進化ミニオンが1体以上いるとき0コストとして場に出せる）【突進】",
+      "keywords": [
+        "突進",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-FIRE-36",
@@ -838,7 +1097,9 @@
       "attack": null,
       "hp": null,
       "imageId": "5c154f8cebdc53e976e1d8a8cbbea7f33d74a3a59e88d274abd3d78650366c95",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "場の自分のミニオンを1枚選び破壊する。そうしたら相手のミニオンに3ダメージを与える。こうして破壊した自分のミニオンが進化ミニオンなら相手の全てのミニオンに追加で2ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-37",
@@ -849,7 +1110,9 @@
       "attack": null,
       "hp": null,
       "imageId": "d0c2adffcb5617c41ac5edd92dad51d7d891375381da1323d3f32e0df9536728",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "手札を1枚捨てる。その後カードを2枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-38",
@@ -860,7 +1123,9 @@
       "attack": null,
       "hp": null,
       "imageId": "bf847d9adc25e42f214285e01ded2b9bf109ae6ad72626608fee629b6a809755",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分の手札を全て山札に戻してシャッフルする。こうして戻した枚数+1枚山札からカードを引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-FIRE-39",
@@ -871,7 +1136,11 @@
       "attack": null,
       "hp": null,
       "imageId": "f613982c30f23d279b07ecad81e50152601286f382626b7fa3b99ff31936d851",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "ミニオンを2体選び4ダメージ与える。この効果で破壊した枚数自分のリーダーを1回復行う。【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-DARK-1",
@@ -882,18 +1151,24 @@
       "attack": null,
       "hp": null,
       "imageId": "06644c47204314511b036e0e683cdbf0ece5ca904b69de7612309fc47223a25e",
-      "ledgerCardId": "QTE-L005"
+      "ledgerCardId": "QTE-L005",
+      "text": "【起動：１】自分の墓地のカードを1枚選び手札に戻すそうした場合、山札の上から2枚を墓地に置く",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-2",
       "name": "カース・ボーン",
       "type": "MINION",
       "civilization": "DARK",
-      "cost": 1,
-      "attack": 2,
+      "cost": 2,
+      "attack": 1,
       "hp": 1,
       "imageId": "6c16f4c8b481e8a964a8cbd0dbf4f189ccc27a7752196df261f5766e2e00281e",
-      "ledgerCardId": "QTE-0076"
+      "ledgerCardId": "QTE-0076",
+      "text": "【召喚時】自分のミニオンを1体破壊する。破壊したミニオンのコストと同じ数山札の上から墓地に置く。【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-DARK-3",
@@ -904,7 +1179,9 @@
       "attack": 3,
       "hp": 3,
       "imageId": "13a15f87a36bae0bad624066aba6a1b05c557f8e3fcbb7918b8a235cc70d2f70",
-      "ledgerCardId": "QTE-0088"
+      "ledgerCardId": "QTE-0088",
+      "text": "【召喚時】自分のミニオン2体を破壊する。相手のミニオンを1体破壊する。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-4",
@@ -913,42 +1190,58 @@
       "civilization": "DARK",
       "cost": 3,
       "attack": 2,
-      "hp": 3,
+      "hp": 2,
       "imageId": "597954ae8131f198a3755d9463c86851e481e5f42cfc9163720fbccaf8cc2160",
-      "ledgerCardId": "QTE-0078"
+      "ledgerCardId": "QTE-0078",
+      "text": "【召喚時】自分のマナゾーンに「裏向きのカード」が1枚以上あるなら、相手のコスト3以下のミニオン1体を破壊。【知識】",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-DARK-5",
       "name": "不滅のネクロマンサー",
       "type": "MINION",
       "civilization": "DARK",
-      "cost": 3,
-      "attack": 5,
-      "hp": 2,
+      "cost": 4,
+      "attack": 6,
+      "hp": 1,
       "imageId": "f441f7fcafc35b65f77dd2a84efe2afccf0e185146f4f56123840a5f32a9340b",
-      "ledgerCardId": "QTE-0072"
+      "ledgerCardId": "QTE-0072",
+      "text": "出た時相手はカードを1枚引く",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-6",
       "name": "ボーン・コレクター",
       "type": "MINION",
       "civilization": "DARK",
-      "cost": 4,
+      "cost": 3,
       "attack": 4,
-      "hp": 2,
+      "hp": 1,
       "imageId": "7befc62431f39accb73e6edb11771e8faa5190b242adf4ea827a23a356ee5eed",
-      "ledgerCardId": "QTE-0074"
+      "ledgerCardId": "QTE-0074",
+      "text": "【突進】。このミニオンが破壊された時、カードを1枚引く。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-DARK-7",
       "name": "這い寄る生霊",
       "type": "MINION",
       "civilization": "DARK",
-      "cost": 5,
+      "cost": 6,
       "attack": 1,
-      "hp": 1,
+      "hp": 3,
       "imageId": "c620f1ab1cf1fcef11e3fea9c3ff2a133449c9fe234f44598d0ab91611d79c96",
-      "ledgerCardId": "QTE-0085"
+      "ledgerCardId": "QTE-0085",
+      "text": "【特殊召喚】（自分のターン中に自分のミニオンが破壊された時、コスト0で手札から使用できる）\n【突進】\n【知識】",
+      "keywords": [
+        "突進",
+        "知識",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-DARK-8",
@@ -959,7 +1252,9 @@
       "attack": 7,
       "hp": 7,
       "imageId": "6427bb55bf80a3bc2bd94ce1996d09cb4888a0f67c0747da63177324eaba622a",
-      "ledgerCardId": "QTE-0077"
+      "ledgerCardId": "QTE-0077",
+      "text": "【召喚時】お互いの場にある「ハデス以外のミニオン」をすべて破壊する。その後、自分のマナゾーンにある「裏向きのカード」の枚数と同じだけ、このターン破壊された味方ミニオンを墓地から場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-9",
@@ -970,29 +1265,35 @@
       "attack": null,
       "hp": null,
       "imageId": "cf99967cfd18ae5fbfff0156e881781401872fac858792289a962f9e24b49b10",
-      "ledgerCardId": "QTE-0081"
+      "ledgerCardId": "QTE-0081",
+      "text": "自分のミニオン1体を破壊する。そうしたら相手のミニオン1体を破壊する。このターンミニオンが3体以上破壊されていたならカードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-10",
       "name": "禁忌の代償",
       "type": "SPELL",
       "civilization": "DARK",
-      "cost": 2,
+      "cost": 3,
       "attack": null,
       "hp": null,
       "imageId": "737c48ffc27e6183676d8ca0931156238562d1c0190b2a60dd060df9a2eaa137",
-      "ledgerCardId": "QTE-0075"
+      "ledgerCardId": "QTE-0075",
+      "text": "自分のマナゾーンの「裏向きのカード」1枚を破壊する。その後自分の墓地からコスト4以下のミニオンを1体選び場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-11",
       "name": "マナを貪る怨霊",
       "type": "SPELL",
       "civilization": "DARK",
-      "cost": 2,
+      "cost": 4,
       "attack": null,
       "hp": null,
       "imageId": "8f31c09513946e72646e0ef7aa940282b58818faa6910d3147171c940a0e5996",
-      "ledgerCardId": "QTE-0006"
+      "ledgerCardId": "QTE-0006",
+      "text": "自分の墓地にある闇文明のカードを2枚裏向きでマナに置く。その後置いた枚数カードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-12",
@@ -1003,18 +1304,24 @@
       "attack": null,
       "hp": null,
       "imageId": "bcf3a794c3a616d83f8c2399d674cdb60693e5a575eea713dbc8d27420681b1b",
-      "ledgerCardId": "QTE-0080"
+      "ledgerCardId": "QTE-0080",
+      "text": "このスペルを使用するとき好きな数自分のミニオンを破壊してもよい。その後破壊した数コストを-1する\n自分の墓地からミニオン1体を場に復活させる。それは【突進】を持つ。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-DARK-13",
       "name": "死神の大鎌",
       "type": "WEAPON",
       "civilization": "DARK",
-      "cost": 2,
+      "cost": 1,
       "attack": 0,
       "hp": null,
       "imageId": "3606334739d00074bdd343bc4c980c7abd9ec8dd0528c79c142e846ca5f431a3",
-      "ledgerCardId": "QTE-0086"
+      "ledgerCardId": "QTE-0086",
+      "text": "このウェポンで攻撃されたミニオンは、戦闘ダメージに関わらず破壊される。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-14",
@@ -1025,7 +1332,9 @@
       "attack": 0,
       "hp": null,
       "imageId": "a597f76fc19735290a77e4853feb2a2ece1309c6b47c5b06bc25bca5ad321654",
-      "ledgerCardId": "QTE-0073"
+      "ledgerCardId": "QTE-0073",
+      "text": "自分のミニオンが場に出たとき相手のリーダーに1ダメージ\n(このカードの効果はターンに5回までしか発動しない)",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-15",
@@ -1036,7 +1345,9 @@
       "attack": null,
       "hp": null,
       "imageId": "34aaf4c400551bdb66305c720630fbee6686a31655983b2983638d9b9ce03fbe",
-      "ledgerCardId": "QTE-L006"
+      "ledgerCardId": "QTE-L006",
+      "text": "サブフェイズ時ミニオンを墓地から手札にあるかのように召喚してもよい（コストは支払う）",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-16",
@@ -1047,7 +1358,12 @@
       "attack": 1,
       "hp": 1,
       "imageId": "a6d1c848b456698cbc8efcc2a9fdff515dcf0264bbe44fa13450fd04de9eb875",
-      "ledgerCardId": "QTE-0012"
+      "ledgerCardId": "QTE-0012",
+      "text": "【召喚時】「ゾンストライカー」を墓地から全て出す。【突進】破壊されたとき自分の山札の上から1枚を墓地に置く。",
+      "keywords": [
+        "突進"
+      ],
+      "unlimitedCopies": true
     },
     {
       "id": "QTE-M-DARK-17",
@@ -1058,18 +1374,24 @@
       "attack": 2,
       "hp": 1,
       "imageId": "a3165fd9d8561039e9e01f476c42d2cdf36765964788882303cb43d7765ff7b8",
-      "ledgerCardId": "QTE-0019"
+      "ledgerCardId": "QTE-0019",
+      "text": "【召喚時】相手のミニオン1体に1ダメージ",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-18",
       "name": "封印されし禁忌魔人",
       "type": "MINION",
       "civilization": "DARK",
-      "cost": 2,
-      "attack": 5,
-      "hp": 5,
+      "cost": 1,
+      "attack": 6,
+      "hp": 6,
       "imageId": "721d407fcafdfa45dcd63a24e25f1248efc2c4745bd8700a04b728704ce7d104",
-      "ledgerCardId": "QTE-0083"
+      "ledgerCardId": "QTE-0083",
+      "text": "【守護】自分の禁忌デッキの数コストを+1する。このカードはコストを支払わず場に出せない。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-DARK-19",
@@ -1077,10 +1399,16 @@
       "type": "MINION",
       "civilization": "DARK",
       "cost": 3,
-      "attack": 0,
+      "attack": 1,
       "hp": 3,
       "imageId": "42b0de4045f46b2250039283445f257d9884c0bf9cfb03e2b9c306dc1a64c110",
-      "ledgerCardId": "QTE-0087"
+      "ledgerCardId": "QTE-0087",
+      "text": "【守護】【知識】【還元】",
+      "keywords": [
+        "守護",
+        "知識",
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-DARK-20",
@@ -1091,18 +1419,22 @@
       "attack": 3,
       "hp": 3,
       "imageId": "e7e2178d2be7ce1d607200fdd273f92d2ba50c3432550d4a04a5d731198a7511",
-      "ledgerCardId": "QTE-0005"
+      "ledgerCardId": "QTE-0005",
+      "text": "【召喚時】ミニオン1体に3ダメージ。　\n【常在】ミニオンが破壊されるたび山札から1枚引いてもよい。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-21",
       "name": "群がる死霊王",
       "type": "MINION",
       "civilization": "DARK",
-      "cost": 6,
-      "attack": 7,
+      "cost": 8,
+      "attack": 6,
       "hp": 3,
       "imageId": "70be9149d4100aac8c6ec3c33c640b2bf588b9e4c90420ae393fbfeaf83e4991",
-      "ledgerCardId": "QTE-0082"
+      "ledgerCardId": "QTE-0082",
+      "text": "自分の墓地にある「ゾンストライカー」の数コスト-2する。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-22",
@@ -1113,7 +1445,11 @@
       "attack": 0,
       "hp": 5,
       "imageId": "61c4ff2b0ff403b0c115b67c849c09376d36b9b0ba060692601ed37a79644d3e",
-      "ledgerCardId": "QTE-0071"
+      "ledgerCardId": "QTE-0071",
+      "text": "自分の墓地にあるスペル以外のカード1枚につきCost-1,Attack+1。【召喚時】墓地にあるスペルを1枚手札に加える。\n【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-DARK-23",
@@ -1121,10 +1457,14 @@
       "type": "MINION",
       "civilization": "DARK",
       "cost": 9,
-      "attack": 5,
-      "hp": 7,
+      "attack": 9,
+      "hp": 9,
       "imageId": "3c6b01470b7b23a9117f3f0b4d75e51bc71a972b429dc8e227c6a5ff82942e50",
-      "ledgerCardId": "QTE-0079"
+      "ledgerCardId": "QTE-0079",
+      "text": "【守護】このミニオンがダメージを受けた時相手のリーダーに2ダメージ、このミニオンはリーダーを攻撃できない。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-DARK-24",
@@ -1135,40 +1475,48 @@
       "attack": null,
       "hp": null,
       "imageId": "5c0a70fd48586c292000a54a04c48c81c825f021b1aaa75d1304b327e27cd2ec",
-      "ledgerCardId": "QTE-0068"
+      "ledgerCardId": "QTE-0068",
+      "text": "自分の山札の上から2枚を墓地に置く。墓地以下の体力のミニオンを2枚選び破壊。",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-25",
       "name": "禁忌の墓地利用",
       "type": "SPELL",
       "civilization": "DARK",
-      "cost": 3,
+      "cost": 4,
       "attack": null,
       "hp": null,
       "imageId": "c332b3b3c0aa0cd795317e36745de6e74ce492ab7ed1e312db622dca80b14106",
-      "ledgerCardId": "QTE-0084"
+      "ledgerCardId": "QTE-0084",
+      "text": "自分の墓地にあるミニオンでないカードを2枚選びマナゾーンに裏向きで置く",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-26",
       "name": "冥府への道",
       "type": "SPELL",
       "civilization": "DARK",
-      "cost": 4,
+      "cost": 5,
       "attack": null,
       "hp": null,
       "imageId": "3b4c50d737abbcca6fac6dc24affdf25784c44b5183ce8af265c6986d7007d9c",
-      "ledgerCardId": "QTE-0069"
+      "ledgerCardId": "QTE-0069",
+      "text": "相手のミニオンを2体選び破壊する",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-27",
       "name": "悪夢",
       "type": "SPELL",
       "civilization": "DARK",
-      "cost": 13,
+      "cost": 1,
       "attack": null,
       "hp": null,
       "imageId": "3cf53c87d4f3ca3123273894025997163d40ab8b2376af41f6d47aacc8e21f4c",
-      "ledgerCardId": "QTE-0070"
+      "ledgerCardId": "QTE-0070",
+      "text": "墓地にあるカード1枚につきコスト-1  これがサブフェイズならこのターン全てのミニオンの召喚コストを-4する。\nこのターンの間【召喚時】は使えない",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-28",
@@ -1179,7 +1527,9 @@
       "attack": 1,
       "hp": null,
       "imageId": "28b2557b2a9868809fe27f13dc677c220143f0bccb987f7f4abfbc3896ffb846",
-      "ledgerCardId": "QTE-0089"
+      "ledgerCardId": "QTE-0089",
+      "text": "攻撃時自分の墓地からカードを1枚手札に戻す",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-29",
@@ -1190,7 +1540,9 @@
       "attack": null,
       "hp": null,
       "imageId": "12a9dbe160e18ae5515d67b6a397c3e804574e07c727f829e6b840185992cc2c",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】自分の墓地から出たミニオンのAttackをそのターン+1",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-30",
@@ -1201,7 +1553,11 @@
       "attack": 5,
       "hp": 5,
       "imageId": "ff41934ab7743b9555a6bc0b805010a2d9404005439b031b4f623025e43f8422",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（闇文明の体力4以上のミニオン1体）【召喚時】自分の墓地からコスト3以下のミニオンを3体場に出す。【常在】自分のミニオンが墓地から場に出た時そのミニオンは【突進】を得る",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-DARK-31",
@@ -1212,7 +1568,11 @@
       "attack": 2,
       "hp": 4,
       "imageId": "59c151813d9ccd8c666299af6d6c301e3964a67f8055fc6fc221533a739e04f8",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（ミニオン1体）【特殊召喚】（自分の墓地にミニオンが6体以上のとき自分の手札または墓地からコスト1支払って場に出せる。）場に出た時相手のコスト3以下のミニオン1体を破壊。",
+      "keywords": [
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-DARK-32",
@@ -1223,7 +1583,9 @@
       "attack": 2,
       "hp": 6,
       "imageId": "7d3d3be8c68419fea8f0da8b020279d001dadb8ef3df37bfd26e748e774ab386",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（闇文明のミニオン2体）このカードのコストは自分の場に居るミニオンの数-1される。このカードのコストは2以下にならない。【常在】自分の他のミニオンのAttack+1",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-33",
@@ -1234,7 +1596,9 @@
       "attack": 1,
       "hp": 1,
       "imageId": "9f9cb90ffa119b0c29ed30c2912d742f4b37a2e592ce04d3839dd8ad478257e4",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "攻撃時、相手のリーダーに1ダメージ",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-34",
@@ -1245,7 +1609,9 @@
       "attack": 1,
       "hp": 2,
       "imageId": "5f3706f8c7001ec423b2cd2bcfdfee248f3e6b7fdd7da1b0bc88c885392067c6",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【召喚時】相手のミニオン1体に1ダメージ。【破壊時】自分の墓地からコスト1のミニオンを1体場に出す",
+      "keywords": []
     },
     {
       "id": "QTE-M-DARK-35",
@@ -1256,7 +1622,11 @@
       "attack": 1,
       "hp": 4,
       "imageId": "7785c3db73dde1ad95011de8e6df28f598300894b2de5c08dad172594e9cd4d7",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "場以外から自分の墓地に置かれたときに墓地からこのカードを場に出す。【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-DARK-36",
@@ -1267,7 +1637,11 @@
       "attack": 1,
       "hp": 4,
       "imageId": "026d71942b518a51da11013d3c5352be241d30563c4e9dd3a0c3746ff1b87f96",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【特殊召喚】（自分の場1枚、自分の手札を2枚捨てることでこのカードを0コストとして場に出す）",
+      "keywords": [
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-DARK-37",
@@ -1278,7 +1652,11 @@
       "attack": 2,
       "hp": 4,
       "imageId": "7fe98824e39e6a275b30110c6bef7c46cd484889a504122a9416117d07c86194",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【守護】【賢魂：１】カードを1枚引く。その後自分の山札の上から1枚目を墓地に置く",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-DARK-38",
@@ -1289,7 +1667,11 @@
       "attack": 1,
       "hp": 6,
       "imageId": "c9eafef3c41fceb5ab3c3f6141f4ef27547ac9777d324dc1a98e6daa1beda72f",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【守護】【召喚時】カードを2枚引く。【賢魂：2】このミニオンを場に出す。そのミニオンの【召喚時】は使えない。そのミニオンに2ダメージ。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-DARK-39",
@@ -1300,7 +1682,11 @@
       "attack": 0,
       "hp": 5,
       "imageId": "a45117dc6524ae19972d44bbf746bc7deff82f073ffc9f65c1ea454392562712",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【召喚時】他のミニオンを全て破壊する。こうして破壊したミニオンが10体以上で自分のリーダーが闇文明ならこれは【速攻】を得る。\n【常在】このターン中破壊されたミニオン1体につきこのターンの間Attack+1",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-1",
@@ -1311,7 +1697,9 @@
       "attack": null,
       "hp": null,
       "imageId": "51a65bbaf865abb30dee8dbac112f812bbcc7a4b72b8452934d48bf15a76b097",
-      "ledgerCardId": "QTE-L008"
+      "ledgerCardId": "QTE-L008",
+      "text": "【起動：2】次の相手のターン終了時まで、自分のリーダーと自分のミニオンすべては「相手のカードや能力の効果で破壊されない」を得る。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-2",
@@ -1322,7 +1710,11 @@
       "attack": 1,
       "hp": 3,
       "imageId": "c855284236396cdd6825932c5a1432ab9f31f0895dc1a3b31d57c1702cb36d3d",
-      "ledgerCardId": "QTE-0099"
+      "ledgerCardId": "QTE-0099",
+      "text": "【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-3",
@@ -1333,18 +1725,27 @@
       "attack": 2,
       "hp": 2,
       "imageId": "e17c76e1a88a60e7d3b0fb624159acfaf0ec0d526e8abec1cbab3e1a090584fe",
-      "ledgerCardId": "QTE-0093"
+      "ledgerCardId": "QTE-0093",
+      "text": "【知識】自分の場に他の【守護】を持つミニオンがいるなら、さらにもう一度【知識】を行う。【守護】",
+      "keywords": [
+        "守護",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-4",
       "name": "秩序の執行官",
       "type": "MINION",
       "civilization": "LIGHT",
-      "cost": 4,
-      "attack": 3,
-      "hp": 4,
+      "cost": 3,
+      "attack": 2,
+      "hp": 1,
       "imageId": "6a142a22a6c59c84374cf161ccdd3528406ca17a080960d1b46beb1e519793ee",
-      "ledgerCardId": "QTE-0111"
+      "ledgerCardId": "QTE-0111",
+      "text": "相手はメインフェーズに【特殊召喚】を行えない。",
+      "keywords": [
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-5",
@@ -1355,7 +1756,12 @@
       "attack": 3,
       "hp": 6,
       "imageId": "f232be397eb619a13958baae56e30dad34e22c1059c4da5d09774ac132ec24a3",
-      "ledgerCardId": "QTE-0007"
+      "ledgerCardId": "QTE-0007",
+      "text": "【守護】\n【潜伏】（相手のカードや能力の対象にならない）",
+      "keywords": [
+        "守護",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-6",
@@ -1364,9 +1770,13 @@
       "civilization": "LIGHT",
       "cost": 6,
       "attack": 5,
-      "hp": 5,
+      "hp": 6,
       "imageId": "b33f098a590c5b6ca94f54c9415690e181c1314bcf72a280087ba969cbc83db9",
-      "ledgerCardId": "QTE-0098"
+      "ledgerCardId": "QTE-0098",
+      "text": "【守護】\nこのミニオンが場にいる限り、相手はサブフェーズを行えない。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-7",
@@ -1377,7 +1787,11 @@
       "attack": 4,
       "hp": 8,
       "imageId": "e3fe5b57aa7446ba12edc36f41936bc81b43eb9371db4e72d81b79d761a24b36",
-      "ledgerCardId": "QTE-0004"
+      "ledgerCardId": "QTE-0004",
+      "text": "【守護】\n戦闘時ダメージを受けない",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-8",
@@ -1388,7 +1802,11 @@
       "attack": 7,
       "hp": 9,
       "imageId": "9760c2d5fbe9e2189cbf9f21a4c92be6e6f2a4b0e0d005e49b6553bf6ff1796b",
-      "ledgerCardId": "QTE-0104"
+      "ledgerCardId": "QTE-0104",
+      "text": "【召喚時】相手のウェポンを1つ選び破壊する。【守護】。このミニオンが場にいる限り、相手のリーダーは攻撃できない。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-9",
@@ -1399,7 +1817,9 @@
       "attack": null,
       "hp": null,
       "imageId": "03e6dcb5857acff27c10b3fe6ec8845810dd1fd116afb05d89250741eb7e396d",
-      "ledgerCardId": "QTE-0110"
+      "ledgerCardId": "QTE-0110",
+      "text": "相手のミニオン1体を指定する。そのミニオンは次のターン攻撃できない。カードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-10",
@@ -1410,7 +1830,9 @@
       "attack": null,
       "hp": null,
       "imageId": "c70f6f2e81c7edf1f2987192afcad1e4b0ee3a81679c673f6a1e066836ab6131",
-      "ledgerCardId": "QTE-0090"
+      "ledgerCardId": "QTE-0090",
+      "text": "相手の場にいる最も攻撃力の高いミニオン1体と最も体力の低いミニオン1体を破壊。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-11",
@@ -1421,7 +1843,11 @@
       "attack": null,
       "hp": null,
       "imageId": "49b0304f53104376004dcdec42e047914dc832fb5927616571590b7b2b234437",
-      "ledgerCardId": "QTE-0109"
+      "ledgerCardId": "QTE-0109",
+      "text": "自分の手札にある、コスト7以下の【守護】を持つミニオン1体を、コストを支払わずに場に出す。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-12",
@@ -1432,7 +1858,11 @@
       "attack": null,
       "hp": null,
       "imageId": "b2e413759ca62990354a570e9225e2b2d8a4ca0c3303350d0619095f1b42431d",
-      "ledgerCardId": "QTE-0097"
+      "ledgerCardId": "QTE-0097",
+      "text": "自分の手札から光文明の【守護】を持つミニオンを最大2体まで、コストを支払わずに場に出す。その後、この効果で場に出したミニオンの枚数と同じだけカードを引く。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-13",
@@ -1443,7 +1873,9 @@
       "attack": 0,
       "hp": null,
       "imageId": "6a76eb129e2130fe5d01bd74eee47410d377d1eceedef646d33064605146ef03",
-      "ledgerCardId": "QTE-0103"
+      "ledgerCardId": "QTE-0103",
+      "text": "自分のリーダーへのすべてのダメージを-1する。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-14",
@@ -1454,7 +1886,11 @@
       "attack": 3,
       "hp": null,
       "imageId": "783daf6b1be6a6b2bf27e4da5f10d3e1917f471f232ca65dbe8188f4b2b45556",
-      "ledgerCardId": "QTE-0018"
+      "ledgerCardId": "QTE-0018",
+      "text": "自分のリーダーが攻撃した時、自分の場にいる【守護】を持つミニオンすべての体力を全て回復。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-15",
@@ -1465,7 +1901,9 @@
       "attack": null,
       "hp": null,
       "imageId": "c8923bf9095257d0ddee0b751ac791fdf55de7ce8c758a4de4cfaf56954180ce",
-      "ledgerCardId": "QTE-L007"
+      "ledgerCardId": "QTE-L007",
+      "text": "【起動：4】次の相手のターン相手はスペルを唱えられない。カードを1枚引く",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-16",
@@ -1476,7 +1914,12 @@
       "attack": 2,
       "hp": 2,
       "imageId": "845b0ca16cfc7e2b24b2e540780931caf0f72229f9989848b989fec568359fc5",
-      "ledgerCardId": "QTE-0101"
+      "ledgerCardId": "QTE-0101",
+      "text": "【守護】【知識】\nこのカードは攻撃できない",
+      "keywords": [
+        "守護",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-17",
@@ -1487,7 +1930,11 @@
       "attack": 2,
       "hp": 2,
       "imageId": "9f166a747f3ab7751df46c03b67995c74a643ac4f4b100235886ff2fb15c5b14",
-      "ledgerCardId": "QTE-0013"
+      "ledgerCardId": "QTE-0013",
+      "text": "【知識】",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-18",
@@ -1498,7 +1945,11 @@
       "attack": 2,
       "hp": 2,
       "imageId": "3575e3f6b15dd20c1234d4724878202a956075d01582c0bf888469c9f881cad8",
-      "ledgerCardId": "QTE-0100"
+      "ledgerCardId": "QTE-0100",
+      "text": "自分のリーダーが光文明なら自分のスペルのコスト-1【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-19",
@@ -1507,9 +1958,11 @@
       "civilization": "LIGHT",
       "cost": 3,
       "attack": 1,
-      "hp": 1,
+      "hp": 2,
       "imageId": "2cc2cef8f35cc8a2a6c9205081909ca1067de0ea13c3f8f96d0334021de0195d",
-      "ledgerCardId": "QTE-0102"
+      "ledgerCardId": "QTE-0102",
+      "text": "相手がカードを引いたとき自分はカードを1枚引いても良い",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-20",
@@ -1520,7 +1973,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "44bd1cf08c88b3b070b154624375f448bafaf8d47d0918adae9b3dc8dc567534",
-      "ledgerCardId": "QTE-0108"
+      "ledgerCardId": "QTE-0108",
+      "text": "【守護】 自分の光文明スペルのコスト-1、自分の光文明の【守護】のコスト-1",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-21",
@@ -1531,7 +1988,11 @@
       "attack": 3,
       "hp": 3,
       "imageId": "7fd6def031f02d0c0cb3d22ae117324e0aef8f5a1c72c05a98441740aeee097e",
-      "ledgerCardId": "QTE-0105"
+      "ledgerCardId": "QTE-0105",
+      "text": "【守護】自分の手札からコスト3以下のミニオンを1体場に出す",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-22",
@@ -1542,7 +2003,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "52840cc033ea8cd51ba38f01fd1881d5da4ab345285364b76260ede3fd208528",
-      "ledgerCardId": "QTE-0112"
+      "ledgerCardId": "QTE-0112",
+      "text": "【守護】\n【召喚時】自分の山上から4枚表向きにする。その中にある【守護】を持つミニオンを1体場に出す。残りを山札の下に置く。そのミニオンはダメージを3喰らう。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-23",
@@ -1550,10 +2015,14 @@
       "type": "MINION",
       "civilization": "LIGHT",
       "cost": 7,
-      "attack": 3,
-      "hp": 5,
+      "attack": 2,
+      "hp": 6,
       "imageId": "bf9eb731142f6cc7b7c2c37aad61e379de62e65b5cb832691ce03948f73b79cd",
-      "ledgerCardId": "QTE-0095"
+      "ledgerCardId": "QTE-0095",
+      "text": "【守護】Attackが3以上のミニオンは攻撃できない",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-24",
@@ -1564,7 +2033,11 @@
       "attack": 8,
       "hp": 8,
       "imageId": "ad2aae553fe14c597a671332e0ce2f9d9a67940d5734ae7d046272a0353fab95",
-      "ledgerCardId": "QTE-0096"
+      "ledgerCardId": "QTE-0096",
+      "text": "【守護】相手がカードを引いたときそれが3枚目以降のカードなら相手はカードを引く代わりそのカードを墓地に置く。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-25",
@@ -1575,7 +2048,13 @@
       "attack": 11,
       "hp": 11,
       "imageId": "4b7be050f6e63e9b1aebe5d1dccd21effa278623a2e54e8d3cf17949a0fba4b6",
-      "ledgerCardId": "QTE-0107"
+      "ledgerCardId": "QTE-0107",
+      "text": "【守護】【潜伏】【知識】リーダーを攻撃できない。ターンの終わりにこのカードの現在の体力分自分のリーダーの体力を回復する",
+      "keywords": [
+        "守護",
+        "潜伏",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-26",
@@ -1586,18 +2065,24 @@
       "attack": null,
       "hp": null,
       "imageId": "ac22675093b8110d7cf10fc47b2d41930583844122c907f04069e1c7900a7c60",
-      "ledgerCardId": "QTE-0091"
+      "ledgerCardId": "QTE-0091",
+      "text": "ウェポンを1枚破壊する。そうしたらカードを1枚引く。 【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-27",
       "name": "運命のリセット",
       "type": "SPELL",
       "civilization": "LIGHT",
-      "cost": 3,
+      "cost": 2,
       "attack": null,
       "hp": null,
       "imageId": "8014a8d464840b9b8a87fd230a5204d0a2010af2fc7430babfaed9b8435ea100",
-      "ledgerCardId": "QTE-0014"
+      "ledgerCardId": "QTE-0014",
+      "text": "両プレイヤーは自分の手札を全てデッキに戻しシャッフルする。その後同じ枚数引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-28",
@@ -1608,7 +2093,9 @@
       "attack": 1,
       "hp": null,
       "imageId": "367c167f4dfdf00fe1e27efa57b6176865f4438eb6c13a833d737fb1fb74eec0",
-      "ledgerCardId": "QTE-0106"
+      "ledgerCardId": "QTE-0106",
+      "text": "このカードが破壊されたとき次の自分のターン唱える光のスペルのコスト-1",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-29",
@@ -1619,7 +2106,9 @@
       "attack": null,
       "hp": null,
       "imageId": "71d07ed6335e02f1530545075978f7e1e5b90a23cde99318783cb8d0386156d0",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】場にミニオンが出た時自分の手札が6枚以下だったらカードを1枚引く",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-30",
@@ -1630,7 +2119,9 @@
       "attack": 3,
       "hp": 5,
       "imageId": "c8bde91e1ca306ab31458b920c2bb5a3c10fbd08768587f322fc370cbed73932",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（守護を持つ体力2以上のミニオン1体）【常在】相手のスペルのコストは自分の手札の数コスト+1される",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-31",
@@ -1641,7 +2132,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "3b74c174e7ae41583b3ae4209ff15e0690a9f5a9561a4fbb0902e873df5917d6",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（光文明のミニオン1体）【常在】相手は自身のターン中1度しかミニオンを場に出せない",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-32",
@@ -1652,7 +2145,11 @@
       "attack": 4,
       "hp": 6,
       "imageId": "c5c6650d675c53e43dc2829ffbb003662e4bd403f995f6909403719aac77a7b2",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（自分の守護を持つ光文明のミニオン1体）【召喚時】自分の手札から守護を持つ進化ではないミニオンを1体場に出す。【守護】【賢魂：3】カードを2枚引く。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-33",
@@ -1663,7 +2160,12 @@
       "attack": 2,
       "hp": 2,
       "imageId": "4973818f7faeda575fb2b648999392781567f6d4815c0072bec0d7175fede019",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【守護】【還元】",
+      "keywords": [
+        "守護",
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-34",
@@ -1674,7 +2176,9 @@
       "attack": 2,
       "hp": 1,
       "imageId": "1155c5c41f9ce35439a805f549039ae6d17715f3e82156de2e4e2388462a0843",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】相手はスペルを唱えるコスト+1される。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-35",
@@ -1685,7 +2189,11 @@
       "attack": 3,
       "hp": 1,
       "imageId": "4bd474a1584e6fc4a726e7cbbc70cc6f7463a7c73440f33e226116e9bcdcb44d",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【召喚時】自分の山札の上から3枚表向きにする。その中の【守護】を持っているもしくはスペルのカードを全て手札に加える。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-36",
@@ -1696,7 +2204,9 @@
       "attack": 1,
       "hp": 5,
       "imageId": "79e8aa14d79108161a7aa187025f262d23dffa53799a83b522d5d30f0eb2eaee",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】相手は自身のマナよりコストの大きいミニオンを場に出すとき、代わりに山札の下に置く。自分のリーダーがダメージを受けるとき代わりにこのカードを破壊する。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-37",
@@ -1707,7 +2217,11 @@
       "attack": null,
       "hp": null,
       "imageId": "e9f49b00289993b138ac2082b4df94f21c2d480ffb3f6cfd23e80ee5e85e874a",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分のリーダーの体力を2回復する。【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-LIGHT-38",
@@ -1718,7 +2232,9 @@
       "attack": null,
       "hp": null,
       "imageId": "e56dd5f2e9994e6eedb11f1aa6d154dcbad9590c795faf2ef1558271d73a3a51",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "相手は次の相手のターン中スペルを唱えられない。相手のミニオンは次の相手のターン1度しか攻撃できない。",
+      "keywords": []
     },
     {
       "id": "QTE-M-LIGHT-39",
@@ -1729,7 +2245,9 @@
       "attack": null,
       "hp": null,
       "imageId": "71bfe194a4836449501c34556137c1996cfb3f8eb8e2c303451d531d7fed29b1",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分の手札から光文明のコスト3以下のミニオンを1体場に出す。その後自分の手札から【進化】を持つ光文明ミニオンを1体場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-1",
@@ -1740,7 +2258,9 @@
       "attack": null,
       "hp": null,
       "imageId": "791a31022a2f9dfd750f31ca63497a71e85428869dca94a0586b4adf8b06d61f",
-      "ledgerCardId": "QTE-L009"
+      "ledgerCardId": "QTE-L009",
+      "text": "【起動：１】このターン中に自分が使用したカードの枚数が3枚以上なら、自分のミニオン1体の攻撃力を+2。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-2",
@@ -1751,7 +2271,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "a1ef14a4b43f5ff56e45e3468595225d86aff89052c9bb190b03f788f5541751",
-      "ledgerCardId": "QTE-0010"
+      "ledgerCardId": "QTE-0010",
+      "text": "【知識】",
+      "keywords": [
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WIND-3",
@@ -1762,7 +2286,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "55db33e68f26314220e565a57b316562e10325a180faa5f1c437b0736d0da1fd",
-      "ledgerCardId": "QTE-0129"
+      "ledgerCardId": "QTE-0129",
+      "text": "【速攻】",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-WIND-4",
@@ -1773,7 +2301,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "6f2480c48ecfcca9534e9ec5508d2a9dc1e752441b532796a1bed437f73ff5e4",
-      "ledgerCardId": "QTE-0128"
+      "ledgerCardId": "QTE-0128",
+      "text": "【召喚時】このターン中にカードを3枚以上使用しているなら、相手のミニオン1体を持ち主の手札に戻す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-5",
@@ -1784,7 +2314,11 @@
       "attack": 1,
       "hp": 2,
       "imageId": "93c3cc74e92139e2b2f91dcf7eade9416b1459d4b790fb25c1e1fef8984c2484",
-      "ledgerCardId": "QTE-0133"
+      "ledgerCardId": "QTE-0133",
+      "text": "1ターンに2回攻撃できる。\n【突進】",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-WIND-6",
@@ -1795,7 +2329,11 @@
       "attack": 2,
       "hp": 2,
       "imageId": "80a1fb662c5ac34b03c37200b7ff23ac80285f31272d3a14f8017cd4bb0f2b1b",
-      "ledgerCardId": "QTE-0117"
+      "ledgerCardId": "QTE-0117",
+      "text": "このターン中にカードを3枚以上使用しているなら【潜伏】。",
+      "keywords": [
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WIND-7",
@@ -1806,7 +2344,9 @@
       "attack": 0,
       "hp": 2,
       "imageId": "a05a2dcf87d65c6294cea84940350b1d288450a3dcb286741cf13ea877ad1cfa",
-      "ledgerCardId": "QTE-0134"
+      "ledgerCardId": "QTE-0134",
+      "text": "自分が他のカードを使用するたび、ターン終了時まで自分のミニオンすべての攻撃力を+1。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-8",
@@ -1817,7 +2357,12 @@
       "attack": 3,
       "hp": 2,
       "imageId": "bc6285981ebf77f1160d964102625d947ae4b7002331ac548a0df24130b11f0b",
-      "ledgerCardId": "QTE-0120"
+      "ledgerCardId": "QTE-0120",
+      "text": "【速攻】\n【特殊召喚】（このターン中に自分がカードを5枚以上使用している時、コストを1払って場に出せる）",
+      "keywords": [
+        "速攻",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WIND-9",
@@ -1828,7 +2373,9 @@
       "attack": null,
       "hp": null,
       "imageId": "12587808d6da78313de1799f52650e740f35f27b9a4caa0ea0393f5db2433c9e",
-      "ledgerCardId": "QTE-0132"
+      "ledgerCardId": "QTE-0132",
+      "text": "自分のミニオン1体の攻撃力を+1。カードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-10",
@@ -1839,7 +2386,11 @@
       "attack": null,
       "hp": null,
       "imageId": "4771d6f26329d031d649afce8b96a28f144d4be31aeb3be9a3842a2fc2f27833",
-      "ledgerCardId": "QTE-0125"
+      "ledgerCardId": "QTE-0125",
+      "text": "自分のミニオン1体の体力を+1し、【守護】を付与",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WIND-11",
@@ -1850,18 +2401,24 @@
       "attack": null,
       "hp": null,
       "imageId": "0c14fd7b23873215ad8ea88e9d022a6597ff2355c37020964b08986a38b8a37b",
-      "ledgerCardId": "QTE-0118"
+      "ledgerCardId": "QTE-0118",
+      "text": "このターン中、自分の風文明ミニオン1体に「1ターンに2回攻撃できる」を付与。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-12",
       "name": "神風の大号令",
       "type": "SPELL",
       "civilization": "WIND",
-      "cost": 4,
+      "cost": 3,
       "attack": null,
       "hp": null,
       "imageId": "ce17942dc4fd154a43c022aa917bed8b450d0d13aaaff6cbcd46f69afe55a1b7",
-      "ledgerCardId": "QTE-0113"
+      "ledgerCardId": "QTE-0113",
+      "text": "自分のミニオンを2体破壊する。破壊したミニオンの数自分のミニオンのAttackを+1する【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-WIND-13",
@@ -1872,7 +2429,9 @@
       "attack": 0,
       "hp": null,
       "imageId": "5091ffb6f5a84d1defd645810b9cea5bb3dbbd3fe270a5dae3f76b5764a0e56d",
-      "ledgerCardId": "QTE-0136"
+      "ledgerCardId": "QTE-0136",
+      "text": "自分がカードを使用するたび、このターンの間、このウェポンの攻撃力を+1。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-14",
@@ -1883,7 +2442,9 @@
       "attack": 2,
       "hp": null,
       "imageId": "580ac3198b400250549d9c104c6eeda49db073cddfc6a4030f001d53051d8ace",
-      "ledgerCardId": "QTE-0130"
+      "ledgerCardId": "QTE-0130",
+      "text": "1ターンに2回攻撃できる。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-15",
@@ -1894,7 +2455,9 @@
       "attack": null,
       "hp": null,
       "imageId": "287becc2d6bad80ed0cc593289711b572585b37b285aa7edab2788ff92b827f2",
-      "ledgerCardId": "QTE-L010"
+      "ledgerCardId": "QTE-L010",
+      "text": "【常在】：そのターン中3枚目に使うカードのコスト-1する",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-16",
@@ -1905,7 +2468,12 @@
       "attack": 1,
       "hp": 1,
       "imageId": "a9de7b8915f5a106d3839d69fe2a282139c45b027609f77b5afc1fbafdadf5e1",
-      "ledgerCardId": "QTE-0016"
+      "ledgerCardId": "QTE-0016",
+      "text": "【守護】【突進】",
+      "keywords": [
+        "突進",
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WIND-17",
@@ -1914,20 +2482,29 @@
       "civilization": "WIND",
       "cost": 2,
       "attack": 1,
-      "hp": 1,
+      "hp": 2,
       "imageId": "e0d89c75f0290b3ccc2aa4170575e394e153873546b1f025783cb16c69833e9e",
-      "ledgerCardId": "QTE-0135"
+      "ledgerCardId": "QTE-0135",
+      "text": "【潜伏】【守護】このカードが場にあるときこのカードをタップすることで自分のマナを1枚アンタップ状態にする。",
+      "keywords": [
+        "守護",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-WIND-18",
       "name": "詠唱の疾風騎士",
       "type": "MINION",
       "civilization": "WIND",
-      "cost": 6,
-      "attack": 3,
-      "hp": 3,
+      "cost": 3,
+      "attack": 2,
+      "hp": 2,
       "imageId": "d57539a8a5c70a32c8b4ca9d406b6bafea92c1f4f13aafa1c9609bb235692e71",
-      "ledgerCardId": "QTE-0114"
+      "ledgerCardId": "QTE-0114",
+      "text": "【突進】自分がスペルを唱えるたびコスト-1 \nターンエンド時このターン5回以上スペルを撃っていたら墓地にあるスペルを2枚まで手札に戻す。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-WIND-19",
@@ -1938,18 +2515,28 @@
       "attack": 1,
       "hp": 4,
       "imageId": "c11640148a35607686dfc215461f609c134976eefa9483339c163ec637c9046f",
-      "ledgerCardId": "QTE-0119"
+      "ledgerCardId": "QTE-0119",
+      "text": "【守護】【特殊召喚】自分の場に体力3以下のミニオンが3体のときこのカードを手札から1コストで出せる",
+      "keywords": [
+        "守護",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WIND-20",
       "name": "結集する風の精",
       "type": "MINION",
       "civilization": "WIND",
-      "cost": 8,
+      "cost": 11,
       "attack": 4,
       "hp": 4,
       "imageId": "5025fb1d3a08820e0dcda5dfd4e3279de3ec6ae331ed6e0fd95a1b07125700bf",
-      "ledgerCardId": "QTE-0124"
+      "ledgerCardId": "QTE-0124",
+      "text": "【知識】【還元】自分の場にあるミニオンの合計コスト分コスト-1",
+      "keywords": [
+        "知識",
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-WIND-21",
@@ -1960,7 +2547,12 @@
       "attack": 5,
       "hp": 5,
       "imageId": "d9d8cb017c4836179e04389c7d2e0344c44abeb0da47324a4b45877947c09a5d",
-      "ledgerCardId": "QTE-0115"
+      "ledgerCardId": "QTE-0115",
+      "text": "【守護】【特殊召喚】自分の墓地に風文明を持つカードが6枚以上のときこのカードを手札から1コストで出せる。",
+      "keywords": [
+        "守護",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-WIND-22",
@@ -1971,7 +2563,9 @@
       "attack": null,
       "hp": null,
       "imageId": "55f963d9332b0cbf12f37ee7f51e0b47116613ab003b7b3563b3dad59b20a76c",
-      "ledgerCardId": "QTE-0131"
+      "ledgerCardId": "QTE-0131",
+      "text": "場か手札のカードを2枚デッキに戻してシャッフルする。その後カードを2枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-23",
@@ -1982,7 +2576,9 @@
       "attack": null,
       "hp": null,
       "imageId": "6cb213b3cc0cbf825cc1f4f107ba7cd7c3749c00900a53b14f7c2a03b6627c93",
-      "ledgerCardId": "QTE-0127"
+      "ledgerCardId": "QTE-0127",
+      "text": "自分の表向きのマナを1手札に戻す。その後自分の手札から1枚を裏向きでマナに置く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-24",
@@ -1993,7 +2589,9 @@
       "attack": null,
       "hp": null,
       "imageId": "9994ce1da73ca3ecc0b128ba1696154eae181d92c856c0f60f4bead262bd6f8b",
-      "ledgerCardId": "QTE-0121"
+      "ledgerCardId": "QTE-0121",
+      "text": "このカードのコストを+2してもよい。そうした場合このカードを墓地に置く代わり手札に戻す。自分のミニオンを1枚破壊する。そうしたら相手のミニオン1体に3ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-25",
@@ -2004,7 +2602,9 @@
       "attack": null,
       "hp": null,
       "imageId": "8610583a9682a9d7706e560bd5418e53c3202527ec9fa6fc058b7972cac46794",
-      "ledgerCardId": "QTE-0126"
+      "ledgerCardId": "QTE-0126",
+      "text": "カードを1枚引く。カードを1枚捨てても良い。そうしたらカードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-26",
@@ -2015,18 +2615,24 @@
       "attack": null,
       "hp": null,
       "imageId": "d9ecc4485471ebc50d33abfb75e3d38f1fa7d50574959c2b25e5023e639474d1",
-      "ledgerCardId": "QTE-0116"
+      "ledgerCardId": "QTE-0116",
+      "text": "このカードのコストを+1してもよい。そうした場合このカードをもう一度墓地から唱えその後山札の一番下に置く。ミニオンを1体手札に戻す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-27",
       "name": "突風の祝福",
       "type": "SPELL",
       "civilization": "WIND",
-      "cost": 3,
+      "cost": 2,
       "attack": null,
       "hp": null,
       "imageId": "7f8df68ed621a6ce9678aeaa4eb902821041e0f3e43bdd67334b600ebc14f024",
-      "ledgerCardId": "QTE-0122"
+      "ledgerCardId": "QTE-0122",
+      "text": "自分のミニオンの体力を+2する 【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-WIND-28",
@@ -2034,10 +2640,15 @@
       "type": "WEAPON",
       "civilization": "WIND",
       "cost": 3,
-      "attack": 1,
+      "attack": 2,
       "hp": null,
       "imageId": "80d2afbc63d70ed3861b98ee2fd66865f544ba61270cb65e9d184850274ef14f",
-      "ledgerCardId": "QTE-0123"
+      "ledgerCardId": "QTE-0123",
+      "text": "【知識】攻撃時自分のミニオンを1体選ぶ。そのミニオンの体力を+1し【守護】を与える。",
+      "keywords": [
+        "守護",
+        "知識"
+      ]
     },
     {
       "id": "QTE-M-WIND-29",
@@ -2048,7 +2659,9 @@
       "attack": null,
       "hp": null,
       "imageId": "f17adda7b52c81e22ffc98e09d439234a9a7e27bc449ce26f4d2ca9201d590bd",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】ターンに1回自分のミニオンが破壊されたとき自分のリーダーの体力を2回復する",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-30",
@@ -2059,7 +2672,11 @@
       "attack": 3,
       "hp": 3,
       "imageId": "f1d3b8c32b0ee7a5fd9da203e0e5aff819463b7c0c695edbc7420c0bd1c7c15d",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（風文明のミニオン1体）【守護】【賢魂：1】自分のミニオンを1体破壊、そうしたら相手のミニオン1体に3ダメージ与える。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-WIND-31",
@@ -2070,7 +2687,11 @@
       "attack": 2,
       "hp": 4,
       "imageId": "ecd60929f97125ddadac5da5997f1858f9a0fc510e1c0672bd09225a7e4edaf6",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（風文明のミニオン1体）【召喚時】カードを2枚引く。ミニオンを1体選び破壊する。【賢魂：2】自分のミニオン1体の攻撃力+1する。【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-WIND-32",
@@ -2081,7 +2702,9 @@
       "attack": 2,
       "hp": 4,
       "imageId": "7ce836069493d70677bb43dce8802a5ae06d763094ed952ac9340caa0d1bdd84",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（風文明のミニオン1体）【召喚時】：【破壊時】を持つミニオンを手札から2体場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-33",
@@ -2092,7 +2715,11 @@
       "attack": 1,
       "hp": 1,
       "imageId": "e2184920e42ff87a8344d1a2c52b93ba0d7d6d2afd95dfaad4c8a9132e7ca255",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "自分の場にコスト2以上のミニオンが場に居るときこのカードのコストを0にする。ターンの終わりこのカードは破壊される【突進】",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-WIND-34",
@@ -2103,7 +2730,9 @@
       "attack": 2,
       "hp": 3,
       "imageId": "08bab397dedaf7ac24e91fbda29bd849355d505b9fac37d2537e94a2e228a248",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】ターンのはじめにこれを破壊する。これは攻撃できない【破壊時】自分のリーダーの体力を1回復、墓地から「コク霊」を出す",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-35",
@@ -2114,7 +2743,9 @@
       "attack": 3,
       "hp": 2,
       "imageId": "66a070995dffd72bc881152b5a7ead04bcb270bbf7c5ee9a4824509be8552ed9",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】ターンのはじめにこれを破壊する。これは攻撃できない【破壊時】相手のリーダーに1ダメージ、墓地から「ハク霊」を出す",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-36",
@@ -2125,7 +2756,9 @@
       "attack": 1,
       "hp": 1,
       "imageId": "6cb9fdb31ccefe6e85f6f17753de5dec16e2385db2e54db3f1a1fe9b203c173e",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【召喚時】自分の他のミニオンを1体破壊する。そうしたらカードを2枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-37",
@@ -2136,7 +2769,9 @@
       "attack": 2,
       "hp": 4,
       "imageId": "9df868ac81cc9ddde07cdf2de42752eae96f076740c34df821255815b3f466fc",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【召喚時】自分の他のミニオンを全て破壊する。こうして破壊した数相手のリーダーに1ダメージ与える。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-38",
@@ -2147,7 +2782,9 @@
       "attack": 2,
       "hp": 2,
       "imageId": "c179c8ccb46e11480b5b9731906d95345816780722d26a84355ade2a038b625d",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【召喚時】 自分の他のミニオンを全て破壊する。こうして破壊した数相手のミニオンに1ダメージ。その後相手のリーダーに1ダメージ。",
+      "keywords": []
     },
     {
       "id": "QTE-M-WIND-39",
@@ -2158,7 +2795,12 @@
       "attack": 4,
       "hp": 2,
       "imageId": "02dbb80fb2d04ee812c7d7c726cded18bc1dae3a9e4f137a00737c179f555ed5",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【特殊召喚】（このターンミニオンが8体以上破壊されていれば自分の手札からコスト1として出せる。）【速攻】",
+      "keywords": [
+        "速攻",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-EARTH-1",
@@ -2169,7 +2811,9 @@
       "attack": null,
       "hp": null,
       "imageId": "c6f825857b544636f979662d204478a184e59b7a93b61d53c1c0fc76996a9bb8",
-      "ledgerCardId": "QTE-L011"
+      "ledgerCardId": "QTE-L011",
+      "text": "自分のミニオンは6体ではなく8体まで場に出せるようになる。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-2",
@@ -2180,7 +2824,11 @@
       "attack": 1,
       "hp": 5,
       "imageId": "3820a47f80bf2ca50dbb8cfbbd74ebfb199cfee53bfd362696eb3809328d8dd9",
-      "ledgerCardId": "QTE-0154"
+      "ledgerCardId": "QTE-0154",
+      "text": "【守護】",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-EARTH-3",
@@ -2188,10 +2836,12 @@
       "type": "MINION",
       "civilization": "EARTH",
       "cost": 4,
-      "attack": 3,
+      "attack": 4,
       "hp": 3,
       "imageId": "6bd1ec8e0e79ce39edcbb4e8874287df94c5710aa52f99d274ed9977d6396c10",
-      "ledgerCardId": "QTE-0137"
+      "ledgerCardId": "QTE-0137",
+      "text": "【召喚時】自分の山札の上から1枚を表向きでマナに置く",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-4",
@@ -2202,7 +2852,11 @@
       "attack": 6,
       "hp": 3,
       "imageId": "281eb131298928705ec4397d567dfe91b392fdcb4cfa032d6038be49f65344bf",
-      "ledgerCardId": "QTE-0153"
+      "ledgerCardId": "QTE-0153",
+      "text": "【召喚時】相手の場にいる【守護】を持つミニオンをすべて破壊。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-EARTH-5",
@@ -2213,7 +2867,12 @@
       "attack": 6,
       "hp": 8,
       "imageId": "a4754bb87cbf44503f6ad5c6ef3f81973c0b689f22583a1d100cad6510d9b447",
-      "ledgerCardId": "QTE-0141"
+      "ledgerCardId": "QTE-0141",
+      "text": "【守護】\n【潜伏】（相手のカードや能力の対象にならない）",
+      "keywords": [
+        "守護",
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-EARTH-6",
@@ -2224,7 +2883,11 @@
       "attack": 8,
       "hp": 8,
       "imageId": "d4d698633c49abc0d9107ce63a0e689e67fcd004a56f9b4c1cb0e95e02cca929",
-      "ledgerCardId": "QTE-0140"
+      "ledgerCardId": "QTE-0140",
+      "text": "【突進】。このミニオンが戦闘で相手ミニオンを破壊した時、相手のリーダーに4ダメージ。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-EARTH-7",
@@ -2235,7 +2898,9 @@
       "attack": 7,
       "hp": 7,
       "imageId": "25df59aac944e6ab4fac7fe90e6a292ff880ebb1840a56abeec6f5ddb3bab0af",
-      "ledgerCardId": "QTE-0147"
+      "ledgerCardId": "QTE-0147",
+      "text": "【召喚時】他のミニオン全てに7ダメージ。体力の多いリーダーに3ダメージ",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-8",
@@ -2246,7 +2911,11 @@
       "attack": 6,
       "hp": 7,
       "imageId": "db6457e1704b5f56bc16448b078548d2ab22ccfff5bfb51461dd69b4cb9fd92b",
-      "ledgerCardId": "QTE-0138"
+      "ledgerCardId": "QTE-0138",
+      "text": "【召喚時】このミニオン以外の、お互いの場のミニオンをすべて破壊。\n【特殊召喚】（自分のマナ最大値が10以上の時、コスト0で手札から使用できる）",
+      "keywords": [
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-EARTH-9",
@@ -2257,7 +2926,9 @@
       "attack": null,
       "hp": null,
       "imageId": "38a04c7c057ce2b1bb59c27cd0cce9eab4a49db50c93e026fa059869ffc2f67d",
-      "ledgerCardId": "QTE-0158"
+      "ledgerCardId": "QTE-0158",
+      "text": "自分の山札の上から1枚を表向きでマナに置く。自分のマナが10枚以上ならカードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-10",
@@ -2268,7 +2939,11 @@
       "attack": null,
       "hp": null,
       "imageId": "76571f598d0d6603d7044e84ea5b71783bb851cff8b31e006f76b70e3742854f",
-      "ledgerCardId": "QTE-0139"
+      "ledgerCardId": "QTE-0139",
+      "text": "相手のミニオン1体に5ダメージ。\n【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-EARTH-11",
@@ -2279,7 +2954,9 @@
       "attack": null,
       "hp": null,
       "imageId": "cf64f7f1cd77b849a6bc03f5d7cda04641e6181b92cd832fd57b2744260b2ce3",
-      "ledgerCardId": "QTE-0148"
+      "ledgerCardId": "QTE-0148",
+      "text": "お互いのコスト4以下のミニオンをすべて破壊。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-12",
@@ -2290,7 +2967,9 @@
       "attack": null,
       "hp": null,
       "imageId": "11e519c9aa9eb7eff983366135fb7869abeb29aece5f43981bdd9440ea07b78e",
-      "ledgerCardId": "QTE-0157"
+      "ledgerCardId": "QTE-0157",
+      "text": "自分の山札の上から1枚を表向きでマナに置く。その後カードを2枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-13",
@@ -2301,7 +2980,9 @@
       "attack": 0,
       "hp": null,
       "imageId": "569e873a4d982dc37bc7fa107cba99ce2008b209fa7890e3a21a051815dbc481",
-      "ledgerCardId": "QTE-0146"
+      "ledgerCardId": "QTE-0146",
+      "text": "自分のリーダーが攻撃されたとき代わりにこのカードを破壊する",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-14",
@@ -2312,7 +2993,9 @@
       "attack": 4,
       "hp": null,
       "imageId": "7e6320987095bd12a5600ff5129150768e2efb988dfa3468784b1970e78801bc",
-      "ledgerCardId": "QTE-0142"
+      "ledgerCardId": "QTE-0142",
+      "text": "【召喚時】自分の山札の上から1枚をマナに表向きで置く",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-15",
@@ -2323,18 +3006,22 @@
       "attack": null,
       "hp": null,
       "imageId": "5be60c12845d369639c9051bae3ba3fa550e44dbf4caf7d81241da8a8cceb5f2",
-      "ledgerCardId": "QTE-L012"
+      "ledgerCardId": "QTE-L012",
+      "text": "【常在】：マナにカードが置かれたときそのターン中それが2回目ならカードを1枚引く",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-16",
       "name": "苗木植えの精霊",
       "type": "MINION",
       "civilization": "EARTH",
-      "cost": 2,
+      "cost": 1,
       "attack": 1,
-      "hp": 1,
+      "hp": 2,
       "imageId": "48f54a2af58c63c6155849b119f80ca89a626b46eebb456c0ab580cefd8a7c27",
-      "ledgerCardId": "QTE-0156"
+      "ledgerCardId": "QTE-0156",
+      "text": "【召喚時】 自分の手札を1枚表向きでマナに置く",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-17",
@@ -2345,7 +3032,11 @@
       "attack": 3,
       "hp": 1,
       "imageId": "4b945ddcd9b2c0f0aedff65a203b267fd1215f21f574647427eec5956708a337",
-      "ledgerCardId": "QTE-0155"
+      "ledgerCardId": "QTE-0155",
+      "text": "【突進】攻撃時、自分のマナから1枚選び手札に戻す。破壊されたとき自分の山札の上から1枚を表向きでマナに置く。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-EARTH-18",
@@ -2356,18 +3047,27 @@
       "attack": 3,
       "hp": 1,
       "imageId": "aeb32c672a2383601b3894d6604b187f7398c9562738f99148ebec7eeb5d7abf",
-      "ledgerCardId": "QTE-0143"
+      "ledgerCardId": "QTE-0143",
+      "text": "【突進】自分のマナが6枚以上の時このカードのコストは1になる【還元】",
+      "keywords": [
+        "突進",
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-EARTH-19",
       "name": "連撃の巨岩",
       "type": "MINION",
       "civilization": "EARTH",
-      "cost": 6,
+      "cost": 5,
       "attack": 3,
-      "hp": 8,
+      "hp": 9,
       "imageId": "a28bb5c2df96456872eb41d1a8ddabd53e844839665893d1d8be8a398ebbe1eb",
-      "ledgerCardId": "QTE-0017"
+      "ledgerCardId": "QTE-0017",
+      "text": "【突進】1ターンに2回攻撃できる。ターンエンド時このカードを手札に戻す。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-EARTH-20",
@@ -2378,7 +3078,11 @@
       "attack": 4,
       "hp": 4,
       "imageId": "272cabb944ce7da65fbeec34fb5fa6ef3dcff4791a7fbf383b11db353d8381e3",
-      "ledgerCardId": "QTE-0152"
+      "ledgerCardId": "QTE-0152",
+      "text": "【守護】【召喚時】リーダーのHPを2回復 自分のターンエンド時リーダーのHPを4回復",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-EARTH-21",
@@ -2389,7 +3093,9 @@
       "attack": 7,
       "hp": 7,
       "imageId": "947ae3103bfedcecd6dfcbf3feb65688fc317f79d7abfd9895fbd0eb67488ed0",
-      "ledgerCardId": "QTE-0145"
+      "ledgerCardId": "QTE-0145",
+      "text": "【召喚時】相手の場全てに7ダメージ。カードを2枚引く",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-22",
@@ -2398,31 +3104,43 @@
       "civilization": "EARTH",
       "cost": 10,
       "attack": 0,
-      "hp": 6,
+      "hp": 5,
       "imageId": "10d340ebc011f376682ef0e6ccc6d0f2b4add9b1ad19aab115e780c886495228",
-      "ledgerCardId": "QTE-0008"
+      "ledgerCardId": "QTE-0008",
+      "text": "【速攻】自分の手札の枚数Attack+1",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-EARTH-23",
       "name": "不動の絶対神 ガイア",
       "type": "MINION",
       "civilization": "EARTH",
-      "cost": 14,
+      "cost": 12,
       "attack": 10,
       "hp": 10,
       "imageId": "5ee5555f141b70414d19390c386ffdd53d05f2e37c39b2032a986eeaded878ab",
-      "ledgerCardId": "QTE-0150"
+      "ledgerCardId": "QTE-0150",
+      "text": "【潜伏】リーダーを攻撃できない。攻撃時相手のリーダーに4ダメージ。",
+      "keywords": [
+        "潜伏"
+      ]
     },
     {
       "id": "QTE-M-EARTH-24",
       "name": "疾風怒濤のベヒーモス",
       "type": "MINION",
       "civilization": "EARTH",
-      "cost": 15,
-      "attack": 6,
-      "hp": 8,
+      "cost": 13,
+      "attack": 5,
+      "hp": 10,
       "imageId": "96e3d713a03149483d9b7793ece9fb1d8873ac5cb33f53225aa45811ac03ddd4",
-      "ledgerCardId": "QTE-0144"
+      "ledgerCardId": "QTE-0144",
+      "text": "【速攻】ターンエンド時このカードを手札に戻す。",
+      "keywords": [
+        "速攻"
+      ]
     },
     {
       "id": "QTE-M-EARTH-25",
@@ -2433,7 +3151,9 @@
       "attack": null,
       "hp": null,
       "imageId": "7276d0c7baed69d67286eb88461637c8738dde9e6bfb0fd43e55a91a6061baa6",
-      "ledgerCardId": "QTE-0149"
+      "ledgerCardId": "QTE-0149",
+      "text": "カードを1枚引く 自分のマナが7枚以上の時さらに1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-26",
@@ -2444,7 +3164,11 @@
       "attack": null,
       "hp": null,
       "imageId": "54d32a950298fad76126e57f3250663b3a90502394ba2f6aff05face75421653",
-      "ledgerCardId": "QTE-0151"
+      "ledgerCardId": "QTE-0151",
+      "text": "山札の上から1枚をマナゾーンに置く【還元】",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-EARTH-27",
@@ -2455,7 +3179,11 @@
       "attack": null,
       "hp": null,
       "imageId": "99b174c7adbba20bbee8d510b80a0bac6d3476e6fc52033e95766868f1c0f3cc",
-      "ledgerCardId": "QTE-0015"
+      "ledgerCardId": "QTE-0015",
+      "text": "自分のマナからカードを1枚手札に加える【還元】（「地脈の覚醒」の効果はターンに1回のみ発動する）",
+      "keywords": [
+        "還元"
+      ]
     },
     {
       "id": "QTE-M-EARTH-28",
@@ -2466,7 +3194,9 @@
       "attack": 2,
       "hp": null,
       "imageId": "ab2759dcd981a5a35fb655faef80e13f5b4c5fc810e19d05baaa087e07ed9b73",
-      "ledgerCardId": "QTE-0009"
+      "ledgerCardId": "QTE-0009",
+      "text": "攻撃時ミニオン全てに2ダメージ与える。この効果で破壊したミニオンの数山札の上から裏向きでマナを1枚増やす。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-29",
@@ -2477,7 +3207,9 @@
       "attack": null,
       "hp": null,
       "imageId": "4d1532eb778bddcb1f093bbb8c76ea66c44056f0311f0887b425f272785b9cab",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【起動：2】自分の墓地からカード1枚選びマナに置く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-30",
@@ -2488,7 +3220,11 @@
       "attack": 3,
       "hp": 3,
       "imageId": "2a67d7be180e1767baa04ec045eeb08c2bcff2677b977dbf1e849c405c51d849",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（土文明のミニオン1体）【威圧】【賢魂：3】自分の山札の上から2枚見て1枚を裏向きでマナに1枚を手札へ相手に見せず加える。",
+      "keywords": [
+        "威圧"
+      ]
     },
     {
       "id": "QTE-M-EARTH-31",
@@ -2499,7 +3235,11 @@
       "attack": 1,
       "hp": 5,
       "imageId": "ca8c672805b95bdff888a1cdecb24faeda54220540531cc4ea56b9664cb33a5d",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（土文明のミニオン1体）【守護】攻撃時カードを1枚引く。",
+      "keywords": [
+        "守護"
+      ]
     },
     {
       "id": "QTE-M-EARTH-32",
@@ -2510,7 +3250,13 @@
       "attack": 3,
       "hp": 2,
       "imageId": "15b20f162873e4a9d6c77d8c091287556312905d06968d2f4fe14ae8d6e4e55e",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【進化】（土文明のミニオン1体）【特殊召喚】(自分のマナが7枚以上のときこのカードを手札からコスト1として場に出せる。)【守護】【還元】",
+      "keywords": [
+        "守護",
+        "還元",
+        "特殊召喚"
+      ]
     },
     {
       "id": "QTE-M-EARTH-33",
@@ -2521,7 +3267,11 @@
       "attack": 1,
       "hp": 2,
       "imageId": "bdca73059c30271965200b0df78907402d3024e8b3170c763036a1328bcfff41",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【突進】【召喚時】相手ミニオン1体に1ダメージ",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-EARTH-34",
@@ -2532,7 +3282,9 @@
       "attack": 1,
       "hp": 1,
       "imageId": "b95682b458f8d1f3e5bf676f2dd9197ffd0858e9eb09cde924ffe465c41cd62b",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【破壊時】山札の上からカードを1枚マナゾーンに置く。その後コスト3以下のミニオンを1体選びマナゾーンから場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-35",
@@ -2543,7 +3295,11 @@
       "attack": 4,
       "hp": 2,
       "imageId": "f8be7eda8bf41bb33bc019db37796546a431d2da11409b7a0a3e0915b47d07f2",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【突進】攻撃時このカードをマナに裏向きで置いても良い。そうしたらマナにある表向きのAttackが6以下のミニオンを1体場に出す。",
+      "keywords": [
+        "突進"
+      ]
     },
     {
       "id": "QTE-M-EARTH-36",
@@ -2554,7 +3310,9 @@
       "attack": 1,
       "hp": 3,
       "imageId": "7331e533c301842f06d0dfb4bba1c8f1aae523e8204a9ee912b7cfb00f2b1703",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "【常在】相手はスペルを唱えられない。相手の手札の枚数このミニオンの攻撃力+1【賢魂：2】山札の上からカードを1枚マナゾーンに裏向きで置く。自分のマナが3枚以下のときカードを1枚引く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-37",
@@ -2565,7 +3323,9 @@
       "attack": null,
       "hp": null,
       "imageId": "70ef29fc2b7b43da09c905254b3025f5ba7d08d302ce3ea435ddd0206c5ea694",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "カードを1枚引く。その後自分の手札を1枚選びマナに裏向きで置く。",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-38",
@@ -2576,7 +3336,9 @@
       "attack": null,
       "hp": null,
       "imageId": "b83848b73d719917295ba0f3df2ec81976b0ccef64a83e3b52f17077380f5706",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "相手のミニオンを1体マナに裏向きで置く。その後自分のマナからコスト6以下のミニオンを1体マナから場に出す",
+      "keywords": []
     },
     {
       "id": "QTE-M-EARTH-39",
@@ -2587,7 +3349,9 @@
       "attack": null,
       "hp": null,
       "imageId": "f16b0005699f6604410bc0b2c089a013915fdd9ed1f6fda4e746ac3f25e41efc",
-      "ledgerCardId": null
+      "ledgerCardId": null,
+      "text": "相手のミニオンを全て破壊する。その後自分の表向きのマナからミニオンを1枚選び場に出す。",
+      "keywords": []
     },
     {
       "id": "QTE-M-NONE-01",
@@ -2598,7 +3362,9 @@
       "attack": null,
       "hp": null,
       "imageId": "d380cd40d87843737e64e7b513323dbd61e0897c3379a059e6a9367fe9304a02",
-      "ledgerCardId": "QTE-X001"
+      "ledgerCardId": "QTE-X001",
+      "text": "これはゲームの開始時後攻のとき手札に加える。使用時このカードを裏向きにしてこのターンの間マナゾーンに置く。ターンの終わりにこのマナは消滅する。このカードを禁忌のコストにできない。",
+      "keywords": []
     }
   ]
 }

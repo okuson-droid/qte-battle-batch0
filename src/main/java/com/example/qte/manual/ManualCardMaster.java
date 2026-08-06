@@ -25,7 +25,8 @@ public record ManualCardMaster(
         Integer attack,
         Integer hp,
         String imageId,
-        String ledgerCardId) {
+        String ledgerCardId,
+        boolean unlimitedCopies) {
 
     /** 場に出る(タイル表示になる)種別か。スペルは場に残らない。 */
     public boolean isPermanent() {

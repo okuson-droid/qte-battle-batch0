@@ -100,10 +100,20 @@ public class LobbyController {
         return "battle";
     }
 
-    /** デッキビルダー画面 */
+    /** デッキビルダー画面(通常モード用) */
     @GetMapping("/deck-builder")
     public String deckBuilder() {
         return "deck-builder";
+    }
+
+    /**
+     * デッキメーカー画面(手動モード用・Batch 24)。カードデータは
+     * {@code /manual/api/card-library} から取得する薄い静的画面であり、
+     * ここではビュー名を返すだけである(手動モードの依存をこのクラスへ持ち込まない)。
+     */
+    @GetMapping("/deck-maker")
+    public String deckMaker() {
+        return "manual-deck-maker";
     }
 
     /** カードマスタ一覧(人が読む用) */

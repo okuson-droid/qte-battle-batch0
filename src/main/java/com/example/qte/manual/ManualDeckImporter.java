@@ -25,8 +25,23 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import lombok.RequiredArgsConstructor;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
+ * デッキファイルの読み込み。JSON(Batch 24)と、ユドナリウムの card-stack XML zip
+ * (設計書 7章)の2形式を受け付ける。
+ *
+ * <h2>★Batch 24: JSON が標準形式、zip は後方互換</h2>
+ * デッキメーカーがアプリに組み込まれたため({@code /deck-maker})、デッキの標準形式は
+ * カードIDで書かれた JSON({@code format: taboo-elemental-deck})になった。
+ * 突合キーは {@code manual-cards.json} のカードIDそのものである。
+ * ユドナリウム由来の zip も従来どおり読める。形式は先頭バイトで判別する
+ * ({@link #importAuto})ため、受け口({@code /manual/api/rooms/{id}/deck})は1つのままである。
+ * 以下の説明は zip 経路のものである。
+ *
+ * <hr>
+ *
  * ユドナリウムの card-stack XML(zip)を読み込む(設計書 7章)。
  *
  * <h2>★突合キーは表面画像IDのみである</h2>
@@ -72,7 +87,139 @@ public class ManualDeckImporter {
     /** 禁忌デッキの同名上限(ハイランダー) */
     private static final int TABOO_NAME_LIMIT = 1;
 
+    /** JSON デッキ1件が持てるカード枚数の上限(異常な qty への防波堤。実デッキは49枚) */
+    private static final int MAX_JSON_CARDS = 200;
+
     private final ManualCardRepository cards;
+
+    private final ObjectMapper objectMapper;
+
+    /**
+     * 形式を判別してデッキを読み込む(Batch 24)。
+     *
+     * zip はマジックナンバー {@code PK} で始まることが仕様で保証されている。
+     * 拡張子やContent-Typeはクライアントの自己申告であり、判別に使わない
+     * (設計判断27「外部から来るデータはすべて検証する」)。
+     */
+    public ManualDeckImport importAuto(byte[] body) {
+        if (body == null || body.length == 0) {
+            throw new IllegalArgumentException("デッキファイルが空です");
+        }
+        if (body.length >= 2 && body[0] == 'P' && body[1] == 'K') {
+            return importZip(body);
+        }
+        return importJson(body);
+    }
+
+    /**
+     * JSON デッキ({@code format: taboo-elemental-deck})を読み込む(Batch 24)。
+     *
+     * <h3>受け付ける形</h3>
+     * <pre>
+     * { "format": "taboo-elemental-deck", "version": 2, "deckName": "...",
+     *   "leader": {"cardId": "...", "name": "..."},
+     *   "main":  [ {"cardId": "...", "name": "...", "qty": 4}, ... ],
+     *   "taboo": [ {"cardId": "...", "name": "..."}, ... ] }
+     * </pre>
+     * 過渡期の揺れを許す: {@code leader} の代わりに {@code leaderId} 文字列、
+     * {@code taboo} の要素がID文字列だけ、でも読める。名前(name)は解決失敗時の
+     * 表示用にだけ使う。<b>突合はカードIDのみで行う</b>(名前を突合キーにしない理由は
+     * クラスコメントの(1)(2)と同じである)。
+     *
+     * <h3>zip 経路と同じ扱い</h3>
+     * 解決できないIDは灰色タイル(名前だけ)として通し、構築ルール違反は警告に留める。
+     * 検証は zip 経路と同じ {@link #validate} を通る。判定を2箇所に書かない。
+     */
+    public ManualDeckImport importJson(byte[] body) {
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(body);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("デッキファイルとして読めませんでした(JSONでもzipでもない)");
+        }
+        if (root == null || !root.isObject()
+                || !"taboo-elemental-deck".equals(textOrNull(root.path("format")))) {
+            throw new IllegalArgumentException(
+                    "デッキファイルの形式が違います(format: taboo-elemental-deck のみ)");
+        }
+        List<String> warnings = new ArrayList<>();
+
+        ManualDeckImport.Entry leader = readJsonLeader(root, warnings);
+        List<ManualDeckImport.Entry> mainCards = readJsonEntries(root.path("main"), true, warnings);
+        List<ManualDeckImport.Entry> tabooCards = readJsonEntries(root.path("taboo"), false, warnings);
+
+        validate(leader, mainCards, tabooCards, warnings);
+        return new ManualDeckImport(
+                textOrNull(root.path("deckName")), leader, mainCards, tabooCards, warnings);
+    }
+
+    // ---- JSON ----
+
+    private ManualDeckImport.Entry readJsonLeader(JsonNode root, List<String> warnings) {
+        JsonNode leaderNode = root.path("leader");
+        String cardId = leaderNode.isObject()
+                ? textOrNull(leaderNode.path("cardId"))
+                : textOrNull(root.path("leaderId"));
+        String name = leaderNode.isObject() ? textOrNull(leaderNode.path("name")) : null;
+        if (cardId == null) {
+            warnings.add("リーダーが見つからなかった");
+            return null;
+        }
+        return toEntry(cardId, name);
+    }
+
+    /**
+     * main / taboo の配列を Entry の列に展開する。
+     * {@code qty} はメインのみ有効(禁忌はハイランダーなので常に1枚として扱う)。
+     */
+    private List<ManualDeckImport.Entry> readJsonEntries(JsonNode array, boolean allowQty,
+            List<String> warnings) {
+        List<ManualDeckImport.Entry> result = new ArrayList<>();
+        if (!array.isArray()) {
+            return result;
+        }
+        for (JsonNode element : array) {
+            String cardId = element.isObject() ? textOrNull(element.path("cardId"))
+                    : textOrNull(element);
+            if (cardId == null) {
+                warnings.add("cardId の無いエントリを無視した");
+                continue;
+            }
+            String name = element.isObject() ? textOrNull(element.path("name")) : null;
+            int qty = allowQty && element.isObject() ? element.path("qty").asInt(1) : 1;
+            if (qty < 1) {
+                qty = 1;
+            }
+            for (int i = 0; i < qty; i++) {
+                if (result.size() >= MAX_JSON_CARDS) {
+                    warnings.add("カード枚数が %d 枚を超えたため以降を打ち切った".formatted(MAX_JSON_CARDS));
+                    return result;
+                }
+                result.add(toEntry(cardId, name));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * カードIDを台帳と突合して Entry にする。解決できない場合は名前(無ければID)の
+     * 灰色タイルになる。★Entry の imageId には慣例上カードIDを入れる。
+     * {@link #checkUnresolved} の警告文がこの欄で個体を名指しするためである
+     * (zip 経路では画像ID、JSON経路ではカードIDが「突合に失敗したキー」に当たる)。
+     */
+    private ManualDeckImport.Entry toEntry(String cardId, String name) {
+        Optional<ManualCardMaster> found = cards.findOptionalById(cardId);
+        String rawName = name != null ? name : cardId;
+        return new ManualDeckImport.Entry(found.orElse(null), rawName, cardId);
+    }
+
+    private String textOrNull(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        String text = node.asText();
+        return text == null || text.isBlank() ? null : text;
+    }
 
     /**
      * zip のバイト列からデッキを組み立てる。
@@ -390,14 +537,24 @@ public class ManualDeckImporter {
         checkUnresolved(leader, mainCards, tabooCards, warnings);
     }
 
+    /**
+     * 同名上限の検証。★カードテキストによる上書きを許す(総合ルール 7-3 は
+     * デッキ構築検証にも及ぶ。例: ゾンストライカー「4枚以上入れられる」)。
+     * 上書きの宣言はコードではなくカード定義({@code manual-cards.json} の
+     * {@code unlimitedCopies})が持つ。IDや名前をここに書かない。
+     */
     private void checkNameLimit(List<ManualDeckImport.Entry> deck, int limit, String label,
             List<String> warnings) {
         Map<String, Integer> counts = new LinkedHashMap<>();
+        Map<String, Boolean> exempt = new LinkedHashMap<>();
         for (ManualDeckImport.Entry entry : deck) {
             counts.merge(entry.displayName(), 1, Integer::sum);
+            if (entry.master() != null && entry.master().unlimitedCopies()) {
+                exempt.put(entry.displayName(), true);
+            }
         }
         for (Map.Entry<String, Integer> count : counts.entrySet()) {
-            if (count.getValue() > limit) {
+            if (count.getValue() > limit && !exempt.containsKey(count.getKey())) {
                 warnings.add("%s の同名上限 %d 枚を超えている: %s(%d 枚)"
                         .formatted(label, limit, count.getKey(), count.getValue()));
             }

@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>デッキメーカー — クイン・タブーエレメント</title>
+<style>
+:root{
+  --bg:#0c0b12;
+  --surface:#181624;
+  --surface-2:#211e33;
+  --surface-3:#2a2640;
+  --line:#3c3656;
+  --line-soft:#2a2640;
+  --gold:#c9a15a;
+  --gold-soft:#8a744a;
+  --emerald:#3f9e7a;
+  --crimson:#c23c52;
+  --text:#ece8f7;
+  --text-dim:#9d97b8;
+  --text-faint:#6a6484;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;height:100%;}
+body{
+  background:radial-gradient(1200px 700px at 50% -10%, #221f36 0%, #0c0b12 55%),var(--bg);
+  color:var(--text);
+  font-family:'Noto Sans JP','Hiragino Sans',sans-serif;
+  display:flex;flex-direction:column;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---------- トップバー ---------- */
+.top-bar{
+  background:linear-gradient(180deg,var(--surface),var(--surface-2));
+  padding:10px 18px;border-bottom:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-shrink:0;z-index:50;flex-wrap:wrap;
+}
+.brand{display:flex;align-items:center;gap:10px;}
+.brand .mark{
+  font-family:Georgia,serif;font-weight:900;font-size:13px;letter-spacing:.14em;
+  color:var(--gold);border:1px solid var(--gold-soft);padding:3px 8px;border-radius:3px;
+}
+.brand h1{font-size:15px;margin:0;letter-spacing:.04em;font-weight:700;}
+.civ-select{display:flex;gap:6px;}
+.civ-btn{
+  padding:6px 13px;cursor:pointer;border:1px solid var(--line);background:var(--surface);
+  color:var(--text-dim);border-radius:4px;font-weight:700;font-size:13px;font-family:inherit;transition:.15s;
+}
+.civ-btn:hover{border-color:var(--gold-soft);color:var(--text);}
+.civ-btn.active{color:#fff;border-color:var(--cc);box-shadow:0 0 8px color-mix(in srgb,var(--cc) 55%,transparent);background:color-mix(in srgb,var(--cc) 22%,var(--surface));}
+.io-group{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.io-btn{
+  background:transparent;border:1px solid var(--line);color:var(--text-dim);
+  padding:7px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit;transition:.15s;
+}
+.io-btn:hover{border-color:var(--gold-soft);color:var(--text);}
+.io-btn.primary{background:var(--gold);border-color:var(--gold);color:#1a1408;font-weight:700;}
+.io-btn.primary:hover{filter:brightness(1.12);}
+input[type=file]{display:none;}
+
+/* ---------- 3ペイン ---------- */
+.workspace{display:flex;flex:1;overflow:hidden;}
+.detail-pane{
+  width:290px;min-width:290px;background:#131120;border-right:1px solid var(--line);
+  display:flex;flex-direction:column;padding:16px;overflow-y:auto;gap:12px;
+}
+.detail-empty{color:var(--text-faint);font-size:12px;text-align:center;padding:40px 10px;border:1px dashed var(--line);border-radius:8px;}
+.detail-ctrl{display:flex;gap:8px;}
+.detail-ctrl button{
+  flex:1;padding:8px 0;font-size:14px;font-weight:700;border-radius:4px;cursor:pointer;font-family:inherit;
+  background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+}
+.detail-ctrl button:hover{border-color:var(--gold-soft);}
+.info-rows{display:flex;flex-direction:column;gap:6px;font-size:12px;}
+.info-row{display:flex;justify-content:space-between;background:var(--surface);padding:6px 10px;border-radius:4px;border:1px solid var(--line-soft);}
+.info-row .k{color:var(--text-faint);}
+.info-row .v{font-weight:700;}
+
+.deck-pane{
+  flex:1.15;display:flex;flex-direction:column;border-right:1px solid var(--line);
+  background:#161422;overflow-y:auto;padding:14px;
+}
+.deck-header{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px;
+  position:sticky;top:-14px;background:#161422;z-index:10;padding-top:4px;
+}
+.deck-header input{
+  background:var(--surface);border:1px solid var(--line);color:var(--text);
+  padding:7px 10px;border-radius:4px;font-size:13px;width:200px;outline:none;font-family:inherit;
+}
+.deck-header input:focus{border-color:var(--gold-soft);}
+.counters{display:flex;gap:8px;margin-left:auto;}
+.counter-box{
+  background:var(--surface);padding:5px 11px;border-radius:4px;border:1px solid var(--line-soft);
+  font-size:11px;color:var(--text-faint);
+}
+.counter-box b{font-size:14px;margin-left:5px;font-family:monospace;}
+.ok{color:var(--emerald);}
+.bad{color:var(--crimson);}
+.deck-section{margin-bottom:16px;background:var(--surface);padding:10px;border-radius:6px;border:1px solid var(--line-soft);min-height:80px;flex-shrink:0;}
+.section-title{font-size:12px;margin:0 0 10px;color:var(--gold);letter-spacing:.08em;border-bottom:1px dashed var(--line);padding-bottom:5px;}
+.section-title small{color:var(--text-faint);font-weight:400;margin-left:6px;}
+
+.pool-pane{flex:1;display:flex;flex-direction:column;background:#14121e;overflow:hidden;}
+.pool-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--line);flex-shrink:0;}
+.tab-btn{
+  flex:1;padding:11px;cursor:pointer;text-align:center;background:transparent;color:var(--text-faint);
+  border:none;font-size:13px;font-weight:700;border-bottom:3px solid transparent;font-family:inherit;transition:.15s;
+}
+.tab-btn:hover{color:var(--text);}
+.tab-btn.active{color:var(--gold);border-bottom-color:var(--gold);background:var(--surface-2);}
+.pool-controls{padding:9px 13px;background:var(--surface-2);border-bottom:1px solid var(--line);flex-shrink:0;}
+.pool-controls-top{display:flex;align-items:center;gap:10px;}
+.pool-hint{font-size:11px;color:var(--text-faint);}
+.pool-hint b{color:var(--text-dim);}
+.pool-controls select,.pool-controls input[type=text]{
+  background:var(--surface);border:1px solid var(--line);color:var(--text);
+  padding:5px 8px;border-radius:4px;font-size:12px;outline:none;font-family:inherit;
+}
+.pool-controls input[type=text]{flex:1;min-width:100px;}
+.filter-row{display:flex;align-items:center;gap:4px;margin-top:7px;flex-wrap:wrap;}
+.filter-lbl{font-size:10.5px;color:var(--text-faint);width:38px;text-align:right;margin-right:3px;flex:none;}
+.flt-btn{
+  background:var(--surface);border:1px solid var(--line);color:var(--text-faint);
+  border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;font-family:inherit;transition:.1s;
+}
+.flt-btn:hover{border-color:var(--gold-soft);}
+.flt-btn.on{background:var(--gold);color:#1a1408;border-color:var(--gold);font-weight:700;}
+.flt-util{margin-left:auto;display:flex;gap:4px;}
+.flt-util button{
+  border:none;padding:3px 9px;border-radius:4px;font-size:10.5px;cursor:pointer;font-family:inherit;color:#fff;
+}
+.b-on{background:var(--emerald);}
+.b-off{background:var(--crimson);}
+.pool-scroll{flex:1;overflow-y:auto;padding:13px;}
+
+/* ---------- カードタイル(共通レンダラ・コンパクト) ---------- */
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px;align-content:start;}
+.tile{
+  aspect-ratio:5/7;border-radius:7px;padding:3px;position:relative;cursor:pointer;
+  background:linear-gradient(160deg,
+    color-mix(in srgb,var(--c) 78%, #fff 6%) 0%,
+    color-mix(in srgb,var(--c) 55%, #000 30%) 45%,
+    color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
+  box-shadow:0 1px 5px rgba(0,0,0,.5);
+  user-select:none;transition:transform .1s;
+}
+.tile:hover{transform:translateY(-2px);}
+.tile:active{transform:scale(.96);}
+.tile.evo{
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,.10) 0 2px, transparent 2px 8px),
+    linear-gradient(160deg,
+      color-mix(in srgb,var(--c) 78%, #fff 6%) 0%,
+      color-mix(in srgb,var(--c) 55%, #000 30%) 45%,
+      color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
+}
+.tile.in-deck{box-shadow:0 0 0 2px var(--gold), 0 1px 6px rgba(0,0,0,.6);}
+.tile-inner{
+  height:100%;display:flex;flex-direction:column;border-radius:5px;overflow:hidden;
+  background:linear-gradient(180deg,#16141f,#1c1929);border:1px solid rgba(0,0,0,.4);
+}
+.t-head{
+  display:flex;align-items:center;gap:4px;padding:4px 5px;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 38%, #14121d),color-mix(in srgb,var(--c) 18%, #14121d));
+  border-bottom:1px solid color-mix(in srgb,var(--c) 45%, transparent);
+  min-height:32px;
+}
+.t-cost{
+  width:17px;height:17px;flex:none;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%, color-mix(in srgb,var(--c) 60%, #fff 25%), color-mix(in srgb,var(--c) 75%, #000 25%));
+  clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
+  font-weight:900;font-size:10px;color:#fff;
+}
+.t-crown{width:17px;flex:none;text-align:center;font-size:11px;color:var(--gold);}
+.t-name{
+  font-weight:700;font-size:9.5px;line-height:1.2;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+}
+.t-type{
+  font-size:7.5px;letter-spacing:.15em;padding:2px 5px;color:color-mix(in srgb,var(--c) 70%, #fff 25%);
+  background:rgba(0,0,0,.25);
+}
+.t-body{flex:1;padding:4px 5px;display:flex;flex-direction:column;gap:3px;overflow:hidden;}
+.t-kw{display:flex;flex-wrap:wrap;gap:2px;}
+.t-kw span{
+  font-size:7.5px;font-weight:700;padding:1px 4px;border-radius:2px;color:#fff;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 65%, #333),color-mix(in srgb,var(--c) 45%, #000));
+  border:1px solid color-mix(in srgb,var(--c) 70%, #fff 10%);
+}
+.t-text{font-size:7.5px;line-height:1.4;color:var(--text-faint);overflow:hidden;}
+.t-foot{
+  display:flex;justify-content:space-between;padding:3px 6px;min-height:19px;
+  background:linear-gradient(0deg,color-mix(in srgb,var(--c) 22%, #14121d),rgba(0,0,0,.15));
+  border-top:1px solid color-mix(in srgb,var(--c) 35%, transparent);
+}
+.t-stat{font-weight:900;font-size:10.5px;}
+.t-stat.atk{color:#f0c869;}
+.t-stat.hp{color:#e88a9a;}
+.t-leader{font-size:7px;letter-spacing:.3em;color:var(--gold);width:100%;text-align:center;}
+.count-badge{
+  position:absolute;top:-6px;right:-6px;background:var(--crimson);color:#fff;
+  min-width:21px;height:21px;line-height:19px;text-align:center;border-radius:11px;
+  font-weight:900;font-size:11px;border:1px solid #fff;z-index:5;display:none;padding:0 3px;
+  box-shadow:0 2px 4px rgba(0,0,0,.5);
+}
+.tile.in-deck .count-badge{display:block;}
+
+/* ---------- 詳細ペインの大カード(共通レンダラ・フル) ---------- */
+.bigcard{
+  aspect-ratio:5/7;border-radius:10px;padding:5px;position:relative;
+  background:linear-gradient(160deg,
+    color-mix(in srgb,var(--c) 78%, #fff 6%) 0%,
+    color-mix(in srgb,var(--c) 55%, #000 30%) 45%,
+    color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
+  box-shadow:0 4px 14px rgba(0,0,0,.6), inset 0 0 0 1px rgba(255,255,255,.14);
+}
+.bigcard.evo{
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,.10) 0 2px, transparent 2px 9px),
+    linear-gradient(160deg,
+      color-mix(in srgb,var(--c) 78%, #fff 6%) 0%,
+      color-mix(in srgb,var(--c) 55%, #000 30%) 45%,
+      color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
+}
+.bc-inner{height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#16141f,#1c1929);border-radius:6px;overflow:hidden;border:1px solid rgba(0,0,0,.4);}
+.bc-head{
+  display:flex;align-items:center;gap:7px;padding:8px 9px;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 38%, #14121d),color-mix(in srgb,var(--c) 18%, #14121d));
+  border-bottom:1px solid color-mix(in srgb,var(--c) 45%, transparent);
+}
+.bc-cost{
+  width:27px;height:27px;flex:none;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 35% 30%, color-mix(in srgb,var(--c) 60%, #fff 25%), color-mix(in srgb,var(--c) 75%, #000 25%));
+  clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
+  font-weight:900;font-size:14px;color:#fff;
+}
+.bc-crown{width:27px;flex:none;text-align:center;font-size:16px;color:var(--gold);}
+.bc-name{font-weight:700;font-size:13.5px;line-height:1.3;}
+.bc-type{
+  display:flex;justify-content:space-between;padding:3px 9px;font-size:9.5px;letter-spacing:.12em;
+  color:color-mix(in srgb,var(--c) 70%, #fff 25%);background:rgba(0,0,0,.25);
+}
+.bc-body{flex:1;padding:9px;display:flex;flex-direction:column;gap:6px;min-height:0;}
+.bc-kw{display:flex;flex-wrap:wrap;gap:4px;}
+.bc-kw span{
+  font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;color:#fff;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--c) 65%, #333),color-mix(in srgb,var(--c) 45%, #000));
+  border:1px solid color-mix(in srgb,var(--c) 70%, #fff 10%);
+}
+.bc-text{font-size:11px;line-height:1.6;color:var(--text-dim);overflow-y:auto;flex:1;scrollbar-width:thin;}
+.bc-foot{
+  display:flex;justify-content:space-between;align-items:center;padding:7px 10px;min-height:30px;
+  background:linear-gradient(0deg,color-mix(in srgb,var(--c) 22%, #14121d),rgba(0,0,0,.15));
+  border-top:1px solid color-mix(in srgb,var(--c) 35%, transparent);
+}
+.bc-stat{font-weight:900;font-size:15px;}
+.bc-stat.atk{color:#f0c869;}
+.bc-stat.hp{color:#e88a9a;}
+.bc-leader{font-size:9px;letter-spacing:.35em;color:var(--gold);width:100%;text-align:center;}
+
+.toast{
+  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
+  background:var(--surface-3);border:1px solid var(--gold-soft);color:var(--text);
+  padding:9px 18px;border-radius:6px;font-size:12.5px;z-index:200;
+  box-shadow:0 4px 14px rgba(0,0,0,.6);transition:opacity .3s;opacity:0;pointer-events:none;
+}
+.toast.show{opacity:1;}
+::-webkit-scrollbar{width:9px;}
+::-webkit-scrollbar-track{background:var(--surface);}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;}
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="brand">
+    <a href="/" style="color:var(--text-faint);font-size:12px;text-decoration:none;margin-right:2px;">&larr; ロビー</a>
+    <span class="mark">TABOO</span>
+    <h1>デッキメーカー</h1>
+  </div>
+  <div class="civ-select" id="civ-select"></div>
+  <div class="io-group">
+    <label class="io-btn" title="保存したデッキ(.json)を読み込んで続きから編集する">デッキ読込<input type="file" id="in-deck" accept=".json"></label>
+    <button class="io-btn primary" id="out-json">デッキ保存 (.json)</button>
+  </div>
+</div>
+
+<div class="workspace">
+  <!-- 左: 詳細 -->
+  <div class="detail-pane" id="detail-pane">
+    <div class="detail-empty">カードを左クリックすると<br>ここに詳細が表示されます</div>
+  </div>
+
+  <!-- 中央: デッキ -->
+  <div class="deck-pane">
+    <div class="deck-header">
+      <input type="text" id="deck-name" value="MyDeck" maxlength="30">
+      <div class="counters">
+        <div class="counter-box">リーダー<b id="c-leader" class="bad">0/1</b></div>
+        <div class="counter-box">メイン<b id="c-main" class="bad">0/40</b></div>
+        <div class="counter-box">禁忌<b id="c-taboo" class="bad">0/8</b></div>
+      </div>
+    </div>
+    <div class="deck-section">
+      <h4 class="section-title">リーダー<small id="lbl-leader-civ"></small></h4>
+      <div class="card-grid" id="deck-leader"></div>
+    </div>
+    <div class="deck-section">
+      <h4 class="section-title">メインデッキ<small id="lbl-main-civ"></small></h4>
+      <div class="card-grid" id="deck-main"></div>
+    </div>
+    <div class="deck-section">
+      <h4 class="section-title">禁忌デッキ<small>(他文明・同名1枚)</small></h4>
+      <div class="card-grid" id="deck-taboo"></div>
+    </div>
+  </div>
+
+  <!-- 右: プール -->
+  <div class="pool-pane">
+    <div class="pool-tabs">
+      <button class="tab-btn" data-tab="leader">リーダー</button>
+      <button class="tab-btn active" data-tab="main">メイン用</button>
+      <button class="tab-btn" data-tab="taboo">禁忌用</button>
+    </div>
+    <div class="pool-controls">
+      <div class="pool-controls-top">
+        <div class="pool-hint"><b>左クリック</b> = 詳細 / <b>右クリック</b> = 追加・削除</div>
+        <select id="sort-pool">
+          <option value="original">収録順</option>
+          <option value="cost">コスト順</option>
+          <option value="type">種類順</option>
+        </select>
+        <input type="text" id="q" placeholder="名前・テキストで検索...">
+      </div>
+      <div id="filter-area">
+        <div class="filter-row" id="row-civ" style="display:none;">
+          <div class="filter-lbl">文明:</div>
+        </div>
+        <div class="filter-row" id="row-type">
+          <div class="filter-lbl">種類:</div>
+        </div>
+        <div class="filter-row" id="row-cost">
+          <div class="filter-lbl">コスト:</div>
+        </div>
+      </div>
+    </div>
+    <div class="pool-scroll">
+      <div class="card-grid" id="pool-grid"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+ * カードデータはサーバの /manual/api/card-library から取得する。
+ * これは manual-cards.json そのものであり、盤面とデッキメーカーは
+ * 同じファイルを見る(設計判断28: 同じ情報を2箇所に置かない)。
+ * ============================================================ */
+const LIBRARY_URL = '/manual/api/card-library';
+
+const CIV_COLOR = {'水':'#2f6fb5','火':'#b53a3a','風':'#3a8f57','光':'#b8952f','闇':'#6b42a8','土':'#c05a8e','無':'#6f6f7c'};
+const CIVS = ['火','水','土','風','光','闇'];
+const TYPE_LABEL = {LEADER:'リーダー',MINION:'ミニオン',EVOLUTION:'進化ミニオン',SPELL:'スペル',WEAPON:'ウェポン'};
+const TYPE_WEIGHT = {LEADER:0,MINION:1,EVOLUTION:2,SPELL:3,WEAPON:4};
+const MAIN_SIZE = 40, TABOO_SIZE = 8, MAX_SAME = 4;
+
+let LIB = null;            // {backImageId, cards:[...]}
+let CARDS = [];            // 表示対象(civ 無 を除く)
+let byId = new Map();
+let mainCiv = '火';
+let currentTab = 'main';
+let selectedId = null;
+let deck = { leaderId:null, counts:new Map() };   // counts: id -> qty (リーダー以外)
+
+let filters = { civ:{}, type:{MINION:true,EVOLUTION:true,SPELL:true,WEAPON:true}, cost:{} };
+const COST_KEYS = ['0','1','2','3','4','5','6','7','8','9','10plus'];
+CIVS.forEach(c=>filters.civ[c]=true);
+COST_KEYS.forEach(k=>filters.cost[k]=true);
+
+function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function norm(s){return (s||'').replace(/[・\s()（）]/g,'');}
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.remove('show'),2600);
+}
+function costKey(c){ return (c==null)?'0':(c>=10?'10plus':String(c)); }
+function isUnlimited(c){ return !!c.unlimited; }
+
+/* ---------- ライブラリ ---------- */
+const CIV_JA = {WATER:'水',FIRE:'火',EARTH:'土',WIND:'風',LIGHT:'光',DARK:'闇',NONE:'無'};
+function loadLibrary(lib){
+  if(!lib || !Array.isArray(lib.cards)){
+    toast('カードデータを読み込めませんでした'); return false;
+  }
+  LIB = lib;
+  CARDS = lib.cards
+    .map(c=>({id:c.id, name:c.name, type:c.type, civ:CIV_JA[c.civilization]||c.civilization,
+              cost:c.cost, atk:c.attack, hp:c.hp,
+              text:c.text||'', kw:c.keywords||[],
+              unlimited:!!c.unlimitedCopies}))
+    .filter(c=>c.civ!=='無');   // ピュア・エレメントは構築対象外(後攻へ自動配布される)
+  byId = new Map(CARDS.map(c=>[c.id,c]));
+  resetDeck();
+  return true;
+}
+function resetDeck(){
+  deck = { leaderId:null, counts:new Map() };
+  selectedId = null;
+  renderAll(); renderDetail();
+}
+
+/* ---------- 集計 ---------- */
+function totals(){
+  let main=0, taboo=0;
+  for(const [id,q] of deck.counts){
+    const c=byId.get(id); if(!c) continue;
+    if(c.civ===mainCiv) main+=q; else taboo+=q;
+  }
+  return { leader: deck.leaderId?1:0, main, taboo };
+}
+
+/* ---------- 操作 ---------- */
+function changeCount(id, delta){
+  const c=byId.get(id); if(!c) return;
+  if(c.type==='LEADER'){
+    if(delta>0){ deck.leaderId = id; }
+    else if(deck.leaderId===id){ deck.leaderId = null; }
+    renderAll(); renderDetail(); return;
+  }
+  const cur = deck.counts.get(id)||0;
+  if(delta>0){
+    const max = (c.civ!==mainCiv) ? 1 : (isUnlimited(c) ? MAIN_SIZE : MAX_SAME);
+    if(cur>=max){ toast(c.civ!==mainCiv?'禁忌デッキは同名1枚までです':`同名カードは${max}枚までです`); return; }
+    deck.counts.set(id,cur+1);
+  }else{
+    if(cur<=1) deck.counts.delete(id); else deck.counts.set(id,cur-1);
+  }
+  renderAll(); renderDetail();
+}
+
+/* ---------- 文明選択 ---------- */
+function selectCiv(civ, silent){
+  if(!silent && (deck.leaderId||deck.counts.size)){
+    if(!confirm(`メイン文明を ${civ} に変更します。\n構築中のデッキはリセットされます。よろしいですか？`)) return;
+  }
+  mainCiv = civ;
+  document.querySelectorAll('.civ-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.civ===civ);
+  });
+  document.getElementById('lbl-leader-civ').textContent = `(${civ})`;
+  document.getElementById('lbl-main-civ').textContent = `(${civ}・同名4枚まで)`;
+  resetDeck();
+}
+
+/* ---------- タイル描画(共通レンダラ・コンパクト) ---------- */
+function tileHtml(c, context){
+  const col = CIV_COLOR[c.civ]||'#888';
+  const isL = c.type==='LEADER', isE = c.type==='EVOLUTION';
+  const hasAtk = ['MINION','EVOLUTION','WEAPON'].includes(c.type);
+  const hasHp  = ['MINION','EVOLUTION'].includes(c.type);
+  const qty = isL ? (deck.leaderId===c.id?1:0) : (deck.counts.get(c.id)||0);
+  const kws = c.kw&&c.kw.length ? `<div class="t-kw">${c.kw.map(k=>`<span>${esc(k)}</span>`).join('')}</div>` : '';
+  const foot = isL
+    ? `<div class="t-leader">LEADER</div>`
+    : `${hasAtk?`<div class="t-stat atk">⚔${c.atk??'-'}</div>`:'<span></span>'}${hasHp?`<div class="t-stat hp">♥${c.hp??'-'}</div>`:'<span></span>'}`;
+  return `<div class="tile${isE?' evo':''}${qty>0?' in-deck':''}" style="--c:${col}"
+    data-id="${esc(c.id)}" data-ctx="${context}">
+    <div class="count-badge">x${qty}</div>
+    <div class="tile-inner">
+      <div class="t-head">
+        ${isL?`<div class="t-crown">♛</div>`:`<div class="t-cost">${c.cost??'-'}</div>`}
+        <div class="t-name">${esc(c.name)}</div>
+      </div>
+      <div class="t-type">${TYPE_LABEL[c.type]}</div>
+      <div class="t-body">${kws}<div class="t-text">${esc(c.text)}</div></div>
+      <div class="t-foot">${foot}</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- 詳細ペイン(共通レンダラ・フル) ---------- */
+function renderDetail(){
+  const pane = document.getElementById('detail-pane');
+  const c = selectedId ? byId.get(selectedId) : null;
+  if(!c){
+    pane.innerHTML = `<div class="detail-empty">カードを左クリックすると<br>ここに詳細が表示されます</div>`;
+    return;
+  }
+  const col = CIV_COLOR[c.civ]||'#888';
+  const isL = c.type==='LEADER', isE = c.type==='EVOLUTION';
+  const hasAtk = ['MINION','EVOLUTION','WEAPON'].includes(c.type);
+  const hasHp  = ['MINION','EVOLUTION'].includes(c.type);
+  const qty = isL ? (deck.leaderId===c.id?1:0) : (deck.counts.get(c.id)||0);
+  const kws = c.kw&&c.kw.length ? `<div class="bc-kw">${c.kw.map(k=>`<span>${esc(k)}</span>`).join('')}</div>` : '';
+  const foot = isL
+    ? `<div class="bc-leader">— L E A D E R —</div>`
+    : `${hasAtk?`<div class="bc-stat atk">⚔ ${c.atk??'-'}</div>`:'<span></span>'}${hasHp?`<div class="bc-stat hp">♥ ${c.hp??'-'}</div>`:'<span></span>'}`;
+  pane.innerHTML = `
+    <div class="bigcard${isE?' evo':''}" style="--c:${col}">
+      <div class="bc-inner">
+        <div class="bc-head">
+          ${isL?`<div class="bc-crown">♛</div>`:`<div class="bc-cost">${c.cost??'-'}</div>`}
+          <div class="bc-name">${esc(c.name)}</div>
+        </div>
+        <div class="bc-type"><span>${TYPE_LABEL[c.type]}</span><span>${esc(c.civ)}文明</span></div>
+        <div class="bc-body">${kws}<div class="bc-text">${c.text?esc(c.text):'<i style="color:var(--text-faint)">（効果なし）</i>'}</div></div>
+        <div class="bc-foot">${foot}</div>
+      </div>
+    </div>
+    <div class="detail-ctrl">
+      <button id="d-minus">−</button>
+      <button id="d-plus">＋</button>
+    </div>
+    <div class="info-rows">
+      <div class="info-row"><span class="k">採用枚数</span><span class="v" style="color:var(--gold)">${qty} 枚</span></div>
+      <div class="info-row"><span class="k">文明</span><span class="v" style="color:${col}">${esc(c.civ)}</span></div>
+      <div class="info-row"><span class="k">種類</span><span class="v">${TYPE_LABEL[c.type]}</span></div>
+      <div class="info-row"><span class="k">ID</span><span class="v" style="font-family:monospace;font-size:10px;">${esc(c.id)}</span></div>
+    </div>`;
+  document.getElementById('d-plus').onclick = ()=>changeCount(c.id, 1);
+  document.getElementById('d-minus').onclick = ()=>changeCount(c.id, -1);
+}
+
+/* ---------- 一覧描画 ---------- */
+function renderAll(){
+  // --- デッキ側 ---
+  const leader = deck.leaderId ? byId.get(deck.leaderId) : null;
+  const mainList=[], tabooList=[];
+  for(const [id] of deck.counts){
+    const c=byId.get(id); if(!c) continue;
+    (c.civ===mainCiv ? mainList : tabooList).push(c);
+  }
+  const sortLogic = makeSort();
+  mainList.sort(sortLogic); tabooList.sort(sortLogic);
+  document.getElementById('deck-leader').innerHTML = leader?tileHtml(leader,'deck'):'';
+  document.getElementById('deck-main').innerHTML = mainList.map(c=>tileHtml(c,'deck')).join('');
+  document.getElementById('deck-taboo').innerHTML = tabooList.map(c=>tileHtml(c,'deck')).join('');
+
+  // --- カウンタ ---
+  const t = totals();
+  setCounter('c-leader', t.leader, 1);
+  setCounter('c-main', t.main, MAIN_SIZE);
+  setCounter('c-taboo', t.taboo, TABOO_SIZE);
+
+  // --- プール側 ---
+  document.getElementById('row-civ').style.display = (currentTab==='taboo')?'flex':'none';
+  document.querySelectorAll('#row-civ .flt-btn').forEach(b=>{
+    b.style.display = (b.dataset.val===mainCiv)?'none':'';
+  });
+  document.getElementById('filter-area').style.display = (currentTab==='leader')?'none':'block';
+
+  let pool=[];
+  if(currentTab==='leader') pool = CARDS.filter(c=>c.civ===mainCiv && c.type==='LEADER');
+  else if(currentTab==='main') pool = CARDS.filter(c=>c.civ===mainCiv && c.type!=='LEADER');
+  else pool = CARDS.filter(c=>c.civ!==mainCiv && c.type!=='LEADER');
+
+  const q = document.getElementById('q').value.trim();
+  if(currentTab!=='leader'){
+    pool = pool.filter(c=>{
+      if(currentTab==='taboo' && !filters.civ[c.civ]) return false;
+      if(!filters.type[c.type]) return false;
+      if(!filters.cost[costKey(c.cost)]) return false;
+      return true;
+    });
+  }
+  if(q) pool = pool.filter(c=>c.name.includes(q)||(c.text||'').includes(q)||(c.kw||[]).some(k=>k.includes(q)));
+  pool.sort(sortLogic);
+  document.getElementById('pool-grid').innerHTML = pool.map(c=>tileHtml(c,'pool')).join('');
+}
+function setCounter(id, n, target){
+  const el=document.getElementById(id);
+  el.textContent = `${n}/${target}`;
+  el.className = (n===target)?'ok':'bad';
+}
+function makeSort(){
+  const mode = document.getElementById('sort-pool').value;
+  const idx = new Map(CARDS.map((c,i)=>[c.id,i]));
+  return (a,b)=>{
+    if(mode==='cost') return (a.cost??0)-(b.cost??0) || TYPE_WEIGHT[a.type]-TYPE_WEIGHT[b.type] || idx.get(a.id)-idx.get(b.id);
+    if(mode==='type') return TYPE_WEIGHT[a.type]-TYPE_WEIGHT[b.type] || idx.get(a.id)-idx.get(b.id);
+    return idx.get(a.id)-idx.get(b.id);
+  };
+}
+
+/* ---------- クリック(イベント委譲) ---------- */
+document.addEventListener('click', e=>{
+  const tile = e.target.closest('.tile');
+  if(!tile) return;
+  selectedId = tile.dataset.id;
+  renderDetail();
+});
+document.addEventListener('contextmenu', e=>{
+  const tile = e.target.closest('.tile');
+  if(!tile) return;
+  e.preventDefault();
+  changeCount(tile.dataset.id, tile.dataset.ctx==='deck' ? -1 : 1);
+});
+
+/* ---------- デッキJSON入出力 ---------- */
+function exportJson(){
+  const name = document.getElementById('deck-name').value.trim()||'MyDeck';
+  const main=[], taboo=[];
+  for(const [id,q] of deck.counts){
+    const c=byId.get(id); if(!c) continue;
+    if(c.civ===mainCiv) main.push({cardId:id, name:c.name, qty:q});
+    else taboo.push({cardId:id, name:c.name});
+  }
+  const payload={
+    format:'taboo-elemental-deck', version:2,
+    exportedAt:new Date().toISOString(), deckName:name, mainCiv,
+    leader: deck.leaderId?{cardId:deck.leaderId, name:byId.get(deck.leaderId)?.name}:null,
+    main, taboo
+  };
+  downloadBlob(new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}), `deck-${name}.json`);
+  toast('デッキを保存しました');
+}
+function importJsonDeck(parsed){
+  if(parsed.format!=='taboo-elemental-deck') throw new Error('デッキファイルの形式が違います');
+  const counts=new Map(); let leaderId=null; let civ=null; let miss=0;
+  if(parsed.version>=2){
+    const lid = parsed.leader ? parsed.leader.cardId : parsed.leaderId;
+    leaderId = byId.has(lid)?lid:null;
+    if(leaderId) civ = byId.get(leaderId).civ;
+    (parsed.main||[]).forEach(e=>{ if(byId.has(e.cardId)) counts.set(e.cardId, Math.min(MAIN_SIZE, e.qty||1)); else miss++; });
+    (parsed.taboo||[]).forEach(t=>{ const id=(typeof t==='string')?t:t.cardId; if(byId.has(id)) counts.set(id,1); else miss++; });
+  }else{
+    // Verβ(v1) — 名前+文明で解決(表記ゆれは正規化)
+    const find=(name,civ)=>CARDS.find(c=>norm(c.name)===norm(name)&&c.civ===civ);
+    const l = parsed.leader && (find(parsed.leader.name, parsed.leader.civ)
+              || CARDS.find(c=>c.type==='LEADER'&&norm(c.name)===norm(parsed.leader.name)));
+    if(l){ leaderId=l.id; civ=l.civ; }
+    (parsed.main||[]).forEach(e=>{ const c=find(e.name,e.civ); if(c) counts.set(c.id, Math.min(MAX_SAME, e.qty||1)); else miss++; });
+    (parsed.taboo||[]).forEach(e=>{ const c=find(e.name,e.civ); if(c) counts.set(c.id,1); else miss++; });
+  }
+  if(!civ) throw new Error('リーダーをライブラリで解決できませんでした');
+  mainCiv=civ; selectCivUiOnly();
+  deck={leaderId, counts}; selectedId=leaderId;
+  document.getElementById('deck-name').value = parsed.deckName||'';
+  renderAll(); renderDetail();
+  toast(miss?`読み込みました(解決できないカード ${miss} 件は除外)`:'デッキを読み込みました');
+}
+function selectCivUiOnly(){
+  document.querySelectorAll('.civ-btn').forEach(b=>b.classList.toggle('active', b.dataset.civ===mainCiv));
+  document.getElementById('lbl-leader-civ').textContent=`(${mainCiv})`;
+  document.getElementById('lbl-main-civ').textContent=`(${mainCiv}・同名4枚まで)`;
+}
+
+function downloadBlob(blob, filename){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------- UI組み立て ---------- */
+function buildStaticUi(){
+  const sel=document.getElementById('civ-select');
+  CIVS.forEach(civ=>{
+    const b=document.createElement('button');
+    b.className='civ-btn'; b.dataset.civ=civ; b.textContent=civ;
+    b.style.setProperty('--cc',CIV_COLOR[civ]);
+    b.onclick=()=>selectCiv(civ,false);
+    sel.appendChild(b);
+  });
+  const rowCiv=document.getElementById('row-civ');
+  CIVS.forEach(civ=>{
+    const b=document.createElement('button');
+    b.className='flt-btn on'; b.dataset.val=civ; b.textContent=civ;
+    b.onclick=()=>{ filters.civ[civ]=!filters.civ[civ]; b.classList.toggle('on'); renderAll(); };
+    rowCiv.appendChild(b);
+  });
+  const rowType=document.getElementById('row-type');
+  [['MINION','ミニオン'],['EVOLUTION','進化'],['SPELL','スペル'],['WEAPON','ウェポン']].forEach(([k,lbl])=>{
+    const b=document.createElement('button');
+    b.className='flt-btn on'; b.textContent=lbl;
+    b.onclick=()=>{ filters.type[k]=!filters.type[k]; b.classList.toggle('on'); renderAll(); };
+    rowType.appendChild(b);
+  });
+  const util=document.createElement('div'); util.className='flt-util';
+  const bon=document.createElement('button'); bon.className='b-on'; bon.textContent='全てON';
+  bon.onclick=()=>{ setAllFilters(true); };
+  const boff=document.createElement('button'); boff.className='b-off'; boff.textContent='全てOFF';
+  boff.onclick=()=>{ setAllFilters(false); };
+  util.append(bon,boff); rowType.appendChild(util);
+  const rowCost=document.getElementById('row-cost');
+  COST_KEYS.forEach(k=>{
+    const b=document.createElement('button');
+    b.className='flt-btn on'; b.dataset.cost=k; b.textContent=(k==='10plus')?'10+':k;
+    b.onclick=()=>{ filters.cost[k]=!filters.cost[k]; b.classList.toggle('on'); renderAll(); };
+    rowCost.appendChild(b);
+  });
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.onclick=()=>{
+      currentTab=b.dataset.tab;
+      document.querySelectorAll('.tab-btn').forEach(x=>x.classList.toggle('active',x===b));
+      renderAll();
+    };
+  });
+  document.getElementById('sort-pool').onchange=renderAll;
+  document.getElementById('q').oninput=renderAll;
+  document.getElementById('out-json').onclick=exportJson;
+  document.getElementById('in-deck').addEventListener('change', async ev=>{
+    const f=ev.target.files[0]; ev.target.value=''; if(!f) return;
+    try{ importJsonDeck(JSON.parse(await f.text())); }
+    catch(e){ toast('デッキの読み込みに失敗: '+e.message); }
+  });
+}
+function setAllFilters(on){
+  ['type','cost'].forEach(cat=>{ for(const k in filters[cat]) filters[cat][k]=on; });
+  if(currentTab==='taboo'){ for(const k in filters.civ) filters.civ[k]=on; }
+  document.querySelectorAll('#row-type .flt-btn,#row-cost .flt-btn').forEach(b=>b.classList.toggle('on',on));
+  if(currentTab==='taboo') document.querySelectorAll('#row-civ .flt-btn').forEach(b=>b.classList.toggle('on',on));
+  renderAll();
+}
+
+/* ---------- 起動 ---------- */
+buildStaticUi();
+fetch(LIBRARY_URL)
+  .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+  .then(lib=>{ if(loadLibrary(lib)) selectCiv('火', true); })
+  .catch(e=>{
+    document.getElementById('pool-grid').innerHTML =
+      '<div style="color:var(--text-faint);padding:30px;font-size:13px;">カードデータの取得に失敗しました('+esc(e.message)+')。サーバが起動しているか確認してください。</div>';
+  });
+</script>
+</body>
+</html>

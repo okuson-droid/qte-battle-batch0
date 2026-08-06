@@ -7,10 +7,17 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import java.io.IOException;
+import java.io.InputStream;
+
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.CacheControl;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
 
 import com.example.qte.manual.ManualCardMaster;
 import com.example.qte.manual.ManualCardRepository;
@@ -47,6 +54,26 @@ public class ManualCardsController {
         model.addAttribute("backImageId", cards.getBackImageId());
         model.addAttribute("missingImageIds", missingImageIds(all));
         return "manual-cards";
+    }
+
+    /**
+     * カード定義ファイルをそのまま配る(Batch 24)。
+     *
+     * デッキメーカー({@code /deck-maker})のカードデータはこのエンドポイントから取得する。
+     * {@link ManualCardRepository} を経由して DTO に組み直さないのは意図的である。
+     * リポジトリはサーバが使う項目(数値・画像ID)しか持たず、テキストを落とす。
+     * ここで組み直すと「サーバの知っているカード」と「デッキメーカーの知っているカード」が
+     * 別物になる。同じ情報を2箇所に置かない(設計判断28)——正はファイルであり、
+     * 両者ともファイルを読む。
+     */
+    @GetMapping(value = "/manual/api/card-library", produces = MediaType.APPLICATION_JSON_VALUE)
+    @ResponseBody
+    public ResponseEntity<byte[]> cardLibrary() throws IOException {
+        try (InputStream in = new ClassPathResource("cards/manual-cards.json").getInputStream()) {
+            return ResponseEntity.ok()
+                    .cacheControl(CacheControl.noCache())
+                    .body(in.readAllBytes());
+        }
     }
 
     /** 宣言順を保った種別ごとの枚数。設計書 1-2 の表と突き合わせる。 */
