@@ -178,8 +178,21 @@ public class ManualOperationService {
                 ManualPermissions.denyDropTo(actor, toSeatId, request.toZone()));
         refs.sort(ManualBoardIndex.BOARD_ORDER);
 
-        // ★ログのカードは「動かす前の所在」で記録する(5-2)。detach した後では引けない
-        List<ManualLogCard> logCards = logCards(refs);
+        // ★ログのカードは「動かす前の所在」で記録する(5-2)。detach した後では引けない。
+        //   ★Batch 27: 解体される素材もここで一緒に記録する。素材は実際に動いており、
+        //   ログに出ないと「墓地に3枚増えた理由」が履歴から読めなくなる。
+        List<ManualLogCard> logCards = new ArrayList<>();
+        int unstacked = 0;
+        for (ManualCardRef ref : refs) {
+            logCards.add(logCard(ref));
+            if (willUnstack(ref.card(), request.toZone())) {
+                for (ManualCardInstance material : ref.card().getMaterials()) {
+                    logCards.add(new ManualLogCard(material.getInstanceId(),
+                            displayName(material), ref.seatId(), ref.zone()));
+                    unstacked++;
+                }
+            }
+        }
         ManualLogPlace origin = ManualLogEvent.commonPlace(logCards);
         ManualLogPlace destination = ManualLogPlace.of(toSeatId, request.toZone());
         List<ManualCardInstance> target = state.cards(toSeatId, request.toZone());
@@ -190,18 +203,20 @@ public class ManualOperationService {
         // ★外したあとに付け替えを行う。先に行うと、ウェポン枠の中で並べ替えただけの移動で
         //   自分自身を墓地へ送ってしまう(WEAPON → 同じ WEAPON の付け替えは起こらない)。
         String replaced = replaceEquippedWeapon(state, toSeatId, request.toZone());
-        int index = clampIndex(request.toIndex() == null ? target.size() : request.toIndex(),
+        // ★Batch 27: 挿入位置は「入れた枚数ぶん進む」カーソルで持つ。解体すると1つの ref から
+        //   複数枚が入るため、refs の添字(index + i)では位置がずれる。
+        int cursor = clampIndex(request.toIndex() == null ? target.size() : request.toIndex(),
                 target.size());
-        for (int i = 0; i < refs.size(); i++) {
-            ManualCardRef ref = refs.get(i);
-            ManualCardInstance card = ref.card();
-            normalizeFaceDown(card, request);
-            // ★FIELD / WEAPON を離れる(同じ種類のゾーンへの移動でない)ときだけ印刷値へ戻す
-            if (isFieldLike(ref.zone()) && ref.zone() != request.toZone()) {
-                resetToPrinted(card);
+        for (ManualCardRef ref : refs) {
+            for (ManualCardInstance card : unstack(ref.card(), request.toZone())) {
+                normalizeFaceDown(card, request);
+                // ★FIELD / WEAPON を離れる(同じ種類のゾーンへの移動でない)ときだけ印刷値へ戻す
+                if (isFieldLike(ref.zone()) && ref.zone() != request.toZone()) {
+                    resetToPrinted(card);
+                }
+                applyOwnership(card, actor, request.toZone());
+                target.add(cursor++, card);
             }
-            applyOwnership(card, actor, request.toZone());
-            target.add(index + i, card);
         }
 
         String face = "";
@@ -211,8 +226,59 @@ public class ManualOperationService {
             // ★正規化で表向きになった場合も、何が起きたかがログに残るようにする(2-3)
             face = "(表向き)";
         }
+        String unstackNote = unstacked == 0 ? ""
+                : "(進化スタックを解体: 素材%d枚も同じゾーンへ)".formatted(unstacked);
         return ManualLogEvent.targeted(ManualLogKind.MOVE, actor.seat(), origin, destination,
-                logCards, face + replaced, null);
+                logCards, face + replaced + unstackNote, null);
+    }
+
+    /**
+     * ★Batch 27: 進化スタックの解体(不具合修正)。
+     *
+     * <h3>直した不具合</h3>
+     * 進化ミニオンを墓地へ送ると、素材が最上段の {@code materials} にぶら下がったまま
+     * 運ばれていた。状態としては残っているが、
+     * <ul>
+     *   <li>枚数({@code ManualViewBuilder} の counts)は最上段しか数えない → 墓地3枚が「1枚」になる</li>
+     *   <li>ゾーンの帯は最上段しか並べず、束を開く入口({@code +n} バッジ)も無い</li>
+     * </ul>
+     * ため、<b>画面の上では素材がゲームから消えていた</b>。闇文明が墓地の枚数を参照するので、
+     * 枚数のズレはそれ自体が実害である。
+     *
+     * <h3>不変条件を1本立てて直す</h3>
+     * <b>進化スタックは FIELD にしか存在しない。</b>
+     * 設計書16 4-5-2 は「ドラッグは束全体を動かすを既定とする(<b>破壊時に全部墓地へ</b>、
+     * が最頻のため)」と書いており、墓地には3枚バラけて入るのが元々の意図である。
+     * したがって FIELD 以外へ移すときは束をほどき、素材を独立したカードとして同じゾーンへ入れる。
+     *
+     * ★条件を「移動元が FIELD か」ではなく「<b>移動先が FIELD か</b>」で書いている。
+     * こう書くと不変条件そのものが式になり、万一 FIELD 以外に束が残っていても
+     * 次の移動で必ず解消される(移動元で判定すると、壊れた状態が壊れたまま運ばれ続ける)。
+     *
+     * ★席をまたぐ FIELD → FIELD(相手の場へ移す)は束のままである。
+     * 数値を保持する既存の規則(v2.4)と同じ切り口であり、盤面の意味も変わらない。
+     *
+     * ★手札へ戻したときに素材まで手札に入るのは、ルール上は正しくない
+     * (多くのカードゲームでは素材は墓地へ行く)。しかしそれは<b>裁定</b>であり、
+     * 手動モードは判断を実装しない(設計書16 5-1)。素材が見える場所に出ていれば
+     * 人間が墓地へ送り直せる。消えているとそれができない。
+     *
+     * @return 移動先へ入れるカードの並び。解体しない場合は最上段1枚だけ
+     */
+    private List<ManualCardInstance> unstack(ManualCardInstance card, ManualZone toZone) {
+        if (!willUnstack(card, toZone)) {
+            return List.of(card);
+        }
+        // ★素材が先(materials の先頭が最下段)、最上段を最後に置く。公開パイルの一番上は
+        //   末尾なので、これで「墓地の一番上に進化ミニオンが見えている」状態になる。
+        List<ManualCardInstance> flattened = new ArrayList<>(card.getMaterials());
+        card.getMaterials().clear();
+        flattened.add(card);
+        return flattened;
+    }
+
+    private boolean willUnstack(ManualCardInstance card, ManualZone toZone) {
+        return toZone != ManualZone.FIELD && !card.getMaterials().isEmpty();
     }
 
     /**

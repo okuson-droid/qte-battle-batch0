@@ -3357,11 +3357,28 @@ function openEvolutionBand(card, seatId) {
     renderEvolutionBand();
 }
 
+/**
+ * 束の最上段を探す。★Batch 27: FIELD / WEAPON だけでなく<b>その席の全ゾーン</b>を見る。
+ *
+ * 進化スタックは FIELD にしか存在しない(サーバの不変条件。ManualOperationService.unstack)
+ * が、ここを FIELD 決め打ちにしておくと、万一その不変条件が破れたときに
+ * <b>カードが画面から消えたまま取り出せない</b>という最悪の壊れ方に戻る。
+ * 探索は席の zones を舐めるだけであり、安い保険である。
+ */
+function findStackTop(seatView, instanceId) {
+    for (const zoneName of Object.keys(seatView.zones || {})) {
+        const found = findCardByInstanceId(seatView.zones[zoneName], instanceId);
+        if (found) {
+            return found;
+        }
+    }
+    return null;
+}
+
 function renderEvolutionBand() {
     if (!latestView) return;
     const seatView = seatOf(latestView, activeOverlay.seatId);
-    const top = findCardByInstanceId(seatView.zones['FIELD'], activeOverlay.evolutionCardId)
-        || findCardByInstanceId(seatView.zones['WEAPON'], activeOverlay.evolutionCardId);
+    const top = findStackTop(seatView, activeOverlay.evolutionCardId);
     if (!top || !top.materials || top.materials.length === 0) {
         // ★束が解消された(素材を全部抜き出した等)。開いたままにする意味が無いので自動で閉じる。
         closeOverlay();
@@ -3465,6 +3482,21 @@ function createBandItem(card, seatId, zoneName) {
     }
     if (selected.has(card.instanceId)) {
         wrap.classList.add('manual-tile-selected');
+    }
+    // ★Batch 27: 帯にも +n バッジを出す。盤面のタイルにしかバッジが無かったため、
+    //   束が FIELD 以外にあると素材を開く入口がどこにも無かった(不具合の一因)。
+    //   サーバ側の解体でこの状態は起きなくなったが、「カードが画面から消える」経路は
+    //   1つも残さない。押すと進化スタックの帯に切り替わる。
+    if (card.stackSize > 1) {
+        const badge = document.createElement('div');
+        badge.className = 'manual-tile-badge manual-band-badge';
+        badge.textContent = '+' + (card.stackSize - 1);
+        badge.title = 'クリックで進化スタックを開く';
+        badge.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openEvolutionBand(card, seatId);
+        });
+        wrap.appendChild(badge);
     }
 
     wrap.addEventListener('dragstart', (e) => onDragStart(e, card, seatId, zoneName));

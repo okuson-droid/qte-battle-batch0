@@ -187,8 +187,13 @@ class ManualOperationTest {
         assertThat(top.getMaterials().get(3).materialCount()).isZero();
     }
 
+    /**
+     * ★Batch 27(不具合修正)。26 まではここが「墓地1枚・materialCount 2」を期待しており、
+     * 実装(束のまま運ぶ)をそのまま固定していた。素材が画面から消える不具合の本体である。
+     * 設計書16 4-5-2 の「破壊時に全部墓地へ」に合わせ、期待を書き換えた。
+     */
     @Test
-    void 束ごと移動すると素材も一緒に動く() {
+    void 束ごと墓地へ送ると解体されて素材も墓地に並ぶ() {
         ManualRoom room = new ManualRoom("TESTRM");
         ManualCardInstance m1 = put(room, ManualZone.FIELD, "素材1");
         ManualCardInstance m2 = put(room, ManualZone.FIELD, "素材2");
@@ -202,8 +207,105 @@ class ManualOperationTest {
                 ManualSeatId.A, ManualZone.TRASH, null, null)));
 
         assertThat(seatA(room).zone(ManualZone.FIELD)).isEmpty();
-        assertThat(seatA(room).zone(ManualZone.TRASH)).hasSize(1);
-        assertThat(seatA(room).zone(ManualZone.TRASH).get(0).materialCount()).isEqualTo(2);
+        // ★3枚が独立したカードとして墓地に入る(枚数が正しくなる)
+        List<ManualCardInstance> trash = seatA(room).zone(ManualZone.TRASH);
+        assertThat(trash).hasSize(3);
+        assertThat(trash).allSatisfy(c -> assertThat(c.materialCount()).isZero());
+        // 素材が先・最上段が末尾。公開パイルの一番上は末尾なので進化ミニオンが見える
+        assertThat(trash.get(0).getInstanceId()).isEqualTo(m1.getInstanceId());
+        assertThat(trash.get(1).getInstanceId()).isEqualTo(m2.getInstanceId());
+        assertThat(trash.get(2).getInstanceId()).isEqualTo(evolution.getInstanceId());
+    }
+
+    @Test
+    void 解体は手札や消滅などFIELD以外のどのゾーンでも起きる() {
+        for (ManualZone zone : List.of(ManualZone.HAND, ManualZone.LOST, ManualZone.DECK)) {
+            ManualRoom room = new ManualRoom("TESTRM");
+            ManualCardInstance m1 = put(room, ManualZone.FIELD, "素材1");
+            ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
+
+            operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR,
+                    new ManualOpRequest.Evolve(null, ManualSeatId.A, evolution.getInstanceId(),
+                            List.of(m1.getInstanceId()), null)));
+            operations.apply(room, ACTOR, state -> operations.move(state, ACTOR,
+                    new ManualOpRequest.Move(null, List.of(evolution.getInstanceId()),
+                            ManualSeatId.A, zone, null, null)));
+
+            assertThat(seatA(room).zone(zone)).as("移動先=%s", zone).hasSize(2);
+            assertThat(seatA(room).zone(ManualZone.FIELD)).as("移動先=%s", zone).isEmpty();
+        }
+    }
+
+    /**
+     * ★席をまたぐ FIELD → FIELD は束のまま(数値を保持する v2.4 の規則と同じ切り口)。
+     * 盤面の意味が変わらない移動で束をほどくと、相手の場でミニオン枠を余計に食う。
+     */
+    @Test
+    void 相手の場へ移すときは束のままである() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance m1 = put(room, ManualZone.FIELD, "素材1");
+        ManualCardInstance m2 = put(room, ManualZone.FIELD, "素材2");
+        ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
+
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
+                null, ManualSeatId.A, evolution.getInstanceId(),
+                List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
+                null, List.of(evolution.getInstanceId()),
+                ManualSeatId.B, ManualZone.FIELD, null, null)));
+
+        assertThat(seatA(room).zone(ManualZone.FIELD)).isEmpty();
+        List<ManualCardInstance> opponentField =
+                room.getGameState().seat(ManualSeatId.B).zone(ManualZone.FIELD);
+        assertThat(opponentField).hasSize(1);
+        assertThat(opponentField.get(0).materialCount()).isEqualTo(2);
+    }
+
+    /**
+     * ★挿入位置を指定した解体。1つの ref から複数枚が入るため、refs の添字で位置を決めると
+     * 並びが崩れる(カーソルで持つ理由)。
+     */
+    @Test
+    void 解体したカードは指定した位置へ連続して入る() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance first = put(room, ManualZone.TRASH, "先客1");
+        ManualCardInstance second = put(room, ManualZone.TRASH, "先客2");
+        ManualCardInstance m1 = put(room, ManualZone.FIELD, "素材1");
+        ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
+
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
+                null, ManualSeatId.A, evolution.getInstanceId(),
+                List.of(m1.getInstanceId()), null)));
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
+                null, List.of(evolution.getInstanceId()),
+                ManualSeatId.A, ManualZone.TRASH, 1, null)));
+
+        List<ManualCardInstance> trash = seatA(room).zone(ManualZone.TRASH);
+        assertThat(trash).hasSize(4);
+        assertThat(trash.get(0).getInstanceId()).isEqualTo(first.getInstanceId());
+        assertThat(trash.get(1).getInstanceId()).isEqualTo(m1.getInstanceId());
+        assertThat(trash.get(2).getInstanceId()).isEqualTo(evolution.getInstanceId());
+        assertThat(trash.get(3).getInstanceId()).isEqualTo(second.getInstanceId());
+    }
+
+    @Test
+    void 解体はUndoで元の束に戻る() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        ManualCardInstance m1 = put(room, ManualZone.FIELD, "素材1");
+        ManualCardInstance m2 = put(room, ManualZone.FIELD, "素材2");
+        ManualCardInstance evolution = put(room, ManualZone.HAND, "進化");
+
+        operations.apply(room, ACTOR, state -> operations.evolve(state, ACTOR, new ManualOpRequest.Evolve(
+                null, ManualSeatId.A, evolution.getInstanceId(),
+                List.of(m1.getInstanceId(), m2.getInstanceId()), null)));
+        operations.apply(room, ACTOR, state -> operations.move(state, ACTOR, new ManualOpRequest.Move(
+                null, List.of(evolution.getInstanceId()),
+                ManualSeatId.A, ManualZone.TRASH, null, null)));
+        operations.applyDirect(room, r -> operations.undo(r, ACTOR));
+
+        assertThat(seatA(room).zone(ManualZone.TRASH)).isEmpty();
+        assertThat(seatA(room).zone(ManualZone.FIELD)).hasSize(1);
+        assertThat(reload(room, evolution).materialCount()).isEqualTo(2);
     }
 
     @Test

@@ -1776,6 +1776,45 @@ async function clearZoom(page) {
     shortErrors.join(' | '));
   await short.close();
 
+  // =====================================================================
+  // ★Batch 27: 進化スタックが画面から消えない(不具合修正の安全網)
+  // =====================================================================
+  //
+  // ★本体の修正はサーバ側である(FIELD 以外へ移すとき束を解体する。
+  //   ManualOperationService.unstack / ManualOperationTest)。ここで検証するのは
+  //   クライアント側の安全網であり、「万一 FIELD 以外に束が残っても、素材へ到達する
+  //   入口が必ずある」ことを固定する。不具合の本質は
+  //   「カードが状態には在るのに画面のどこからも触れない」だったため、
+  //   サーバを直しただけでは同じ壊れ方の再発を防げない。
+
+  const stackView = baseView();
+  const stackedTop = card('ev1', '進化ミニオン');
+  stackedTop.stackSize = 3;
+  stackedTop.materials = [card('sm1', '素材1'), card('sm2', '素材2')];
+  stackView.seatA.zones.TRASH = [stackedTop];
+  syncCounts(stackView.seatA);
+  await render(page, stackView);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    openZoneBand('A', 'TRASH');
+  });
+  await page.waitForTimeout(80);
+  check('★墓地の帯でも束のカードに +n バッジが出る(27・安全網)',
+    (await page.locator('.manual-band-card .manual-band-badge').count()) === 1
+      && (await page.locator('.manual-band-card .manual-band-badge').textContent()) === '+2');
+  await page.locator('.manual-band-card .manual-band-badge').click();
+  await page.waitForTimeout(80);
+  check('★FIELD 以外にある束でも進化スタックの帯を開ける(27・findStackTop)',
+    (await page.locator('.manual-band-header span').textContent()).includes('進化スタック')
+      && (await page.locator('.manual-band-card').count()) === 2
+      && (await page.locator('.manual-band-card').first().getAttribute('data-instance-id'))
+        === 'sm1');
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    closeOverlay();
+  });
+  await page.waitForTimeout(60);
+
   await page.evaluate(() => {
     // ★以降のセクションへライブラリの状態を残さない(25 と同じ後始末)
     // eslint-disable-next-line no-undef

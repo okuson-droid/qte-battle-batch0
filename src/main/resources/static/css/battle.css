@@ -843,3 +843,12 @@ body.manual-drag-active .manual-band {
 .manual-pile-face .mcard-foot { padding-right: 26px; }
 /* 枚数バッジはテキストの右下に重なる。読み取りを妨げないよう少し透かす */
 .manual-pile-face .manual-pile-count { opacity: 0.92; }
+
+/* ---- ★Batch 27: 帯の +n バッジ ----
+   .manual-band-card は overflow:hidden・position 未指定なので、盤面タイル用の
+   .manual-tile-badge(枠の外へ -6px はみ出す)をそのまま置くと切り落とされる。
+   帯の中では枠の内側の右上に、一回り小さく置く。 */
+.manual-band-card { position: relative; }
+.manual-band-card .manual-band-badge {
+    top: 1px; right: 1px; width: 17px; height: 17px; font-size: 9px; z-index: 2;
+}
