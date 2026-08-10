@@ -180,7 +180,8 @@
 }
 .zone-drop-mini {
     flex: 1; border: 1px dashed #6c757d; border-radius: 3px; font-size: 9px; text-align: center;
-    padding: 2px 0; color: #adb5bd;
+    /* ★Batch 30: #adb5bd は白い盤面の上でコントラスト比 2.07:1 しかなく読めなかった(実測) */
+    padding: 2px 0; color: #343a40; font-weight: 600;
 }
 
 /* ★20b 2-6: 右列のカード型パイル(禁忌・山札・確認・消滅・墓地)。
@@ -208,7 +209,7 @@
 .manual-pile-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .manual-pile-blank {
     display: flex; align-items: center; justify-content: center; text-align: center;
-    font-size: 10px; color: #adb5bd; padding: 4px;
+    font-size: 10px; color: #495057; padding: 4px;   /* ★Batch 30: 淡色をやめる */
 }
 .manual-pile-count {
     position: absolute; right: 2px; bottom: 2px; min-width: 20px; text-align: center;
@@ -245,12 +246,21 @@
     padding: 2px 6px; min-height: 24px;
     display: flex; align-items: center; gap: 8px;
 }
+/* ★Batch 30: 開いても<b>横並びのまま</b>にする(27まで flex-direction: column で
+   見出しを上に積んでいた)。見出しの1行ぶん(約16px)と余白が縦から消え、
+   同じ帯の高さでカードを一回り大きく描ける。 */
 .manual-center-half.manual-center-open {
-    align-items: flex-start; flex-direction: column; gap: 2px;
-    min-height: 112px; padding: 4px 6px;
+    align-items: center; gap: 8px;
+    min-height: 132px; padding: 4px 6px;
 }
-.manual-center-label { font-size: 11px; color: #adb5bd; white-space: nowrap; }
-.manual-center-row { display: flex; gap: 6px; overflow-x: auto; width: 100%; }
+/* ★Batch 30: 見出しを左・カードを右に並べる(マスター指示)。
+   プレイ中ゾーンには普通1〜2枚しか置かないので、見出しが縦を占める必要が無い。
+   見出しを左へ寄せたぶんの縦がまるごとカードの拡大に回る。 */
+.manual-center-label {
+    font-size: 11px; color: #212529; font-weight: 700; white-space: nowrap;
+    flex: 0 0 auto; align-self: center;
+}
+.manual-center-row { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
 
 /* ★20c: ログを拡大画像の右横へ移した。既定は拡大画像(286px)と高さを揃え、
    クリックでさらに下方向へ拡張する(パイル行を押し下げる)。
@@ -294,9 +304,24 @@
     line-height: 1.15; max-height: 3.4em; overflow: hidden;
     display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
 }
-/* ★Batch 26 4章: マナも回転をやめて減光にする(盤面の記法を1つに揃える)。
-   マナは枚数が多く重ねて並ぶため、バッジ(文字)は持たせない。 */
-.mana-tile.tapped { filter: brightness(0.62); }
+/* ★Batch 30: マナのタップ表現を<b>回転に戻した</b>(マスター指示)。
+   26 で減光にしたが、マナは裏向き(暗いカード裏)が多く、暗い絵をさらに暗くしても
+   タップかどうかが読み取れなかった。回転は形が変わるので、裏向きでも一目で分かる。
+
+   ★26 で心配した「バグの再発」は起きない。transform はレイアウトに影響せず
+   (実測: 盤面の高さ 940px → 940px で不変)、26 で直した手札サイズ崩れは
+   getBoundingClientRect().top がビューポート相対だったことが原因であり、回転とは無関係である。
+   26 の本当の問題は「縦長のフェイスタイルではテキストが横倒しになり、隣と重なる」だった。
+   マナタイルは短い名前しか載らず、重なりは幅を確保すれば消せる(applyManaOverlap)。
+
+   ★場のミニオン・リーダーは減光+バッジのままである。あちらは縦長でテキストが載っており、
+   回転すると本当に読めなくなる。 */
+.mana-tile.tapped {
+    transform: rotate(90deg);
+    /* 回転した外接(88×64)が隣へ食い込まないよう、枠線でも境界を明示する */
+    border-color: #b2dfdb;
+}
+.mana-tile.tapped.face-down { border-color: #b0bec5; }
 .mana-tile.face-down { background: #455a64; border-color: #78909c; }
 /* ★Batch 22 2-2: 裏向きマナは裏面のカード画像にする(相手上段と絵を揃える)。
    .mana-tile / .mana-strip 系は 19b で手動モード用に新設したクラスであり、
@@ -452,7 +477,7 @@ body.manual-drag-active .manual-band {
 .manual-opp-face-empty { border-style: dashed; background: transparent; }
 .manual-opp-face-blank {
     display: flex; align-items: center; justify-content: center; text-align: center;
-    font-size: 8px; color: #adb5bd; padding: 2px;
+    font-size: 8px; color: #495057; padding: 2px;   /* ★30: 淡色をやめる */
 }
 .manual-opp-count {
     position: absolute; right: 1px; bottom: 1px; min-width: 14px; text-align: center;
@@ -524,7 +549,7 @@ body.manual-drag-active .manual-band {
    右列の高さも盤面全体の高さも変わらない。
    ★列幅はリーダー枠と同じ108pxに揃える(同じ列に縦に並ぶため)。 */
 .manual-weapon-slot { width: 108px; position: relative; }
-.manual-weapon-slot-empty { border-style: dashed; color: #6c757d; }
+.manual-weapon-slot-empty { border-style: dashed; color: #495057; }  /* ★30: 淡色をやめる */
 .manual-weapon-slot-badge { background: #dc3545; }
 .manual-weapon-slot-atk { font-size: 12px; font-weight: bold; margin-top: 2px; }
 .manual-weapon-slot-used {
@@ -852,3 +877,87 @@ body.manual-drag-active .manual-band {
 .manual-band-card .manual-band-badge {
     top: 1px; right: 1px; width: 17px; height: 17px; font-size: 9px; z-index: 2;
 }
+
+/* ============================================================
+   ★Batch 30: UI の詰め(マスター指摘9点)
+   ============================================================ */
+
+/* ---- 1) 淡色の一掃 ----
+   ★白い盤面の上に #adb5bd(コントラスト比 2.07:1)を置いていた箇所が複数あった。
+   推奨は 4.5:1 である。個別の指定は各定義側で直し、ここでは
+   Bootstrap の .text-muted を<b>盤面の上でだけ</b>濃くする。
+   ★暗いオーバーレイ(帯・全面表示・モーダル)は body 直下にあり盤面の外なので、
+   この指定は届かない。暗い背景の上の淡色はそのまま正しい。 */
+#manual-root .text-muted { color: #495057 !important; }
+
+/* ---- 2) すべてアンタップ(確認パイルの真下・グリッド 2/4)---- */
+.manual-untap-slot {
+    grid-area: 2 / 4; display: flex; flex-direction: column; align-items: stretch;
+    justify-content: flex-start;
+}
+.manual-untap-btn {
+    width: 100%; font-size: 11px; font-weight: 700; line-height: 1.25;
+    padding: 6px 2px; border-radius: 6px; cursor: pointer;
+    border: 1px solid #26a69a; background: rgba(38, 166, 154, 0.14); color: #10514b;
+}
+.manual-untap-btn:hover { background: rgba(38, 166, 154, 0.3); }
+.manual-untap-note { font-size: 9px; color: #495057; text-align: center; margin-top: 3px; }
+
+/* ---- 3) プレイ中・公開のカードに付ける行き先ボタン ----
+   ★カード1枚ごとに出す(マスター裁定)。2枚並んだときに片方だけ送れる形にするためである。
+   ★行き先を2つ並べるのは、手動モードが行き先を<b>決めない</b>ためである。
+   禁忌由来のカードは総合ルール 2-3 で消滅へ行くが、それを判定するのはアプリの仕事ではない。 */
+/* ★ボタンはカードの<b>右</b>に置く。下に積むと帯の縦をボタンぶん食い、
+   「カードを大きくする」という本来の目的と正面から競合する
+   (実測で帯が 130px → 180px まで伸び、そのぶん手札が縮んだ)。
+   プレイ中ゾーンには普通1〜2枚しか置かないので、横は余っている。 */
+.manual-center-card { position: relative; display: flex; align-items: center; gap: 4px; }
+.manual-center-send {
+    display: flex; flex-direction: column; gap: 3px; justify-content: center;
+    flex: 0 0 auto; width: 42px;
+}
+.manual-center-send button {
+    font-size: 9px; font-weight: 700; line-height: 1.3;
+    padding: 3px 0; border-radius: 3px; cursor: pointer; border: 1px solid;
+}
+.manual-send-trash { border-color: #6d4c41; background: #efebe9; color: #4e342e; }
+.manual-send-lost { border-color: #4527a0; background: #ede7f6; color: #311b92; }
+.manual-center-send button:hover { filter: brightness(0.94); }
+
+/* ---- 4) リーダーのLPを盤面で直接増減する ----
+   ★±5 は廃止した(マスター指示)。モーダルの数値入力は残っているので、
+   大きく動かしたいときはそちらを使う。盤面に置くのは最頻の ±1 だけである。 */
+.manual-lp-row { display: flex; align-items: center; gap: 2px; justify-content: center; }
+.manual-lp-step {
+    flex: 0 0 auto; width: 18px; height: 18px; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 900; cursor: pointer;
+    border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 4px;
+    background: rgba(0, 0, 0, 0.35); color: #fff;
+}
+.manual-lp-step:hover { background: rgba(255, 202, 40, 0.35); border-color: #ffca28; }
+.manual-leader-face .mtf-foot { padding: 2px 3px; }
+.manual-leader-face .manual-tile-stats { font-size: 11px; padding: 0 3px; }
+
+/* ---- 5) ログのカード名リンク ---- */
+.manual-log-card {
+    cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+    text-decoration-style: dotted; color: inherit;
+}
+.manual-log-card:hover { color: #0d6efd; text-decoration-style: solid; }
+
+/* ---- 6) 帯の見出しに出す内訳 ---- */
+.manual-band-breakdown { font-size: 11px; font-weight: 400; opacity: 0.9; margin-left: 8px; }
+/* 幅はJS(fitCenterCards)がカード側へ直接当てる。箱は中身に合わせる */
+.manual-center-card > .manual-hand-card { flex: 0 0 auto; }
+
+/* ★Batch 30(不具合修正): 手札行の最低高さ(110px)を手動モードでは外す。
+   .hand-row は通常モードと共有のクラスであり min-height: 110px を持つ。
+   手動モードは手札の幅(=高さ)を残りの縦から計算しているため、
+   計算結果が110pxを下回ると<b>行だけが縮まず</b>画面下端からはみ出す。
+   実測: プレイ中ゾーンにカードを置いた状態で手札の下端が 953px(ビューポート950px)。
+   ★共有クラスの定義は変えず、手動モードの入れ物(#hand-row)の内側だけを上書きする。 */
+#hand-row .hand-row { min-height: 0; }
+/* 入れ物側の最低高さ(.board-side の 140px)も外す。行だけ縮めても入れ物が floor すると
+   同じはみ出しが残る。★共有クラスの定義は変えず、手動モードの手札の入れ物だけを上書きする。 */
+#hand-row { min-height: 0; }

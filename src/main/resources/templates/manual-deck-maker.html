@@ -674,12 +674,10 @@ function buildStaticUi(){
     b.onclick=()=>{ filters.type[k]=!filters.type[k]; b.classList.toggle('on'); renderAll(); };
     rowType.appendChild(b);
   });
-  const util=document.createElement('div'); util.className='flt-util';
-  const bon=document.createElement('button'); bon.className='b-on'; bon.textContent='全てON';
-  bon.onclick=()=>{ setAllFilters(true); };
-  const boff=document.createElement('button'); boff.className='b-off'; boff.textContent='全てOFF';
-  boff.onclick=()=>{ setAllFilters(false); };
-  util.append(bon,boff); rowType.appendChild(util);
+  /* ★Batch 30(マスター指示): 全ON/全OFF をカテゴリーごとに分ける。
+     27 までは1組のボタンがタイプ・コスト・文明を<b>まとめて</b>倒していたため、
+     「コストだけ全部戻したい」という普通の使い方ができなかった。 */
+  appendFilterUtil(rowType,'type','#row-type');
   const rowCost=document.getElementById('row-cost');
   COST_KEYS.forEach(k=>{
     const b=document.createElement('button');
@@ -687,6 +685,8 @@ function buildStaticUi(){
     b.onclick=()=>{ filters.cost[k]=!filters.cost[k]; b.classList.toggle('on'); renderAll(); };
     rowCost.appendChild(b);
   });
+  appendFilterUtil(rowCost,'cost','#row-cost');
+  appendFilterUtil(rowCiv,'civ','#row-civ');
   document.querySelectorAll('.tab-btn').forEach(b=>{
     b.onclick=()=>{
       currentTab=b.dataset.tab;
@@ -703,11 +703,21 @@ function buildStaticUi(){
     catch(e){ toast('デッキの読み込みに失敗: '+e.message); }
   });
 }
-function setAllFilters(on){
-  ['type','cost'].forEach(cat=>{ for(const k in filters[cat]) filters[cat][k]=on; });
-  if(currentTab==='taboo'){ for(const k in filters.civ) filters.civ[k]=on; }
-  document.querySelectorAll('#row-type .flt-btn,#row-cost .flt-btn').forEach(b=>b.classList.toggle('on',on));
-  if(currentTab==='taboo') document.querySelectorAll('#row-civ .flt-btn').forEach(b=>b.classList.toggle('on',on));
+/* ★Batch 30: カテゴリー1つぶんの 全ON/全OFF をその行の末尾に添える。
+   行ごとに独立して効くので、他のカテゴリーの絞り込みは保たれる。 */
+function appendFilterUtil(row,cat,rowSel){
+  const util=document.createElement('div'); util.className='flt-util';
+  const bon=document.createElement('button'); bon.className='b-on'; bon.textContent='全てON';
+  bon.title='この行だけ全てONにする';
+  bon.onclick=()=>{ setCategoryFilters(cat,rowSel,true); };
+  const boff=document.createElement('button'); boff.className='b-off'; boff.textContent='全てOFF';
+  boff.title='この行だけ全てOFFにする';
+  boff.onclick=()=>{ setCategoryFilters(cat,rowSel,false); };
+  util.append(bon,boff); row.appendChild(util);
+}
+function setCategoryFilters(cat,rowSel,on){
+  for(const k in filters[cat]) filters[cat][k]=on;
+  document.querySelectorAll(rowSel+' .flt-btn').forEach(b=>b.classList.toggle('on',on));
   renderAll();
 }
 

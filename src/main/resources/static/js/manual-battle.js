@@ -54,10 +54,52 @@ function applyCardLibrary(lib) {
     }
     cardTextById = new Map();
     cardTextByImage = new Map();
+    // ★Batch 30: 名前からカードを引ける表も作る。ログの《名前》をリンクにするのに使う。
+    //   同名のカードは存在しない前提だが、万一あっても最初の1枚で足りる
+    //   (拡大に出すのは定義であり、盤面の個体ではない)。
+    cardByNameMap = new Map();
     lib.cards.forEach((c) => {
         if (c.id) cardTextById.set(c.id, c.text || '');
         if (c.imageId) cardTextByImage.set(c.imageId, c.text || '');
+        if (c.name && !cardByNameMap.has(c.name)) {
+            cardByNameMap.set(c.name, c);
+        }
     });
+}
+
+/** カード定義から作った表(★Batch 30)。ライブラリ未取得のあいだは null である */
+let cardByNameMap = null;
+
+/**
+ * 名前からカードを引き、拡大パネルが描ける形({@code ManualCardView} 相当)にして返す。
+ * ★盤面の個体ではなく<b>カードの定義</b>を返す。ログに出た時点の個体は既に
+ * 別のゾーンへ動いている(あるいは消えている)ことがあり、そこを追うと嘘になる。
+ * 拡大で見たいのは「そのカードが何か」であり、そのときの数値ではない。
+ */
+function cardByName(name) {
+    if (!cardByNameMap || !cardByNameMap.has(name)) {
+        return null;
+    }
+    const c = cardByNameMap.get(name);
+    return {
+        instanceId: null,
+        cardId: c.id,
+        name: c.name,
+        imageId: c.imageId,
+        civilization: c.civilization,
+        type: c.type,
+        cost: c.cost,
+        printedAttack: c.attack,
+        printedHp: c.hp,
+        attack: c.attack,
+        hp: c.hp,
+        tapped: false,
+        faceDown: false,
+        used: false,
+        labels: [],
+        stackSize: 1,
+        materials: [],
+    };
 }
 
 function loadCardLibrary() {
@@ -770,7 +812,7 @@ function isZoneVisible(seatView, zoneName) {
  * 各描画関数は「あとで実測してほしい要素」をここへ置くだけにし、
  * 実際の読み取りは {@link measurePhase} が1回だけ行う。
  */
-const pendingMeasure = { manaWrap: null, handRow: null, opponentMana: false };
+const pendingMeasure = { manaWrap: null, handRow: null, opponentMana: false, centerRows: [] };
 
 /**
  * ★Batch 29(描画の軽量化): 実測をまとめて1回にする。
@@ -799,6 +841,9 @@ function measurePhase() {
     if (pendingMeasure.handRow) {
         fitCardWidths(pendingMeasure.handRow, handCardMaxWidth(pendingMeasure.handRow), 8);
     }
+    for (const row of pendingMeasure.centerRows) {
+        fitCenterCards(row);
+    }
     // ★21c 7-1: アンカー要素を作り直したので、表示中の矢印を引き直す
     renderDragCues();
 }
@@ -810,6 +855,7 @@ function renderAll(view) {
     pendingMeasure.manaWrap = null;
     pendingMeasure.handRow = null;
     pendingMeasure.opponentMana = false;
+    pendingMeasure.centerRows = [];
     renderHeader(view);
     renderOpponentTop(view);
     renderOpponentMinions(view);
@@ -1400,10 +1446,10 @@ function renderCenterLine(view) {
     const shared = view.shared || {};
     el.appendChild(createCenterHalf('PLAY', shared.PLAY || []));
     el.appendChild(createCenterHalf('REVEAL', shared.REVEAL || []));
-    // ★20c: 手札と同じく実測幅で決める。DOMに載せた後でなければ行幅が取れない
-    for (const row of el.querySelectorAll('.manual-center-row')) {
-        fitCardWidths(row, centerCardMaxWidth(), 6);
-    }
+    // ★Batch 30: 実測は renderAll 末尾の計測フェーズへ移した(29 の measurePhase)。
+    //   ここで clientWidth を読むと、書き込みの途中でレイアウトが確定してしまう
+    //   (29 で他の3箇所は移したが、ここだけ残っていた)
+    pendingMeasure.centerRows = [...el.querySelectorAll('.manual-center-row')];
 }
 
 /**
@@ -1427,7 +1473,13 @@ function createCenterHalf(zoneName, cards) {
         const row = document.createElement('div');
         row.className = 'manual-center-row';
         for (const card of cards) {
-            row.appendChild(createHandCard(card, null, null, zoneName));
+            // ★Batch 30: カードと行き先ボタンを縦に組んだ小さな箱にする。
+            //   ボタンをカードの中に入れるとクリック規約(左=拡大)と当たり判定が競合する
+            const box = document.createElement('div');
+            box.className = 'manual-center-card';
+            box.appendChild(createHandCard(card, null, null, zoneName));
+            box.appendChild(createCenterSendButtons(card));
+            row.appendChild(box);
             // ★共有ゾーンのカードは席を持たない。seatId は null で索引に入れる
             cardLocation.set(card.instanceId, { seatId: null, zone: zoneName });
         }
@@ -1438,6 +1490,53 @@ function createCenterHalf(zoneName, cards) {
     // ★共有ゾーンは席を持たない(20b 3-1)。アンカーの鍵も席 null で登録する
     registerZoneAnchor(half, null, zoneName);
     return half;
+}
+
+/**
+ * 共有ゾーンのカードを片付けるボタン(★Batch 30・マスター指示)。
+ *
+ * <h3>なぜ足すのか</h3>
+ * プレイ中(PLAY)へ置くのはほとんどスペルであり、使い終わったら墓地へ行く。
+ * 毎回ドラッグさせるのは手数が多い。<b>ドラッグは従来どおり残す</b>。
+ * これは選択肢を1つ増やすだけである。
+ *
+ * <h3>★行き先を2つ並べる</h3>
+ * 「墓地へ」だけにしない。禁忌デッキ由来のカードは総合ルール 2-3 で
+ * 場を離れると消滅へ行く。どちらへ送るかは<b>裁定</b>であり、
+ * 手動モードは判断を実装しない(設計書16 5-1)。
+ * アプリが決めずに人間が選ぶ形にすれば、原則を曲げずに手数だけ減らせる。
+ *
+ * <h3>★送り先の席は「置いた人」である</h3>
+ * 共有ゾーンのカードは席に属さないが、{@code placedBySeat} が誰が置いたかを持つ(21 6-2)。
+ * 自分の墓地へ送るのではなく<b>置いた人の墓地</b>へ返す。
+ * 相手が置いたスペルを自分の墓地に入れると、墓地の枚数を参照するカードの計算が狂う。
+ * 所有が失われている場合(古い部屋など)だけ、操作している自席へ落とす。
+ */
+function createCenterSendButtons(card) {
+    const row = document.createElement('div');
+    row.className = 'manual-center-send';
+    const owner = card.placedBySeat || (latestView ? bottomSeat(latestView).id : null);
+    for (const dest of [
+        { zone: 'TRASH', label: '墓地へ', cls: 'manual-send-trash' },
+        { zone: 'LOST', label: '消滅へ', cls: 'manual-send-lost' },
+    ]) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = dest.cls;
+        btn.textContent = dest.label;
+        btn.title = `${ZONE_LABELS[dest.zone]}(席${owner})へ送る`;
+        // ★カード本体のクリック規約(左=拡大)の外にある専用ボタンである。伝播を必ず止める
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            send('move', {
+                cardIds: [card.instanceId], toSeat: owner, toZone: dest.zone,
+                toIndex: null, faceDown: null,
+            });
+        });
+        btn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
+        row.appendChild(btn);
+    }
+    return row;
 }
 
 /**
@@ -1494,6 +1593,10 @@ function renderPiles(view) {
     //   2行目は既に消滅・墓地が占めているので、右列も盤面全体も縦は伸びない
     el.appendChild(createWeaponSlot(seat));
 
+    // ★Batch 30(マスター指示): すべてアンタップ。確認パイルの真下(グリッド 2/4)が
+    //   もともと空いていたので、盤面を1pxも高くせずに置ける
+    el.appendChild(createUntapAllSlot(seat));
+
     for (const zoneName of Object.keys(PILE_PLACEMENT)) {
         // ★Batch 29: 枚数は必ず counts から取る。山札は中身が「最上段の1枚」しか
         //   届かなくなったため、配列の長さを枚数として使うと常に1と出る
@@ -1504,6 +1607,74 @@ function renderPiles(view) {
         el.appendChild(pile);
         registerZoneAnchor(pile, seat.id, zoneName);
     }
+}
+
+/**
+ * 「すべてアンタップ」(★Batch 30・マスター指示)。
+ *
+ * <h3>★これは判断ではない</h3>
+ * 設計書16 5-1 が禁じているのは<b>裁定</b>(コスト支払い・戦闘解決・勝敗判定)である。
+ * ここでやるのは「今タップされているものを、まとめてアンタップする」という
+ * <b>機械作業の一括化</b>であり、1枚ずつ右クリックするのと結果が1つも変わらない。
+ * ターンの開始ごとに10回以上の同じ操作を人間にさせる理由が無い。
+ *
+ * <h3>★サーバに新しい操作を足していない</h3>
+ * {@code tap} / {@code used} は既に「明示値」を受け付ける
+ * ({@code request.value()} が null ならトグル、あればその値。18a)。
+ * したがって <b>value: false を渡すだけ</b>で冪等な一括アンタップになる。
+ * トグルで実現しようとすると「今タップされているものだけを選んで送る」ことになり、
+ * 送信の直前に盤面が変わると一部が逆に倒れる。値を明示すれば競合しても結果は同じである。
+ *
+ * <h3>対象(マスター確定)</h3>
+ * 自席のマナ・場のミニオン・リーダーのタップ、およびウェポンの「使用済」。
+ * ウェポンを含めるのは、アンタップフェイズが「このターンの行動権を戻す」処理であり、
+ * 使用済フラグも同じ意味を持つためである。
+ * ★相手席には触らない。代行操作は個別にやるものであり、一括で相手の盤面を戻せるボタンは
+ * 事故のときに取り返しがつかない。
+ */
+function createUntapAllSlot(seat) {
+    const slot = document.createElement('div');
+    slot.className = 'manual-untap-slot';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'manual-untap-btn';
+    btn.textContent = 'すべて\nアンタップ';
+    btn.style.whiteSpace = 'pre-line';
+    btn.title = '自席のマナ・場のミニオン・リーダーのタップと、ウェポンの使用済を戻す';
+    btn.addEventListener('click', () => {
+        const tapIds = [];
+        for (const zoneName of ['MANA', 'FIELD']) {
+            for (const card of seat.zones[zoneName] || []) {
+                if (card.tapped) tapIds.push(card.instanceId);
+            }
+        }
+        if (seat.leader && seat.leader.tapped) {
+            tapIds.push(seat.leader.instanceId);
+        }
+        const usedIds = [];
+        for (const card of seat.zones.WEAPON || []) {
+            if (card.used) usedIds.push(card.instanceId);
+        }
+        if (tapIds.length === 0 && usedIds.length === 0) {
+            showToast('アンタップするものがありません');
+            return;
+        }
+        // ★value を明示する(トグルではない)。javadoc の「冪等」の理由
+        if (tapIds.length > 0) {
+            send('tap', { cardIds: tapIds, value: false });
+        }
+        if (usedIds.length > 0) {
+            send('used', { cardIds: usedIds, value: false });
+        }
+    });
+    slot.appendChild(btn);
+
+    const note = document.createElement('div');
+    note.className = 'manual-untap-note';
+    note.textContent = 'マナ・場・リーダー・ウェポン';
+    slot.appendChild(note);
+    return slot;
 }
 
 /**
@@ -1931,24 +2102,49 @@ function createManaTile(card, seatId, backImageId) {
  * 均等に重ねる」ため、DOMに実際に載せた後の実測幅(clientWidth)を使う。
  * 1枚あたり最小約28pxは露出させる(タイル幅64pxに対し最大重なり36px)。
  */
+/** マナタイルの寸法。★CSS の .mana-tile と対である(片方だけ変えないこと) */
+const MANA_TILE_WIDTH = 64;
+const MANA_TILE_HEIGHT = 88;
+
+/**
+ * マナの重ね表示。★Batch 30: 回転したタップ済タイルのぶんの幅を確保する。
+ *
+ * <h3>なぜ確保が要るのか</h3>
+ * 30 でマナのタップ表現を回転({@code rotate(90deg)})へ戻した。
+ * {@code transform} は<b>レイアウトに影響しない</b>ため、レイアウト上は 64px のままだが
+ * 見た目の外接は 88px になる。差の 24px を確保しないと、実測で
+ * <b>9箇所中8箇所で隣のタイルに食い込む</b>(26 で回転をやめた理由の1つがこれである)。
+ *
+ * 左右へ 12px ずつのマージンで確保し、幅の見積り(naturalWidth)でも
+ * タップ済は 88px として数える。これで「入るなら重ならない、入らないなら詰める」という
+ * 元の1本の式がそのまま成り立つ。
+ */
 function applyManaOverlap(wrap) {
+    const pad = (MANA_TILE_HEIGHT - MANA_TILE_WIDTH) / 2;
     for (const track of wrap.querySelectorAll('.mana-strip-track')) {
         const tiles = [...track.children];
         for (const tile of tiles) {
             tile.style.marginLeft = '';
+            tile.style.marginRight = '';
             tile.style.zIndex = '';
         }
-        if (tiles.length <= 1) continue;
-        const trackWidth = track.clientWidth;
-        const tileWidth = 64;
-        const minExposure = 28;
-        const naturalWidth = tiles.length * tileWidth;
-        if (naturalWidth <= trackWidth) continue;
-        const maxOverlap = tileWidth - minExposure;
-        const neededOverlapTotal = naturalWidth - trackWidth;
-        const perTileOverlap = Math.min(maxOverlap, neededOverlapTotal / (tiles.length - 1));
+        if (tiles.length === 0) continue;
+        const tapped = tiles.map((t) => t.classList.contains('tapped'));
+        // ★回転したタイルは外接が MANA_TILE_HEIGHT(88px)になる
+        let naturalWidth = 0;
         tiles.forEach((tile, i) => {
-            if (i > 0) tile.style.marginLeft = `-${perTileOverlap}px`;
+            naturalWidth += tapped[i] ? MANA_TILE_HEIGHT : MANA_TILE_WIDTH;
+        });
+        const trackWidth = track.clientWidth;
+        const minExposure = 28;
+        const maxOverlap = MANA_TILE_WIDTH - minExposure;
+        const perTileOverlap = tiles.length <= 1 || naturalWidth <= trackWidth
+            ? 0
+            : Math.min(maxOverlap, (naturalWidth - trackWidth) / (tiles.length - 1));
+        tiles.forEach((tile, i) => {
+            const base = tapped[i] ? pad : 0;
+            tile.style.marginLeft = `${base - (i > 0 ? perTileOverlap : 0)}px`;
+            tile.style.marginRight = `${base}px`;
             tile.style.zIndex = String(i + 1);
         });
     }
@@ -2006,18 +2202,67 @@ function handCardMaxWidth(row) {
     //   (逆方向にも起きる)。再描画のたびにそのときのスクロール位置で幅が決まるため、
     //   ビュー更新を伴う最頻の操作であるタップ/アンタップで「サイズが崩れる」と観測された。
     //   盤面はビューポート内に収める設計なので、基準は「文書の先頭からの位置」が正しい。
-    const top = row.getBoundingClientRect().top + window.scrollY;
+    // ★★Batch 30(不具合修正): 測る基準を<b>行そのもの</b>から<b>入れ物(#hand-row)</b>へ変えた。
+    //
+    //   25c 以来、行の上端から画面下端までを「使える高さ」としていた。しかし行の外側には
+    //   入れ物の上下パディングがあり、そのぶんだけ手札が画面外へはみ出していた
+    //   (実測: プレイ中ゾーンにカードを置いた状態で手札の下端が 953px。ビューポートは 950px)。
+    //
+    //   ★行の「下の余白」をその場で測る形も試したが誤りである。計測の時点では
+    //   カードにまだ幅が入っておらず、行の高さが最終値ではないため、
+    //   そこから引いた値は毎回ずれる。<b>入れ物の上端とパディング</b>は
+    //   カードの大きさに依存しないので、基準として安定している。
+    const parent = row.parentElement || row;
+    const box = parent.getBoundingClientRect();
+    const top = box.top + window.scrollY;
     if (!top || top <= 0) {
         return fallback;
     }
-    const available = window.innerHeight - top - 12;
+    const style = window.getComputedStyle(parent);
+    const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    const available = window.innerHeight - top - padding - 12;
     if (available < 84) {
         return fallback;
     }
     return Math.max(60, Math.min(190, Math.floor(available * 5 / 7)));
 }
+/**
+ * センターライン(プレイ中・公開)のカード幅の上限。
+ *
+ * ★Batch 30: 上限を 90px → 118px へ広げた(マスター指示)。
+ * 見出しを帯の左へ寄せて横並びにしたことで、見出しが占めていた縦の1行が空いた。
+ * プレイ中ゾーンには普通1〜2枚しか置かないので、幅を使い切れずに余っていた。
+ */
 function centerCardMaxWidth() {
-    return Math.max(45, Math.min(90, Math.round(window.innerHeight * 0.075)));
+    return Math.max(45, Math.min(106, Math.round(window.innerHeight * 0.108)));
+}
+
+/** 行き先ボタンの列が占める横幅(★Batch 30)。CSS の .manual-center-send と対である */
+const CENTER_SEND_WIDTH = 46;
+
+/**
+ * センターラインの札の幅を決める(★Batch 30)。
+ *
+ * ★手札({@link fitCardWidths})と別の関数にしたのは、札が
+ * 「カード + 行き先ボタン列」の箱に包まれており、幅を当てる相手が箱の中にあるためである。
+ * 共通化して分岐を1つ増やすより、短い関数を2つ置くほうが読める。
+ */
+function fitCenterCards(row) {
+    const boxes = [...row.children].filter((el) => el.classList.contains('manual-center-card'));
+    if (boxes.length === 0) {
+        return;
+    }
+    const gap = 6;
+    const available = row.clientWidth - 4;
+    const raw = Math.floor((available - gap * (boxes.length - 1)) / boxes.length)
+        - CENTER_SEND_WIDTH;
+    const width = Math.max(45, Math.min(centerCardMaxWidth(), raw));
+    for (const box of boxes) {
+        const card = box.querySelector('.manual-hand-card');
+        if (card) {
+            card.style.width = width + 'px';
+        }
+    }
 }
 
 /**
@@ -2048,6 +2293,48 @@ function fitCardWidths(row, maxWidth, gap) {
  */
 /** 画面に残すログ行の上限(★Batch 29)。これを超えたぶんは古いほうから捨てる。 */
 const LOG_DOM_MAX = 300;
+
+/**
+ * ログ1行を組み立てる。★Batch 30: カード名をクリックで拡大できるようにする。
+ *
+ * <h3>★サーバは1文字も変えていない</h3>
+ * {@code ManualLogRenderer} は既にカード名を <b>{@code 《名前》}</b> で囲んで出している。
+ * つまり「どこがカード名か」は本文の中に構造として残っている。
+ * ログを構造化して配る(ManualLogView にカードの配列を足す)案もあったが、
+ * 配信が太るうえ、レンダラと配信の2箇所が名前の切り出し方を知ることになる。
+ * <b>既にある印を読む</b>ほうが安い。
+ *
+ * <h3>★引けた名前だけをリンクにする</h3>
+ * カード定義({@code /manual/api/card-library})に無い名前はただの文字として残す。
+ * 対戦部屋でマスクされた行や、突合できていないカードがそれにあたる。
+ * 「押せそうなのに何も起きない」を作らないため、引けたものだけを押せる形にする。
+ */
+function appendLogText(line, text) {
+    const pattern = /《([^》]{1,40})》/g;
+    let last = 0;
+    let match = pattern.exec(text);
+    while (match !== null) {
+        if (match.index > last) {
+            line.appendChild(document.createTextNode(text.slice(last, match.index)));
+        }
+        const card = cardByName(match[1]);
+        if (card) {
+            const link = document.createElement('span');
+            link.className = 'manual-log-card';
+            link.textContent = match[0];
+            link.title = 'クリックでカードを拡大';
+            link.addEventListener('click', (e) => { e.stopPropagation(); setZoom(card); });
+            line.appendChild(link);
+        } else {
+            line.appendChild(document.createTextNode(match[0]));
+        }
+        last = match.index + match[0].length;
+        match = pattern.exec(text);
+    }
+    if (last < text.length) {
+        line.appendChild(document.createTextNode(text.slice(last)));
+    }
+}
 
 /** 最後に描いたログの通し番号。null は「まだ何も描いていない」(★Batch 29) */
 let logLastSeq = null;
@@ -2099,7 +2386,7 @@ function renderLog(entries, total) {
         }
         const line = document.createElement('div');
         line.dataset.seq = e.seq;
-        line.textContent = `[${e.time}] ${e.text}`;
+        appendLogText(line, `[${e.time}] ${e.text}`);
         box.appendChild(line);
         logLastSeq = e.seq;
         appended++;
@@ -2376,6 +2663,27 @@ function statSpan(current, printed) {
  *                ミニタイルを持つ。省略時は false(= ウェポンは別枠にある)
  * @param options {face} true のとき3段のフェイス構成にする(自席のみ。26 2章)
  */
+/**
+ * リーダータイルのLP増減ボタン(★Batch 30)。
+ *
+ * ★サーバは {@code delta} を既に受け付ける({@code ManualOpRequest.Lp})。
+ * 直接指定({@code value})と増減({@code delta})の<b>どちらか一方だけ</b>を送ること
+ * (両方送るとサーバが例外を投げる。20a 2-4)。
+ */
+function lpStepButton(label, delta, seat) {
+    const btn = document.createElement('div');
+    btn.className = 'manual-lp-step';
+    btn.textContent = label;
+    btn.title = `LPを${delta > 0 ? '1増やす' : '1減らす'}`;
+    // ★1-6: カード本体のクリック規約(左=拡大 / 右=タップ)の外にある専用ボタンである
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        send('lp', { seat: seat.id, delta });
+    });
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); e.stopPropagation(); });
+    return btn;
+}
+
 function createLeaderTile(seat, options) {
     const withWeapon = !!(options && options.withWeapon);
     const face = !!(options && options.face);
@@ -2442,7 +2750,15 @@ function createLeaderTile(seat, options) {
 
         const foot = document.createElement('div');
         foot.className = 'mtf-foot';
-        foot.appendChild(lp);
+        // ★Batch 30(マスター指示): LPは盤面から直接1ずつ増減できるようにする。
+        //   ダメージは1点刻みで動くことが多く、そのたびにモーダルを開いて閉じるのは手数である。
+        //   ★中央のLPチップは従来どおりモーダルの入口として残す(直接入力はそちら)。
+        const lpRow = document.createElement('div');
+        lpRow.className = 'manual-lp-row';
+        lpRow.appendChild(lpStepButton('−', -1, seat));
+        lpRow.appendChild(lp);
+        lpRow.appendChild(lpStepButton('＋', 1, seat));
+        foot.appendChild(lpRow);
         tile.appendChild(foot);
     } else {
         tile.appendChild(name);
@@ -3124,11 +3440,13 @@ function openLpModal(seatId, currentLp) {
         send('lp', { seat: seatId, value });
     }));
 
+    // ★Batch 30(マスター指示): ±5 は廃止した。±1 は盤面のリーダータイルへ出したので、
+    //   モーダルの役割は「大きく動かす/直接打ち込む」に絞られる。それは数値入力欄の仕事であり、
+    //   5刻みのボタンは中途半端な位置にある。★モーダルの ±1 は残す
+    //   (モーダルを開いたまま連打する使い方があり、開き直させる理由が無い)。
     const delta = (amount) => send('lp', { seat: seatId, delta: amount });
-    document.getElementById('lp-modal-minus5').onclick = () => delta(-5);
     document.getElementById('lp-modal-minus1').onclick = () => delta(-1);
     document.getElementById('lp-modal-plus1').onclick = () => delta(1);
-    document.getElementById('lp-modal-plus5').onclick = () => delta(5);
     document.getElementById('lp-modal-close').onclick = () => {
         modal.classList.add('d-none');
         lpModalSeatId = null;
@@ -3555,11 +3873,32 @@ function renderZoneBand() {
     const showSearch = ['TRASH', 'LOST', 'TABOO'].includes(activeOverlay.zoneName);
     renderBandDom({
         title: `${ZONE_LABELS[activeOverlay.zoneName]}(${items.length}枚)`,
+        breakdown: typeBreakdown(items),
         seatId: activeOverlay.seatId,
         zoneName: activeOverlay.zoneName,
         items,
         showSearch,
     });
+}
+
+/**
+ * 種別ごとの枚数(★Batch 30・マスター指示)。
+ *
+ * ★進化ミニオン({@code EVOLUTION})はミニオンに合算する。
+ * 総合ルール上どちらもミニオンであり、墓地を数える目的
+ * (闇文明のカードが墓地の枚数を参照する)では区別する意味が無い。
+ * 種別が分からないカード(突合できていない)は数に入れず、合計との差で見える形にする。
+ */
+function typeBreakdown(items) {
+    const count = { MINION: 0, SPELL: 0, WEAPON: 0 };
+    for (const card of items || []) {
+        if (card.type === 'MINION' || card.type === 'EVOLUTION') {
+            count.MINION++;
+        } else if (count[card.type] !== undefined) {
+            count[card.type]++;
+        }
+    }
+    return `ミニオン ${count.MINION} / スペル ${count.SPELL} / ウェポン ${count.WEAPON}`;
 }
 
 // ---- 帯: 進化スタック(+nバッジ) ----
@@ -3606,7 +3945,7 @@ function renderEvolutionBand() {
 }
 
 /** 帯の共通DOM。検索欄は入力のたびに一覧行だけを再描画し、入力欄自体は作り直さない(フォーカス維持)。 */
-function renderBandDom({ title, seatId, zoneName, items, showSearch }) {
+function renderBandDom({ title, breakdown, seatId, zoneName, items, showSearch }) {
     const root = overlayRoot();
     root.innerHTML = '';
 
@@ -3623,6 +3962,13 @@ function renderBandDom({ title, seatId, zoneName, items, showSearch }) {
     header.className = 'manual-band-header';
     const titleSpan = document.createElement('span');
     titleSpan.textContent = title;
+    if (breakdown) {
+        // ★Batch 30: 総枚数だけでなく種別の内訳も出す(墓地を数える読みに要る)
+        const sub = document.createElement('span');
+        sub.className = 'manual-band-breakdown';
+        sub.textContent = breakdown;
+        titleSpan.appendChild(sub);
+    }
     header.appendChild(titleSpan);
 
     let search = null;

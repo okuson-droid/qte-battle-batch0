@@ -1141,8 +1141,7 @@
       "hp": 1,
       "imageId": "a6d1c848b456698cbc8efcc2a9fdff515dcf0264bbe44fa13450fd04de9eb875",
       "ledgerCardId": "QTE-0012",
-      "text": "【召喚時】「ゾンストライカー」を墓地から全て出す。【突進】破壊されたとき自分の山札の上から1枚を墓地に置く。",
-      "unlimitedCopies": true
+      "text": "【召喚時】「ゾンストライカー」を墓地から全て出す。【突進】破壊されたとき自分の山札の上から1枚を墓地に置く。"
     },
     {
       "id": "QTE-M-DARK-17",
@@ -1269,7 +1268,7 @@
       "name": "悪夢",
       "type": "SPELL",
       "civilization": "DARK",
-      "cost": 1,
+      "cost": 13,
       "attack": null,
       "hp": null,
       "imageId": "3cf53c87d4f3ca3123273894025997163d40ab8b2376af41f6d47aacc8e21f4c",
@@ -2541,7 +2540,7 @@
       "name": "苗木植えの精霊",
       "type": "MINION",
       "civilization": "EARTH",
-      "cost": 1,
+      "cost": 2,
       "attack": 1,
       "hp": 2,
       "imageId": "48f54a2af58c63c6155849b119f80ca89a626b46eebb456c0ab580cefd8a7c27",

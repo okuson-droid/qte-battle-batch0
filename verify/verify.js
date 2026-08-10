@@ -236,8 +236,13 @@ async function clearZoom(page) {
   check('公開側は展開状態にならない(空のまま)',
     !(await page.locator('.manual-center-half[data-zone="REVEAL"]').getAttribute('class'))
       .includes('manual-center-open'));
-  check('展開しても帯全体は約130pxに収まる',
-    (await page.locator('#center-line').boundingBox()).height <= 140);
+  // ★Batch 30: 上限を 140 → 160 に引き上げた。マスター指示でセンターラインの札を
+  //   大きくしたためである(見出しを左へ寄せ、上限を 90px → 106px へ)。
+  //   ★上限そのものは残す。ここを外すと「盤面全体が950pxに収まる」が
+  //   手札を潰すことで達成されてしまい、崩れたことに気づけなくなる。
+  check('展開しても帯全体は約150pxに収まる(30で拡大)',
+    (await page.locator('#center-line').boundingBox()).height <= 160,
+    `h=${(await page.locator('#center-line').boundingBox()).height}`);
 
   // ---- 4. センターライン → 手札(戻す)。共有ゾーンからのドラッグが成立すること ----
   await clearSent(page);
@@ -550,12 +555,16 @@ async function clearZoom(page) {
   await page.waitForTimeout(60);
   check('LP表示のクリックでLPモーダルが開く(20a回帰)',
     !(await page.locator('#lp-modal').getAttribute('class')).includes('d-none'));
-  await page.locator('#lp-modal-minus5').click();
+  // ★Batch 30: ±5 は廃止した(マスター指示)。±1 はモーダルにも残っている
+  await page.locator('#lp-modal-minus1').click();
   msgs = await sent(page);
-  check('LPモーダルの -5 で delta が送られ、モーダルは閉じない',
-    msgs.some((m) => m.destination.endsWith('/lp') && m.body.delta === -5)
+  check('LPモーダルの -1 で delta が送られ、モーダルは閉じない',
+    msgs.some((m) => m.destination.endsWith('/lp') && m.body.delta === -1)
       && !(await page.locator('#lp-modal').getAttribute('class')).includes('d-none'),
     JSON.stringify(msgs));
+  check('★LPモーダルの ±5 は廃止されている(30)',
+    (await page.locator('#lp-modal-minus5').count()) === 0
+      && (await page.locator('#lp-modal-plus5').count()) === 0);
   await page.locator('#lp-modal-close').click();
 
   // =====================================================================
@@ -1767,10 +1776,16 @@ async function clearZoom(page) {
       manaBadge: mana.querySelectorAll('.manual-tapped-badge').length,
     };
   });
-  check('★タップは回転ではなく減光+バッジで表す(26 4章。マナはバッジ無し)',
-    tapLook.tileTransform === 'none' && tapLook.manaTransform === 'none'
-      && tapLook.badge === 'タップ' && tapLook.manaBadge === 0
+  // ★Batch 30 でマナだけ回転へ戻した(マスター指示)。裏向きマナは暗い絵であり、
+  //   減光では「これはタップ済か」が読み取れなかった。回転は形が変わるので一目で分かる。
+  //   ★場のタイルは 26 のまま減光+バッジである(縦長でテキストが載っており、
+  //   回転すると読めなくなる)。この非対称は意図であり、検証で固定しておく。
+  check('★場のタイルのタップは回転ではなく減光+バッジのまま(26 4章)',
+    tapLook.tileTransform === 'none' && tapLook.badge === 'タップ'
       && tapLook.tileFilter.includes('brightness'),
+    JSON.stringify(tapLook));
+  check('★マナのタップは回転で表す(30・マスター指示。バッジは持たない)',
+    tapLook.manaTransform !== 'none' && tapLook.manaBadge === 0,
     JSON.stringify(tapLook));
 
   // ---- 35. ★不具合修正: スクロールしても手札のサイズが変わらない(26 4章) ----
@@ -2040,6 +2055,204 @@ async function clearZoom(page) {
   await render(page, noGap);
   check('★省略が無いときは案内を出さない(29)',
     (await page.locator('#log-omitted-note').count()) === 0);
+
+  // =====================================================================
+  // ★Batch 30: UI の詰め(マスター指摘9点)
+  // =====================================================================
+
+  // ---- 39. 薄すぎる文字を作らない ----
+  // ★個別の色を1つずつ確かめるのではなく、「盤面のラベルはすべて 4.5:1 以上」を
+  //   1本の条件で押さえる。色を足すたびに検証項目を足す必要が無くなり、
+  //   薄い文字が<b>構造的に</b>入り込めなくなる。
+  const contrastView = baseView();
+  contrastView.shared = { PLAY: [card('p1', 'プレイ中のカード')], REVEAL: [] };
+  await render(page, contrastView);
+  const faint = await page.evaluate(() => {
+    // 実サーバの body は Bootstrap の白。透明まで遡ったら白とみなす
+    const eff = (el) => {
+      let n = el;
+      while (n) {
+        const bg = getComputedStyle(n).backgroundColor;
+        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
+          const m = bg.match(/[\d.]+/g).map(Number);
+          if (m.length < 4 || m[3] >= 0.9) return [m[0], m[1], m[2]];
+          const a = m[3];
+          return [m[0] * a + 255 * (1 - a), m[1] * a + 255 * (1 - a), m[2] * a + 255 * (1 - a)];
+        }
+        n = n.parentElement;
+      }
+      return [255, 255, 255];
+    };
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+    // ★対象は「明るい盤面の上に直に載るラベル」に限る。カードのフェイスは
+    //   暗いグラデーションの上の明色であり、背景色を辿れない(gradient は
+    //   backgroundColor に出ない)ため機械判定の対象にしない。
+    const targets = [
+      '#hand-count-line', '#mana-row-head', '.mana-strip-label', '.manual-center-label',
+      '.zone-drop-mini', '.manual-pile-label', '.manual-opp-label', '.manual-untap-note',
+    ];
+    const out = [];
+    for (const sel of targets) {
+      for (const el of document.querySelectorAll('#manual-root ' + sel)) {
+        const t = (el.textContent || '').trim();
+        if (!t) continue;
+        const m = getComputedStyle(el).color.match(/[\d.]+/g).map(Number);
+        const bg = eff(el);
+        const ratio = (Math.max(L(m), L(bg)) + 0.05) / (Math.min(L(m), L(bg)) + 0.05);
+        if (ratio < 4.5) out.push({ sel, text: t.slice(0, 14), ratio: Math.round(ratio * 100) / 100 });
+      }
+    }
+    return out;
+  });
+  check('★盤面のラベルはすべてコントラスト比 4.5:1 以上(30)',
+    faint.length === 0, JSON.stringify(faint));
+
+  // ---- 40. マナの回転は隣に食い込まない ----
+  const manaRotView = baseView();
+  manaRotView.seatA.zones.MANA = [];
+  for (let i = 0; i < 8; i++) {
+    manaRotView.seatA.zones.MANA.push(
+      card('mn' + i, 'マナ' + i, { tapped: i % 2 === 0, faceDown: i >= 5 }));
+  }
+  syncCounts(manaRotView.seatA);
+  await render(page, manaRotView);
+  const manaLayout = await page.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#seat-self-mana-row .mana-tile')]
+      .map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, right: r.right }; });
+    let overlaps = 0;
+    for (let i = 0; i < tiles.length - 1; i++) {
+      if (tiles[i].right > tiles[i + 1].x + 1) overlaps++;
+    }
+    return { count: tiles.length, overlaps };
+  });
+  check('★回転したマナが隣のタイルへ食い込まない(30・幅を確保している)',
+    manaLayout.count === 8 && manaLayout.overlaps === 0, JSON.stringify(manaLayout));
+
+  // ---- 41. 墓地の帯にタイプ別の内訳を出す ----
+  const trashView = baseView();
+  trashView.seatA.zones.TRASH = [
+    card('tm1', '墓地ミニオン'), card('tm2', '墓地進化', { type: 'EVOLUTION' }),
+    card('ts1', '墓地スペル', { type: 'SPELL' }), card('tw1', '墓地ウェポン', { type: 'WEAPON' }),
+  ];
+  syncCounts(trashView.seatA);
+  await render(page, trashView);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    openZoneBand('A', 'TRASH');
+  });
+  await page.waitForTimeout(80);
+  check('★墓地の帯に種別ごとの枚数が出る(30・進化はミニオンに合算)',
+    (await page.locator('.manual-band-breakdown').textContent())
+      === 'ミニオン 2 / スペル 1 / ウェポン 1',
+    await page.locator('.manual-band-breakdown').textContent());
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    closeOverlay();
+  });
+
+  // ---- 42. プレイ中のカードを墓地/消滅へ送るボタン ----
+  const playView = baseView();
+  playView.shared = { PLAY: [card('sp1', '使ったスペル', { type: 'SPELL', placedBySeat: 'B' })],
+    REVEAL: [] };
+  await render(page, playView);
+  await clearSent(page);
+  await page.locator('.manual-center-send .manual-send-trash').click();
+  const toTrash = (await sent(page)).find((m) => m.destination.endsWith('/move'));
+  check('★プレイ中の「墓地へ」は置いた席の墓地へ送る(30)',
+    !!toTrash && toTrash.body.cardIds[0] === 'sp1' && toTrash.body.toZone === 'TRASH'
+      && toTrash.body.toSeat === 'B', JSON.stringify(toTrash && toTrash.body));
+  await clearSent(page);
+  await page.locator('.manual-center-send .manual-send-lost').click();
+  const toLost = (await sent(page)).find((m) => m.destination.endsWith('/move'));
+  check('★「消滅へ」も並んでいる(30・行き先はアプリが決めない)',
+    !!toLost && toLost.body.toZone === 'LOST' && toLost.body.toSeat === 'B',
+    JSON.stringify(toLost && toLost.body));
+  // ★ドラッグは残っている(ボタンは選択肢を1つ増やしただけである)
+  await clearSent(page);
+  await realDrag(page, '.manual-center-row .manual-hand-card', '#hand-row .hand-row');
+  check('★プレイ中からのドラッグは従来どおり使える(30回帰)',
+    (await sent(page)).filter((m) => m.destination.endsWith('/move')).length === 1);
+
+  // ---- 43. リーダーのLPを盤面から直接増減する ----
+  await render(page, baseView());
+  await clearSent(page);
+  await page.locator('#pile-grid .manual-lp-step').first().click();
+  await page.waitForTimeout(40);
+  await page.locator('#pile-grid .manual-lp-step').last().click();
+  const lpMsgs = (await sent(page)).filter((m) => m.destination.endsWith('/lp'));
+  check('★リーダータイルの − / ＋ が LP を1ずつ増減する(30)',
+    lpMsgs.length === 2 && lpMsgs[0].body.delta === -1 && lpMsgs[1].body.delta === 1
+      && lpMsgs.every((m) => m.body.value === undefined), JSON.stringify(lpMsgs));
+  check('★LPの増減ボタンはモーダルを開かない(30・専用ボタンは規約の外)',
+    (await page.locator('#lp-modal').getAttribute('class')).includes('d-none'));
+
+  // ---- 44. すべてアンタップ ----
+  const untapView = baseView();
+  untapView.seatA.zones.MANA = [card('um1', 'マナ', { tapped: true }),
+    card('um2', 'マナ2', { tapped: false })];
+  untapView.seatA.zones.FIELD = [card('uf1', '場', { tapped: true })];
+  untapView.seatA.zones.WEAPON = [card('uw1', 'ウェポン', { type: 'WEAPON', used: true })];
+  untapView.seatA.leader.tapped = true;
+  syncCounts(untapView.seatA);
+  await render(page, untapView);
+  await clearSent(page);
+  await page.locator('.manual-untap-btn').click();
+  await page.waitForTimeout(60);
+  const untapMsgs = await sent(page);
+  const tapMsg = untapMsgs.find((m) => m.destination.endsWith('/tap'));
+  const usedMsg = untapMsgs.find((m) => m.destination.endsWith('/used'));
+  check('★すべてアンタップがマナ・場・リーダーを value:false で戻す(30)',
+    !!tapMsg && tapMsg.body.value === false
+      && tapMsg.body.cardIds.includes('um1') && tapMsg.body.cardIds.includes('uf1')
+      && tapMsg.body.cardIds.includes('A-leader')
+      && !tapMsg.body.cardIds.includes('um2'),
+    JSON.stringify(tapMsg && tapMsg.body));
+  check('★ウェポンの使用済も戻す(30・マスター指示)',
+    !!usedMsg && usedMsg.body.value === false && usedMsg.body.cardIds[0] === 'uw1',
+    JSON.stringify(usedMsg && usedMsg.body));
+  const untapBox = await page.locator('.manual-untap-slot').boundingBox();
+  const privateBox = await page.locator('#pile-grid .manual-pile[data-zone="PRIVATE"]')
+    .boundingBox();
+  check('★アンタップボタンは確認パイルの真下にある(30・マスター指示)',
+    Math.abs(untapBox.x - privateBox.x) < 2 && untapBox.y > privateBox.y,
+    `untap=(${Math.round(untapBox.x)},${Math.round(untapBox.y)}) `
+      + `private=(${Math.round(privateBox.x)},${Math.round(privateBox.y)})`);
+
+  // ---- 45. ログのカード名がリンクになる ----
+  const logCardView = baseView();
+  logCardView.log = [{ seq: 1, time: '10:00:00', text: 'あかり が 《検証用のカード》 を 場 へ移動した' }];
+  logCardView.logTotal = 1;
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    applyCardLibrary({ cards: [{ id: 'c-log', name: '検証用のカード', imageId: 'img-log',
+      civilization: 'WATER', type: 'MINION', cost: 4, attack: 1, hp: 2, text: 'ログ用テキスト' }] });
+  });
+  await render(page, logCardView);
+  check('★ログのカード名がリンクになる(30)',
+    (await page.locator('#log-box .manual-log-card').count()) === 1
+      && (await page.locator('#log-box .manual-log-card').textContent()) === '《検証用のカード》');
+  await clearZoom(page);
+  await page.locator('#log-box .manual-log-card').click();
+  await page.waitForTimeout(60);
+  check('★ログのカード名を押すと拡大パネルに出る(30)',
+    (await page.locator('#zoom-panel .mcard-large .mcard-name').textContent()) === '検証用のカード'
+      && (await page.locator('#zoom-panel .mcard-large .mcard-text').textContent()) === 'ログ用テキスト');
+  // 定義に無い名前はただの文字のまま(押せそうで押せないものを作らない)
+  const unknownLog = baseView();
+  unknownLog.log = [{ seq: 2, time: '10:00:01', text: 'あかり が 《台帳に無いカード》 を 場 へ移動した' }];
+  unknownLog.logTotal = 2;
+  await render(page, unknownLog);
+  check('★定義に無い名前はリンクにしない(30)',
+    (await page.locator('#log-box div[data-seq="2"] .manual-log-card').count()) === 0);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    cardTextById = null;
+    // eslint-disable-next-line no-undef
+    cardTextByImage = null;
+    // eslint-disable-next-line no-undef
+    cardByNameMap = null;
+  });
 
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);
