@@ -103,7 +103,11 @@
     position: absolute; bottom: 2px; left: 2px; font-size: 9px; cursor: pointer;
     background: rgba(0, 0, 0, 0.5); color: #fff; padding: 0 3px; border-radius: 3px;
 }
-.manual-tile-used-off { background: rgba(255, 255, 255, 0.25); color: #212529; }
+.manual-tile-used-off {
+    /* ★Batch 31: 黒背景の上では rgba(255,255,255,0.25) は中間色にしかならず、
+       その上に #212529 を置くと 2.45:1 で読めない。地を濃く・文字を明るくする */
+    background: rgba(0, 0, 0, 0.5); color: #ced4da; border: 1px solid rgba(255, 255, 255, 0.35);
+}
 .manual-tile-badge {
     position: absolute; top: -6px; right: -6px; background: #212529; color: #ffc107;
     border: 1px solid #ffc107; border-radius: 50%; width: 22px; height: 22px;
@@ -181,7 +185,7 @@
 .zone-drop-mini {
     flex: 1; border: 1px dashed #6c757d; border-radius: 3px; font-size: 9px; text-align: center;
     /* ★Batch 30: #adb5bd は白い盤面の上でコントラスト比 2.07:1 しかなく読めなかった(実測) */
-    padding: 2px 0; color: #343a40; font-weight: 600;
+    padding: 2px 0; color: #dee2e6; font-weight: 600;
 }
 
 /* ★20b 2-6: 右列のカード型パイル(禁忌・山札・確認・消滅・墓地)。
@@ -209,7 +213,7 @@
 .manual-pile-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .manual-pile-blank {
     display: flex; align-items: center; justify-content: center; text-align: center;
-    font-size: 10px; color: #495057; padding: 4px;   /* ★Batch 30: 淡色をやめる */
+    font-size: 10px; color: #ced4da; padding: 4px;   /* ★31: 黒背景なので明色 */
 }
 .manual-pile-count {
     position: absolute; right: 2px; bottom: 2px; min-width: 20px; text-align: center;
@@ -257,7 +261,7 @@
    プレイ中ゾーンには普通1〜2枚しか置かないので、見出しが縦を占める必要が無い。
    見出しを左へ寄せたぶんの縦がまるごとカードの拡大に回る。 */
 .manual-center-label {
-    font-size: 11px; color: #212529; font-weight: 700; white-space: nowrap;
+    font-size: 11px; color: #e9ecef; font-weight: 700; white-space: nowrap;
     flex: 0 0 auto; align-self: center;
 }
 .manual-center-row { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; min-width: 0; }
@@ -477,7 +481,7 @@ body.manual-drag-active .manual-band {
 .manual-opp-face-empty { border-style: dashed; background: transparent; }
 .manual-opp-face-blank {
     display: flex; align-items: center; justify-content: center; text-align: center;
-    font-size: 8px; color: #495057; padding: 2px;   /* ★30: 淡色をやめる */
+    font-size: 8px; color: #ced4da; padding: 2px;   /* ★31: 黒背景なので明色 */
 }
 .manual-opp-count {
     position: absolute; right: 1px; bottom: 1px; min-width: 14px; text-align: center;
@@ -549,7 +553,7 @@ body.manual-drag-active .manual-band {
    右列の高さも盤面全体の高さも変わらない。
    ★列幅はリーダー枠と同じ108pxに揃える(同じ列に縦に並ぶため)。 */
 .manual-weapon-slot { width: 108px; position: relative; }
-.manual-weapon-slot-empty { border-style: dashed; color: #495057; }  /* ★30: 淡色をやめる */
+.manual-weapon-slot-empty { border-style: dashed; color: #ced4da; }  /* ★31: 黒背景なので明色 */
 .manual-weapon-slot-badge { background: #dc3545; }
 .manual-weapon-slot-atk { font-size: 12px; font-weight: bold; margin-top: 2px; }
 .manual-weapon-slot-used {
@@ -557,7 +561,8 @@ body.manual-drag-active .manual-band {
     background: rgba(0, 0, 0, 0.5); color: #fff; padding: 0 4px;
 }
 .manual-weapon-slot-used.manual-tile-used-off {
-    background: rgba(255, 255, 255, 0.25); color: #212529;
+    /* ★Batch 31: 黒背景では中間色の地に暗い文字となり 2.45:1 で読めなかった */
+    background: rgba(0, 0, 0, 0.5); color: #ced4da; border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 /* ---- 相手のマナ・パイルの寸法(設計書2-3)----
@@ -696,7 +701,7 @@ body.manual-drag-active .manual-band {
 }
 .mcard-type {
     padding: 1px 4px; font-size: 7.5px; letter-spacing: 0.12em;
-    color: color-mix(in srgb, var(--mc) 70%, #fff 25%); background: rgba(0, 0, 0, 0.25);
+    color: color-mix(in srgb, var(--mc) 30%, #fff 65%); background: rgba(0, 0, 0, 0.25);
 }
 .mcard-text {
     flex: 1; min-height: 0; padding: 3px 4px; font-size: 9.5px; line-height: 1.5;
@@ -783,8 +788,8 @@ body.manual-drag-active .manual-band {
 /* ---------- 25c: 一人回しの席切替・手札拡大・枚数表示・タイルのフェイス化 ---------- */
 /* 枚数表示(マナ行見出し・ストリップ見出し・相手上段・宣言ボタン下の手札)。
    text-muted / 従来の淡色では白背景に薄すぎて読めなかった(マスター指摘) */
-.manual-count-label { color: #343a40 !important; font-weight: 600; }
-.manual-opp-label { color: #343a40 !important; font-weight: 600; }
+.manual-count-label { color: #e9ecef !important; font-weight: 600; }
+.manual-opp-label { color: #e9ecef !important; font-weight: 600; }
 
 /* 場のミニオンタイルのフェイス化(手動モード専用クラス。共有 .manual-tile は無変更) */
 .manual-tile-face {
@@ -888,7 +893,7 @@ body.manual-drag-active .manual-band {
    Bootstrap の .text-muted を<b>盤面の上でだけ</b>濃くする。
    ★暗いオーバーレイ(帯・全面表示・モーダル)は body 直下にあり盤面の外なので、
    この指定は届かない。暗い背景の上の淡色はそのまま正しい。 */
-#manual-root .text-muted { color: #495057 !important; }
+#manual-root .text-muted { color: #ced4da !important; }
 
 /* ---- 2) すべてアンタップ(確認パイルの真下・グリッド 2/4)---- */
 .manual-untap-slot {
@@ -898,10 +903,10 @@ body.manual-drag-active .manual-band {
 .manual-untap-btn {
     width: 100%; font-size: 11px; font-weight: 700; line-height: 1.25;
     padding: 6px 2px; border-radius: 6px; cursor: pointer;
-    border: 1px solid #26a69a; background: rgba(38, 166, 154, 0.14); color: #10514b;
+    border: 1px solid #4db6ac; background: rgba(38, 166, 154, 0.22); color: #a7f3ea;
 }
-.manual-untap-btn:hover { background: rgba(38, 166, 154, 0.3); }
-.manual-untap-note { font-size: 9px; color: #495057; text-align: center; margin-top: 3px; }
+.manual-untap-btn:hover { background: rgba(38, 166, 154, 0.42); }
+.manual-untap-note { font-size: 9px; color: #ced4da; text-align: center; margin-top: 3px; }
 
 /* ---- 3) プレイ中・公開のカードに付ける行き先ボタン ----
    ★カード1枚ごとに出す(マスター裁定)。2枚並んだときに片方だけ送れる形にするためである。

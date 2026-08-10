@@ -34,7 +34,7 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=27)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=28)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
@@ -57,7 +57,20 @@ stub = """
      相手上段の 148px 制約(4章)を測ろうとして初めて表面化した。 */
   *, *::before, *::after { box-sizing: border-box; }
   .d-none { display: none !important; }
-  body { font-family: sans-serif; }
+  /* ★★★Batch 31: 実ページの<b>背景色</b>を再現する。
+     テンプレートは <body class="bg-dark text-light"> であり、実際の盤面は<b>黒背景</b>である。
+     ここが抜けていたためハーネスは白背景で描画されており、
+     25c から 30 までの<b>文字色の判断がすべて誤った背景に対して行われた</b>。
+     30 で入れた「コントラスト比 4.5:1 以上」の機械判定さえ白背景で測っていたため、
+     黒背景の上では読めない文字を「合格」と報告していた。
+     ★見た目の検証は、実ページと同じ背景の上でしか意味を持たない。
+     ★ロビー(manual-lobby.html)は <body class="bg-light"> なので下のスタブは白のままでよい。 */
+  body { font-family: sans-serif; background: #212529; color: #f8f9fa; }
+  .bg-dark { background-color: #212529; }
+  .text-light { color: #f8f9fa; }
+  .text-danger { color: #ea868f; }
+  .btn-outline-light { color: #f8f9fa; border: 1px solid #f8f9fa; background: transparent; }
+  .btn-outline-secondary { color: #dee2e6; border: 1px solid #6c757d; background: transparent; }
   .info-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000;
                 display: flex; align-items: center; justify-content: center; }
   .info-modal-body { background: #222; padding: 16px; border-radius: 6px; }
@@ -100,6 +113,11 @@ stub = """
      代替に漏れがあると「ハーネスでだけ壊れる」(20c・21c・22 と同じ罠)。 */
   .flex-fill { flex: 1 1 auto; }
   .btn-warning { background: #ffc107; color: #000; }
+  /* ★Batch 31: 暗い背景の上のアウトラインボタン。代替が無いと文字が地に沈み、
+     ハーネスだけ「読めない文字」に見える(20c 以来の「代替の漏れ」の罠) */
+  .btn-outline-warning { color: #ffda6a; border: 1px solid #ffc107; background: transparent; }
+  .btn-outline-danger { color: #ea868f; border: 1px solid #dc3545; background: transparent; }
+  .btn-outline-primary { color: #6ea8fe; border: 1px solid #0d6efd; background: transparent; }
   .text-muted { color: #adb5bd; }
 </style>
 <script>

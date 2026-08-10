@@ -2067,46 +2067,83 @@ async function clearZoom(page) {
   const contrastView = baseView();
   contrastView.shared = { PLAY: [card('p1', 'プレイ中のカード')], REVEAL: [] };
   await render(page, contrastView);
-  const faint = await page.evaluate(() => {
-    // 実サーバの body は Bootstrap の白。透明まで遡ったら白とみなす
+  await page.evaluate(() => {
+    // ★★Batch 31: 背景の既定を <b>body の実際の背景色</b>にする。
+    //   30 はここを白決め打ちにしていた。実ページは <body class="bg-dark text-light">
+    //   の黒背景であり、そのため「黒背景で 1.12:1(ほぼ不可視)」の文字を
+    //   合格と報告していた。ハーネス側も背景を再現するよう直してある。
+    const parse = (c) => {
+      const m = (c || '').match(/[\d.]+/g);
+      if (!m) return [0, 0, 0, 1];
+      const v = m.map(Number);
+      // ★color(srgb r g b / a) 形式は 0〜1 で来る。0〜255 に揃える
+      const scale = /^color\(/.test(c) ? 255 : 1;
+      return [v[0] * scale, v[1] * scale, v[2] * scale,
+        v.length > 3 ? v[3] : 1];
+    };
+    const bodyBg = parse(getComputedStyle(document.body).backgroundColor);
     const eff = (el) => {
       let n = el;
       while (n) {
-        const bg = getComputedStyle(n).backgroundColor;
-        if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent') {
-          const m = bg.match(/[\d.]+/g).map(Number);
-          if (m.length < 4 || m[3] >= 0.9) return [m[0], m[1], m[2]];
-          const a = m[3];
-          return [m[0] * a + 255 * (1 - a), m[1] * a + 255 * (1 - a), m[2] * a + 255 * (1 - a)];
+        const raw = getComputedStyle(n).backgroundColor;
+        if (raw && raw !== 'rgba(0, 0, 0, 0)' && raw !== 'transparent') {
+          const c = parse(raw);
+          if (c[3] >= 0.98) return c;
+          // 半透明は親の上に重ねる(再帰)
+          const p = n.parentElement ? eff(n.parentElement) : bodyBg;
+          const a = c[3];
+          return [c[0] * a + p[0] * (1 - a), c[1] * a + p[1] * (1 - a), c[2] * a + p[2] * (1 - a), 1];
         }
         n = n.parentElement;
       }
-      return [255, 255, 255];
+      return bodyBg;
     };
     const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
     const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
-    // ★対象は「明るい盤面の上に直に載るラベル」に限る。カードのフェイスは
-    //   暗いグラデーションの上の明色であり、背景色を辿れない(gradient は
-    //   backgroundColor に出ない)ため機械判定の対象にしない。
+    // ★対象は「盤面の背景の上に直に載るラベル」に限る。カードのフェイスは
+    //   グラデーションの上に載っており、backgroundColor から背景を辿れないため
+    //   機械判定の対象にしない(判定できないものを判定したふりにしない)。
     const targets = [
       '#hand-count-line', '#mana-row-head', '.mana-strip-label', '.manual-center-label',
       '.zone-drop-mini', '.manual-pile-label', '.manual-opp-label', '.manual-untap-note',
+      '.manual-untap-btn', '.manual-pile-blank', '.manual-weapon-slot-used',
+      '.manual-weapon-slot-atk', '.manual-center-send button',
     ];
-    const out = [];
-    for (const sel of targets) {
-      for (const el of document.querySelectorAll('#manual-root ' + sel)) {
-        const t = (el.textContent || '').trim();
-        if (!t) continue;
-        const m = getComputedStyle(el).color.match(/[\d.]+/g).map(Number);
-        const bg = eff(el);
-        const ratio = (Math.max(L(m), L(bg)) + 0.05) / (Math.min(L(m), L(bg)) + 0.05);
-        if (ratio < 4.5) out.push({ sel, text: t.slice(0, 14), ratio: Math.round(ratio * 100) / 100 });
+    window.__contrastAudit = () => {
+      const out = [];
+      for (const sel of targets) {
+        for (const el of document.querySelectorAll('#manual-root ' + sel)) {
+          const t = (el.textContent || '').trim();
+          if (!t) continue;
+          const m = parse(getComputedStyle(el).color);
+          const bg = eff(el);
+          const ratio = (Math.max(L(m), L(bg)) + 0.05) / (Math.min(L(m), L(bg)) + 0.05);
+          if (ratio < 4.5) {
+            out.push({ sel, text: t.slice(0, 14), ratio: Math.round(ratio * 100) / 100 });
+          }
+        }
       }
-    }
-    return out;
+      return out;
+    };
   });
-  check('★盤面のラベルはすべてコントラスト比 4.5:1 以上(30)',
-    faint.length === 0, JSON.stringify(faint));
+  check('★盤面のラベルはすべてコントラスト比 4.5:1 以上(31: 実ページと同じ黒背景で判定)',
+    (await page.evaluate(() => window.__contrastAudit())).length === 0,
+    JSON.stringify(await page.evaluate(() => window.__contrastAudit())));
+  // ★★判定そのものが効いていることを確かめる。
+  //   30 はこの確認をしていなかった。背景を白と決め打ちしていたため、
+  //   黒背景では 1.12:1(ほぼ不可視)の文字を合格と報告し続けていた
+  //   ——「常に通る飾りの検証」の実例である。22/23 の教訓がここでも効いている。
+  const detected = await page.evaluate(() => {
+    const el = document.getElementById('hand-count-line');
+    const before = el.getAttribute('style') || '';
+    el.style.setProperty('color', '#343a40', 'important');   // 30 までの色
+    const found = window.__contrastAudit();
+    el.setAttribute('style', before);
+    return found;
+  });
+  check('★黒背景の上の暗い文字を「読めない」と検出できる(31・検出器が生きている確認)',
+    detected.some((f) => f.sel === '#hand-count-line' && f.ratio < 2),
+    JSON.stringify(detected));
 
   // ---- 40. マナの回転は隣に食い込まない ----
   const manaRotView = baseView();
