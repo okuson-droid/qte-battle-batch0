@@ -659,6 +659,97 @@ class ManualVersusTest {
                 .isEqualTo(ManualLogKind.DECLARE);
     }
 
+    // ================= ★Batch 29: 配信の軽量化 =================
+
+    @Test
+    void 山札は最上段の1枚だけが届き枚数はcountsが持つ() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        room.join("ばんり", ManualSeatId.B);
+        ManualCardInstance top = put(room, ManualSeatId.A, ManualZone.DECK, "山札の一番上");
+        for (int i = 2; i <= 30; i++) {
+            put(room, ManualSeatId.A, ManualZone.DECK, "山札" + i);
+        }
+
+        ManualSeatView seatA = viewBuilder.build(room, a).seatA();
+        // ★キーは在る(= 見えている)。「中身が全部とは限らない」が 29 の形である
+        assertThat(seatA.zones()).containsKey(ManualZone.DECK);
+        assertThat(seatA.zones().get(ManualZone.DECK)).hasSize(1);
+        assertThat(seatA.zones().get(ManualZone.DECK).get(0).instanceId())
+                .isEqualTo(top.getInstanceId());
+        // ★枚数は counts が持つ。配列の長さを枚数として使ってはならない
+        assertThat(seatA.counts().get(ManualZone.DECK)).isEqualTo(30);
+    }
+
+    @Test
+    void 禁忌は絞らずに全部届く() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        for (int i = 1; i <= 8; i++) {
+            put(room, ManualSeatId.A, ManualZone.TABOO, "禁忌" + i);
+        }
+
+        assertThat(viewBuilder.build(room, a).seatA().zones().get(ManualZone.TABOO)).hasSize(8);
+    }
+
+    @Test
+    void 山札の中身は別の口から取れる() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        room.join("ばんり", ManualSeatId.B);
+        for (int i = 1; i <= 30; i++) {
+            put(room, ManualSeatId.A, ManualZone.DECK, "山札" + i);
+        }
+
+        assertThat(viewBuilder.buildZoneCards(room, a, ManualSeatId.A, ManualZone.DECK))
+                .hasSize(30);
+    }
+
+    @Test
+    void 見えないゾーンは別の口からも取れない() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        ManualOccupant b = room.join("ばんり", ManualSeatId.B);
+        put(room, ManualSeatId.B, ManualZone.DECK, "相手の山札");
+
+        // ★配信と同じ ManualViewpoint.canSeeZone を通る。ここだけ緩いと裏口になる
+        assertThatThrownBy(
+                () -> viewBuilder.buildZoneCards(room, a, ManualSeatId.B, ManualZone.DECK))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("公開されていません");
+        // 本人には見える
+        assertThat(viewBuilder.buildZoneCards(room, b, ManualSeatId.B, ManualZone.DECK))
+                .hasSize(1);
+    }
+
+    @Test
+    void ログは末尾60行だけが届き総数はlogTotalが持つ() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        int before = room.getLog().size();
+        for (int i = 1; i <= 200; i++) {
+            room.addLog("テストログ" + i);
+        }
+
+        ManualGameView view = viewBuilder.build(room, a);
+        assertThat(view.log()).hasSize(60);
+        // ★届くのは新しいほうである(古いほうを配っても意味が無い)
+        assertThat(view.log().get(59).text()).contains("テストログ200");
+        assertThat(view.logTotal()).isEqualTo(before + 200);
+        // ★サーバは捨てていない。ダウンロードは全文を返せる
+        assertThat(room.getLog()).hasSize(before + 200);
+    }
+
+    @Test
+    void ログが60行以下なら全部届き省略も起きない() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        room.addLog("テストログ1");
+
+        ManualGameView view = viewBuilder.build(room, a);
+        assertThat(view.logTotal()).isEqualTo(view.log().size());
+    }
+
     // ================= 補助 =================
 
     private ManualRoom versusRoom() {

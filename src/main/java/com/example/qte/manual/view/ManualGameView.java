@@ -32,6 +32,10 @@ import com.example.qte.manual.ManualZone;
  * @param spectatorView 観戦者の視点(3-2)。プレイヤーでは null
  * @param canUndo       履歴の状態。★対戦部屋では権限(6-3)も含めた結果である。
  *                      ボタンの活性と実際の可否が同じ関数を通るため、表示と検証がズレない
+ * @param log           ★Batch 29: 配るのは<b>末尾60行だけ</b>である
+ *                      ({@code ManualViewBuilder.LOG_TAIL})。全文はダウンロードで取れる
+ * @param logTotal      ログの総行数。{@code log.size()} より大きければ古い行が省略されている。
+ *                      画面が「以前のぶんはログ書出から」と案内するために使う
  * @param shared        プレイヤー間で共有するゾーン(PLAY / REVEAL)。席に属さない(20b 3-2)
  * @param start         ★Batch 23: 開始シーケンスの状態と「自分が今押せること」。
  *                      クライアントがフェーズから押せる人を組み立て直すと判定が2箇所に分かれる
@@ -54,6 +58,7 @@ public record ManualGameView(
         ManualStartView start,
         List<ManualOccupantView> occupants,
         List<ManualLogView> log,
+        int logTotal,
         boolean canUndo,
         boolean canRedo) {
 }

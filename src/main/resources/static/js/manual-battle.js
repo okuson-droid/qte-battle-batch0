@@ -765,10 +765,51 @@ function isZoneVisible(seatView, zoneName) {
         && Object.prototype.hasOwnProperty.call(seatView.zones, zoneName);
 }
 
+/**
+ * ★Batch 29: 計測フェーズへの申し送り。
+ * 各描画関数は「あとで実測してほしい要素」をここへ置くだけにし、
+ * 実際の読み取りは {@link measurePhase} が1回だけ行う。
+ */
+const pendingMeasure = { manaWrap: null, handRow: null, opponentMana: false };
+
+/**
+ * ★Batch 29(描画の軽量化): 実測をまとめて1回にする。
+ *
+ * <h3>何が遅かったか</h3>
+ * 27 までは、描画関数がそれぞれ「DOMに載せた直後に幅を実測する」形だった
+ * (`applyOpponentManaOverlap` / `applyManaOverlap` / `handCardMaxWidth` + `fitCardWidths`)。
+ * ブラウザは<b>書き込みのあとに読み取りが来るたびにレイアウトを確定させる</b>ため、
+ * 1回の再描画で強制同期レイアウトが何度も走っていた。
+ * 実測では renderAll 49.8ms のうち、各関数の合計を引いた<b>約20msがこの待ち</b>だった
+ * (28 設計解説1-3)。
+ *
+ * <h3>直し方</h3>
+ * 「全部書く」→「全部読む」の2相に分ける。読み取りが1箇所に集まれば、
+ * レイアウトの確定も1回で済む。各描画関数は要素を {@link pendingMeasure} へ置くだけにした。
+ *
+ * ★矢印({@code renderDragCues})も要素の中心を実測するので、この相の最後に置く。
+ */
+function measurePhase() {
+    if (pendingMeasure.opponentMana) {
+        applyOpponentManaOverlap();
+    }
+    if (pendingMeasure.manaWrap) {
+        applyManaOverlap(pendingMeasure.manaWrap);
+    }
+    if (pendingMeasure.handRow) {
+        fitCardWidths(pendingMeasure.handRow, handCardMaxWidth(pendingMeasure.handRow), 8);
+    }
+    // ★21c 7-1: アンカー要素を作り直したので、表示中の矢印を引き直す
+    renderDragCues();
+}
+
 function renderAll(view) {
     faceBackImageId = view.backImageId || faceBackImageId;
     cardLocation = new Map();
     zoneAnchors = new Map();
+    pendingMeasure.manaWrap = null;
+    pendingMeasure.handRow = null;
+    pendingMeasure.opponentMana = false;
     renderHeader(view);
     renderOpponentTop(view);
     renderOpponentMinions(view);
@@ -777,7 +818,7 @@ function renderAll(view) {
     renderManaRow(view);
     renderHand(view);
     renderPiles(view);
-    renderLog(view.log);
+    renderLog(view.log, view.logTotal);
     if (pinnedZoom) {
         renderZoom(pinnedZoom);
     }
@@ -788,8 +829,8 @@ function renderAll(view) {
     //   refreshOverlay の後に置くのは、マリガンオーバーレイの開閉をここが決めるためである
     //   (開いていれば描くのは refreshOverlay 側で、二重に描かない)
     renderStartUi(view);
-    // ★21c 7-1: アンカー要素を作り直したので、表示中の矢印を引き直す
-    renderDragCues();
+    // ★Batch 29: 実測はここ1箇所だけで行う(measurePhase の javadoc)
+    measurePhase();
 }
 
 /**
@@ -1043,9 +1084,8 @@ function renderOpponentTop(view) {
     cardLocation.set(seat.leader ? seat.leader.instanceId : null,
         { seatId, zone: 'LEADER' });
 
-    // ★重ね表示は実測幅で決めるため、行の要素をすべて載せてから最後に適用する
-    //   (自席マナの applyManaOverlap と同じ手順)
-    applyOpponentManaOverlap();
+    // ★Batch 29: 実測は renderAll 末尾の計測フェーズへ移した(measurePhase の javadoc)
+    pendingMeasure.opponentMana = true;
 }
 
 /** 相手上段で簡略画像にするゾーン(4章)。★どちらも公開ゾーンなので帯が開く */
@@ -1455,8 +1495,11 @@ function renderPiles(view) {
     el.appendChild(createWeaponSlot(seat));
 
     for (const zoneName of Object.keys(PILE_PLACEMENT)) {
+        // ★Batch 29: 枚数は必ず counts から取る。山札は中身が「最上段の1枚」しか
+        //   届かなくなったため、配列の長さを枚数として使うと常に1と出る
         const pile = createCardPile(
-            seat.id, zoneName, seat.zones[zoneName] || [], view.backImageId);
+            seat.id, zoneName, seat.zones[zoneName] || [], view.backImageId,
+            zoneCount(seat, zoneName));
         pile.style.gridArea = PILE_PLACEMENT[zoneName];
         el.appendChild(pile);
         registerZoneAnchor(pile, seat.id, zoneName);
@@ -1619,11 +1662,16 @@ function pileTopCard(zoneName, pile) {
  * ★Batch 26 3章: 表向きの最上段は 'full' フェイス(名前+種別+テキスト+印刷値)で描く。
  * バリアントは増やさず、入れ物側のCSS({@code .manual-pile-face})で文字を1段落とす。
  */
-function createCardPile(seatId, zoneName, pile, backImageId) {
+function createCardPile(seatId, zoneName, pile, backImageId, count) {
     const box = document.createElement('div');
     box.className = 'manual-pile';
     box.dataset.seat = seatId;
     box.dataset.zone = zoneName;
+
+    // ★Batch 29: 枚数は counts 由来の値を使う。届いた配列の長さではない。
+    //   山札は「最上段の1枚」だけが届くため、配列を数えると常に1になる
+    //   (中身は全面表示を開いたときに /manual/api/rooms/{id}/zone から取る)。
+    const total = count === undefined || count === null ? pile.length : count;
 
     const face = document.createElement('div');
     face.className = 'manual-pile-face';
@@ -1632,18 +1680,18 @@ function createCardPile(seatId, zoneName, pile, backImageId) {
     //   面に敷くカードとドラッグで動くカードを<b>同じ式</b>から取ることで、
     //   「見えているカードと違う1枚が動く」壊れ方を構造的に起こせなくする(26 1章)。
     const top = pileTopCard(zoneName, pile);
-    if (pile.length === 0) {
+    if (total === 0) {
         face.classList.add('manual-pile-blank');
-    } else if (hidden || (top && top.faceDown)) {
+    } else if (hidden || (top && top.faceDown) || !top) {
         face.appendChild(cardBackFace());
     } else {
         face.appendChild(cardFace(top, 'full'));
     }
 
-    const count = document.createElement('div');
-    count.className = 'manual-pile-count';
-    count.textContent = pile.length;
-    face.appendChild(count);
+    const countBadge = document.createElement('div');
+    countBadge.className = 'manual-pile-count';
+    countBadge.textContent = total;
+    face.appendChild(countBadge);
     box.appendChild(face);
 
     const header = document.createElement('div');
@@ -1802,8 +1850,9 @@ function renderManaRow(view) {
         cardLocation.set(card.instanceId, { seatId: seat.id, zone: 'MANA' });
     }
 
-    // ★重ね表示は実測幅で計算するため、DOMに載ってから最後に適用する(2-3)
-    applyManaOverlap(wrap);
+    // ★Batch 29: 実測はここで行わない。renderAll 末尾の計測フェーズにまとめる
+    //   (measurePhase の javadoc)。要素だけ覚えておく
+    pendingMeasure.manaWrap = wrap;
 }
 
 /** マナのストリップ1つ(表 or 裏)。ストリップ全体がドロップ対象(設計書2-3) */
@@ -1929,8 +1978,8 @@ function renderHand(view) {
     registerDropTarget(row, seat.id, 'HAND');
     registerZoneAnchor(row, seat.id, 'HAND');
     el.appendChild(row);
-    // ★実測幅で決めるため、DOMに載せてから最後に適用する(マナの重ね表示と同じ手順)
-    fitCardWidths(row, handCardMaxWidth(row), 8);
+    // ★Batch 29: 実測は renderAll 末尾の計測フェーズへ移した(measurePhase の javadoc)
+    pendingMeasure.handRow = row;
 }
 
 /**
@@ -1997,15 +2046,103 @@ function fitCardWidths(row, maxWidth, gap) {
  * 別ウィンドウやモーダルにしないのは、ログを見ながら盤面を動かす使い方があるためである。
  * 展開は下方向で、宣言ボタン行を押し下げる(確定事項Q6)。
  */
-function renderLog(entries) {
+/** 画面に残すログ行の上限(★Batch 29)。これを超えたぶんは古いほうから捨てる。 */
+const LOG_DOM_MAX = 300;
+
+/** 最後に描いたログの通し番号。null は「まだ何も描いていない」(★Batch 29) */
+let logLastSeq = null;
+
+/**
+ * ★Batch 29(描画の軽量化): ログを差分追記にする。
+ *
+ * <h3>何が遅かったか</h3>
+ * 27 までは配信のたびに {@code box.innerHTML = ''} して全行を作り直していた。
+ * 実測で renderAll 49.8ms のうち <b>16.6ms がこの関数</b>であり、
+ * しかも<b>行数に比例して増える</b>(28 設計解説1-3)。
+ * 実際に増えるのは末尾の1行だけなのに、毎回全部を捨てて作り直していた。
+ *
+ * <h3>直し方</h3>
+ * ログは追記専用で通し番号が単調増加する(Undo でも巻き戻らない。設計書16 5-5)。
+ * したがって「最後に描いた seq より後だけ足す」で足りる。
+ *
+ * ★全消し再構築が要るのは次の3つだけである。
+ * <ol>
+ *   <li>初回(まだ何も描いていない)</li>
+ *   <li><b>取りこぼし</b> — 届いた先頭の seq が、描いてある最後の seq + 1 より大きい。
+ *       再接続や、29 で入れた末尾60行の制限で古い行が届かなくなった場合に起きる</li>
+ *   <li>巻き戻り — 届いた末尾の seq が描いてある最後より小さい(別の部屋を描くなど)</li>
+ * </ol>
+ * この3つを見落とすと「行が飛ぶ」「二重に出る」という、静かで気づきにくい壊れ方をする。
+ *
+ * @param entries 届いたログ(★末尾60行だけである。ManualViewBuilder.LOG_TAIL)
+ * @param total   サーバが持っているログの総行数。省略が起きていることの案内に使う
+ */
+function renderLog(entries, total) {
     const box = document.getElementById('log-box');
-    box.innerHTML = '';
-    for (const e of entries) {
+    const list = entries || [];
+    const first = list.length > 0 ? list[0].seq : null;
+    const last = list.length > 0 ? list[list.length - 1].seq : null;
+    const mustRebuild = logLastSeq === null
+        || list.length === 0
+        || first > logLastSeq + 1
+        || last < logLastSeq;
+
+    if (mustRebuild) {
+        box.innerHTML = '';
+        logLastSeq = null;
+    }
+
+    let appended = 0;
+    for (const e of list) {
+        if (logLastSeq !== null && e.seq <= logLastSeq) {
+            continue;
+        }
         const line = document.createElement('div');
+        line.dataset.seq = e.seq;
         line.textContent = `[${e.time}] ${e.text}`;
         box.appendChild(line);
+        logLastSeq = e.seq;
+        appended++;
     }
-    box.scrollTop = box.scrollHeight;
+    // ★DOMを無制限に伸ばさない。古い行は画面から捨てる(サーバは全行を持ったままである)。
+    //   ★数えるのは行だけである。先頭の省略案内(data-seq を持たない)を消さない
+    const lines = [...box.querySelectorAll('div[data-seq]')];
+    for (let i = 0; i < lines.length - LOG_DOM_MAX; i++) {
+        box.removeChild(lines[i]);
+    }
+
+    renderLogOmittedNote(box, total);
+
+    // ★scrollHeight の読み取りはレイアウトを確定させる。足した時だけにする
+    if (appended > 0) {
+        box.scrollTop = box.scrollHeight;
+    }
+}
+
+/**
+ * 「以前のログは省略されている」ことの案内(★Batch 29)。
+ * ★案内を出すのは、配信が末尾60行に絞られたことを人間が知らないと
+ * 「古いログが消えた」と受け取ってしまうためである。実際には消えていない
+ * (サーバは全行を保持し、[ログ書出]は全文を返す)。
+ */
+function renderLogOmittedNote(box, total) {
+    const shown = box.querySelectorAll('div[data-seq]').length;
+    const omitted = total === undefined || total === null ? 0 : Math.max(0, total - shown);
+    let note = document.getElementById('log-omitted-note');
+    if (omitted === 0) {
+        if (note) note.remove();
+        return;
+    }
+    if (!note) {
+        note = document.createElement('div');
+        note.id = 'log-omitted-note';
+        note.className = 'small fst-italic';
+    }
+    note.textContent = `— 以前の ${omitted} 行は [ログ書出] から —`;
+    // ★常に先頭に置く。追記で下へ伸びても、案内は「ここより上が省略」を指し続ける
+    if (box.firstElementChild !== note) {
+        box.insertBefore(note, box.firstElementChild);
+    }
 }
 
 /**
@@ -3366,7 +3503,10 @@ function refreshOverlay() {
     } else if (activeOverlay.kind === 'evolution') {
         renderEvolutionBand();
     } else if (activeOverlay.kind === 'deck') {
-        renderDeckFullscreen();
+        // ★Batch 29: 中身は配信に載っていないので取り直す。応答が来たら
+        //   fetchDeckContents 側が描き直すため、ここでは今の内容のまま置いておく
+        //   (先に描き直すと、届くまでの一瞬だけ「読み込み中」に戻ってちらつく)。
+        fetchDeckContents();
     } else if (activeOverlay.kind === 'mulligan') {
         // ★23 4-3: 開閉を決めるのは renderStartUi 側。ここは「開いていれば描き直す」だけ
         renderMulliganOverlay();
@@ -3590,7 +3730,57 @@ function createBandItem(card, seatId, zoneName) {
 // ---- 全面表示: 山札 ----
 
 function openDeckFullscreen(seatId) {
-    activeOverlay = { kind: 'deck', seatId, searchQuery: '' };
+    activeOverlay = { kind: 'deck', seatId, searchQuery: '', cards: null, error: null };
+    renderDeckFullscreen();
+    fetchDeckContents();
+}
+
+/** 直近のゾーン取得の通し番号(★Batch 29)。遅れて届いた応答を捨てるために使う */
+let zoneFetchSeq = 0;
+
+/**
+ * ★Batch 29: 山札の中身を取りに行く。
+ *
+ * <h3>なぜ配信で受け取らないのか</h3>
+ * 山札は盤面ではパイル1枚ぶんしか描かれないのに、27 までは30枚ぶんのカードが
+ * <b>毎操作・全員へ</b>流れていた(盤面26KBのうち約10KB。28 設計解説1-5)。
+ * 中身が要るのはこの全面表示を開いている間だけなので、そのときだけ取りに来る。
+ *
+ * <h3>★遅れて届いた応答は捨てる</h3>
+ * 全面表示を開いている間は、配信が届くたびに取り直す(並べ替えやシャッフルで
+ * 中身が変わるため)。ネットワークの都合で応答の順序は入れ替わりうるので、
+ * 通し番号が最新でないものは無視する。これを書かないと、
+ * <b>古い並びが新しい並びを上書きする</b>という、再現しにくい壊れ方をする。
+ * 席が一致することも確かめる(開き直した直後の応答を弾く)。
+ */
+async function fetchDeckContents() {
+    if (!activeOverlay || activeOverlay.kind !== 'deck') {
+        return;
+    }
+    const seq = ++zoneFetchSeq;
+    const seatId = activeOverlay.seatId;
+    const params = new URLSearchParams({ seat: seatId, zone: 'DECK' });
+    if (OCCUPANT_ID) {
+        params.set('occupantId', OCCUPANT_ID);
+    }
+    try {
+        const res = await fetch(`/manual/api/rooms/${ROOM_ID}/zone?${params}`);
+        if (!res.ok) {
+            throw new Error((await res.json()).message || '山札を取得できませんでした');
+        }
+        const body = await res.json();
+        if (seq !== zoneFetchSeq || !activeOverlay || activeOverlay.kind !== 'deck'
+                || activeOverlay.seatId !== body.seat) {
+            return;
+        }
+        activeOverlay.cards = body.cards;
+        activeOverlay.error = null;
+    } catch (err) {
+        if (seq !== zoneFetchSeq || !activeOverlay || activeOverlay.kind !== 'deck') {
+            return;
+        }
+        activeOverlay.error = err.message;
+    }
     renderDeckFullscreen();
 }
 
@@ -3603,7 +3793,12 @@ function openDeckFullscreen(seatId) {
 function renderDeckFullscreen() {
     if (!latestView) return;
     const seatView = seatOf(latestView, activeOverlay.seatId);
-    const deck = seatView.zones['DECK'] || [];
+    // ★Batch 29: 中身は配信ではなく /manual/api/rooms/{id}/zone から来る。
+    //   null は「まだ届いていない」であり、空配列(山札が空)とは意味が違う。
+    //   枚数の見出しは counts から取る(取得を待たずに正しい数が出る)。
+    const deck = activeOverlay.cards || [];
+    const loading = activeOverlay.cards === null && !activeOverlay.error;
+    const total = zoneCount(seatView, 'DECK');
 
     const root = overlayRoot();
     root.innerHTML = '';
@@ -3614,7 +3809,7 @@ function renderDeckFullscreen() {
     const header = document.createElement('div');
     header.className = 'manual-fullscreen-header';
     const title = document.createElement('span');
-    title.textContent = `山札(${deck.length}枚) — 席${activeOverlay.seatId}`;
+    title.textContent = `山札(${total}枚) — 席${activeOverlay.seatId}`;
     header.appendChild(title);
 
     const search = document.createElement('input');
@@ -3647,6 +3842,17 @@ function renderDeckFullscreen() {
 
     function renderList() {
         list.innerHTML = '';
+        // ★取得中・取得失敗は「空の山札」と区別して出す(29)
+        if (loading || activeOverlay.error) {
+            const note = document.createElement('div');
+            note.className = 'small p-2' + (activeOverlay.error ? ' text-danger' : ' text-muted');
+            note.id = 'deck-fullscreen-status';
+            note.textContent = activeOverlay.error
+                ? '山札を取得できませんでした: ' + activeOverlay.error
+                : '山札を読み込んでいます...';
+            list.appendChild(note);
+            return;
+        }
         const query = (activeOverlay.searchQuery || '').trim().toLowerCase();
         const filtering = query.length > 0;
         if (filtering) {

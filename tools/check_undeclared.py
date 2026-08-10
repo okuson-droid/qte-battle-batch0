@@ -30,6 +30,8 @@ BUILTINS = {
     'this', 'arguments', 'typeof', 'instanceof', 'new', 'delete', 'void',
     'navigator', 'history', 'CustomEvent', 'Event', 'Element', 'Node',
     'Blob', 'File', 'FileReader', 'URL', 'FormData', 'XMLHttpRequest',
+    # ★Batch 29 で追加。クエリ文字列の組み立ては組み込みクラスである
+    'URLSearchParams',
     # 外部ライブラリ・Thymeleafが埋め込むグローバル
     'StompJs', 'ROOM_ID', 'PLAYER_ID', 'DEFAULT_LABELS',
 }

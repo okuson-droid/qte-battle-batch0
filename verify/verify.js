@@ -33,6 +33,12 @@ const ROOM_LIST = [
 ];
 const RES = path.join(ROOT, 'src/main/resources');
 
+/**
+ * ★Batch 29: 山札の中身を返す口(`/manual/api/rooms/{id}/zone`)の応答。
+ * 検証中に差し替えて、正常・遅延・失敗を作り分ける。
+ */
+const ZONE_RESPONSE = { status: 200, body: { seat: 'A', zone: 'DECK', cards: [] }, delayMs: 0 };
+
 // 1x1 透明 PNG。/cards/*.png はサンドボックスに実物が無いため、これで代替する
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -45,6 +51,22 @@ function startServer() {
     if (url.startsWith('/cards/')) {
       res.writeHead(200, { 'Content-Type': 'image/png' });
       res.end(PNG);
+      return;
+    }
+    // ★29: 山札の中身は配信から外れ、この口から取る。
+    //   応答は ZONE_RESPONSE で差し替えられる(遅延・失敗も再現する)
+    if (url === `/manual/api/rooms/TESTRM/zone`) {
+      const answer = () => {
+        if (ZONE_RESPONSE.status !== 200) {
+          res.writeHead(ZONE_RESPONSE.status, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(JSON.stringify({ message: ZONE_RESPONSE.message || 'エラー' }));
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify(ZONE_RESPONSE.body));
+      };
+      if (ZONE_RESPONSE.delayMs) setTimeout(answer, ZONE_RESPONSE.delayMs);
+      else answer();
       return;
     }
     // ★25: カード定義。本物と同じ経路で返す(空でよい。テキスト表示の検証は
@@ -1884,6 +1906,140 @@ async function clearZoom(page) {
 
   await page.reload();
   await page.waitForTimeout(200);
+
+  // =====================================================================
+  // ★Batch 29: 配信の軽量化・描画の軽量化
+  // =====================================================================
+  //
+  // ★サーバ側(ログ末尾60行・山札は最上段1枚だけ)は Java の変更であり、
+  //   ここで固定するのは<b>クライアントがその形の配信に耐えること</b>である。
+  //   すなわち「配列の長さを枚数として使わない」「中身は別の口から取る」。
+
+  // ---- 36. 山札の枚数は counts から取る(配列の長さではない) ----
+  const thinView = baseView();
+  // ★サーバの新しい振る舞いを再現する: 中身は最上段1枚だけ、枚数は counts が持つ
+  thinView.seatA.zones.DECK = [card('d1', '山札の一番上')];
+  thinView.seatA.counts.DECK = 30;
+  await render(page, thinView);
+  check('★山札パイルの枚数が counts の値になる(29・配列の長さではない)',
+    (await page.locator('#pile-grid .manual-pile[data-zone="DECK"] .manual-pile-count')
+      .textContent()) === '30');
+  await clearSent(page);
+  await realDrag(page, '#pile-grid .manual-pile[data-zone="DECK"] .manual-pile-face',
+    '#pile-grid .manual-pile[data-zone="TRASH"] .manual-pile-face');
+  const thinDrag = (await sent(page)).find((m) => m.destination.endsWith('/move'));
+  check('★中身が1枚しか届かなくても山札のドラッグは一番上を動かす(29・20a回帰)',
+    !!thinDrag && thinDrag.body.cardIds[0] === 'd1', JSON.stringify(thinDrag && thinDrag.body));
+
+  // ---- 37. 山札の全面表示は別の口から中身を取る ----
+  ZONE_RESPONSE.status = 200;
+  ZONE_RESPONSE.delayMs = 0;
+  ZONE_RESPONSE.body = { seat: 'A', zone: 'DECK',
+    cards: [card('x1', '取得した1枚目'), card('x2', '取得した2枚目'), card('x3', '取得した3枚目')] };
+  await render(page, thinView);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    openDeckFullscreen('A');
+  });
+  await page.waitForTimeout(250);
+  check('★山札の全面表示が別の口から取った中身を並べる(29)',
+    (await page.locator('.manual-deck-list .manual-deck-row').count()) === 3
+      && (await page.locator('.manual-fullscreen-header span').textContent()).includes('30枚'),
+    await page.locator('.manual-fullscreen-header span').textContent());
+
+  // 取得が遅いあいだは「読み込み中」であり、「山札が空です」にはしない
+  ZONE_RESPONSE.delayMs = 400;
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    closeOverlay();
+    // eslint-disable-next-line no-undef
+    openDeckFullscreen('A');
+  });
+  await page.waitForTimeout(80);
+  check('★取得中は「読み込み中」を出す(29・空の山札と区別する)',
+    (await page.locator('#deck-fullscreen-status').textContent()).includes('読み込んでいます'));
+  await page.waitForTimeout(600);
+  ZONE_RESPONSE.delayMs = 0;
+
+  // 取得に失敗したらそう言う(黙って空にしない)
+  ZONE_RESPONSE.status = 400;
+  ZONE_RESPONSE.message = 'このゾーンは公開されていません: DECK';
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    closeOverlay();
+    // eslint-disable-next-line no-undef
+    openDeckFullscreen('A');
+  });
+  await page.waitForTimeout(250);
+  check('★取得に失敗したら理由を出す(29・黙って空にしない)',
+    (await page.locator('#deck-fullscreen-status').textContent()).includes('公開されていません')
+      && (await page.locator('.manual-deck-list .manual-deck-row').count()) === 0);
+  // ★400 を<b>意図的に</b>返させたので、ブラウザが出す "Failed to load resource" は
+  //   期待どおりの記録である。末尾の「JSエラーが出ない」から取り除く
+  //   (無条件に無視すると、本物の通信エラーまで見逃す)。
+  {
+    const expected = errors.filter((e) => e.includes('400'));
+    check('★取得失敗はブラウザのリソースエラーとしてだけ記録される(29)',
+      expected.length === errors.length && expected.length > 0,
+      errors.join(' | '));
+    errors.length = 0;
+  }
+  ZONE_RESPONSE.status = 200;
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    closeOverlay();
+  });
+
+  // ---- 38. ログは差分追記する(全消し再構築をしない) ----
+  const logView = baseView();
+  logView.log = [];
+  for (let i = 1; i <= 5; i++) {
+    logView.log.push({ seq: i, time: '10:00:0' + i, text: 'ログ' + i });
+  }
+  logView.logTotal = 5;
+  await render(page, logView);
+  await page.evaluate(() => {
+    // ★既に描いてある行に印を付ける。作り直されたら印が消える
+    for (const line of document.querySelectorAll('#log-box div[data-seq]')) {
+      line.dataset.mark = '1';
+    }
+  });
+  const grown = baseView();
+  grown.log = logView.log.concat([{ seq: 6, time: '10:00:06', text: 'ログ6' }]);
+  grown.logTotal = 6;
+  await render(page, grown);
+  const logDom = await page.evaluate(() => ({
+    lines: document.querySelectorAll('#log-box div[data-seq]').length,
+    kept: document.querySelectorAll('#log-box div[data-mark]').length,
+    lastText: document.querySelector('#log-box div[data-seq="6"]').textContent,
+  }));
+  check('★ログは既存行を作り直さず差分だけ足す(29)',
+    logDom.lines === 6 && logDom.kept === 5 && logDom.lastText.includes('ログ6'),
+    JSON.stringify(logDom));
+
+  // 取りこぼし(seq が飛ぶ)は作り直す。飛んだまま追記すると行が抜ける
+  const gapped = baseView();
+  gapped.log = [{ seq: 20, time: '10:00:20', text: 'ログ20' }];
+  gapped.logTotal = 20;
+  await render(page, gapped);
+  const gapDom = await page.evaluate(() => ({
+    lines: document.querySelectorAll('#log-box div[data-seq]').length,
+    kept: document.querySelectorAll('#log-box div[data-mark]').length,
+    note: document.getElementById('log-omitted-note')
+      ? document.getElementById('log-omitted-note').textContent : null,
+  }));
+  check('★seq が飛んだら作り直し、省略された行数を案内する(29)',
+    gapDom.lines === 1 && gapDom.kept === 0 && gapDom.note !== null
+      && gapDom.note.includes('19 行'),
+    JSON.stringify(gapDom));
+
+  // 省略が無ければ案内は出ない
+  const noGap = baseView();
+  noGap.log = [{ seq: 1, time: '10:00:01', text: 'ログ1' }];
+  noGap.logTotal = 1;
+  await render(page, noGap);
+  check('★省略が無いときは案内を出さない(29)',
+    (await page.locator('#log-omitted-note').count()) === 0);
 
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);

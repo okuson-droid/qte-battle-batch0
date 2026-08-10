@@ -67,6 +67,29 @@ public class ManualViewBuilder {
     /** 切断猶予(5分)。★{@code ManualCleanupScheduler.GRACE_PERIOD} と対になる表示用の値 */
     private static final Duration GRACE_PERIOD = Duration.ofMinutes(5);
 
+    /**
+     * ★Batch 29: 1回の配信に載せるログの行数(末尾から)。
+     *
+     * <h3>なぜ制限するのか</h3>
+     * 27 まではログを<b>毎回全行</b>載せていた。ログは追記専用で上限が無いため
+     * (設計書16 5-5「古いものを捨てない」)、N手目の配信にはN行が入る。
+     * つまり累積送信量が<b>Nの2乗に比例</b>していた。実測では 2人・200手で 16MB、
+     * 1配信あたりでもログ800行で 124KB に達する(28 設計解説1章)。
+     *
+     * <h3>捨てているわけではない</h3>
+     * サーバ側の {@code ManualRoom.log} は従来どおり全行を保持し、
+     * ダウンロード({@code ManualLobbyController.exportLog})は全文を返す。
+     * 制限するのは<b>配信だけ</b>であり、5-4 の「ダウンロードだけ完全版という裏口を作らない」
+     * とは逆向きの話である(配信が部分、ダウンロードが完全)。
+     * 省略が起きていることは {@code logTotal} で画面に伝える。
+     *
+     * <h3>60行の根拠</h3>
+     * ログ欄は既定で直近2行ぶんの高さであり、クリックで右列内に展開する(20b 2-5)。
+     * 展開しても画面に入るのは数十行であり、それ以上は「読む」より「探す」領域で、
+     * 検索のあるダウンロードの仕事である。
+     */
+    private static final int LOG_TAIL = 60;
+
     private final ManualCardRepository cards;
 
     private final ManualLogRenderer logRenderer;
@@ -98,8 +121,12 @@ public class ManualViewBuilder {
 
         // ★ログは配信のたびに閲覧者ごとへレンダリングする(5-1)。
         //   ダウンロード(ManualLobbyController)も同じ ManualLogRenderer を通る。
+        //   ★Batch 29: 載せるのは末尾 LOG_TAIL 行だけである(LOG_TAIL の javadoc)。
+        //   レンダリング自体もその行数ぶんしか回さないので、CPUも O(N) から定数になる。
+        List<ManualLogEntry> entries = room.getLog();
+        int logTotal = entries.size();
         List<ManualLogView> log = new ArrayList<>();
-        for (ManualLogEntry entry : room.getLog()) {
+        for (ManualLogEntry entry : entries.subList(Math.max(0, logTotal - LOG_TAIL), logTotal)) {
             log.add(new ManualLogView(entry.seq(), TIME_FORMAT.format(entry.at()),
                     logRenderer.render(entry.event(), viewpoint)));
         }
@@ -123,6 +150,7 @@ public class ManualViewBuilder {
                 buildStart(room, actor),
                 occupants,
                 log,
+                logTotal,
                 // ★ボタンの活性と実際の可否が同じ判定を通る(設計判断34 の型)
                 ManualPermissions.denyUndo(actor, room) == null,
                 ManualPermissions.denyRedo(actor, room) == null && room.getHistory().canRedo());
@@ -243,7 +271,7 @@ public class ManualViewBuilder {
             counts.put(z, source.size());
 
             if (viewpoint.canSeeZone(seat.getId(), z)) {
-                zones.put(z, buildCards(source));
+                zones.put(z, buildCards(deliverable(z, source)));
             } else if (z == ManualZone.MANA) {
                 // ★特例: 表向きのマナだけを載せる(3-3)。裏向きは manaFaceDownCount の枚数だけ
                 List<ManualCardInstance> faceUp = new ArrayList<>();
@@ -269,6 +297,60 @@ public class ManualViewBuilder {
                 zones,
                 counts,
                 manaFaceDown);
+    }
+
+    /**
+     * ★Batch 29: 見えるゾーンのうち、実際に配信へ載せるぶんを選ぶ。
+     *
+     * <h3>山札だけ「最上段の1枚」に絞る</h3>
+     * 山札は盤面では<b>パイル1枚ぶん</b>しか描かれない。中身が要るのは全面表示
+     * ({@code openDeckFullscreen})を開いたときだけであり、それは常時ではない。
+     * それでも 27 まで毎回30枚ぶんを配っており、実測で<b>盤面26KBのうち約10KBが
+     * 山札と禁忌</b>だった(28 設計解説1-5)。山札の中身は
+     * {@link #buildZoneCards} 経由で、開いたときにだけ取りに行く。
+     *
+     * <h3>★1枚だけは必ず載せる理由</h3>
+     * 空にはしない。Batch 26 で山札のパイルは「一番上の1枚をドラッグできる」
+     * ようになっており、その1枚の instanceId が要る。また左クリックのドローも
+     * 「一番上」を前提にしている。ここを空にすると盤面の操作が静かに壊れる。
+     * 山札の最上段は index 0 である({@code ManualGameService.drawCards} と揃えてある)。
+     *
+     * <h3>★禁忌(TABOO)は絞らない</h3>
+     * 8枚しかなく、削っても効果が小さいのに、帯・拡大・ドラッグの経路がすべて
+     * 「中身がある」前提で書かれている。効果の小さい変更のために壊す面を増やさない。
+     *
+     * <h3>★これは可視性の変更ではない</h3>
+     * 「キーが在る = 見えている」という 21a 3-3 の規約はそのままである。
+     * 変わるのは「届く配列が全部とは限らない」だけであり、これはマナが既に
+     * そうなっている(表向きだけを載せる)。<b>枚数は counts が持つ</b>ので、
+     * クライアントは配列の長さを枚数として使ってはならない。
+     */
+    private List<ManualCardInstance> deliverable(ManualZone zone,
+            List<ManualCardInstance> source) {
+        if (zone != ManualZone.DECK || source.isEmpty()) {
+            return source;
+        }
+        return List.of(source.get(0));
+    }
+
+    /**
+     * ★Batch 29: 1ゾーンの中身だけを組み立てる(山札の全面表示用)。
+     *
+     * 可視性の判定は {@link ManualViewpoint#canSeeZone} を通す。配信と同じ関数であり、
+     * 「配信では隠れているのにこの口からは見える」を構造的に作らない。
+     * 見えないゾーンを要求されたら例外にする(空配列を返すと、
+     * 「空の山札」と「見せてもらえない山札」が区別できなくなる)。
+     */
+    public List<ManualCardView> buildZoneCards(ManualRoom room, ManualOccupant viewer,
+            ManualSeatId seatId, ManualZone zone) {
+        if (zone.isShared()) {
+            throw new IllegalArgumentException("共有ゾーンは席を指定して取得できません: " + zone);
+        }
+        ManualViewpoint viewpoint = ManualViewpoint.of(room, viewer);
+        if (!viewpoint.canSeeZone(seatId, zone)) {
+            throw new IllegalArgumentException("このゾーンは公開されていません: " + zone);
+        }
+        return buildCards(room.getGameState().seat(seatId).zone(zone));
     }
 
     private List<ManualCardView> buildCards(List<ManualCardInstance> source) {

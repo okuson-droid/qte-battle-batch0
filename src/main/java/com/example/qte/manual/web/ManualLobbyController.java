@@ -37,6 +37,8 @@ import com.example.qte.manual.ManualRoomOptions;
 import com.example.qte.manual.ManualRoomType;
 import com.example.qte.manual.ManualSeatId;
 import com.example.qte.manual.ManualViewpoint;
+import com.example.qte.manual.ManualZone;
+import com.example.qte.manual.view.ManualCardView;
 import com.example.qte.manual.view.ManualGameView;
 import com.example.qte.manual.view.ManualViewBuilder;
 
@@ -318,6 +320,52 @@ public class ManualLobbyController {
         headers.setContentDisposition(
                 ContentDisposition.attachment().filename(filename, StandardCharsets.UTF_8).build());
         return new ResponseEntity<>(body, headers, HttpStatus.OK);
+    }
+
+    /**
+     * ★Batch 29: 1ゾーンの中身だけを返す(山札の全面表示用)。
+     *
+     * <h3>なぜ配信から外して別の口にしたのか</h3>
+     * 山札は盤面ではパイル1枚ぶんしか描かれないのに、27 までは30枚ぶんのカードを
+     * <b>毎操作・全員へ</b>配っていた。実測で盤面26KBのうち約10KBがこれである
+     * (28 設計解説1-5)。中身が要るのは全面表示を開いている間だけなので、
+     * そのときだけ取りに来る形へ移した。
+     *
+     * <h3>★可視性の判定は配信と同じ関数を通る</h3>
+     * {@link ManualViewBuilder#buildZoneCards} が {@code ManualViewpoint.canSeeZone} を
+     * 呼ぶ。この口だけ別の条件を書くと「盤面では隠れているのにURLを叩けば見える」
+     * という裏口ができる。設計判断27(外から来るものはすべて検証する)そのものである。
+     *
+     * <h3>★対戦部屋では occupantId が必須である</h3>
+     * ログ書出({@link #exportLog})と同じ理由である。誰として見るのかが決まらないまま
+     * 中身を返すのが裏口であり、分からないなら断る。
+     */
+    @GetMapping("/manual/api/rooms/{roomId}/zone")
+    @ResponseBody
+    public ZoneContentsResponse zoneContents(@PathVariable String roomId,
+            @RequestParam(required = false) String occupantId,
+            @RequestParam ManualSeatId seat,
+            @RequestParam ManualZone zone) {
+        ManualRoom room = roomManager.requireRoom(roomId);
+        ManualOccupant viewer = room.findOccupant(occupantId).orElse(null);
+        if (room.getType().isRestricted() && viewer == null) {
+            throw new IllegalArgumentException(
+                    "対戦部屋のゾーンは、その部屋の在室者としてのみ取得できます");
+        }
+        List<ManualCardView> cards;
+        synchronized (room.getLock()) {
+            cards = viewBuilder.buildZoneCards(room, viewer, seat, zone);
+        }
+        return new ZoneContentsResponse(seat, zone, cards);
+    }
+
+    /**
+     * ゾーン1つの中身(Batch 29)。
+     * ★席とゾーンを返すのは、応答が遅れて届いたときにクライアントが
+     * 「今開いているものと同じか」を確かめられるようにするためである。
+     */
+    public record ZoneContentsResponse(ManualSeatId seat, ManualZone zone,
+            List<ManualCardView> cards) {
     }
 
     /** 入力エラーは 400 で理由だけ返す。画面側が一覧に出す。 */
