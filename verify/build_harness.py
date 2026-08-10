@@ -38,7 +38,7 @@ html = html.replace(
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=18)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=19)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 

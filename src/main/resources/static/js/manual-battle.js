@@ -434,9 +434,21 @@ async function resolveOccupant() {
 // ---------------------------------------------------------------
 
 const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+/**
+ * ★Batch 28: ハートビートを明示する。
+ *
+ * StompJs の既定も 10 秒だが、<b>実際に流れるかはサーバとの折衝で決まる</b>。
+ * サーバ側が 0(無効)を返せば、クライアントが何を書いていてもハートビートは流れない。
+ * 27 までサーバ({@code WebSocketConfig})にハートビート設定が無く、
+ * Spring のシンプルブローカーは<b>既定で無効</b>だったため、この接続は
+ * <b>操作していない間、完全な無通信</b>だった。サーバ側を有効にしたうえで、
+ * こちら側の意図も式として残しておく(既定に頼ると、既定が変わったときに黙って壊れる)。
+ */
 const client = new StompJs.Client({
     brokerURL: `${wsProtocol}://${location.host}/ws`,
     reconnectDelay: 3000,
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
 });
 
 client.onConnect = () => {
@@ -445,7 +457,11 @@ client.onConnect = () => {
     send('ready', {});
 };
 
-client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)');
+client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)', true);
+client.onStompError = (frame) => {
+    // ★サーバがSTOMPレベルでエラーを返した場合。再接続では直らないことが多いので明示する
+    setConnectionStatus('サーバとの通信でエラー: ' + (frame.headers.message || '不明'), true);
+};
 
 // ★カード定義の取得は接続と独立に始める(Batch 25)。失敗しても対戦は続けられる
 loadCardLibrary();
@@ -461,8 +477,64 @@ resolveOccupant()
         showGateFatal(e.message);
     });
 
-function setConnectionStatus(text) {
-    document.getElementById('connection-status').textContent = text;
+/**
+ * 接続状態の表示。★Batch 28: 異常時は色を変える。
+ * 灰色の小さい文字のままだと、切れていることに人間が気づけない
+ * (25c の「枚数ラベルが薄すぎて読めない」と同じ種類の問題である)。
+ */
+function setConnectionStatus(text, warn) {
+    const el = document.getElementById('connection-status');
+    el.textContent = text;
+    el.classList.toggle('text-danger', !!warn);
+    el.classList.toggle('fw-bold', !!warn);
+    el.classList.toggle('text-muted', !warn);
+}
+
+/**
+ * ★Batch 28: 部屋がサーバから消えていたときの扱い。
+ *
+ * <h3>直したこと</h3>
+ * 27 まではここで無言の {@code location.reload()} を呼んでいた。
+ * 対戦中に突然ページが再読み込みされて盤面が消えるため、
+ * <b>人間には「ブラウザが落ちた」としか見えない</b>。実際にマスターから
+ * 「たびたびブラウザが落ちる」という報告として上がってきた挙動である。
+ *
+ * <h3>なぜ黙って直さないのか</h3>
+ * 部屋はメモリ上にしか無い(設計判断1)。サーバが再起動すれば部屋は本当に消えており、
+ * 再読み込みしても<b>その対戦は戻らない</b>。戻らないものを黙って捨てるのが最悪であり、
+ * 「何が起きたか」「今どうなっているか」を出したうえで、次の操作を人間に選ばせる。
+ */
+/**
+ * ページの再読み込み。★1行の関数に切り出してあるのは検証のためである。
+ * {@code location.reload} は上書きできないため、検証ハーネスから差し替えられる
+ * 入口をここに1つ作る({@code latestView} を直接代入するのと同じ手口)。
+ */
+function reloadPage() {
+    location.reload();
+}
+
+function showRoomLostFatal() {
+    client.deactivate();
+    forgetOccupant();
+    setConnectionStatus('部屋が失われました', true);
+    showGateFatal('この部屋はサーバ上に存在しません。'
+        + 'サーバの再起動や、長時間の無操作による切断が原因です。'
+        + '部屋はサーバのメモリ上にしか無いため、この対戦の盤面は復元できません。');
+    // ★showGateFatal はボタン列を隠す。入り直す導線だけを1つ出す
+    const box = gateEl('seat-gate-buttons');
+    box.innerHTML = '';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-primary w-100';
+    btn.textContent = '入り直す';
+    // ★このコンテナには席選択の委譲リスナーが付いている(data-seat の無いボタンを
+    //   押すと「席に着かない」として送信されてしまう)。伝播を必ず止める
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        reloadPage();
+    });
+    box.appendChild(btn);
+    box.classList.remove('d-none');
 }
 
 function send(action, payload) {
@@ -486,10 +558,10 @@ function onMessage(frame) {
     }
     if (msg.type === 'ERROR') {
         if (msg.message === 'この部屋に入室していません') {
-            // ★猶予切れで席が空けられた等、サーバが在室者として認識できなかった場合。
-            //   古い occupantId を捨てて新規入室からやり直す(0章)。
-            forgetOccupant();
-            location.reload();
+            // ★猶予切れで席が空けられた・サーバが再起動して部屋ごと消えた等、
+            //   サーバが在室者として認識できなかった場合。
+            //   ★28: 無言の location.reload() をやめた(showRoomLostFatal の javadoc)。
+            showRoomLostFatal();
             return;
         }
         showTransientError(msg.message);

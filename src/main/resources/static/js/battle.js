@@ -49,9 +49,13 @@ let tabooPay = null;
 // ページがHTTPSで配信されている場合(ngrok・クラウド経由)はWebSocketも暗号化版のwssを使う。
 // ws://決め打ちだとHTTPSページからの接続がブラウザに拒否される(混在コンテンツ)
 const wsProtocol = location.protocol === 'https:' ? 'wss' : 'ws';
+// ★Batch 28: ハートビートを明示する(サーバ側 WebSocketConfig と対で初めて有効になる)。
+//   通常モードも同じ /ws を使うため、設定を片方のモードだけにしない。
 const client = new StompJs.Client({
     brokerURL: `${wsProtocol}://${location.host}/ws`,
     reconnectDelay: 3000,
+    heartbeatIncoming: 10000,
+    heartbeatOutgoing: 10000,
 });
 
 client.onConnect = () => {

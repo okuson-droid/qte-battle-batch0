@@ -1823,6 +1823,68 @@ async function clearZoom(page) {
     cardTextByImage = null;
   });
 
+  // =====================================================================
+  // ★Batch 28: 接続の安定化 — 「落ちたように見える」をなくす
+  // =====================================================================
+  //
+  // ★ハートビートそのものはサーバ設定(WebSocketConfig)であり、ここでは検証できない
+  //   (ハーネスは StompJs をスタブに差し替えており、実接続を張らない)。
+  //   ここで固定するのは<b>クライアントの見え方</b>である。
+  //   27 まではサーバから「この部屋に入室していません」が返ると無言で
+  //   location.reload() していた。対戦中に盤面が突然消えるため、人間には
+  //   「ブラウザが落ちた」としか見えない。それが起きないことを検証する。
+
+  await render(page, baseView());
+  check('切断すると接続状態が警告色になる(28)',
+    (await page.evaluate(() => {
+      // eslint-disable-next-line no-undef
+      setConnectionStatus('切断(再接続中...)', true);
+      const el = document.getElementById('connection-status');
+      return el.classList.contains('text-danger') && !el.classList.contains('text-muted');
+    })) === true);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    setConnectionStatus('接続済み');
+  });
+
+  await clearSent(page);
+  const roomLost = await page.evaluate(() => {
+    // ★reloadPage を差し替えてから呼ぶ。差し替えられること自体が
+    //   「無言でリロードしない」の検証になっている
+    window.__reloaded = 0;
+    // eslint-disable-next-line no-undef
+    reloadPage = () => { window.__reloaded++; };
+    // eslint-disable-next-line no-undef
+    showRoomLostFatal();
+    const gate = document.getElementById('seat-gate');
+    const err = document.getElementById('seat-gate-error');
+    const buttons = document.getElementById('seat-gate-buttons');
+    return {
+      gateShown: gate && !gate.classList.contains('d-none'),
+      message: err ? err.textContent : '',
+      buttonLabel: buttons ? buttons.textContent.trim() : '',
+      reloadedImmediately: window.__reloaded,
+      statusWarn: document.getElementById('connection-status')
+        .classList.contains('text-danger'),
+    };
+  });
+  check('★部屋が消えたとき、無言でリロードせず理由を画面に出す(28)',
+    roomLost.reloadedImmediately === 0 && roomLost.gateShown === true
+      && roomLost.message.includes('サーバ上に存在しません')
+      && roomLost.message.includes('復元できません')
+      && roomLost.buttonLabel === '入り直す' && roomLost.statusWarn === true,
+    JSON.stringify(roomLost));
+
+  await page.locator('#seat-gate-buttons button').click();
+  await page.waitForTimeout(60);
+  check('★「入り直す」は席選択として送信されない(28・委譲リスナーへの伝播を止める)',
+    (await page.evaluate(() => window.__reloaded)) === 1
+      && (await sent(page)).filter((m) => m.destination.endsWith('/seat')).length === 0,
+    JSON.stringify(await sent(page)));
+
+  await page.reload();
+  await page.waitForTimeout(200);
+
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);
   await render(wide, versusView('A'));
