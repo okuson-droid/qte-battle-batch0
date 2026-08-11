@@ -2108,11 +2108,15 @@ async function clearZoom(page) {
       '.zone-drop-mini', '.manual-pile-label', '.manual-opp-label', '.manual-untap-note',
       '.manual-untap-btn', '.manual-pile-blank', '.manual-weapon-slot-used',
       '.manual-weapon-slot-atk', '.manual-center-send button',
-    ];
+    ].map((s) => '#manual-root ' + s)
+      // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
+      //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
+      //   ここで明示的に足さないと判定の網から静かに漏れる(設計書 2-5)。
+      .concat(['#manual-fx-layer .manual-fx-lp']);
     window.__contrastAudit = () => {
       const out = [];
       for (const sel of targets) {
-        for (const el of document.querySelectorAll('#manual-root ' + sel)) {
+        for (const el of document.querySelectorAll(sel)) {
           const t = (el.textContent || '').trim();
           if (!t) continue;
           const m = parse(getComputedStyle(el).color);
@@ -2142,7 +2146,7 @@ async function clearZoom(page) {
     return found;
   });
   check('★黒背景の上の暗い文字を「読めない」と検出できる(31・検出器が生きている確認)',
-    detected.some((f) => f.sel === '#hand-count-line' && f.ratio < 2),
+    detected.some((f) => f.sel === '#manual-root #hand-count-line' && f.ratio < 2),
     JSON.stringify(detected));
 
   // ---- 40. マナの回転は隣に食い込まない ----
@@ -2290,6 +2294,287 @@ async function clearZoom(page) {
     // eslint-disable-next-line no-undef
     cardByNameMap = null;
   });
+
+  // =====================================================================
+  // ★Batch 32a: 盤面演出(fx層)。設計書 notes/batch32-effects-design.md 4章
+  //
+  // ★演出はビューの差分から出る。したがって検証も<b>連続する2つのビューを流す</b>形で行う
+  //   (applyView が唯一の入口。render() は renderAll を直接呼ぶので差分を作らない)。
+  // =====================================================================
+
+  /** 配信1件を反映する(実経路と同じ入口)。★render() と違い prevView が更新される */
+  const deliver = async (target, view) => {
+    await target.evaluate((v) => {
+      // eslint-disable-next-line no-undef
+      applyView(v);
+    }, view);
+  };
+  /** 走行中の演出を全部止めて fx層を空にする。シナリオ間の持ち越しを断つ */
+  const fxReset = async (target) => {
+    await target.evaluate(() => {
+      // eslint-disable-next-line no-undef
+      for (const key of [...fxRunning.keys()]) fxStop(key);
+      const layer = document.getElementById('manual-fx-layer');
+      if (layer) layer.innerHTML = '';
+      // eslint-disable-next-line no-undef
+      prevView = null;
+    });
+  };
+  /** ★演出の有効フラグを切り替える(設計書 2-8。自己確認の入口である) */
+  const setFxEnabled = async (target, on) => {
+    await target.evaluate((v) => {
+      // eslint-disable-next-line no-undef
+      fxEnabled = v;
+    }, on);
+  };
+  /** fx層に今いるゴーストの観測。★位置・移動量・中身(情報漏れ)まで見る */
+  const fxGhosts = async (target) => target.evaluate(() => {
+    const layer = document.getElementById('manual-fx-layer');
+    if (!layer) return [];
+    return [...layer.querySelectorAll('.manual-fx-ghost')].map((g) => ({
+      kind: g.dataset.fxKind || '',
+      left: Math.round(parseFloat(g.style.left || '0')),
+      top: Math.round(parseFloat(g.style.top || '0')),
+      transform: g.style.transform || '',
+      text: (g.textContent || '').trim(),
+      imageIds: [...g.querySelectorAll('[data-image-id]')].map((e) => e.dataset.imageId),
+    }));
+  });
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+
+  /**
+   * ★項目1と項目12(自己確認)が<b>同じ観測</b>を使うための共通シナリオ。
+   * 場のミニオンを墓地へ移す配信を2件流し、そのときの fx層とアンカー位置を返す。
+   */
+  const moveScenario = async (target) => {
+    await fxReset(target);
+    const v1 = baseView();
+    await deliver(target, v1);
+    const before = await target.evaluate(() => {
+      const el = document.querySelector('[data-instance-id="f1"]');
+      const r = el.getBoundingClientRect();
+      return { left: Math.round(r.left), top: Math.round(r.top) };
+    });
+    const v2 = clone(v1);
+    v2.seatA.zones.FIELD = [];
+    v2.seatA.zones.TRASH = [card('t1', '墓地1'), card('f1', '場1')];
+    syncCounts(v2.seatA);
+    await deliver(target, v2);
+    return { before, ghosts: await fxGhosts(target) };
+  };
+  /** 観測が「移動の演出が出た」と言えるか。★この判定を項目1と項目12で共有する */
+  const moveDetected = (obs) => {
+    const g = obs.ghosts.filter((x) => x.kind === 'move');
+    if (g.length !== 1) return false;
+    const near = Math.abs(g[0].left - obs.before.left) <= 2
+      && Math.abs(g[0].top - obs.before.top) <= 2;
+    return near && /^translate\(-?[\d.]+px, -?[\d.]+px\)$/.test(g[0].transform)
+      && g[0].transform !== 'translate(0px, 0px)';
+  };
+
+  // ---- 41. 移動のゴースト ----
+  const moveObs = await moveScenario(page);
+  check('★move のゴーストが旧位置に出て新位置へ transform が張られる(32a・4章1)',
+    moveDetected(moveObs), JSON.stringify(moveObs));
+
+  // ---- 42. 演出は操作を妨げない(pointer-events: none)----
+  const passThrough = await page.evaluate(() => {
+    const layer = document.getElementById('manual-fx-layer');
+    const g = layer.querySelector('.manual-fx-ghost');
+    const r = g.getBoundingClientRect();
+    const under = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return {
+      pointerEvents: getComputedStyle(layer).pointerEvents,
+      hitsLayer: !!(under && layer.contains(under)),
+    };
+  });
+  check('★ゴーストの上を押しても当たるのは下の盤面である(32a・4章2)',
+    passThrough.pointerEvents === 'none' && !passThrough.hitsLayer,
+    JSON.stringify(passThrough));
+
+  // ★「当たらない」だけでなく、実際に下のカードが押せることまで見る。
+  //   手札のカードを墓地へ動かすと、ゴーストは<b>手札の上</b>に出る。
+  await fxReset(page);
+  await clearZoom(page);
+  const handMove1 = baseView();
+  await deliver(page, handMove1);
+  const handMove2 = clone(handMove1);
+  handMove2.seatA.zones.HAND = [card('h2', '手札2')];
+  handMove2.seatA.zones.TRASH = [card('t1', '墓地1'), card('h1', '手札1')];
+  syncCounts(handMove2.seatA);
+  await deliver(page, handMove2);
+  const ghostBox = await page.evaluate(() => {
+    const g = document.querySelector('#manual-fx-layer .manual-fx-ghost');
+    if (!g) return null;
+    const r = g.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(ghostBox.x, ghostBox.y);
+  await page.waitForTimeout(60);
+  check('★ゴーストの下の手札は実際にクリックできる(32a・4章2)',
+    (await page.locator('#zoom-panel .mcard-large .mcard-name').textContent()) === '手札2',
+    JSON.stringify(ghostBox));
+  await clearZoom(page);
+
+  // ---- 43. 出現は実要素のフェードイン。ゴーストを作らない ----
+  await fxReset(page);
+  const appear1 = baseView();
+  await deliver(page, appear1);
+  const appear2 = clone(appear1);
+  appear2.seatA.zones.FIELD = [card('f1', '場1'), card('f9', '新しく出た')];
+  syncCounts(appear2.seatA);
+  await deliver(page, appear2);
+  check('★出現は実要素のフェードインで、ゴーストを作らない(32a・2-4)',
+    (await fxGhosts(page)).length === 0
+      && (await page.locator('[data-instance-id="f9"].manual-fx-enter').count()) === 1);
+
+  // ---- 44. 消滅は旧位置にゴーストを残す ----
+  await fxReset(page);
+  const vanish1 = baseView();
+  await deliver(page, vanish1);
+  const vanishAt = await page.evaluate(() => {
+    const r = document.querySelector('[data-instance-id="f1"]').getBoundingClientRect();
+    return { left: Math.round(r.left), top: Math.round(r.top) };
+  });
+  const vanish2 = clone(vanish1);
+  vanish2.seatA.zones.FIELD = [];
+  syncCounts(vanish2.seatA);
+  await deliver(page, vanish2);
+  const vanishGhosts = await fxGhosts(page);
+  check('★消滅は旧位置でゴーストがフェードアウトする(32a)',
+    vanishGhosts.length === 1 && vanishGhosts[0].kind === 'vanish'
+      && Math.abs(vanishGhosts[0].left - vanishAt.left) <= 2
+      && Math.abs(vanishGhosts[0].top - vanishAt.top) <= 2,
+    JSON.stringify(vanishGhosts));
+
+  // ---- 45. ★★相手のドローは裏面ゴースト。名前も imageId も fx層に出ない ----
+  await fxReset(page);
+  const draw1 = versusView('A');
+  await deliver(page, draw1);
+  const draw2 = clone(draw1);
+  draw2.seatB.counts.DECK -= 1;
+  draw2.seatB.counts.HAND += 1;
+  await deliver(page, draw2);
+  const drawGhosts = await fxGhosts(page);
+  check('★相手のドローは裏面ゴーストであり、名前・imageId を運ばない(32a・4章3)',
+    drawGhosts.length === 1 && drawGhosts[0].kind === 'draw'
+      && drawGhosts[0].imageIds.length === 0
+      && !drawGhosts[0].text.includes('見えないはず'),
+    JSON.stringify(drawGhosts));
+
+  // ---- 46. ★★「窓」のゾーンでは出現・消滅を出さない ----
+  // ★29 以降、山札は<b>最上段の1枚</b>しか届かない。届く配列の出入りは
+  //   実際の出入りと一致しないので、そこから出現・消滅を作ってはならない。
+  await fxReset(page);
+  const win1 = baseView();
+  win1.seatA.zones.DECK = [card('d1', '山札の一番上')];
+  win1.seatA.counts.DECK = 30;
+  await deliver(page, win1);
+  const win2 = clone(win1);
+  win2.seatA.zones.DECK = [card('d9', 'シャッフル後の一番上')];
+  win2.seatA.counts.DECK = 30;
+  await deliver(page, win2);
+  check('★山札のような「窓」のゾーンでは出現・消滅を演出しない(32a・2-2)',
+    (await fxGhosts(page)).length === 0
+      && (await page.locator('.manual-fx-enter').count()) === 0);
+
+  // ---- 47. LPポップは符号を正しく出す ----
+  await fxReset(page);
+  const lp1 = baseView();
+  await deliver(page, lp1);
+  const lp2 = clone(lp1);
+  lp2.seatA.lp = 17;
+  await deliver(page, lp2);
+  const lpDown = await page.locator('#manual-fx-layer .manual-fx-lp').first();
+  const lpDownText = await lpDown.textContent();
+  const lpDownClass = await lpDown.getAttribute('class');
+  const lp3 = clone(lp2);
+  lp3.seatA.lp = 19;
+  await deliver(page, lp3);
+  const lpUp = await page.locator('#manual-fx-layer .manual-fx-lp').first();
+  check('★LPポップが正しい符号で出る(32a・4章4)',
+    lpDownText === '−3' && lpDownClass.includes('manual-fx-lp-down')
+      && (await lpUp.textContent()) === '+2'
+      && (await lpUp.getAttribute('class')).includes('manual-fx-lp-up'),
+    `${lpDownText} / ${await lpUp.textContent()}`);
+
+  // ---- 48. LPポップの色も同じ1本の条件で判定する ----
+  check('★fx層のラベルも黒背景でコントラスト 4.5:1 以上(32a・4章4)',
+    (await page.evaluate(() => window.__contrastAudit()))
+      .filter((f) => f.sel.includes('manual-fx-lp')).length === 0
+      && (await page.locator('#manual-fx-layer .manual-fx-lp').count()) > 0,
+    JSON.stringify(await page.evaluate(() => window.__contrastAudit())));
+
+  // ---- 49. 盤面の総入れ替えでは演出しない ----
+  await fxReset(page);
+  const bulk1 = baseView();
+  bulk1.seatA.zones.FIELD = [];
+  for (let i = 0; i < 9; i++) bulk1.seatA.zones.FIELD.push(card('bulk' + i, '一括' + i));
+  syncCounts(bulk1.seatA);
+  await deliver(page, bulk1);
+  const bulk2 = clone(bulk1);
+  bulk2.seatA.zones.TRASH = bulk2.seatA.zones.FIELD.concat(bulk2.seatA.zones.TRASH);
+  bulk2.seatA.zones.FIELD = [];
+  syncCounts(bulk2.seatA);
+  await deliver(page, bulk2);
+  check('★差分が上限を超える(リセット等)ときは演出全体を抑制する(32a・2-3)',
+    (await fxGhosts(page)).length === 0);
+
+  // ---- 50. 開始シーケンス中は演出しない ----
+  await fxReset(page);
+  const lock1 = baseView();
+  await deliver(page, lock1);
+  const lock2 = clone(lock1);
+  lock2.start = startState({ phase: 'MULLIGAN', locking: true, mulliganSeats: [], myMulliganSeats: [] });
+  lock2.seatA.zones.FIELD = [];
+  lock2.seatA.zones.TRASH = [card('t1', '墓地1'), card('f1', '場1')];
+  syncCounts(lock2.seatA);
+  await deliver(page, lock2);
+  check('★開始シーケンス中(locking)は演出しない(32a・2-3)',
+    (await fxGhosts(page)).length === 0);
+
+  // ---- 51. ★自己確認: 検出器が生きていることを確かめる ----
+  // ★★31 で手順として固定した「判定を入れたら、判定が落ちることを1回確かめる」。
+  //   fxEnabled を切って<b>項目41と全く同じシナリオ・全く同じ判定</b>を走らせ、
+  //   それが「検出しなかった」と言うことを確かめる。
+  //   moveDetected が常に真を返す作り(=飾りの検証)になっていれば、この項目が落ちる。
+  await setFxEnabled(page, false);
+  const disabledObs = await moveScenario(page);
+  check('★fxEnabled を切ると項目41が検出できなくなる(32a・4章8・検出器が生きている確認)',
+    !moveDetected(disabledObs), JSON.stringify(disabledObs));
+  await setFxEnabled(page, true);
+  // ★判定の中身も飾りでないことを見る。ブラウザを使わずに moveDetected 単体へ
+  //   「出ているが動いていないゴースト」「動いているが旧位置から出ていないゴースト」を
+  //   食わせ、どちらも検出と認めないことを確かめる。
+  check('★moveDetected は「動いていない/旧位置から出ていない」ゴーストを認めない(32a・自己確認)',
+    !moveDetected({ before: { left: 10, top: 10 },
+      ghosts: [{ kind: 'move', left: 10, top: 10, transform: 'translate(0px, 0px)' }] })
+    && !moveDetected({ before: { left: 10, top: 10 },
+      ghosts: [{ kind: 'move', left: 400, top: 10, transform: 'translate(5px, 5px)' }] })
+    && moveDetected({ before: { left: 10, top: 10 },
+      ghosts: [{ kind: 'move', left: 10, top: 10, transform: 'translate(5px, 5px)' }] }));
+  await fxReset(page);
+  await render(page, baseView());
+
+  // ---- 52. prefers-reduced-motion では演出そのものを作らない ----
+  const calm = await browser.newPage({
+    viewport: { width: 1280, height: 950 }, reducedMotion: 'reduce',
+  });
+  const calmErrors = [];
+  calm.on('pageerror', (e) => calmErrors.push(String(e)));
+  await calm.goto(`http://127.0.0.1:${port}/harness.html`);
+  await calm.waitForTimeout(200);
+  const calm1 = baseView();
+  await deliver(calm, calm1);
+  const calm2 = clone(calm1);
+  calm2.seatA.zones.FIELD = [];
+  calm2.seatA.zones.TRASH = [card('t1', '墓地1'), card('f1', '場1')];
+  syncCounts(calm2.seatA);
+  await deliver(calm, calm2);
+  check('★prefers-reduced-motion ではゴーストを作らない(32a・4章7)',
+    (await fxGhosts(calm)).length === 0 && calmErrors.length === 0,
+    calmErrors.join(' | '));
+  await calm.close();
 
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);
   await wide.waitForTimeout(200);

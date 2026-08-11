@@ -966,3 +966,78 @@ body.manual-drag-active .manual-band {
 /* 入れ物側の最低高さ(.board-side の 140px)も外す。行だけ縮めても入れ物が floor すると
    同じはみ出しが残る。★共有クラスの定義は変えず、手動モードの手札の入れ物だけを上書きする。 */
 #hand-row { min-height: 0; }
+
+/* ============================================================
+   ★Batch 32a: エフェクト層(fx層)
+   設計書 notes/batch32-effects-design.md 2章。手動モード専用である。
+
+   ★★全消し再描画(renderAll)と噛み合わないのは「動く要素が盤面DOMの中にいる」
+   場合だけである。この層は position: fixed の独立層なので、下で盤面が
+   作り直されても演出は生き続ける(21c のドラッグ軌跡と同じ形)。
+
+   ★★z-index の並び: fx層 1030 < ドラッグ軌跡 1035 < 帯 1040 < 全面表示 1050。
+   操作の道具(矢印)は装飾(ゴースト)より常に上に置く。
+
+   ★★動かすのは transform と opacity だけである(コンポジタ合成・reflow なし)。
+   width / top / left をアニメーションさせないこと。
+   ============================================================ */
+
+.manual-fx-layer {
+    position: fixed; inset: 0; z-index: 1030;
+    /* ★★操作を一切妨げない。ゴーストの下のカードはそのまま押せる(検証項目2) */
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* ---- 飛ぶ・消えるゴースト ---- */
+/* ★位置は採取した旧位置(ビューポート座標)をそのまま left/top に置く。
+   層が inset:0 の fixed なので、絶対座標がそのままビューポート座標になる。 */
+.manual-fx-ghost {
+    position: absolute; opacity: 0.95;
+    transform: translate(0, 0);
+    transition-property: transform, opacity;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-duration: 0ms;
+    will-change: transform, opacity;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+}
+/* 中身は既存のフェイス関数が作る(.mcard / .mcard-backface)。入れ物いっぱいに敷く */
+.manual-fx-ghost > .mcard,
+.manual-fx-ghost > .mcard-backface { width: 100%; height: 100%; aspect-ratio: auto; }
+
+/* ---- 出現のフェードイン(★実要素に当てる。ゴーストを作らない) ---- */
+/* ★★transition ではなく animation を使う。transition で書くには
+   「盤面のカード全部に transition-property を生やす」ことになり、
+   マナのタップ回転(transform)まで巻き込む。32b でタップの回転に
+   トランジションを足すときの設計を、いま先に潰してしまわないためである。
+   animation なら効果はクラスの付いた要素だけに閉じる。 */
+.manual-fx-enter { animation: manual-fx-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes manual-fx-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ---- LP増減のポップアップ ---- */
+/* ★★色は<b>黒背景(#212529)の上</b>で選んである(31 の教訓)。
+   増加 #6ee7a0 = 9.99:1 / 減少 #ff9b9b = 7.65:1 でどちらも 4.5:1 を大きく超える。
+   ★このラベルはコントラストの機械判定の対象セレクタに入れてある(verify.js)。 */
+.manual-fx-lp {
+    position: absolute; transform: translate(-50%, 0);
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 17px; font-weight: 900; line-height: 1.2; white-space: nowrap;
+    background: rgba(0, 0, 0, 0.72); border: 1px solid rgba(255, 255, 255, 0.18);
+    transition-property: transform, opacity;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-duration: 0ms;
+    will-change: transform, opacity;
+}
+.manual-fx-lp-up { color: #6ee7a0; }
+.manual-fx-lp-down { color: #ff9b9b; }
+
+/* ---- 演出を切る経路(設計書 2-8)----
+   ★CSS と JS の両方で止める。CSS だけだと DOM は作られ続け、
+   JS だけだと将来 CSS 側で足した演出が漏れる。 */
+@media (prefers-reduced-motion: reduce) {
+    .manual-fx-layer { display: none; }
+    .manual-fx-enter { animation: none; }
+}

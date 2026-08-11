@@ -609,8 +609,10 @@ function onMessage(frame) {
         showTransientError(msg.message);
         return;
     }
-    latestView = msg.view;
-    renderAll(latestView);
+    // ★Batch 32a: 配信の反映は applyView に一本化した(8-2章)。
+    //   差分を採るのは再描画の<b>前</b>でなければならないので、
+    //   「latestView を入れて renderAll を呼ぶ」を2箇所に書けない形にしてある。
+    applyView(msg.view);
 }
 
 function showTransientError(message) {
@@ -846,6 +848,10 @@ function measurePhase() {
     }
     // ★21c 7-1: アンカー要素を作り直したので、表示中の矢印を引き直す
     renderDragCues();
+    // ★Batch 32a: 演出のスポーンもこの read 相に同居させる(8-2章 fxSpawn の javadoc)。
+    //   新しい位置を読むのはここが最後であり、書く相と読む相を混ぜないという
+    //   29 の規約をそのまま守る
+    fxSpawn();
 }
 
 function renderAll(view) {
@@ -3388,6 +3394,550 @@ function drawDragCue(svg, cue) {
         text.textContent = cue.actorName;
         svg.appendChild(text);
     }
+}
+
+
+// ---------------------------------------------------------------
+// 8-2) エフェクト層(★Batch 32a。設計書 notes/batch32-effects-design.md 1〜2章)
+//
+// ★★<b>全消し再描画のまま演出を成立させる</b>。動く要素を盤面DOMの外
+//   (position: fixed のオーバーレイ)に置けば、下で renderAll が全消し再構築しても
+//   演出は生き続ける。ドラッグ軌跡(21c の #manual-cue-layer)が既にこの形である。
+//
+// ★★<b>イベントはビューの差分で検出する</b>(設計書 1-1)。サーバは1行も変えていない。
+//   (a) 視点フィルタが構造的に効く。差分は「自分に届いたビュー」にしか基づかないので、
+//       見えないカードは差分に現れない。相手の手札の中身が演出で漏れることは原理的に無い。
+//   (b) 相手・観戦者の画面にも同じ演出が出る(各自が自分のビューの差分から独立に描く)。
+//   (c) ★<b>判断を実装しない原則</b>(設計書16 5-1)を破りようがない。差分が語れるのは
+//       「どこからどこへ動いたか」「いくつ増減したか」という観測事実だけであり、
+//       「破壊されたから墓地へ」という解釈はどこにも入り込まない。
+//
+// ★ログを演出の材料にしない(32 の裁定)。配信されるログは描画済みテキストであり
+//   イベント種別が無い。書式に依存した検出は書式を直した瞬間に黙って壊れる。
+// ---------------------------------------------------------------
+
+/** 同時に走らせる演出の上限(設計書 2-3)。超えたぶんは演出なしで即着地させる */
+const FX_LIMIT = 8;
+
+/**
+ * 1回の配信で扱う差分の上限。
+ * ★これを超える差分は「1回の操作」ではなく<b>盤面の総入れ替え</b>(リセット・
+ * 開始シーケンスの配り直し・すべてアンタップ)である。演出は1手を語る道具なので、
+ * 総入れ替えのときは黙って何も出さないほうが正しい(設計書 2-3)。
+ */
+const FX_BULK_LIMIT = FX_LIMIT;
+
+const FX_MOVE_MS = 220;
+const FX_DRAW_MS = 260;
+const FX_FADE_MS = 180;
+const FX_LP_MS = 700;
+
+/**
+ * 演出の有効フラグ(設計書 2-8)。
+ * ★検証の「わざと壊す」入口であり、将来の設定UIの取り付け点でもある
+ * (設定UIそのものは 32a では作らない)。
+ */
+let fxEnabled = true;
+
+/** 直前の配信ビュー。★参照を1世代持つだけである(コピーはしない。設計書 2-2) */
+let prevView = null;
+
+/** renderAll の前に採った差分と旧位置。measurePhase の末尾で使い切って null に戻す */
+let pendingFx = null;
+
+/** 走行中の演出。鍵ごとに1つだけ持ち、新しい演出が古いものを即座に置き換える */
+const fxRunning = new Map();
+
+/**
+ * 演出を出してよいか。
+ * ★{@code prefers-reduced-motion} は CSS と JS の両方で止める(設計書 2-8)。
+ * CSS だけだと DOM は作られ続け、JS だけだと将来 CSS で足した演出が漏れる。
+ */
+function fxAllowed() {
+    if (!fxEnabled) {
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return false;
+    }
+    return true;
+}
+
+function fxLayer() {
+    let el = document.getElementById('manual-fx-layer');
+    if (el) {
+        return el;
+    }
+    el = document.createElement('div');
+    el.id = 'manual-fx-layer';
+    el.className = 'manual-fx-layer';
+    document.body.appendChild(el);
+    return el;
+}
+
+// ---- 差分検出(設計書 2-2)----
+
+function fxPlace(seatId, zone) {
+    return { seatId: seatId, zone: zone };
+}
+
+/**
+ * ★進化スタックの素材は<b>束の持ち主と同じ場所に居る</b>ものとして畳む。
+ * 畳まないと、進化するたびに素材が「消滅」に見える(27 の「状態にはあるが
+ * 画面のどこからも触れない」の裏返しで、こちらは「在るのに消えたと描く」誤りである)。
+ */
+function fxCollect(index, list, seatId, zoneName) {
+    for (const c of list || []) {
+        if (!c || !c.instanceId) {
+            continue;
+        }
+        index.set(c.instanceId, { seatId: seatId, zone: zoneName, card: c });
+        if (c.materials && c.materials.length) {
+            fxCollect(index, c.materials, seatId, zoneName);
+        }
+    }
+}
+
+/** instanceId -> 居場所。★届いたビューにあるものだけが入る(見えないカードは現れない) */
+function fxIndex(view) {
+    const index = new Map();
+    for (const seat of [view.seatA, view.seatB]) {
+        if (!seat) {
+            continue;
+        }
+        // ★リーダーのゾーンは null である(サーバの ManualLogPlace と同じ表現)
+        if (seat.leader && seat.leader.instanceId) {
+            index.set(seat.leader.instanceId,
+                { seatId: seat.id, zone: null, card: seat.leader });
+        }
+        const zones = seat.zones || {};
+        for (const zoneName of Object.keys(zones)) {
+            fxCollect(index, zones[zoneName], seat.id, zoneName);
+        }
+    }
+    const shared = view.shared || {};
+    for (const zoneName of Object.keys(shared)) {
+        // ★共有ゾーン(PLAY / REVEAL)は席に属さない。seatId は null である
+        fxCollect(index, shared[zoneName], null, zoneName);
+    }
+    return index;
+}
+
+/**
+ * ★★<b>「窓」になっているゾーン</b>(枚数 > 届いた配列の長さ)。
+ *
+ * Batch 29 で山札は<b>最上段の1枚しか配らなくなった</b>。相手のマナも表向きだけが届く。
+ * このようなゾーンでは、届く配列の出入りが<b>実際の出入りとは一致しない</b>。
+ * 例: 1枚ドローすると、山札の新しい最上段が「初めて届いたカード」として現れる。
+ * これを出現の演出にすると、ドローのたびに山札の上で意味の無いフェードインが出る。
+ * 逆にシャッフルすれば、届いていた最上段が「消滅」に見える。
+ *
+ * したがって<b>窓のゾーンでは出現・消滅を出さない</b>。移動(両端が分かる)は出してよい。
+ * これは「観測できないことは演出にしない」という 1-1 の原則そのものである。
+ */
+function fxWindowedZones(view) {
+    const keys = new Set();
+    for (const seat of [view.seatA, view.seatB]) {
+        if (!seat || !seat.zones) {
+            continue;
+        }
+        for (const zoneName of Object.keys(seat.zones)) {
+            if (zoneCount(seat, zoneName) > (seat.zones[zoneName] || []).length) {
+                keys.add(anchorKey(seat.id, zoneName));
+            }
+        }
+    }
+    return keys;
+}
+
+/**
+ * ★ドローの検出(設計書 2-2)。
+ *
+ * ★<b>これは裁定ではない</b>。「山札の枚数が減り、同じ席の手札の枚数が増えた」という
+ * 観測に付けた名前である。ルール上のドローかどうかは判断しない。
+ *
+ * 自席のドローは山札の最上段が届いているので<b>移動として識別できる</b>。
+ * 相手のドローは手札が非公開なので<b>枚数しか分からない</b>——そのときは
+ * 識別子を持たない演出になり、飛ぶのは裏面1枚である(それが事実の全部である)。
+ */
+function fxDetectDraw(out, prevSeat, nextSeat) {
+    const drawn = Math.min(
+        zoneCount(prevSeat, 'DECK') - zoneCount(nextSeat, 'DECK'),
+        zoneCount(nextSeat, 'HAND') - zoneCount(prevSeat, 'HAND'));
+    if (drawn <= 0) {
+        return;
+    }
+    let named = 0;
+    for (let i = out.moved.length - 1; i >= 0 && named < drawn; i--) {
+        const m = out.moved[i];
+        if (m.from.zone !== 'DECK' || m.to.zone !== 'HAND') {
+            continue;
+        }
+        if (m.from.seatId !== nextSeat.id || m.to.seatId !== nextSeat.id) {
+            continue;
+        }
+        out.drew.push({ id: m.id, seatId: nextSeat.id, from: m.from, to: m.to, card: m.card });
+        out.moved.splice(i, 1);
+        named++;
+    }
+    for (let i = named; i < drawn; i++) {
+        out.drew.push({
+            id: null,
+            seatId: nextSeat.id,
+            from: fxPlace(nextSeat.id, 'DECK'),
+            to: fxPlace(nextSeat.id, 'HAND'),
+            card: null,
+        });
+    }
+}
+
+/**
+ * ★前後のビューを instanceId で突合して、起きたことを<b>観測の語彙</b>で返す。
+ * DOM には一切触らない純オブジェクト比較であり、検証がこの1本を直接叩ける
+ * (設計書 2-2 の末尾)。
+ */
+function diffViews(prev, next) {
+    const out = { moved: [], appeared: [], vanished: [], drew: [], lpChanged: [] };
+    if (!prev || !next) {
+        return out;
+    }
+    const before = fxIndex(prev);
+    const after = fxIndex(next);
+    const windowBefore = fxWindowedZones(prev);
+    const windowAfter = fxWindowedZones(next);
+
+    for (const [id, now] of after) {
+        const was = before.get(id);
+        if (!was) {
+            if (!windowAfter.has(anchorKey(now.seatId, now.zone))) {
+                out.appeared.push({ id: id, to: fxPlace(now.seatId, now.zone), card: now.card });
+            }
+            continue;
+        }
+        if (was.seatId !== now.seatId || was.zone !== now.zone) {
+            out.moved.push({
+                id: id,
+                from: fxPlace(was.seatId, was.zone),
+                to: fxPlace(now.seatId, now.zone),
+                card: now.card,
+            });
+        }
+    }
+    for (const [id, was] of before) {
+        if (after.has(id) || windowBefore.has(anchorKey(was.seatId, was.zone))) {
+            continue;
+        }
+        out.vanished.push({ id: id, from: fxPlace(was.seatId, was.zone), card: was.card });
+    }
+
+    for (const key of ['seatA', 'seatB']) {
+        const p = prev[key];
+        const n = next[key];
+        if (!p || !n) {
+            continue;
+        }
+        fxDetectDraw(out, p, n);
+        if (p.lp !== n.lp) {
+            out.lpChanged.push({ seatId: n.id, delta: n.lp - p.lp, lp: n.lp });
+        }
+    }
+    return out;
+}
+
+/** 差分を「1つずつ独立に走る演出」の平たい列にする。鍵は instanceId で一意にする */
+function fxEffects(diff) {
+    const list = [];
+    let anon = 0;
+    for (const m of diff.moved) {
+        list.push({ kind: 'move', key: 'move:' + m.id, id: m.id, from: m.from, to: m.to, card: m.card });
+    }
+    for (const d of diff.drew) {
+        if (!d.id) {
+            anon++;
+        }
+        list.push({
+            kind: 'draw',
+            key: 'draw:' + (d.id || (d.seatId + '#' + anon)),
+            id: d.id, from: d.from, to: d.to, card: d.card,
+        });
+    }
+    for (const v of diff.vanished) {
+        list.push({ kind: 'vanish', key: 'vanish:' + v.id, id: v.id, from: v.from, card: v.card });
+    }
+    for (const a of diff.appeared) {
+        list.push({ kind: 'appear', key: 'appear:' + a.id, id: a.id, to: a.to, card: a.card });
+    }
+    for (const l of diff.lpChanged) {
+        list.push({ kind: 'lp', key: 'lp:' + l.seatId, seatId: l.seatId, delta: l.delta });
+    }
+    return list;
+}
+
+// ---- 位置の採取(read)----
+
+function fxRectOf(el) {
+    if (!el) {
+        return null;
+    }
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) {
+        return null;
+    }
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+function fxCardElement(instanceId) {
+    if (!instanceId) {
+        return null;
+    }
+    return document.querySelector(`[data-instance-id="${instanceId}"]`);
+}
+
+/**
+ * ★カードの実要素が引ければそれを、引けなければゾーンのアンカーを使う。
+ * 引けないのはパイルの中(最上段以外)や非公開ゾーンのときであり、
+ * ゾーン全体を根にすることで<b>どの1枚かは漏れない</b>(21c 7-3 と同じ考え方)。
+ */
+function fxSourceRect(instanceId, place) {
+    const rect = fxRectOf(fxCardElement(instanceId));
+    return rect || fxRectOf(anchorElement(place));
+}
+
+/** ★renderAll の<b>前</b>に呼ぶ。書き込み前のきれいなDOMに対する read である(29 の相分離) */
+function fxCaptureOrigins(effects) {
+    const origins = new Map();
+    for (const fx of effects) {
+        if (fx.kind !== 'move' && fx.kind !== 'draw' && fx.kind !== 'vanish') {
+            continue;
+        }
+        // ★ドローの根は必ず山札のアンカーにする(設計書 2-2 の「山札アンカー→手札位置」)
+        const rect = fxSourceRect(fx.kind === 'draw' ? null : fx.id, fx.from);
+        if (rect) {
+            origins.set(fx.key, rect);
+        }
+    }
+    return origins;
+}
+
+// ---- ゴーストの組み立て(設計書 2-3)----
+
+/**
+ * ★見た目は既存のフェイス関数で作る。ゴースト専用の見た目を作らない
+ * (見た目の正は1箇所、という 25 以来の方針の延長)。
+ * ★★裏面は {@link cardBackFace} を使う。裏面は imageId を持たない(26)ので、
+ * 「非公開情報を運ばない」性質が<b>構造的に</b>保たれる。
+ */
+function fxGhostBody(card, rect) {
+    if (!card || card.faceDown || !card.name) {
+        return cardBackFace();
+    }
+    return cardFace(card, rect.width >= 64 ? 'full' : 'mini');
+}
+
+function fxGhost(rect, card) {
+    const el = document.createElement('div');
+    el.className = 'manual-fx-ghost';
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.height = rect.height + 'px';
+    el.appendChild(fxGhostBody(card, rect));
+    return el;
+}
+
+/**
+ * 走行中の演出として登録する。★終了は {@code transitionend} と
+ * タイムアウトの二重保険で必ず来る(片方だけだと、値が変わらず transition が
+ * 発火しなかったときにゴーストが残る)。
+ *
+ * @param keep 真なら要素をDOMから外さない(出現のフェードインは<b>実要素</b>に当てるため)
+ * @param endEvent 終了イベント名。ゴーストは transitionend、出現は animationend である
+ */
+function fxRegister(key, el, ms, play, keep, endEvent) {
+    fxStop(key);
+    const entry = {
+        el: el, keep: !!keep, event: endEvent || 'transitionend', timer: null, done: null,
+    };
+    entry.done = () => fxStop(key);
+    entry.timer = setTimeout(entry.done, ms + 140);
+    el.addEventListener(entry.event, entry.done);
+    fxRunning.set(key, entry);
+    return play;
+}
+
+function fxStop(key) {
+    const entry = fxRunning.get(key);
+    if (!entry) {
+        return;
+    }
+    fxRunning.delete(key);
+    clearTimeout(entry.timer);
+    entry.el.removeEventListener(entry.event, entry.done);
+    if (entry.keep) {
+        entry.el.classList.remove('manual-fx-enter');
+    } else if (entry.el.parentNode) {
+        entry.el.parentNode.removeChild(entry.el);
+    }
+}
+
+function fxTargetRect(fx) {
+    const rect = fxRectOf(fxCardElement(fx.id));
+    return rect || fxRectOf(anchorElement(fx.to));
+}
+
+/** 飛ぶ系(move / draw)。★動かすのは transform と opacity だけである */
+function fxBuildFlight(fx, origin, layer) {
+    const target = fxTargetRect(fx);
+    if (!target) {
+        return null;
+    }
+    const dx = target.left - origin.left;
+    const dy = target.top - origin.top;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) {
+        return null;   // 見た目が動かないなら演出しない
+    }
+    // ★相手のドローは識別子が無い。card を渡さないことで裏面ゴーストに落ちる
+    const ghost = fxGhost(origin, fx.id ? fx.card : null);
+    ghost.dataset.fxKind = fx.kind;
+    layer.appendChild(ghost);
+    const ms = fx.kind === 'draw' ? FX_DRAW_MS : FX_MOVE_MS;
+    return fxRegister(fx.key, ghost, ms, () => {
+        // transform は全区間、opacity は最後だけ(着地の瞬間に本物へ受け渡す)
+        ghost.style.transitionDuration = ms + 'ms, 110ms';
+        ghost.style.transitionDelay = '0ms, ' + Math.max(0, ms - 110) + 'ms';
+        ghost.style.transform = `translate(${dx}px, ${dy}px)`;
+        ghost.style.opacity = '0';
+    });
+}
+
+function fxBuildVanish(fx, origin, layer) {
+    const ghost = fxGhost(origin, fx.card);
+    ghost.dataset.fxKind = 'vanish';
+    layer.appendChild(ghost);
+    return fxRegister(fx.key, ghost, FX_FADE_MS, () => {
+        ghost.style.transitionDuration = FX_FADE_MS + 'ms, ' + FX_FADE_MS + 'ms';
+        ghost.style.transform = 'scale(0.86)';
+        ghost.style.opacity = '0';
+    });
+}
+
+/**
+ * ★出現は<b>実要素</b>のフェードインで行う(設計書 2-4)。ゴーストを作らない。
+ * 途中で次の配信が来て再構築されても「最終状態で即時表示」に落ちるだけで、壊れ方が無い。
+ * ★CSS 側は transition ではなく animation である(battle.css の該当箇所の理由を参照)。
+ */
+function fxBuildAppear(fx) {
+    const el = fxCardElement(fx.id);
+    if (!el) {
+        return null;
+    }
+    el.classList.add('manual-fx-enter');
+    return fxRegister(fx.key, el, FX_FADE_MS, () => { /* animation は付与だけで走る */ },
+        true, 'animationend');
+}
+
+function fxBuildLp(fx, layer) {
+    const rect = fxRectOf(anchorElement(fxPlace(fx.seatId, null)));
+    if (!rect) {
+        return null;
+    }
+    const pop = document.createElement('div');
+    pop.className = 'manual-fx-lp '
+        + (fx.delta > 0 ? 'manual-fx-lp-up' : 'manual-fx-lp-down');
+    // ★符号は「増えたか減ったか」だけを語る。回復か被弾かは判断しない
+    pop.textContent = (fx.delta > 0 ? '+' : '−') + Math.abs(fx.delta);
+    pop.dataset.fxSeat = fx.seatId;
+    pop.style.left = (rect.left + rect.width / 2) + 'px';
+    pop.style.top = (rect.top + rect.height * 0.35) + 'px';
+    layer.appendChild(pop);
+    return fxRegister(fx.key, pop, FX_LP_MS, () => {
+        pop.style.transitionDuration = FX_LP_MS + 'ms, ' + FX_LP_MS + 'ms';
+        pop.style.transform = 'translate(-50%, -28px)';
+        pop.style.opacity = '0';
+    });
+}
+
+function fxBuild(fx, origin, layer) {
+    if (fx.kind === 'lp') {
+        return fxBuildLp(fx, layer);
+    }
+    if (fx.kind === 'appear') {
+        return fxBuildAppear(fx);
+    }
+    if (!origin) {
+        return null;   // 旧位置が採れなかったものは演出しない(推測で描かない)
+    }
+    if (fx.kind === 'vanish') {
+        return fxBuildVanish(fx, origin, layer);
+    }
+    return fxBuildFlight(fx, origin, layer);
+}
+
+/**
+ * ★{@link measurePhase} の末尾で呼ぶ(29 の read 相に同居させる)。
+ *
+ * ★強制同期レイアウトは<b>1回だけ</b>である。全部の開始状態をDOMに載せてから
+ * {@code void layer.offsetWidth} で確定させ、そのあと終了状態を当てる。
+ * {@link flashDenied} と同じ idiom であり、rAF を待たないので
+ * <b>検証が配信直後にそのまま観測できる</b>(待ち時間に依存する検証にしない)。
+ */
+function fxSpawn() {
+    const pending = pendingFx;
+    pendingFx = null;
+    if (!pending || !fxAllowed()) {
+        return;
+    }
+    const layer = fxLayer();
+    const plays = [];
+    for (const fx of pending.effects) {
+        if (fxRunning.size >= FX_LIMIT) {
+            break;   // 追いつけない演出は捨ててよい(盤面の正は下のDOMである)
+        }
+        const play = fxBuild(fx, pending.origins.get(fx.key), layer);
+        if (play) {
+            plays.push(play);
+        }
+    }
+    if (plays.length === 0) {
+        return;
+    }
+    void layer.offsetWidth;
+    for (const play of plays) {
+        play();
+    }
+}
+
+/** 開始シーケンスの最中か(設計書 2-3)。この間は盤面が「総入れ替え」される */
+function fxStartLocking(view) {
+    return !!(view && view.start && view.start.locking);
+}
+
+/**
+ * ★★配信1件を反映する<b>唯一の入口</b>(設計書 2-2 の流れ)。
+ *
+ * <pre>
+ *   (1) diff      prevView と今回のビューを突合する(DOMに触らない)
+ *   (2) capture   差分に該当するカードだけ、旧DOMから位置を採る(read)
+ *   (3) renderAll 従来どおり全消し再描画する(write)
+ *   (4) fxSpawn   measurePhase の末尾で新位置を読み、fx層へゴーストを出す(read)
+ * </pre>
+ *
+ * ★Undo で差分が逆向きに出るのは<b>抑制しない</b>(設計書 1-2)。
+ * 逆向きの移動は実際に起きた状態変化の正確な描画であり、
+ * 何が取り消されたかが見えるのはむしろ利益である。
+ */
+function applyView(view) {
+    let effects = null;
+    if (fxAllowed() && prevView && !fxStartLocking(prevView) && !fxStartLocking(view)) {
+        effects = fxEffects(diffViews(prevView, view));
+        if (effects.length === 0 || effects.length > FX_BULK_LIMIT) {
+            effects = null;
+        }
+    }
+    pendingFx = effects ? { effects: effects, origins: fxCaptureOrigins(effects) } : null;
+    prevView = view;
+    latestView = view;
+    renderAll(view);
 }
 
 // ---------------------------------------------------------------
