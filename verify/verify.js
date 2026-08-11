@@ -2733,6 +2733,35 @@ async function clearZoom(page) {
   await fxReset(page);
   await render(page, baseView());
 
+  // ---- 63. ★★Batch 32c: フェイスの質感が transform / filter を使っていない ----
+  // ★★これは「見た目が綺麗か」の検証ではない(それは目視の仕事である)。
+  //   32b の `.manual-fx-tap` は<b>transform と filter を 160ms かけて遷移させる</b>。
+  //   盤面のタイルは `.mcard-frame` そのものなので、質感のために transform や filter を
+  //   足すと、タップのたびに質感まで遷移の対象になる。さらに `.manual-tile-tapped` の
+  //   `filter: brightness()` は<b>置き換え</b>であって合成ではないため、
+  //   基底に filter を持たせるとタップ中だけその質感が消える。
+  //   ——32b 6章の申し送りそのものであり、機械で押さえられる。
+  // ★質感は background と box-shadow だけで出す、という決めごとの番人である。
+  const faceFx = await page.evaluate(() => {
+    const sels = ['.mcard', '.mcard-inner', '.mcard-head', '.mcard-type',
+      '.mcard-foot', '.mcard-cost', '.mcard-backface', '.mcard-frame'];
+    const out = [];
+    for (const sel of sels) {
+      for (const el of document.querySelectorAll('#manual-root ' + sel)) {
+        const s = getComputedStyle(el);
+        if (s.transform !== 'none' || s.filter !== 'none') {
+          out.push({ sel, transform: s.transform, filter: s.filter });
+        }
+      }
+    }
+    // ★空の盤面なら無条件に通ってしまう。何を実際に見たのかも返す
+    const seen = sels.filter((s) => document.querySelectorAll('#manual-root ' + s).length > 0);
+    return { hits: out, seen: seen };
+  });
+  check('★★フェイスの質感は transform / filter を使わない(32c・タップの遷移に巻き込まれない)',
+    faceFx.hits.length === 0 && faceFx.seen.length >= 6,
+    JSON.stringify(faceFx));
+
   // ---- 52. prefers-reduced-motion では演出そのものを作らない ----
   const calm = await browser.newPage({
     viewport: { width: 1280, height: 950 }, reducedMotion: 'reduce',
