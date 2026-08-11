@@ -2112,7 +2112,8 @@ async function clearZoom(page) {
       // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
       //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
       //   ここで明示的に足さないと判定の網から静かに漏れる(設計書 2-5)。
-      .concat(['#manual-fx-layer .manual-fx-lp']);
+      // ★Batch 32b: ターン合図の帯も同じ1本の条件で見る(fx層に文字を足したら必ずここへ)
+      .concat(['#manual-fx-layer .manual-fx-lp', '#manual-fx-layer .manual-fx-turn']);
     window.__contrastAudit = () => {
       const out = [];
       for (const sel of targets) {
@@ -2333,6 +2334,7 @@ async function clearZoom(page) {
     if (!layer) return [];
     return [...layer.querySelectorAll('.manual-fx-ghost')].map((g) => ({
       kind: g.dataset.fxKind || '',
+      phase: g.dataset.fxPhase || '',
       left: Math.round(parseFloat(g.style.left || '0')),
       top: Math.round(parseFloat(g.style.top || '0')),
       transform: g.style.transform || '',
@@ -2556,6 +2558,181 @@ async function clearZoom(page) {
   await fxReset(page);
   await render(page, baseView());
 
+  // =====================================================================
+  // ★Batch 32b: 状態系(タップ・めくり)と節目系(ターン・進化)
+  //
+  // ★★状態系は<b>ゴーストを作らない</b>。実要素の上で transition / animation が
+  //   走るだけなので、「クラスが付いた」を見るだけでは<b>遷移が実際に走ったか</b>を
+  //   確かめたことにならない(クラスは付くが transition-property が無い、
+  //   値が変わらない、といった壊れ方が素通りする)。
+  //   そこで {@code transitionstart} を捕まえる。ブラウザが遷移を<b>開始した</b>という
+  //   事実そのものであり、どのプロパティが動いたかまで分かる。
+  // =====================================================================
+
+  /** transitionstart を集め始める(1回だけ仕掛け、呼ぶたびに記録を空にする) */
+  const fxWatchTransitions = async (target) => target.evaluate(() => {
+    window.__fxTr = [];
+    if (!window.__fxTrHooked) {
+      window.__fxTrHooked = true;
+      document.addEventListener('transitionstart', (e) => {
+        const el = e.target;
+        window.__fxTr.push({
+          id: (el.dataset && el.dataset.instanceId) || '',
+          cls: typeof el.className === 'string' ? el.className : '',
+          prop: e.propertyName,
+        });
+      }, true);
+    }
+  });
+  /** 記録を読む。★遷移の開始は次のフレームなので少しだけ待つ(遷移中に読む) */
+  const fxTransitions = async (target) => {
+    await target.waitForTimeout(120);
+    return target.evaluate(() => window.__fxTr);
+  };
+  /**
+   * ★観測が「そのカードの遷移が実際に走った」と言えるか。
+   *   項目53・54 と自己確認(項目60・61)がこの1本を共有する。
+   */
+  const tapDetected = (records, instanceId, prop) =>
+    records.filter((r) => r.id === instanceId && r.prop === prop).length > 0;
+
+  /** タップ状態だけを変えた2連続ビューを流し、遷移の記録を返す */
+  const tapScenario = async (target, mutate) => {
+    await fxReset(target);
+    const v1 = baseView();
+    v1.seatA.zones.MANA = [card('m1', 'マナ1')];
+    syncCounts(v1.seatA);
+    await deliver(target, v1);
+    await fxWatchTransitions(target);
+    const v2 = clone(v1);
+    mutate(v2);
+    await deliver(target, v2);
+    return fxTransitions(target);
+  };
+
+  // ---- 53. ★自席マナのタップは「回転」の遷移が実際に走る ----
+  const manaTap = await tapScenario(page, (v) => { v.seatA.zones.MANA[0].tapped = true; });
+  check('★自席マナのタップは transform(回転)の遷移が実際に走る(32b・状態系)',
+    tapDetected(manaTap, 'm1', 'transform'), JSON.stringify(manaTap));
+
+  // ---- 54. ★★タップ表現の非対称が維持されている ----
+  // ★26/30 で確定した「場=減光+バッジ / マナ=回転」を<b>機械で</b>押さえる。
+  //   どちらかに揃えてしまう改修は、この項目が落ちることで必ず表に出る。
+  const fieldTap = await tapScenario(page, (v) => { v.seatA.zones.FIELD[0].tapped = true; });
+  check('★★タップ表現の非対称: 場のタイルは filter(減光)だけで回らない(32b・26/30 の維持)',
+    tapDetected(fieldTap, 'f1', 'filter') && !tapDetected(fieldTap, 'f1', 'transform'),
+    JSON.stringify(fieldTap));
+  check('★場のタップはバッジも出す(減光+バッジ の対)',
+    (await page.locator('[data-instance-id="f1"] .manual-tapped-badge').count()) === 1);
+
+  // ---- 55. ★めくりは2段階で、後半に新しい面へ入れ替わる ----
+  await fxReset(page);
+  const flip1 = baseView();
+  await deliver(page, flip1);
+  const flip2 = clone(flip1);
+  flip2.seatA.zones.FIELD[0].faceDown = true;
+  await deliver(page, flip2);
+  const flipFirst = (await fxGhosts(page)).filter((g) => g.kind === 'flip');
+  const flipHiddenAtFirst =
+    (await page.locator('[data-instance-id="f1"].manual-fx-hidden').count()) === 1;
+  // ★待てなかったこと自体を FAIL として報告する。例外で検証を落とすと、
+  //   「壊したら落ちる」を確かめるときにスクリプトごと死んで結果が読めない
+  const settled = async (fn) => {
+    try {
+      await page.waitForFunction(fn, null, { timeout: 1500 });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+  const flipPhase2 = await settled(() => {
+    const g = document.querySelector('#manual-fx-layer .manual-fx-ghost[data-fx-kind="flip"]');
+    return !!g && g.dataset.fxPhase === '2';
+  });
+  const flipSecond = (await fxGhosts(page)).filter((g) => g.kind === 'flip');
+  check('★めくりは前半が旧い面・後半が新しい面である(32b・2段階)',
+    flipPhase2 && flipFirst.length === 1 && flipFirst[0].phase === '1'
+      && flipFirst[0].text.includes('場1')
+      && /rotateY\(90deg\)/.test(flipFirst[0].transform)
+      && flipHiddenAtFirst
+      && flipSecond.length === 1 && !flipSecond[0].text.includes('場1')
+      && flipSecond[0].imageIds.length === 0,
+    JSON.stringify({ flipPhase2, flipFirst, flipSecond, flipHiddenAtFirst }));
+  // ★★演出が終われば実タイルは必ず戻る(onStop の後始末が効いていること)。
+  //   ここを落とすと「めくったカードが二度と見えない」——演出の失敗ではなく
+  //   <b>盤面の欠落</b>になる。27 の「画面のどこからも触れない = 消失」と同じ重さである
+  const flipRestored = await settled(
+    () => document.querySelectorAll('.manual-fx-hidden').length === 0);
+  check('★★めくりが終わると実タイルの透明化は必ず戻る(32b・onStop の後始末)',
+    flipRestored && (await fxGhosts(page)).length === 0);
+
+  // ---- 56. ★進化スタックが伸びたら到着タイルが沈み込む ----
+  await fxReset(page);
+  const sink1 = baseView();
+  await deliver(page, sink1);
+  const sink2 = clone(sink1);
+  sink2.seatA.zones.FIELD[0].stackSize = 2;
+  sink2.seatA.zones.FIELD[0].materials = [card('mat1', '素材1')];
+  await deliver(page, sink2);
+  check('★進化スタックの増加で到着タイルが沈み込む(ゴーストは作らない)(32b・2-7)',
+    (await page.locator('[data-instance-id="f1"].manual-fx-sink').count()) === 1
+      && (await fxGhosts(page)).length === 0);
+
+  // ---- 57. ★ターン開始の合図 ----
+  await fxReset(page);
+  const turn1 = baseView();
+  await deliver(page, turn1);
+  const turn2 = clone(turn1);
+  turn2.turnNumber = 2;
+  await deliver(page, turn2);
+  const turnBand = page.locator('#manual-fx-layer .manual-fx-turn');
+  check('★turnNumber が増えたらターンの帯が出る(32b・2-6)',
+    (await turnBand.count()) === 1 && (await turnBand.first().textContent()) === 'ターン 2',
+    await turnBand.first().textContent().catch(() => '(なし)'));
+
+  // ---- 58. ★★巻き戻しでは合図を出さない ----
+  // ★Undo で移動やLPが逆再生されるのは<b>抑制しない</b>(実際に起きた状態変化の描画)。
+  //   ターンの帯だけが例外なのは、あれが描画ではなく<b>宣言</b>だからである。
+  check('★★turnNumber が減る(Undo)ときは帯を出さない(32b・設計書 1-2)', await (async () => {
+    await fxReset(page);
+    await deliver(page, turn2);
+    const back = clone(turn2);
+    back.turnNumber = 1;
+    back.seatA.lp = 19;   // ★他の差分は出ること(演出そのものが止まっているのではない)
+    await deliver(page, back);
+    return (await page.locator('#manual-fx-layer .manual-fx-turn').count()) === 0
+      && (await page.locator('#manual-fx-layer .manual-fx-lp').count()) === 1;
+  })());
+
+  // ---- 59. 帯の文字も同じ1本の条件で判定する ----
+  await fxReset(page);
+  await deliver(page, turn1);
+  await deliver(page, turn2);
+  check('★ターンの帯も黒背景でコントラスト 4.5:1 以上(32b・30/31 の1本の条件)',
+    (await page.evaluate(() => window.__contrastAudit()))
+      .filter((f) => f.sel.includes('manual-fx-turn')).length === 0
+      && (await page.locator('#manual-fx-layer .manual-fx-turn').count()) > 0,
+    JSON.stringify(await page.evaluate(() => window.__contrastAudit())));
+
+  // ---- 60. ★自己確認: 状態系の検出器が生きている ----
+  // ★★fxEnabled を切って<b>項目53と全く同じシナリオ・全く同じ判定</b>を走らせる。
+  //   tapDetected が常に真を返す作り(=飾りの検証)なら、この項目が落ちる。
+  await setFxEnabled(page, false);
+  const disabledTap = await tapScenario(page, (v) => { v.seatA.zones.MANA[0].tapped = true; });
+  check('★fxEnabled を切ると項目53が検出できなくなる(32b・検出器が生きている確認)',
+    !tapDetected(disabledTap, 'm1', 'transform'), JSON.stringify(disabledTap));
+  await setFxEnabled(page, true);
+
+  // ---- 61. ★自己確認: 判定関数そのものに反例を食わせる ----
+  check('★tapDetected は「記録が空」「別のプロパティ」「別のカード」を認めない(32b・自己確認)',
+    !tapDetected([], 'm1', 'transform')
+    && !tapDetected([{ id: 'm1', prop: 'filter' }], 'm1', 'transform')
+    && !tapDetected([{ id: 'zzz', prop: 'transform' }], 'm1', 'transform')
+    && tapDetected([{ id: 'm1', prop: 'transform' }], 'm1', 'transform'));
+
+  await fxReset(page);
+  await render(page, baseView());
+
   // ---- 52. prefers-reduced-motion では演出そのものを作らない ----
   const calm = await browser.newPage({
     viewport: { width: 1280, height: 950 }, reducedMotion: 'reduce',
@@ -2574,6 +2751,30 @@ async function clearZoom(page) {
   check('★prefers-reduced-motion ではゴーストを作らない(32a・4章7)',
     (await fxGhosts(calm)).length === 0 && calmErrors.length === 0,
     calmErrors.join(' | '));
+
+  // ---- 62. ★prefers-reduced-motion では状態系・節目系も出ない(32b)----
+  // ★★状態系は<b>実要素</b>に当たる。fx層を display:none にするだけでは止まらないので、
+  //   「層が消えているから大丈夫」で済ませずに1つずつ確かめる。
+  await fxReset(calm);
+  const calmState1 = baseView();
+  calmState1.seatA.zones.MANA = [card('m1', 'マナ1')];
+  syncCounts(calmState1.seatA);
+  await deliver(calm, calmState1);
+  await fxWatchTransitions(calm);
+  const calmState2 = clone(calmState1);
+  calmState2.seatA.zones.MANA[0].tapped = true;
+  calmState2.seatA.zones.FIELD[0].stackSize = 2;
+  calmState2.seatA.zones.FIELD[0].materials = [card('mat1', '素材1')];
+  calmState2.turnNumber = 2;
+  await deliver(calm, calmState2);
+  const calmTr = await fxTransitions(calm);
+  check('★prefers-reduced-motion では状態系・節目系も出ない(32b)',
+    !tapDetected(calmTr, 'm1', 'transform')
+      && (await calm.locator('.manual-fx-sink').count()) === 0
+      && (await calm.locator('.manual-fx-tap').count()) === 0
+      && (await calm.locator('#manual-fx-layer .manual-fx-turn').count()) === 0
+      && calmErrors.length === 0,
+    JSON.stringify(calmTr) + ' | ' + calmErrors.join(' | '));
   await calm.close();
 
   await wide.goto(`http://127.0.0.1:${port}/harness.html`);

@@ -1034,10 +1034,79 @@ body.manual-drag-active .manual-band {
 .manual-fx-lp-up { color: #6ee7a0; }
 .manual-fx-lp-down { color: #ff9b9b; }
 
+/* ============================================================
+   ★Batch 32b: 状態系(タップ・めくり)と節目系(ターン・進化)
+   ============================================================ */
+
+/* ---- タップ / アンタップのトランジション ---- */
+/* ★★<b>走っている要素にだけ付ける</b>。盤面のカード全部に transition-property を
+   生やすと、32a の出現フェード(animation)や将来の演出まで巻き込む(32a 2-9)。
+   JS が演出の開始時に付け、終了時に必ず剥がす(fxBuildTap の onStop)。
+
+   ★★<b>タップ表現の非対称は維持する</b>(26 / 30)。ここが持つのは<b>遷移だけ</b>で
+   あり、回転(.mana-tile.tapped)と減光(.manual-tile-tapped / .manual-opp-tapped)の
+   どちらになるかは、要素が既に持っているクラスがそのまま決める。
+   transform と filter を両方並べているのは、どちらの表現にもこの1本で足りるためである
+   (該当しないほうは値が変わらないので何も起きない)。 */
+.manual-fx-tap {
+    transition-property: transform, filter;
+    transition-duration: 160ms;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* ---- めくり(2段階)---- */
+/* ★ゴーストが真横を向く瞬間に下から新しい面が覗かないよう、実タイルを透明にする。
+   ★visibility ではなく opacity である(visibility だと当たり判定まで消え、
+   演出中の 220ms だけカードが押せなくなる)。 */
+.manual-fx-hidden { opacity: 0; }
+/* めくりのゴーストは下を完全に隠す(飛ぶゴーストの 0.95 では下が透ける) */
+.manual-fx-ghost[data-fx-kind="flip"] { opacity: 1; backface-visibility: hidden; }
+
+/* ---- 進化の沈み込みパルス ---- */
+/* ★出現フェードと同じく animation である(実要素に当てる演出は transition にしない)。
+   ★+n バッジも同時に跳ねる。何が増えたのかが数字で読めるのは、この演出の目的である。 */
+.manual-fx-sink { animation: manual-fx-sink 180ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes manual-fx-sink {
+    0% { transform: none; }
+    45% { transform: scale(0.96); }
+    100% { transform: none; }
+}
+.manual-fx-sink .manual-tile-badge {
+    animation: manual-fx-badge 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+@keyframes manual-fx-badge {
+    0% { transform: none; }
+    45% { transform: scale(1.35); }
+    100% { transform: none; }
+}
+
+/* ---- ターン開始の合図 ---- */
+/* ★★色は<b>黒背景(#212529)の上</b>で選んである(31 の教訓)。
+   #ffd166 は地(rgba(0,0,0,0.78) 越しの #212529)に対して 13.9:1 である。
+   ★このラベルもコントラストの機械判定の対象セレクタに入れてある(verify.js)。 */
+.manual-fx-turn {
+    position: absolute; transform: translate(-50%, -50%);
+    padding: 6px 22px; border-radius: 999px;
+    font-size: 20px; font-weight: 900; line-height: 1.25;
+    letter-spacing: 0.08em; white-space: nowrap;
+    color: #ffd166;
+    background: rgba(0, 0, 0, 0.78); border: 1px solid rgba(255, 255, 255, 0.22);
+    transition-property: transform, opacity;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-duration: 0ms;
+    will-change: transform, opacity;
+}
+
 /* ---- 演出を切る経路(設計書 2-8)----
    ★CSS と JS の両方で止める。CSS だけだと DOM は作られ続け、
-   JS だけだと将来 CSS 側で足した演出が漏れる。 */
+   JS だけだと将来 CSS 側で足した演出が漏れる。
+   ★実要素へ当てる演出(出現・沈み込み・タップの遷移)は fx層の外にあるので、
+   層を消すだけでは止まらない。1つずつ無効化すること。 */
 @media (prefers-reduced-motion: reduce) {
     .manual-fx-layer { display: none; }
     .manual-fx-enter { animation: none; }
+    .manual-fx-sink { animation: none; }
+    .manual-fx-sink .manual-tile-badge { animation: none; }
+    .manual-fx-tap { transition: none; }
+    .manual-fx-hidden { opacity: 1; }
 }

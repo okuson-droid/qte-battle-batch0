@@ -3431,6 +3431,11 @@ const FX_MOVE_MS = 220;
 const FX_DRAW_MS = 260;
 const FX_FADE_MS = 180;
 const FX_LP_MS = 700;
+/** ★Batch 32b: 状態系・節目系の時間。★演出の時間はこの1箇所にまとめる(32a と同じ規約) */
+const FX_TAP_MS = 160;
+const FX_FLIP_HALF_MS = 110;
+const FX_SINK_MS = 180;
+const FX_TURN_MS = 900;
 
 /**
  * 演出の有効フラグ(設計書 2-8)。
@@ -3597,7 +3602,11 @@ function fxDetectDraw(out, prevSeat, nextSeat) {
  * (設計書 2-2 の末尾)。
  */
 function diffViews(prev, next) {
-    const out = { moved: [], appeared: [], vanished: [], drew: [], lpChanged: [] };
+    const out = {
+        moved: [], appeared: [], vanished: [], drew: [], lpChanged: [],
+        // ★Batch 32b: その場で変わる系(状態)と、盤面全体の節目
+        tapChanged: [], flipped: [], stackGrew: [], turnAdvanced: null,
+    };
     if (!prev || !next) {
         return out;
     }
@@ -3621,6 +3630,23 @@ function diffViews(prev, next) {
                 to: fxPlace(now.seatId, now.zone),
                 card: now.card,
             });
+            continue;
+        }
+        // ★★Batch 32b: 状態系は<b>居場所が変わっていないカードだけ</b>を見る。
+        //   動いたカードはゴーストが既に語っており、同じ1枚に2つの演出を重ねると
+        //   「何が起きたか」がかえって読めなくなる。
+        //   語彙の切り分けとしても素直である——移動系は「どこからどこへ」、
+        //   状態系は「その場で何が変わったか」を語る。
+        const at = fxPlace(now.seatId, now.zone);
+        if (was.card.tapped !== now.card.tapped) {
+            out.tapChanged.push({ id: id, at: at, tapped: now.card.tapped });
+        }
+        if (was.card.faceDown !== now.card.faceDown) {
+            out.flipped.push({ id: id, at: at, from: was.card, to: now.card });
+        }
+        // ★増加だけを見る(解体は素材が場へ出るので moved が語る。27 の不変条件)
+        if ((now.card.stackSize || 1) > (was.card.stackSize || 1)) {
+            out.stackGrew.push({ id: id, at: at });
         }
     }
     for (const [id, was] of before) {
@@ -3640,6 +3666,15 @@ function diffViews(prev, next) {
         if (p.lp !== n.lp) {
             out.lpChanged.push({ seatId: n.id, delta: n.lp - p.lp, lp: n.lp });
         }
+    }
+
+    // ★★Batch 32b: ターンの合図は<b>増加したときだけ</b>出す(設計書 1-2)。
+    //   Undo で巻き戻ったときに「ターン n」の帯が出るのは、合図として嘘になる。
+    //   移動やLPの逆再生を抑制しないのと扱いが違うのは、あちらが
+    //   「実際に起きた状態変化の描画」なのに対し、こちらは<b>宣言</b>だからである。
+    if (typeof prev.turnNumber === 'number' && typeof next.turnNumber === 'number'
+            && next.turnNumber > prev.turnNumber) {
+        out.turnAdvanced = { from: prev.turnNumber, to: next.turnNumber };
     }
     return out;
 }
@@ -3669,6 +3704,20 @@ function fxEffects(diff) {
     }
     for (const l of diff.lpChanged) {
         list.push({ kind: 'lp', key: 'lp:' + l.seatId, seatId: l.seatId, delta: l.delta });
+    }
+    // ★Batch 32b: 状態系・節目系
+    for (const t of diff.tapChanged) {
+        list.push({ kind: 'tap', key: 'tap:' + t.id, id: t.id, at: t.at, tapped: t.tapped });
+    }
+    for (const f of diff.flipped) {
+        list.push({ kind: 'flip', key: 'flip:' + f.id, id: f.id, at: f.at, from: f.from, to: f.to });
+    }
+    for (const s of diff.stackGrew) {
+        list.push({ kind: 'sink', key: 'sink:' + s.id, id: s.id, at: s.at });
+    }
+    if (diff.turnAdvanced) {
+        // ★鍵は席にもカードにも属さない1つだけ。連打しても帯は1本しか走らない
+        list.push({ kind: 'turn', key: 'turn', turnNumber: diff.turnAdvanced.to });
     }
     return list;
 }
@@ -3746,21 +3795,47 @@ function fxGhost(rect, card) {
 }
 
 /**
- * 走行中の演出として登録する。★終了は {@code transitionend} と
- * タイムアウトの二重保険で必ず来る(片方だけだと、値が変わらず transition が
- * 発火しなかったときにゴーストが残る)。
+ * 走行中の演出として登録する。★終了は<b>終了イベントとタイムアウトの二重保険</b>で
+ * 必ず来る(片方だけだと、値が変わらず transition が発火しなかったときに
+ * ゴーストが残る)。
  *
- * @param keep 真なら要素をDOMから外さない(出現のフェードインは<b>実要素</b>に当てるため)
- * @param endEvent 終了イベント名。ゴーストは transitionend、出現は animationend である
+ * <h3>★Batch 32b: 位置引数をオプションにまとめた</h3>
+ * 32a では {@code keep} / {@code endEvent} の2つを位置引数で受けていたが、
+ * 32b で「終わったときに元へ戻す処理」({@code onStop})が要るようになった。
+ * 位置引数を3つ並べると呼び出し側が読めなくなるため、オプションにまとめてある。
+ *
+ * @param opts.keep    真なら要素をDOMから外さない(<b>実要素</b>に当てる演出のため)
+ * @param opts.event   終了イベント名。既定は {@code transitionend}。
+ *                     ★{@code null} を渡すとイベントを購読せず<b>タイマーだけ</b>で閉じる。
+ *                     flip のような多段演出は、途中の段の transitionend で
+ *                     閉じてしまってはならない(32b 2-3)
+ * @param opts.onStop  終了時に呼ぶ後始末。★<b>実要素へ当てたクラスを必ずここで剥がす</b>。
+ *                     途中で次の配信が来て要素が捨てられても、剥がす相手が
+ *                     捨てられた要素になるだけで壊れない
  */
-function fxRegister(key, el, ms, play, keep, endEvent) {
+function fxRegister(key, el, ms, play, opts) {
     fxStop(key);
+    const options = opts || {};
     const entry = {
-        el: el, keep: !!keep, event: endEvent || 'transitionend', timer: null, done: null,
+        el: el,
+        keep: !!options.keep,
+        event: options.event === undefined ? 'transitionend' : options.event,
+        onStop: options.onStop || null,
+        timer: null,
+        done: null,
     };
-    entry.done = () => fxStop(key);
-    entry.timer = setTimeout(entry.done, ms + 140);
-    el.addEventListener(entry.event, entry.done);
+    // ★イベントは子要素からも上がってくる(バッジのアニメーション等)。
+    //   自分自身のぶんでなければ終了と見なさない
+    entry.done = (e) => {
+        if (e && e.target && e.target !== el) {
+            return;
+        }
+        fxStop(key);
+    };
+    entry.timer = setTimeout(() => fxStop(key), ms + 140);
+    if (entry.event) {
+        el.addEventListener(entry.event, entry.done);
+    }
     fxRunning.set(key, entry);
     return play;
 }
@@ -3772,17 +3847,21 @@ function fxStop(key) {
     }
     fxRunning.delete(key);
     clearTimeout(entry.timer);
-    entry.el.removeEventListener(entry.event, entry.done);
-    if (entry.keep) {
-        entry.el.classList.remove('manual-fx-enter');
-    } else if (entry.el.parentNode) {
+    if (entry.event) {
+        entry.el.removeEventListener(entry.event, entry.done);
+    }
+    if (entry.onStop) {
+        entry.onStop();
+    }
+    if (!entry.keep && entry.el.parentNode) {
         entry.el.parentNode.removeChild(entry.el);
     }
 }
 
+/** 演出の着地点。★その場で変わる系(tap / flip / sink)は {@code at} に居場所を持つ */
 function fxTargetRect(fx) {
     const rect = fxRectOf(fxCardElement(fx.id));
-    return rect || fxRectOf(anchorElement(fx.to));
+    return rect || fxRectOf(anchorElement(fx.to || fx.at));
 }
 
 /** 飛ぶ系(move / draw)。★動かすのは transform と opacity だけである */
@@ -3832,8 +3911,11 @@ function fxBuildAppear(fx) {
         return null;
     }
     el.classList.add('manual-fx-enter');
-    return fxRegister(fx.key, el, FX_FADE_MS, () => { /* animation は付与だけで走る */ },
-        true, 'animationend');
+    return fxRegister(fx.key, el, FX_FADE_MS, () => { /* animation は付与だけで走る */ }, {
+        keep: true,
+        event: 'animationend',
+        onStop: () => el.classList.remove('manual-fx-enter'),
+    });
 }
 
 function fxBuildLp(fx, layer) {
@@ -3857,12 +3939,203 @@ function fxBuildLp(fx, layer) {
     });
 }
 
+// ---- ★Batch 32b: その場で変わる系(状態)----
+
+/**
+ * ★★タップ表現の<b>非対称は維持する</b>(26 / 30 の判断)。
+ *
+ * <pre>
+ *   自席のマナ(.mana-tile)         → 回転 rotate(90deg)
+ *   相手マナの簡略タイル             → 減光 .manual-opp-tapped
+ *   場のタイル・リーダー             → 減光 + バッジ .manual-tile-tapped
+ * </pre>
+ *
+ * どちらの表現かは<b>要素が既に持っているクラス</b>で決める。
+ * 「マナなら回転」という判断をここで書き直すと、表現の正が2箇所になる。
+ */
+function fxTapStateClass(el) {
+    if (el.classList.contains('mana-tile')) {
+        return 'tapped';
+    }
+    if (el.classList.contains('manual-opp-mana-card')) {
+        return 'manual-opp-tapped';
+    }
+    return 'manual-tile-tapped';
+}
+
+/**
+ * ★★タップ / アンタップのトランジション(設計書 2-4「次フレーム切替」)。
+ *
+ * <h3>なぜ 32a まで一瞬で切り替わっていたのか</h3>
+ * {@code renderAll} は毎回DOMを作り直す。<b>作られた時点で最終状態のクラスが付いている</b>ため、
+ * CSS の transition は発火しない(初期値には遷移が無い)。
+ *
+ * <h3>直し方</h3>
+ * 実要素の状態クラスを<b>いったん旧状態へ戻し</b>、レイアウトを確定させてから最終状態へ戻す。
+ * すると新しい要素の上で transition が走る。要素の使い回し(=盤面DOMの差分更新)は要らない。
+ * レイアウトの確定は {@link fxSpawn} が層ごと1回だけ行う。
+ *
+ * ★<b>遷移そのものは {@code .manual-fx-tap} が持つ</b>。盤面のカード全部に
+ * {@code transition-property} を生やすと、32a の出現フェード(animation)や
+ * 将来の演出まで巻き込む(32a 2-9)。走っている要素にだけ付けて、終わったら剥がす。
+ *
+ * ★{@code applyManaOverlap} は既に<b>最終状態で</b>幅を確保し終えている
+ * ({@link measurePhase} の順序)。ここで一時的にクラスを外してもマージンは
+ * インラインで最終値のままであり、レイアウトは動かない(設計書 2-4)。
+ */
+function fxBuildTap(fx) {
+    const el = fxCardElement(fx.id);
+    if (!el) {
+        return null;   // パイルの中・非公開ゾーンなど、画面に出ていないカード
+    }
+    const stateClass = fxTapStateClass(el);
+    const settle = () => {
+        el.classList.remove('manual-fx-tap');
+        el.classList.toggle(stateClass, fx.tapped);
+    };
+    // ★★<b>遷移のクラスは最終状態と一緒に当てる</b>。旧状態と一緒に当ててはならない。
+    //   旧状態と一緒に当てると、確定の瞬間に「最終状態 → 旧状態」という<b>逆向きの遷移</b>が
+    //   走り出す。その直後に最終状態へ戻すと、CSS Transitions の規定により
+    //   「走行中の遷移の現在値が新しい最終値と等しい」場合は<b>遷移を取り消して
+    //   新しい遷移を始めない</b>。結果、クラスは全部正しく付いているのに
+    //   <b>何も動かない</b>——音を立てない壊れ方をする(検証項目53で踏んだ)。
+    el.classList.toggle(stateClass, !fx.tapped);   // ★旧状態へ戻す(遷移はまだ付けない)
+    return fxRegister(fx.key, el, FX_TAP_MS, () => {
+        el.classList.add('manual-fx-tap');
+        el.classList.toggle(stateClass, fx.tapped);
+    }, { keep: true, onStop: settle });
+}
+
+/**
+ * ★表裏のめくり(設計書 2-4)。2段階で行う。
+ *
+ * <pre>
+ *   前半 110ms: <b>旧い面</b>のゴーストが rotateY(0deg → 90deg) で立つ
+ *   後半 110ms: 中身を<b>新しい面</b>へ差し替え、rotateY(-90deg → 0deg) で倒れる
+ * </pre>
+ *
+ * ★実タイルは前半・後半のあいだ透明にしておく({@code .manual-fx-hidden})。
+ * ゴーストが真横(90deg)を向いた瞬間に下から新しい面が覗くと、めくりに見えない。
+ * ★透明にするのは {@code opacity} である({@code visibility} だと当たり判定が消え、
+ * 演出中だけカードが押せなくなる)。
+ * ★クラスを剥がすのは {@code onStop} の仕事である。途中で次の配信が来て要素が
+ * 作り直されても、剥がす相手が<b>捨てられた要素</b>になるだけで盤面は壊れない。
+ *
+ * ★情報漏れは構造的に起きない。前半は<b>旧ビューのカード</b>、後半は
+ * <b>新ビューのカード</b>をそのまま {@link fxGhostBody} に渡すだけであり、
+ * 裏向きなら {@link cardBackFace}(imageId を持たない)に落ちる。
+ */
+function fxBuildFlip(fx, layer) {
+    const rect = fxTargetRect(fx);
+    if (!rect) {
+        return null;
+    }
+    const el = fxCardElement(fx.id);
+    const ghost = fxGhost(rect, fx.from);
+    ghost.dataset.fxKind = 'flip';
+    ghost.dataset.fxPhase = '1';
+    ghost.style.transform = 'perspective(800px) rotateY(0deg)';
+    layer.appendChild(ghost);
+    if (el) {
+        el.classList.add('manual-fx-hidden');
+    }
+    let half = null;
+    // ★終了イベントを購読しない。前半の transitionend で閉じてしまうためである
+    return fxRegister(fx.key, ghost, FX_FLIP_HALF_MS * 2, () => {
+        ghost.style.transitionDuration = FX_FLIP_HALF_MS + 'ms, 0ms';
+        ghost.style.transform = 'perspective(800px) rotateY(90deg)';
+        half = setTimeout(() => {
+            ghost.dataset.fxPhase = '2';
+            ghost.innerHTML = '';
+            ghost.appendChild(fxGhostBody(fx.to, rect));
+            ghost.style.transitionDuration = '0ms, 0ms';
+            ghost.style.transform = 'perspective(800px) rotateY(-90deg)';
+            void ghost.offsetWidth;
+            ghost.style.transitionDuration = FX_FLIP_HALF_MS + 'ms, 0ms';
+            ghost.style.transform = 'perspective(800px) rotateY(0deg)';
+        }, FX_FLIP_HALF_MS);
+    }, {
+        event: null,
+        onStop: () => {
+            clearTimeout(half);
+            if (el) {
+                el.classList.remove('manual-fx-hidden');
+            }
+        },
+    });
+}
+
+// ---- ★Batch 32b: 節目系 ----
+
+/**
+ * ★進化スタックが伸びたときの沈み込みパルス(設計書 2-7)。
+ *
+ * 素材が束へ入る「動き」は、素材が別のゾーンから来たなら {@code moved} のゴーストが
+ * 既に語っている。ここで足すのは<b>到着したタイル側の反応</b>だけである。
+ * 27 の「素材の消失」問題系に触る面を増やさないため、専用の大掛かりな演出は作らない。
+ *
+ * ★同じ席の場から場への進化は居場所が変わらないので {@code moved} が出ない。
+ * そのときはこのパルスが唯一の合図になる。
+ */
+function fxBuildSink(fx) {
+    const el = fxCardElement(fx.id);
+    if (!el) {
+        return null;
+    }
+    el.classList.add('manual-fx-sink');
+    return fxRegister(fx.key, el, FX_SINK_MS, () => { /* animation は付与だけで走る */ }, {
+        keep: true,
+        event: 'animationend',
+        onStop: () => el.classList.remove('manual-fx-sink'),
+    });
+}
+
+/**
+ * ★ターン開始の合図(設計書 2-6)。盤面中央に短い帯を出して消す。
+ *
+ * ★20b でターン表示を削った理由は「縦100pxの<b>常設行</b>」だった。
+ * これは一過性のオーバーレイでレイアウトを1pxも消費しないため、当時の判断と矛盾しない。
+ * ★帯の文字もコントラストの機械判定の対象に入れてある(30/31 の1本の条件)。
+ */
+function fxBuildTurn(fx, layer) {
+    const rect = fxRectOf(document.getElementById('center-line'))
+        || fxRectOf(document.getElementById('manual-root'));
+    if (!rect) {
+        return null;
+    }
+    const band = document.createElement('div');
+    band.className = 'manual-fx-turn';
+    band.textContent = 'ターン ' + fx.turnNumber;
+    band.dataset.fxTurn = String(fx.turnNumber);
+    band.style.left = (rect.left + rect.width / 2) + 'px';
+    band.style.top = (rect.top + rect.height / 2) + 'px';
+    layer.appendChild(band);
+    return fxRegister(fx.key, band, FX_TURN_MS, () => {
+        // ★出たまま少し留めてから消える。transform は動かさず opacity だけ遅らせる
+        band.style.transitionDuration = '0ms, 380ms';
+        band.style.transitionDelay = '0ms, ' + (FX_TURN_MS - 380) + 'ms';
+        band.style.opacity = '0';
+    });
+}
+
 function fxBuild(fx, origin, layer) {
     if (fx.kind === 'lp') {
         return fxBuildLp(fx, layer);
     }
     if (fx.kind === 'appear') {
         return fxBuildAppear(fx);
+    }
+    if (fx.kind === 'tap') {
+        return fxBuildTap(fx);
+    }
+    if (fx.kind === 'flip') {
+        return fxBuildFlip(fx, layer);
+    }
+    if (fx.kind === 'sink') {
+        return fxBuildSink(fx);
+    }
+    if (fx.kind === 'turn') {
+        return fxBuildTurn(fx, layer);
     }
     if (!origin) {
         return null;   // 旧位置が採れなかったものは演出しない(推測で描かない)
@@ -3901,7 +4174,18 @@ function fxSpawn() {
     if (plays.length === 0) {
         return;
     }
-    void layer.offsetWidth;
+    // ★★開始状態をここで<b>確定</b>させてから、まとめて終了状態を当てる。
+    //   これをしないとブラウザから見て開始状態が存在せず、遷移が発火しない
+    //   (32a からの idiom。rAF を待たないので検証が配信直後に観測できる)。
+    //
+    // ★Batch 32b で読む相手を fx層からルート要素へ変えた。32a が動かすのは
+    //   ゴースト(fx層の中)だけだったが、32b の状態系は<b>盤面の実要素</b>
+    //   (#manual-root の中)に当たる。実測では fx層を読んでも文書全体が確定するが、
+    //   それは強制同期レイアウトの実装上の性質に寄りかかった書き方であり、
+    //   <b>なぜそれで足りるのかがコードから読めない</b>。確定させたいものを含む要素を
+    //   読む——ルート要素の高さはページ全体のレイアウトを要求する。
+    // ★強制同期レイアウトが1回だけであることは変わらない(29 の相分離)。
+    void document.documentElement.offsetHeight;
     for (const play of plays) {
         play();
     }
