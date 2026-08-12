@@ -316,6 +316,8 @@ function setGateBusy(busy) {
 function closeGate() {
     gateEl('seat-gate').classList.add('d-none');
     gateMode = null;
+    // ★Batch 33: ゲートの開閉は切断オーバーレイの出る条件でもある(1-3)
+    updateOfflineLock();
 }
 
 /**
@@ -374,6 +376,7 @@ function openJoinGate(summary) {
         summary.spectatorAllowed,
         null);
     gateEl('seat-gate').classList.remove('d-none');
+    updateOfflineLock();
     return new Promise((resolve) => { gateResolve = resolve; });
 }
 
@@ -403,6 +406,7 @@ function openSeatChangeGate() {
     }
     applyGateSeats(names, notes, latestView.spectatorAllowed, latestView.viewerSeat);
     gateEl('seat-gate').classList.remove('d-none');
+    updateOfflineLock();
 }
 
 /** 部屋が見つからない等、席選択そのものが成立しないとき。 */
@@ -413,8 +417,11 @@ function showGateFatal(message) {
     gateEl('seat-gate-name-wrap').classList.add('d-none');
     gateEl('seat-gate-buttons').classList.add('d-none');
     gateEl('seat-gate-cancel').classList.add('d-none');
+    // ★Batch 33: 入れなかった部屋のリンクをコピーさせない(共有しても相手も入れない)
+    gateEl('seat-gate-copy').classList.add('d-none');
     showGateError(message);
     gateEl('seat-gate').classList.remove('d-none');
+    updateOfflineLock();
 }
 
 gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
@@ -494,15 +501,30 @@ const client = new StompJs.Client({
 });
 
 client.onConnect = () => {
+    // ★Batch 33: 「初回の接続」と「再接続」を区別する。
+    //   裏で復旧したことを黙って済ませない(28 の「無言をやめる」の続き)
+    const reconnected = connectionEstablishedOnce;
+    connectionEstablishedOnce = true;
+    socketDown = false;
+    offlinePeeking = false;
     setConnectionStatus('接続済み');
+    updateOfflineLock();
+    setConnBar(reconnected ? '再接続しました。盤面を同期しています' : null,
+        'ok', CONN_BAR_MS);
     client.subscribe(`/topic/manual/${ROOM_ID}/view/${OCCUPANT_ID}`, onMessage);
     send('ready', {});
 };
 
-client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)', true);
+client.onWebSocketClose = () => {
+    socketDown = true;
+    setConnectionStatus('切断(再接続中...)', true);
+    updateOfflineLock();
+};
 client.onStompError = (frame) => {
     // ★サーバがSTOMPレベルでエラーを返した場合。再接続では直らないことが多いので明示する
+    socketDown = true;
     setConnectionStatus('サーバとの通信でエラー: ' + (frame.headers.message || '不明'), true);
+    updateOfflineLock();
 };
 
 // ★カード定義の取得は接続と独立に始める(Batch 25)。失敗しても対戦は続けられる
@@ -532,6 +554,101 @@ function setConnectionStatus(text, warn) {
     el.classList.toggle('text-muted', !warn);
 }
 
+// ---------------------------------------------------------------
+// 1-2) 切断中のロック(★Batch 33 設計解説1章)
+// ---------------------------------------------------------------
+
+/**
+ * ★★切断中に「操作したのに何も起きない」を作らない。
+ *
+ * <h3>直したこと</h3>
+ * 32 までの {@code send()} は接続状態を一切見ておらず、切れたソケットへ
+ * <b>無言で publish</b> していた。28 で「無言の {@code location.reload()}」を潰したのと
+ * 同じ種類の欠陥がここに残っていた。しかも通話しながら遊ぶ前提では、
+ * 「声は聞こえているのに盤面だけ届いていない」という<b>気づきにくい事故</b>になる。
+ * 双方が数分気づかないまま進むと、盤面の食い違いは巻き戻して直せない。
+ *
+ * <h3>番人は send() であり、オーバーレイではない</h3>
+ * オーバーレイは<b>宣言</b>である(いま何が起きているかを人間に伝える)。
+ * 実際に操作を止めているのは {@code send()} のガード1箇所であり、
+ * オーバーレイを畳んで盤面を覗いている間もガードは効いている。
+ * 「見えなくすること」を安全装置にすると、覗き見の導線を足した瞬間に穴が開く。
+ */
+const CONN_BAR_MS = 3500;
+
+let connectionEstablishedOnce = false;   // 一度でも接続できたか(=次は「再接続」)
+let connectionFatal = false;             // 部屋消失。切断の案内より優先する
+let offlinePeeking = false;              // 「盤面を確認する」でロックを畳んだ状態
+let socketDown = false;                  // onWebSocketClose / onStompError の記録
+let connBarTimer = null;
+
+/**
+ * 接続しているか。★接続の判定はこの1箇所だけが持つ。
+ * {@code send()} もオーバーレイもここを見る(ハンドオフ3章「判定を2箇所に書かない」)。
+ *
+ * ★{@code client.connected} だけに頼らないのは、{@code onWebSocketClose} が呼ばれる
+ * 時点でライブラリ内部のフラグが既に倒れている保証を<b>こちらが持てない</b>ためである。
+ * 倒れていなければオーバーレイが出ず、しかも<b>音を立てずに</b>出ない。
+ * 自分で観測した事実({@code socketDown})を and で重ねておく。
+ */
+function isConnected() {
+    return client.connected === true && !socketDown;
+}
+
+function isGateVisible() {
+    return !document.getElementById('seat-gate').classList.contains('d-none');
+}
+
+/**
+ * 接続の帯。{@code text} が null なら隠す。{@code ms} を与えると自動で消える。
+ * ★状態は「切断中(offline)」「復帰(ok)」「無し」の3つだけであり、
+ * 要素は1つである。増やすなら kind を足すこと(要素を増やさない)。
+ */
+function setConnBar(text, kind, ms) {
+    const bar = document.getElementById('manual-conn-bar');
+    if (connBarTimer !== null) {
+        clearTimeout(connBarTimer);
+        connBarTimer = null;
+    }
+    bar.classList.remove('manual-conn-bar-offline', 'manual-conn-bar-ok');
+    if (!text) {
+        bar.textContent = '';
+        bar.classList.add('d-none');
+        return;
+    }
+    bar.textContent = text;
+    bar.classList.add('manual-conn-bar-' + kind);
+    bar.classList.remove('d-none');
+    if (ms) {
+        connBarTimer = setTimeout(() => {
+            connBarTimer = null;
+            setConnBar(null);
+        }, ms);
+    }
+}
+
+/**
+ * 切断オーバーレイと接続の帯を、いまの状態から描き直す。
+ * ★出す/出さないの判定をここ1箇所に閉じる。
+ *
+ * ★部屋消失({@code connectionFatal})のときは出さない。あちらは「戻らない」の案内であり、
+ * 「戻るのを待っている」の案内を重ねると、人間はどちらを信じてよいか分からなくなる。
+ * ★席選択ゲートが出ている間も出さない。まだ盤面に入っていない人に
+ * 「盤面が操作できません」と言っても意味が無い。
+ */
+function updateOfflineLock() {
+    const offline = !isConnected() && !connectionFatal && !isGateVisible();
+    document.getElementById('manual-offline')
+        .classList.toggle('d-none', !offline || offlinePeeking);
+    if (offline) {
+        setConnBar(offlinePeeking
+            ? '切断中 — 操作は相手に届きません(再接続中)'
+            : null, 'offline');
+    }
+    // ★接続が戻ったときの帯は onConnect が握る。ここでは消さない
+    //   (updateOfflineLock は onConnect から<b>先に</b>呼ばれる)
+}
+
 /**
  * ★Batch 28: 部屋がサーバから消えていたときの扱い。
  *
@@ -556,8 +673,12 @@ function reloadPage() {
 }
 
 function showRoomLostFatal() {
+    // ★Batch 33: 切断の案内より優先する。deactivate() は当然 onWebSocketClose を呼ぶが、
+    //   「再接続を待ってください」と「この対戦は戻りません」を同時に出してはならない
+    connectionFatal = true;
     client.deactivate();
     forgetOccupant();
+    setConnBar(null);
     setConnectionStatus('部屋が失われました', true);
     showGateFatal('この部屋はサーバ上に存在しません。'
         + 'サーバの再起動や、長時間の無操作による切断が原因です。'
@@ -579,12 +700,114 @@ function showRoomLostFatal() {
     box.classList.remove('d-none');
 }
 
-function send(action, payload) {
+/**
+ * サーバへ操作を送る。
+ *
+ * ★★Batch 33: 接続していないときは<b>publish しない</b>。
+ * 死んだソケットへ投げても例外は出ず、人間には「押したのに何も起きない」としか
+ * 見えない。これが 28 で潰し損ねた最後の「無言」である。
+ *
+ * ★{@code options.quiet} は矢印({@code dragcue})専用の逃がし口である。
+ * 揮発メッセージは1回のドラッグで何十回も飛ぶので、これに毎回トーストを出すと
+ * <b>本当の警告が埋もれる</b>。捨てること自体は同じで、黙って捨てるのは
+ * 「元々ビューでもログでもないもの」に限る。
+ *
+ * @return 送ったかどうか(呼び出し側が分岐したくなった場合のため)
+ */
+function send(action, payload, options) {
+    if (!isConnected()) {
+        if (!(options && options.quiet)) {
+            showToast('切断中 — 操作は相手に届きません');
+            // ★ヘッダの接続表示を明滅させる。「どこを見れば状態が分かるか」を
+            //   その場で指し示す(21c 3-5 の flashDenied と同じ役割)
+            flashDenied(document.getElementById('connection-status'));
+        }
+        return false;
+    }
     client.publish({
         destination: `/app/manual/${ROOM_ID}/${action}`,
         body: JSON.stringify({ occupantId: OCCUPANT_ID, ...payload }),
     });
+    return true;
 }
+
+// ★「盤面を確認する」= オーバーレイだけ畳む。ガード(send)は効いたままである
+document.getElementById('manual-offline-peek').addEventListener('click', () => {
+    offlinePeeking = true;
+    updateOfflineLock();
+});
+
+// ---------------------------------------------------------------
+// 1-3) 部屋の共有(★Batch 33 設計解説2章)
+// ---------------------------------------------------------------
+
+/**
+ * この部屋のURL。★組み立てはこの1箇所だけが知っている。
+ * 経路({@code /manual/battle/{roomId}})はサーバの
+ * {@code ManualLobbyController#battle} と対になっており、
+ * 文字列を2箇所で作ると、片方だけ直したときに<b>黙って壊れたリンクを配る</b>。
+ */
+function roomShareUrl() {
+    return `${location.origin}/manual/battle/${ROOM_ID}`;
+}
+
+/**
+ * クリップボードへ書く。
+ *
+ * ★{@code navigator.clipboard} は<b>安全なコンテキスト(https / localhost)でしか
+ * 使えない</b>。素の http で開発しているときに黙って何も起きないのが最悪なので、
+ * 使えない場合と例外の場合の両方で、旧来の {@code execCommand('copy')} へ落とす。
+ * ★成否は必ず呼び出し側へ返す。「コピーできなかった」を無言にしない。
+ */
+async function copyText(text) {
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (e) {
+        // 下の代替へ落ちる(理由は問わない。人間に必要なのは成否だけである)
+    }
+    return copyTextFallback(text);
+}
+
+function copyTextFallback(text) {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    // ★画面外に置くが display:none にはしない。選択できない要素はコピーできない
+    area.style.position = 'fixed';
+    area.style.top = '-1000px';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try {
+        ok = document.execCommand('copy');
+    } catch (e) {
+        ok = false;
+    }
+    area.remove();
+    return ok;
+}
+
+/**
+ * コピーボタン1つの配線。★ボタンは3つ(ヘッダのID・ヘッダのリンク・ゲートのリンク)
+ * あるが、押したときの振る舞いはここ1箇所にしかない。
+ */
+function bindCopyButton(el, label, getText) {
+    if (!el) return;
+    el.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = await copyText(getText());
+        showToast(ok ? `${label}をコピーしました` : `${label}をコピーできませんでした`);
+        if (!ok) flashDenied(el);
+    });
+}
+
+bindCopyButton(document.getElementById('btn-copy-id'), '部屋ID', () => ROOM_ID);
+bindCopyButton(document.getElementById('btn-copy-link'), '部屋リンク', roomShareUrl);
+bindCopyButton(document.getElementById('seat-gate-copy'), '部屋リンク', roomShareUrl);
 
 // ---------------------------------------------------------------
 // 2) 受信
@@ -3228,7 +3451,8 @@ function sendDragCueStart(cardId) {
     cueDragCardId = cardId;
     cueHoverKey = null;
     cueLastSentAt = Date.now();
-    send('dragcue', { cardId, toSeat: null, toZone: null, active: true });
+    // ★Batch 33: 矢印は揮発メッセージなので、切断中は黙って捨てる(send の javadoc)
+    send('dragcue', { cardId, toSeat: null, toZone: null, active: true }, { quiet: true });
 }
 
 function sendDragCueHover(seatId, zoneName) {
@@ -3247,7 +3471,7 @@ function sendDragCueHover(seatId, zoneName) {
         cueLastSentAt = Date.now();
         send('dragcue', {
             cardId: cueDragCardId, toSeat: seatId, toZone: zoneName, active: true,
-        });
+        }, { quiet: true });
     }, wait);
 }
 
@@ -3260,7 +3484,7 @@ function sendDragCueEnd() {
         clearTimeout(cueHoverTimer);
         cueHoverTimer = null;
     }
-    send('dragcue', { cardId: null, toSeat: null, toZone: null, active: false });
+    send('dragcue', { cardId: null, toSeat: null, toZone: null, active: false }, { quiet: true });
 }
 
 // ---- 受信・描画 ----

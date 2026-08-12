@@ -1206,3 +1206,53 @@ body.manual-drag-active .manual-band {
     .manual-fx-tap { transition: none; }
     .manual-fx-hidden { opacity: 1; }
 }
+
+/* =========================================================================
+   ★Batch 33: 切断中のロック / 接続の帯 / 共有導線
+   すべて手動モード専用の新規クラスである。通常モードと共有している
+   .leader-card / .minion-row / .mana-chip / .mana-row の定義には触れていない。
+   ========================================================================= */
+
+/* ---- 切断オーバーレイ(設計解説 1-3)----
+   ★z-index は 1970。盤面側の最前面(全面表示 1050)だけでなく、
+   開始シーケンスの帯(1900)・モーダル(1950/1960)よりも上に置く。
+   「切断中は盤面に触れない」と名乗る以上、何かの下に潜ってはならない。
+   ★席選択ゲート(1060)とは z-index で競わせない。
+   部屋消失の案内と切断の案内は<b>同時に出さない</b>と決めてあり、
+   その判定は updateOfflineLock() の1箇所が持つ(重ね順で解決しない)。
+   ★背景は不透明ではなく半透明にしてある。盤面が透けて見えることで
+   「盤面が消えたのではない・触れなくなっただけ」が伝わる。 */
+.manual-offline {
+    position: fixed; inset: 0; z-index: 1970; background: rgba(0, 0, 0, 0.72);
+    display: flex; align-items: center; justify-content: center;
+}
+.manual-offline-body {
+    width: 420px; max-width: 92vw; background: #17191c; color: #f8f9fa;
+    border: 1px solid #dc3545; border-radius: 6px; padding: 16px; text-align: center;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+}
+.manual-offline-title { font-weight: 700; font-size: 16px; color: #ea868f; margin-bottom: 6px; }
+
+/* ---- 接続の帯(設計解説 1-5)----
+   切断中に盤面を覗いている間(オーバーレイを畳んだ状態)と、再接続の直後に出る。
+   ★pointer-events: none。これは宣言であって操作ではないので、当たり判定を
+   奪ってはならない(.manual-cue-layer と同じ理由)。
+   ★z-index はオーバーレイ(1970)より上。畳んでいるときも畳んでいないときも
+   同じ場所に出るほうが、人間は状態を1箇所で読める。
+   ★★全幅の帯ではなく<b>中央のピル</b>にしてある。全幅にするとヘッダ1行を丸ごと
+   覆ってしまい、切断中も使える導線(部屋リンクのコピー)まで隠れる。
+   盤面を覗くために畳んだのだから、盤面の上へ降りてはならない——という制約と
+   両立する置き場所が、ヘッダの中央である。 */
+.manual-conn-bar {
+    position: fixed; left: 50%; top: 2px; transform: translateX(-50%); z-index: 1975;
+    padding: 3px 14px; border-radius: 4px; max-width: 96vw;
+    text-align: center; font-size: 13px; font-weight: 700; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+}
+.manual-conn-bar-offline { background: #58151c; color: #ffb3ba; border: 1px solid #dc3545; }
+.manual-conn-bar-ok { background: #0f3a22; color: #8fe0b0; border: 1px solid #198754; }
+
+/* ---- 共有導線のコピーボタン(設計解説 2-2)----
+   ★ヘッダは既に12個のコントロールが並ぶ1行である(20b 2-7)。
+   既存ボタンより一回り小さくして、行を増やさずに収める。 */
+.manual-copy-btn { font-size: 11px; padding: 1px 6px; line-height: 1.4; }

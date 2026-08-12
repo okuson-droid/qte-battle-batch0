@@ -2108,6 +2108,11 @@ async function clearZoom(page) {
       '.zone-drop-mini', '.manual-pile-label', '.manual-opp-label', '.manual-untap-note',
       '.manual-untap-btn', '.manual-pile-blank', '.manual-weapon-slot-used',
       '.manual-weapon-slot-atk', '.manual-center-send button',
+      // ★★Batch 33: 切断オーバーレイ・接続の帯・コピーボタンも<b>同じ1本の条件</b>で見る。
+      //   30 の「盤面のラベルは1本の条件で判定」に新しい文字を足したら必ずここへ足すこと。
+      //   ★これらは表示中でなくても判定できる(色も背景も d-none とは無関係に解決される)。
+      '#manual-offline .manual-offline-title', '#manual-offline p', '#manual-offline button',
+      '#manual-conn-bar', '.manual-copy-btn',
     ].map((s) => '#manual-root ' + s)
       // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
       //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
@@ -2761,6 +2766,236 @@ async function clearZoom(page) {
   check('★★フェイスの質感は transform / filter を使わない(32c・タップの遷移に巻き込まれない)',
     faceFx.hits.length === 0 && faceFx.seen.length >= 6,
     JSON.stringify(faceFx));
+
+  // =====================================================================
+  // ★★Batch 33: 切断UXの強化(1章)と共有導線(2章)
+  // =====================================================================
+
+  // ---- 64〜66. ★★切断中は操作を送らない・無言で捨てない ----
+  // ★★これが本バッチの中心である。32 までの send() は接続を一切見ておらず、
+  //   死んだソケットへ<b>無言で publish</b> していた。例外は出ないので、
+  //   人間には「押したのに何も起きない」としか見えない。
+  //   通話しながら遊ぶ前提では、双方が数分気づかないまま盤面が食い違う。
+  await render(page, baseView());
+  const offlineSend = await page.evaluate(() => {
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    client.onWebSocketClose();             // ★実際の切断と同じ入口から落とす
+    // eslint-disable-next-line no-undef
+    const ok = send('tap', { cardIds: ['m1'] });
+    const toast = document.getElementById('manual-toast');
+    return { ok, sent: window.__sent.length, toast: toast ? toast.textContent : '' };
+  });
+  check('★★切断中は send() が publish しない(33・1-2)',
+    offlineSend.ok === false && offlineSend.sent === 0, JSON.stringify(offlineSend));
+  check('★★切断中の操作を無言で捨てない(33・1-2)',
+    offlineSend.toast.includes('切断中'), offlineSend.toast);
+
+  const lock = await page.evaluate(() => {
+    const el = document.getElementById('manual-offline');
+    const top = document.elementFromPoint(
+      Math.floor(window.innerWidth / 2), Math.floor(window.innerHeight / 2));
+    return {
+      shown: !el.classList.contains('d-none'),
+      blocked: !!(top && el.contains(top)),
+      topClass: top ? top.className : '(なし)',
+    };
+  });
+  check('★切断中はオーバーレイが盤面を物理的に覆う(33・1-3)',
+    lock.shown && lock.blocked, JSON.stringify(lock));
+
+  // ---- 67. ★矢印(dragcue)だけは無言で捨てる ----
+  // ★1回のドラッグで何十回も飛ぶ揮発メッセージにトーストを出すと、
+  //   <b>本当の警告が埋もれる</b>。捨てること自体は同じである。
+  const cueQuiet = await page.evaluate(() => {
+    const toast = document.getElementById('manual-toast');
+    toast.textContent = '';
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('dragcue', { cardId: null, active: false }, { quiet: true });
+    return { ok, sent: window.__sent.length, toast: toast.textContent };
+  });
+  check('★矢印は切断中も無言で捨てる(33・警告を埋もれさせない)',
+    cueQuiet.ok === false && cueQuiet.sent === 0 && cueQuiet.toast === '',
+    JSON.stringify(cueQuiet));
+
+  // ---- 68. ★★覗き見でロックを畳んでも、番人(send)は効いたままである ----
+  // ★★オーバーレイは<b>宣言</b>であって安全装置ではない、という設計そのものの検証。
+  //   「見えなくすること」を安全装置にしていたら、この項目は落ちる。
+  await page.locator('#manual-offline-peek').click();
+  await page.waitForTimeout(30);
+  const peek = await page.evaluate(() => {
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('tap', { cardIds: ['m1'] });
+    const bar = document.getElementById('manual-conn-bar');
+    return {
+      overlayHidden: document.getElementById('manual-offline').classList.contains('d-none'),
+      barOffline: bar.classList.contains('manual-conn-bar-offline'),
+      barText: bar.textContent,
+      ok,
+      sent: window.__sent.length,
+    };
+  });
+  check('★★盤面を覗いても send() のガードは効く(33・番人はオーバーレイではない)',
+    peek.overlayHidden && peek.ok === false && peek.sent === 0,
+    JSON.stringify(peek));
+  check('★覗いている間は接続の帯が状態を出し続ける(33・1-5)',
+    peek.barOffline && peek.barText.includes('切断中'), JSON.stringify(peek));
+
+  // ---- 69・70. ★再接続の通知(初回の接続と区別する)----
+  // ★「再接続しました」を初回の接続で出すと、それは<b>嘘の宣言</b>である
+  //   (32b の「巻き戻しでターンの帯を出さない」と同じ理屈)。
+  const firstConnect = await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    connectionEstablishedOnce = false;
+    // eslint-disable-next-line no-undef
+    client.onConnect();
+    const bar = document.getElementById('manual-conn-bar');
+    return { ok: bar.classList.contains('manual-conn-bar-ok'), text: bar.textContent };
+  });
+  check('★初回の接続では「再接続しました」と言わない(33・1-5)',
+    !firstConnect.ok && firstConnect.text === '', JSON.stringify(firstConnect));
+
+  const reconnect = await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    client.onWebSocketClose();
+    // eslint-disable-next-line no-undef
+    client.onConnect();
+    const bar = document.getElementById('manual-conn-bar');
+    return {
+      ok: bar.classList.contains('manual-conn-bar-ok'),
+      text: bar.textContent,
+      overlayHidden: document.getElementById('manual-offline').classList.contains('d-none'),
+      status: document.getElementById('connection-status').textContent,
+    };
+  });
+  check('★再接続を黙って済ませない(33・1-5)',
+    reconnect.ok && reconnect.text.includes('再接続') && reconnect.overlayHidden
+      && reconnect.status === '接続済み', JSON.stringify(reconnect));
+
+  // ---- 71. ★自己確認: 切断の判定そのものが効いている ----
+  // ★★項目64と<b>全く同じ操作</b>を、接続していることにして流す。
+  //   send() が常に false を返す作り(=飾りの検証)なら、この項目が落ちる。
+  const guardAlive = await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    client.onWebSocketClose();
+    // eslint-disable-next-line no-undef
+    socketDown = false;                    // ★判定だけを外す
+    // eslint-disable-next-line no-undef
+    client.connected = true;
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('tap', { cardIds: ['m1'] });
+    // eslint-disable-next-line no-undef
+    updateOfflineLock();                   // ★オーバーレイを畳んでおく(以降の操作の邪魔になる)
+    return { ok, sent: window.__sent.length };
+  });
+  check('★切断の判定を外すと項目64は成立しない(33・検出器が生きている確認)',
+    guardAlive.ok === true && guardAlive.sent === 1, JSON.stringify(guardAlive));
+
+  // ---- 72〜73. ★共有導線(部屋リンクのコピー)----
+  const share = await page.evaluate(() => roomShareUrl());
+  check('★部屋リンクは /manual/battle/{roomId} である(33・2-1)',
+    share === `http://127.0.0.1:${port}/manual/battle/TESTRM`, share);
+
+  await page.evaluate(() => { document.getElementById('manual-toast').textContent = ''; });
+  await page.locator('#btn-copy-link').click();
+  await page.waitForTimeout(120);
+  const copyToast = await page.evaluate(
+    () => document.getElementById('manual-toast').textContent);
+  // ★成否のどちらであっても<b>必ず告げる</b>ことを見る。クリップボードへ実際に
+  //   書けたかは環境(権限・安全なコンテキスト)に依存し、機械で確かめるべきものではない。
+  check('★コピーは必ず結果を告げる(33・2-2・無言にしない)',
+    copyToast.startsWith('部屋リンクを'), copyToast);
+  // ★クリップボードAPIが使えない環境で落ちる先(execCommand)そのものを確かめる
+  check('★クリップボードAPIが使えなくても代替経路で書ける(33・2-2)',
+    await page.evaluate(() => copyTextFallback('QTE-COPY-TEST')) === true);
+
+  // ---- 74. ★★部屋消失のときは切断の案内を重ねない ----
+  // ★「戻るのを待ってください」と「この対戦は戻りません」を同時に出さない。
+  //   ★この項目は localStorage の occupant を消す(forgetOccupant)ため、
+  //     このページを使う検証の<b>最後</b>に置くこと。
+  const fatal = await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    showRoomLostFatal();
+    return {
+      gate: !document.getElementById('seat-gate').classList.contains('d-none'),
+      overlayHidden: document.getElementById('manual-offline').classList.contains('d-none'),
+      barHidden: document.getElementById('manual-conn-bar').classList.contains('d-none'),
+    };
+  });
+  check('★★部屋消失のときは切断の案内を重ねない(33・1-4)',
+    fatal.gate && fatal.overlayHidden && fatal.barHidden, JSON.stringify(fatal));
+
+  // ---- 75〜77. ★メタ情報とブランド資産(テンプレートの静的検査)----
+  // ★ここだけブラウザを使わない。「全ページに入っているか」は DOM ではなく
+  //   テンプレートの集合に対する問いであり、1枚を開いて確かめても意味が無い。
+  const TEMPLATES = ['manual-battle', 'manual-lobby', 'manual-deck-maker', 'manual-cards',
+    'lobby', 'battle', 'cards', 'deck-builder', 'error'];
+  const metaMissing = [];
+  for (const name of TEMPLATES) {
+    const src = fs.readFileSync(path.join(RES, 'templates', `${name}.html`), 'utf8');
+    for (const need of ['rel="icon"', 'name="theme-color"', 'name="description"']) {
+      if (!src.includes(need)) metaMissing.push(`${name}:${need}`);
+    }
+  }
+  check('★全テンプレートに favicon・theme-color・description がある(33・2-3)',
+    metaMissing.length === 0, metaMissing.join(' / '));
+
+  const ogMissing = [];
+  for (const name of ['manual-battle', 'manual-lobby']) {
+    const src = fs.readFileSync(path.join(RES, 'templates', `${name}.html`), 'utf8');
+    for (const need of ['og:title', 'og:description', 'og:image', 'twitter:card']) {
+      if (!src.includes(need)) ogMissing.push(`${name}:${need}`);
+    }
+    // ★og:image は絶対URLでなければならない(相対URLの解決はクローラ依存)
+    if (!/property="og:image" content="https:\/\//.test(src)) ogMissing.push(`${name}:og:image が絶対URLでない`);
+  }
+  check('★共有されるページには OGP があり og:image は絶対URLである(33・2-4)',
+    ogMissing.length === 0, ogMissing.join(' / '));
+
+  const assetMissing = ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'og-image.png']
+    .filter((f) => !fs.existsSync(path.join(RES, 'static', f)));
+  check('★アイコンとOGP画像が実在する(33・2-3)',
+    assetMissing.length === 0, assetMissing.join(' / '));
+
+  // ---- 78〜79. ★カスタムエラーページ ----
+  const errorHtml = fs.readFileSync(path.join(RES, 'templates/error.html'), 'utf8');
+  // ★★エラーページは<b>CDN が落ちているときにも出る</b>ページである。
+  //   外部依存を持たせると「エラーページが崩れる」という二重の事故になる。
+  // ★名前空間の宣言(xmlns:th)はURLの形をしているが読み込みではない。ここだけ除く
+  const errorNoNs = errorHtml.replace(/xmlns:th="[^"]*"/g, '');
+  check('★★エラーページは外部CDNに依存しない(33・2-5)',
+    !/https?:\/\//.test(errorNoNs), (errorNoNs.match(/https?:\/\/\S{0,40}/g) || []).join(' / '));
+
+  const errPage = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  // ★Thymeleaf 属性は素のブラウザでは無視されるだけなので、そのまま読ませてよい
+  await errPage.setContent(errorHtml);
+  const errContrast = await errPage.evaluate(() => {
+    const parse = (c) => {
+      const m = (c || '').match(/[\d.]+/g);
+      if (!m) return [0, 0, 0, 1];
+      const v = m.map(Number);
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1];
+    };
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+    const bg = parse(getComputedStyle(document.querySelector('.box')).backgroundColor);
+    const out = [];
+    for (const el of document.querySelectorAll('.box .code, .box h1, .box p, .box a')) {
+      const t = (el.textContent || '').trim();
+      if (!t) continue;
+      const fg = parse(getComputedStyle(el).color);
+      const ratio = (Math.max(L(fg), L(bg)) + 0.05) / (Math.min(L(fg), L(bg)) + 0.05);
+      if (ratio < 4.5) out.push({ text: t.slice(0, 12), ratio: Math.round(ratio * 100) / 100 });
+    }
+    return { bad: out, dark: getComputedStyle(document.body).backgroundColor };
+  });
+  check('★エラーページは盤面と同系のダークテーマで、文字は 4.5:1 以上(33・2-5)',
+    errContrast.bad.length === 0 && errContrast.dark === 'rgb(33, 37, 41)',
+    JSON.stringify(errContrast));
+  await errPage.close();
 
   // ---- 52. prefers-reduced-motion では演出そのものを作らない ----
   const calm = await browser.newPage({

@@ -3,9 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>QTE Battle - 手動モード</title>
+    <title>対戦部屋 — クイン・タブーエレメント</title>
+    <!--
+      ★Batch 33: アイコンと共有時のプレビュー(設計解説2章)。
+      このアプリの唯一のマッチング経路は「部屋のリンクを渡す」であり、
+      貼られたリンクの見え方は主動線の品質そのものである。
+      ★og:image は絶対URLで書く。相対URLを解決するかはクローラ次第であり、
+        「貼ってみるまで分からない」ものを主動線に置かない(設計解説 2-4)。
+    -->
+    <meta name="description" content="ブラウザだけで遊ぶ2人対戦カードゲーム「クイン・タブーエレメント」。部屋のリンクを渡すだけで対戦を始められます。">
+    <meta name="theme-color" content="#212529">
+    <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}">
+    <link rel="alternate icon" th:href="@{/favicon-32.png}">
+    <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="クイン・タブーエレメント">
+    <meta property="og:title" content="対戦部屋 — クイン・タブーエレメント">
+    <meta property="og:description" content="このリンクから対戦部屋に入れます。ブラウザだけで遊ぶ2人対戦カードゲームです。">
+    <meta property="og:image" content="https://qte-battle-batch0.onrender.com/og-image.png">
+    <meta name="twitter:card" content="summary_large_image">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=31)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=32)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -22,6 +40,14 @@
     -->
     <div class="d-flex align-items-center gap-2 mb-2 flex-wrap manual-header">
         <span>部屋 <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong></span>
+        <!-- ★Batch 33 2-2: 共有導線。32 まではIDを手で範囲選択させていた。
+             Discord に貼るのはリンクのほうで、IDは鍵つき部屋の入室に使う。用途が違うので2つ出す -->
+        <span class="d-flex gap-1">
+            <button type="button" id="btn-copy-link" class="btn btn-sm btn-outline-light manual-copy-btn"
+                    title="この部屋のURLをコピーします(Discord などに貼る用)">リンクをコピー</button>
+            <button type="button" id="btn-copy-id" class="btn btn-sm btn-outline-light manual-copy-btn"
+                    title="部屋IDをコピーします(鍵つき部屋の入室に使います)">IDをコピー</button>
+        </span>
         <!-- ★21b: 部屋名と種類を出す。対戦部屋か全公開かで見え方も操作権限も変わるため、
              どちらに居るのかが常に画面に出ている必要がある(1-1) -->
         <span class="small"><span id="room-name"></span>
@@ -397,12 +423,44 @@
       違いは、入室前は部屋一覧API の情報で描き、入室後はビューで描く点だけである
       (ビューには切断中の残り時間まで入っている)。
     -->
+    <!--
+      ★★Batch 33 1章: 切断中の盤面ロック。
+      32 まで、切断中でも盤面は完全に操作でき、send() は死んだソケットへ無言で
+      publish していた。通話しながら遊ぶ前提では「声は聞こえているのに盤面だけ
+      届いていない」という気づきにくい事故になる。
+      ★このオーバーレイは<b>宣言</b>である。実際に操作を止めているのは
+        manual-battle.js の send() のガードであり、[盤面を確認する] で
+        これを畳んでいる間もガードは効いている。
+    -->
+    <div id="manual-offline" class="manual-offline d-none">
+        <div class="manual-offline-body">
+            <div class="manual-offline-title">サーバとの接続が切れています</div>
+            <p class="small mb-2">
+                再接続を試みています。接続が戻るまで、この端末の操作は相手に届きません。
+            </p>
+            <p class="small text-muted mb-2">
+                席は5分間保持されます。通話中であれば、相手側にも同じ表示が出ているか
+                確認してください。
+            </p>
+            <button type="button" id="manual-offline-peek"
+                    class="btn btn-sm btn-outline-light">盤面を確認する</button>
+        </div>
+    </div>
+    <!-- 接続の帯。切断中に盤面を覗いている間と、再接続の直後に出る(1-5) -->
+    <div id="manual-conn-bar" class="manual-conn-bar d-none"></div>
+
     <div id="seat-gate" class="manual-gate d-none">
         <div class="manual-gate-body">
             <h5 class="mb-1" id="seat-gate-room">部屋</h5>
-            <div class="small text-muted mb-2">
-                部屋 <span id="seat-gate-code"></span> /
-                <span id="seat-gate-type"></span>
+            <div class="small text-muted mb-2 d-flex align-items-center gap-1 flex-wrap">
+                <span>部屋 <span id="seat-gate-code"></span> /
+                    <span id="seat-gate-type"></span></span>
+                <!-- ★Batch 33 2-2: 部屋を作った直後に最初に見る画面がここである。
+                     相手を呼ぶ導線をこの場に置く。★席選択の委譲リスナー
+                     (#seat-gate-buttons)の<b>外側</b>に置くこと -->
+                <button type="button" id="seat-gate-copy"
+                        class="btn btn-sm btn-outline-light manual-copy-btn"
+                        title="この部屋のURLをコピーします">リンクをコピー</button>
             </div>
             <div id="seat-gate-error" class="alert alert-danger py-1 px-2 small d-none"></div>
             <div class="mb-2" id="seat-gate-name-wrap">
@@ -435,6 +493,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=23)}"></script>
+<script th:src="@{/js/manual-battle.js(v=24)}"></script>
 </body>
 </html>

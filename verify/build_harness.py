@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=31)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=32)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=23)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=24)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -119,14 +119,23 @@ stub = """
   .btn-outline-danger { color: #ea868f; border: 1px solid #dc3545; background: transparent; }
   .btn-outline-primary { color: #6ea8fe; border: 1px solid #0d6efd; background: transparent; }
   .text-muted { color: #adb5bd; }
+  /* ★Batch 33: 切断オーバーレイと共有導線が使うユーティリティ。
+     代替に漏れがあると「ハーネスでだけ壊れる」(20c 以来の罠) */
+  .mb-0 { margin-bottom: 0; }
+  p { margin-top: 0; margin-bottom: 1rem; }
 </style>
 <script>
   window.__sent = [];
   window.StompJs = {
     Client: class {
-      constructor(options) { this.options = options; }
-      activate() { /* 検証では接続しない。renderAll を直接呼ぶ */ }
-      deactivate() {}
+      // ★★Batch 33: 接続状態を持たせる。send() が接続を見るようになったため、
+      //   ここが無いと<b>すべての操作が「切断中」として捨てられ</b>、
+      //   32 までの全項目が一斉に落ちる。実物と同じく connected を名乗らせる。
+      //   ★onConnect は呼ばない(呼ぶと ready が __sent に混ざる)。
+      //     切断は verify.js から client.onWebSocketClose() を直接呼んで作る。
+      constructor(options) { this.options = options; this.connected = true; }
+      activate() { this.connected = true; }
+      deactivate() { this.connected = false; }
       subscribe() {}
       publish(message) {
         window.__sent.push({

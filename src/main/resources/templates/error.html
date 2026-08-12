@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<!--
+  ★Batch 33 2-5: Whitelabel Error Page の置き換え。
+
+  Spring Boot は、ビュー名 `error` を解決できるテンプレートが存在すればそれを使い、
+  既定の Whitelabel(英語・白背景)を出さない。したがって<b>このファイルを置くだけで
+  置き換わり、Java の変更は要らない</b>(@ControllerAdvice も ErrorController も書かない)。
+
+  ★例外メッセージやスタックトレースは出さない。application.properties で
+    include-message / include-stacktrace を never に固定してある。
+    利用者に必要なのは「何が起きたか」と「次にどこへ行けるか」だけであり、
+    内部構造はそのどちらでもない。
+
+  ★API(Accept: application/json)の応答はこのテンプレートを通らない。
+    Spring が内容交渉で JSON を返す経路を選ぶため、
+    クライアントの `showTransientError` の扱いは従来どおりである。
+-->
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>エラー — クイン・タブーエレメント</title>
+    <meta name="description" content="クイン・タブーエレメント(手動モード)のエラーページ。">
+    <meta name="theme-color" content="#212529">
+    <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}">
+    <link rel="alternate icon" th:href="@{/favicon-32.png}">
+    <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
+    <!--
+      ★CDN を使わない。エラーページは<b>CDN が落ちているときにも出る</b>ページであり、
+        外部依存を持たせると「エラーページが崩れる」という二重の事故になる。
+        必要なスタイルは10行に満たないので、この場に直接書く。
+      ★色は盤面と同系のダークテーマである(#212529 / #f8f9fa)。
+        白背景の英語ページに飛ばされる体験そのものが指摘の中身だった。
+    -->
+    <style>
+        html, body { margin: 0; padding: 0; height: 100%; }
+        body {
+            background: #212529; color: #f8f9fa;
+            font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif;
+            display: flex; align-items: center; justify-content: center; padding: 24px;
+        }
+        .box {
+            width: 460px; max-width: 100%; background: #17191c; border: 1px solid #495057;
+            border-radius: 6px; padding: 24px; text-align: center;
+        }
+        .code { font-size: 46px; font-weight: 700; color: #ffda6a; line-height: 1.1; }
+        h1 { font-size: 18px; margin: 8px 0 12px; }
+        p { font-size: 14px; color: #ced4da; margin: 0 0 8px; line-height: 1.7; }
+        .path { font-size: 12px; color: #adb5bd; word-break: break-all; margin-top: 12px; }
+        .links { margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+        a.btn {
+            display: inline-block; padding: 6px 14px; border-radius: 4px; font-size: 14px;
+            text-decoration: none; color: #f8f9fa; border: 1px solid #f8f9fa;
+        }
+        a.btn:hover { background: #f8f9fa; color: #212529; }
+    </style>
+</head>
+<body>
+<div class="box">
+    <div class="code" th:text="${status} ?: '?'">404</div>
+    <h1 th:if="${status != null and status == 404}">そのページは見つかりませんでした</h1>
+    <h1 th:unless="${status != null and status == 404}">サーバ側で問題が起きました</h1>
+
+    <p th:if="${status != null and status == 404}">
+        URL が間違っているか、部屋がすでに消えている可能性があります。
+    </p>
+    <p th:if="${status != null and status == 404}">
+        部屋はサーバのメモリ上にしか無く、サーバの再起動や5分間の無人で消えます。
+        対戦のリンクが古い場合は、部屋を作り直してください。
+    </p>
+    <p th:unless="${status != null and status == 404}">
+        しばらく待ってからやり直してください。
+        対戦中だった場合、部屋が残っていれば同じリンクから戻れます。
+    </p>
+
+    <div class="path" th:if="${path}" th:text="${path}"></div>
+
+    <div class="links">
+        <a class="btn" th:href="@{/manual}">手動モードのロビーへ</a>
+        <a class="btn" th:href="@{/deck-maker}">デッキメーカーへ</a>
+    </div>
+</div>
+</body>
+</html>
