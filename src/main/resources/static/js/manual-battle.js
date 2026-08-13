@@ -268,6 +268,58 @@ function forgetOccupant() {
 }
 
 // ---------------------------------------------------------------
+// 0-1) 初回だけ操作説明を開く(★Batch 34 設計解説1章・レビュー A-3)
+// ---------------------------------------------------------------
+//
+// ★足りなかったのは説明ではなく<b>導線</b>である。
+//   ヘルプの中身(2-6 のモーダル)は 22 で書き直してあり内容は足りている。
+//   無かったのは「初見の人がそれを開く理由」だけなので、開く回数を1回足す。
+//   コーチマークは作らない(裁定16。通話前提では初見者は口頭で教われる)。
+//
+// ★★キーは<b>部屋ごとにしない</b>。occupantId(qte-manual-occupant-{roomId})が
+//   部屋ごとなのは「どの席の誰か」が部屋ごとに違うからである。
+//   一方「操作説明を読んだ」のは<b>人の性質</b>であって部屋の性質ではない。
+//   部屋ごとにすると、部屋を作り直すたびに同じ説明が出る = 邪魔にしかならない。
+//
+// ★★localStorage が使えない環境(プライベートモードの一部・容量超過)では
+//   例外を投げる。そこで落ちると<b>盤面ごと開かない</b>ので、読み書きとも握りつぶす。
+//   握りつぶした結果は「毎回出る」または「一度も出ない」であり、どちらも
+//   対戦の続行を妨げない。ヘルプの表示は、対戦より優先されるものではない。
+
+const HELP_SEEN_STORAGE_KEY = 'qte-manual-help-seen';
+
+function hasSeenHelp() {
+    try {
+        return localStorage.getItem(HELP_SEEN_STORAGE_KEY) === '1';
+    } catch (e) {
+        // 読めないなら「まだ見ていない」側に倒す。出しすぎるほうが、出ないより害が小さい
+        return false;
+    }
+}
+
+function markHelpSeen() {
+    try {
+        localStorage.setItem(HELP_SEEN_STORAGE_KEY, '1');
+    } catch (e) {
+        // 記録できないだけで、今回の表示は成立している
+    }
+}
+
+/**
+ * 初回入室なら操作説明を開く。
+ *
+ * ★呼ぶのは<b>席が決まったあと</b>である(1章の resolveOccupant の後)。
+ * 席選択ゲート(z-index 1060)より操作説明(2000)のほうが手前に出るため、
+ * ゲートの上にヘルプを重ねると「名前を入れる画面が説明に隠れる」ことになる。
+ * ★入室に失敗した場合は呼ばれない。読むべきものは説明ではなく失敗の理由である。
+ */
+function openHelpIfFirstVisit() {
+    if (hasSeenHelp()) return false;
+    openHelpModal();
+    return true;
+}
+
+// ---------------------------------------------------------------
 // 0-2) 席選択画面(★Batch 21b。設計書 2-1 / 2-2)
 // ---------------------------------------------------------------
 //
@@ -535,6 +587,10 @@ resolveOccupant()
     .then((occupantId) => {
         OCCUPANT_ID = occupantId;
         client.activate();
+        // ★Batch 34: 席が決まった直後、初回だけ操作説明を開く(0-1章)。
+        //   接続の完了は待たない。説明を読むのに盤面は要らないし、
+        //   待つと「接続が遅い日だけ出ない」という再現性の無い挙動になる
+        openHelpIfFirstVisit();
     })
     .catch((e) => {
         setConnectionStatus('入室に失敗しました: ' + e.message);
@@ -1300,6 +1356,61 @@ const ZONE_LABELS = {
 /** 共有ゾーン(20b 3-1)。席に属さず view.shared から読む。 */
 const SHARED_ZONES = new Set(['PLAY', 'REVEAL']);
 
+// ---------------------------------------------------------------
+// ツールチップ(★Batch 34 設計解説2章・レビュー A-3)
+// ---------------------------------------------------------------
+//
+// ★何のために付けるのか。**「教える側が名称を言えるようにする」**である。
+//   通話しながら遊ぶ前提では、初見者はモーダルを読むより先に口頭で教わる(裁定16)。
+//   そのとき困るのは操作の難しさではなく「その左下の…灰色の…枠」という<b>指し方</b>である。
+//   カード名とゾーン名がポインタの下に出れば、教える側はそれを読み上げればよい。
+//
+// ★ついでに操作も書く。この盤面の規約(左=見る / 右=動かす)は<b>業界慣習と逆</b>であり
+//   (22 で意図的に反転した)、慣習からの類推が効かない。ヘルプの表に書いてあるだけでは、
+//   ヘルプを閉じた瞬間に参照できなくなる。
+//
+// ★★文言はここ1箇所に集める。これまでは title の文字列が 15 箇所へ直接書かれており、
+//   規約を変えたときに全部を直せる保証が無かった(設計判断28 の「同じ情報を2箇所に置かない」)。
+//   ★新しいタイルを作ったら、文字列ではなく <b>TITLE_HINTS の組み合わせ</b>で書くこと。
+//
+// ★★title を出さない要素もある。fx層(演出のゴースト)には付けない。
+//   数百ミリ秒で消えるものにツールチップは出ないし、実要素と二重に出る危険がある。
+
+const TITLE_HINTS = {
+    zoom: '左=拡大',
+    zoomTop: '左=一番上を拡大',
+    draw: '左=1枚ドロー',
+    tap: '右=タップ/アンタップ',
+    openZone: '右=一覧',
+    deckFullscreen: '右=全面表示',
+    zoomRight: '右=拡大',
+    dragMove: 'ドラッグ=移動',
+    dragTop: 'ドラッグ=一番上の1枚',
+    evolve: '重ねると進化',
+    manaStrip: '表/裏のストリップに落とすと向きが決まる',
+    flip: 'Shift+クリック=裏返す',
+    multi: 'Ctrl/⌘+クリック=複数選択',
+    hidden: '対戦部屋では非公開',
+};
+
+/**
+ * 「名前 — 操作 / 操作」形式の title を組み立てる。
+ *
+ * ★名前を<b>先頭</b>に置く。ツールチップは幅で切られることがあり、
+ * 切られて困るのは操作の続きではなく名前のほうである。
+ * ★空の hint は捨てる。呼び出し側が条件式で {@code null} を渡せるようにするためで、
+ * これが無いと呼び出し側に if が増え、文言がまたバラける。
+ *
+ * @param {string} name  カード名・ゾーン名など。空なら操作だけの title になる
+ * @param {...(string|null|undefined|false)} hints TITLE_HINTS の値
+ */
+function tileTitle(name, ...hints) {
+    const ops = hints.filter(Boolean).join(' / ');
+    const label = (name || '').trim();
+    if (!label) return ops;
+    return ops ? `${label} — ${ops}` : label;
+}
+
 /**
  * 相手上段(★Batch 21c。設計書4章。マスター指示による再構成)。
  *
@@ -1379,7 +1490,10 @@ function createOpponentChip(seat, zoneName) {
     chip.className = 'zone-pile-mini manual-opp-chip';
     chip.dataset.seat = seat.id;
     chip.dataset.zone = zoneName;
-    chip.title = ZONE_LABELS[zoneName];
+    // ★Batch 34: 1文字の見出し([山][禁][確][手])だけでは名前を言えない。
+    //   相手側であること・枚数・非公開になりうることまで title で言えるようにする
+    chip.title = tileTitle(`相手の${ZONE_LABELS[zoneName]}(${zoneCount(seat, zoneName)}枚)`,
+        TITLE_HINTS.zoomTop, TITLE_HINTS.openZone, TITLE_HINTS.hidden);
     chip.textContent = `${ZONE_LABELS[zoneName][0]}${zoneCount(seat, zoneName)}`;
     // ★22 1-2: 左=先頭のカードを拡大 / 右=帯(一覧)を開く。
     //   非公開のときは左右どちらでも 21c 3-5 の明滅+トーストが返る
@@ -1402,12 +1516,14 @@ function createOpponentPile(seat, zoneName) {
     box.className = 'manual-opp-pile';
     box.dataset.seat = seat.id;
     box.dataset.zone = zoneName;
-    box.title = ZONE_LABELS[zoneName];
 
     const face = document.createElement('div');
     face.className = 'manual-opp-face';
     const cards = seat.zones[zoneName] || [];
     const count = zoneCount(seat, zoneName);
+    // ★Batch 34: 枚数まで含めて言えるようにする。数えるのは counts 由来の count である
+    box.title = tileTitle(`相手の${ZONE_LABELS[zoneName]}(${count}枚)`,
+        TITLE_HINTS.zoomTop, TITLE_HINTS.openZone);
     // ★公開パイルの最上段は末尾である(20a 2-1。山札とは逆)
     const top = cards.length > 0 ? cards[cards.length - 1] : null;
     if (top && !top.faceDown) {
@@ -1537,7 +1653,8 @@ function createOpponentManaCard(card, seatId) {
         + (card.tapped ? ' manual-opp-tapped' : '');
     tile.dataset.instanceId = card.instanceId;
     tile.draggable = true;
-    tile.title = `${card.name || ''}${card.tapped ? '(タップ)' : ''}`;
+    tile.title = tileTitle(`相手のマナ: ${card.name || '(不明)'}`,
+        card.tapped ? 'タップ済み' : null);
     if (card.civilization) {
         applyCivFrame(tile, card.civilization);
     }
@@ -1572,7 +1689,8 @@ function createOpponentManaBack(count, backImageId, tapped) {
     tile.className = 'manual-opp-mana-card manual-opp-mana-back'
         + (tapped ? ' manual-opp-tapped manual-opp-mana-back-tapped' : '');
     tile.dataset.tapped = tapped ? 'true' : 'false';
-    tile.title = `裏向き ${count}枚(${tapped ? 'タップ' : 'アンタップ'})`;
+    tile.title = tileTitle(`相手の裏向きマナ ${count}枚`,
+        tapped ? 'タップ済み' : 'アンタップ');
     tile.appendChild(cardBackFace());
     const badge = document.createElement('div');
     badge.className = 'manual-opp-count';
@@ -1753,7 +1871,7 @@ function createCenterSendButtons(card) {
         btn.type = 'button';
         btn.className = dest.cls;
         btn.textContent = dest.label;
-        btn.title = `${ZONE_LABELS[dest.zone]}(席${owner})へ送る`;
+        btn.title = tileTitle(`${ZONE_LABELS[dest.zone]}(席${owner})へ送る`);
         // ★カード本体のクリック規約(左=拡大)の外にある専用ボタンである。伝播を必ず止める
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -1870,7 +1988,8 @@ function createUntapAllSlot(seat) {
     btn.className = 'manual-untap-btn';
     btn.textContent = 'すべて\nアンタップ';
     btn.style.whiteSpace = 'pre-line';
-    btn.title = '自席のマナ・場のミニオン・リーダーのタップと、ウェポンの使用済を戻す';
+    btn.title = tileTitle('すべてアンタップ',
+        '自席のマナ・場のミニオン・リーダーのタップと、ウェポンの使用済を戻す');
     btn.addEventListener('click', () => {
         const tapIds = [];
         for (const zoneName of ['MANA', 'FIELD']) {
@@ -1966,7 +2085,7 @@ function createWeaponSlot(seat) {
         used.className = 'manual-weapon-slot-used'
             + (card.used ? '' : ' manual-tile-used-off');
         used.textContent = card.used ? '使用済' : '未使用';
-        used.title = 'クリックで使用済/未使用を切り替える';
+        used.title = tileTitle('ウェポンの使用済', '左=使用済/未使用を切り替える');
         used.addEventListener('click', (e) => {
             e.stopPropagation();
             send('used', { cardIds: [card.instanceId] });
@@ -2154,7 +2273,8 @@ function createCardPile(seatId, zoneName, pile, backImageId, count) {
             }
             openDeckFullscreen(seatId);
         });
-        box.title = '左クリック: 1枚ドロー / 右クリック: 全面表示 / ドラッグ: 一番上の1枚を移動';
+        box.title = tileTitle(`山札(${total}枚)`,
+            TITLE_HINTS.draw, TITLE_HINTS.deckFullscreen, TITLE_HINTS.dragTop);
 
         // ★ドラッグ(一番上の1枚)の登録は上の共通ブロックへ移した(26 1章)。
 
@@ -2193,9 +2313,9 @@ function createCardPile(seatId, zoneName, pile, backImageId, count) {
             e.preventDefault();
             openZoneOrDeny(box, seatOf(latestView, seatId), zoneName);
         });
-        box.title = DRAGGABLE_PILE_ZONES.has(zoneName)
-            ? '左クリック: 一番上を拡大 / 右クリック: 一覧を開く / ドラッグ: 一番上の1枚を移動'
-            : '左クリック: 一番上を拡大 / 右クリック: 一覧を開く';
+        box.title = tileTitle(`${ZONE_LABELS[zoneName]}(${total}枚)`,
+            TITLE_HINTS.zoomTop, TITLE_HINTS.openZone,
+            DRAGGABLE_PILE_ZONES.has(zoneName) ? TITLE_HINTS.dragTop : null);
     }
 
     return box;
@@ -2303,7 +2423,9 @@ function createManaTile(card, seatId, backImageId) {
         // ★裏面フェイス(Batch 25: 画像をやめた。相手上段と絵は揃ったまま)
         chip.classList.add('mana-tile-back');
         chip.appendChild(cardBackFace());
-        chip.title = '裏向き(左クリックで中身を拡大)';
+        chip.title = tileTitle('マナ(裏向き)',
+            TITLE_HINTS.zoom, TITLE_HINTS.tap, TITLE_HINTS.dragMove,
+            TITLE_HINTS.flip, TITLE_HINTS.multi);
     } else {
         if (card.civilization) {
             applyCivFrame(chip, card.civilization);
@@ -2312,7 +2434,9 @@ function createManaTile(card, seatId, backImageId) {
         name.className = 'mana-tile-name';
         name.textContent = card.name || '';
         chip.appendChild(name);
-        chip.title = card.name || '';
+        chip.title = tileTitle(`${card.name || 'マナ'}(マナ)`,
+            TITLE_HINTS.zoom, TITLE_HINTS.tap, TITLE_HINTS.dragMove,
+            TITLE_HINTS.flip, TITLE_HINTS.multi);
     }
 
     if (selected.has(card.instanceId)) {
@@ -2551,7 +2675,7 @@ function appendLogText(line, text) {
             const link = document.createElement('span');
             link.className = 'manual-log-card';
             link.textContent = match[0];
-            link.title = 'クリックでカードを拡大';
+            link.title = tileTitle('ログ中のカード', TITLE_HINTS.zoom);
             link.addEventListener('click', (e) => { e.stopPropagation(); setZoom(card); });
             line.appendChild(link);
         } else {
@@ -2717,6 +2841,15 @@ function createFieldTile(card, seatId, zone) {
     tile.className = 'manual-tile';
     tile.dataset.instanceId = card.instanceId;
     tile.draggable = true;
+    // ★Batch 34(2章): 名前と操作を title に出す。
+    //   ★タップ状態も書く。場のタイルのタップ表現は<b>減光</b>であり(30 の非対称)、
+    //     マナの回転と違って「暗いだけ」に見えるので、文字で言えるほうがよい。
+    tile.title = tileTitle(
+        card.faceDown ? `${ZONE_LABELS[zone] || '場'}のカード(裏向き)`
+                      : `${card.name || '(不明)'}${card.tapped ? '(タップ済み)' : ''}`,
+        TITLE_HINTS.zoom, TITLE_HINTS.tap,
+        `${TITLE_HINTS.dragMove}(${TITLE_HINTS.evolve})`,
+        TITLE_HINTS.flip, TITLE_HINTS.multi);
 
     if (!card.cardId) {
         tile.classList.add('manual-tile-unresolved');
@@ -2859,7 +2992,7 @@ function statSpan(current, printed) {
     if (printed !== null && printed !== undefined && current !== null && current !== undefined
             && current !== printed) {
         span.classList.add('manual-stat-changed');
-        span.title = `印刷値 ${printed}`;
+        span.title = tileTitle(`印刷値 ${printed}`);
     }
     return span;
 }
@@ -2903,7 +3036,7 @@ function lpStepButton(label, delta, seat) {
     const btn = document.createElement('div');
     btn.className = 'manual-lp-step';
     btn.textContent = label;
-    btn.title = `LPを${delta > 0 ? '1増やす' : '1減らす'}`;
+    btn.title = tileTitle(`LPを${delta > 0 ? '1増やす' : '1減らす'}`);
     // ★1-6: カード本体のクリック規約(左=拡大 / 右=タップ)の外にある専用ボタンである
     btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -2937,6 +3070,12 @@ function createLeaderTile(seat, options) {
     }
     const card = seat.leader;
     tile.dataset.instanceId = card.instanceId;
+    // ★Batch 34(2章): リーダーは「リーダー」としか呼びようが無い位置にあるが、
+    //   カード名で呼べるほうが教えやすい。ウェポン合体タイルはその旨も添える
+    tile.title = tileTitle(
+        `${card.name || 'リーダー'}(席${seat.id}のリーダー)${card.tapped ? '(タップ済み)' : ''}`,
+        TITLE_HINTS.zoom, TITLE_HINTS.tap,
+        withWeapon ? 'ウェポンをここへ落とすと装備' : null);
 
     // ★20d→25b: リーダーを文明の色で塗る。場のタイルと同じ applyCivFrame を使い、
     //   色と枠の決め方を1箇所に揃える(フェイスと同一パレット)。
@@ -3035,7 +3174,7 @@ function createLeaderTile(seat, options) {
 function statButton(content, onClick) {
     const btn = document.createElement('div');
     btn.className = 'manual-stat-button';
-    btn.title = 'クリックで編集';
+    btn.title = tileTitle('数値を編集', '左=編集モーダルを開く');
     if (typeof content === 'string') {
         btn.appendChild(document.createTextNode(content));
     } else {
@@ -3075,7 +3214,8 @@ function appendWeaponMini(tile, seat) {
     mini.className = 'manual-weapon-mini';
     mini.dataset.instanceId = card.instanceId;
     mini.draggable = true;
-    mini.title = `${card.name || 'ウェポン'} / クリック=拡大 ダブルクリック=編集`;
+    mini.title = tileTitle(`${card.name || 'ウェポン'}(装備中のウェポン)`,
+        TITLE_HINTS.zoom, 'ダブルクリック=編集');
 
     if (!card.faceDown) {
         mini.appendChild(cardFace(card, 'micro'));
@@ -3135,6 +3275,15 @@ function createHandCard(card, width, seatId, zoneName) {
     if (selected.has(card.instanceId)) {
         wrap.classList.add('manual-tile-selected');
     }
+
+    // ★Batch 34: 名前と操作を title に出す(2章)。裏向きは名前を漏らさない。
+    //   ★<b>見えていないものを title で教えない</b>。ツールチップは公開範囲の外にある
+    //   仕組みではなく、画面に出ているものの読み上げにすぎない。
+    wrap.title = tileTitle(
+        card.faceDown ? `${ZONE_LABELS[zone] || '手札'}のカード(裏向き)`
+                      : `${card.name || '(不明)'}(${ZONE_LABELS[zone] || '手札'})`,
+        TITLE_HINTS.zoom, TITLE_HINTS.zoomRight, TITLE_HINTS.dragMove,
+        TITLE_HINTS.flip, TITLE_HINTS.multi);
 
     wrap.addEventListener('dragstart', (e) => onDragStart(e, card, seat, zone));
     // ★22 1-5: 手札・共有ゾーンはタップできない。無反応にせず右も拡大を返す
@@ -4792,9 +4941,14 @@ document.getElementById('occupant-popover-close').addEventListener('click', () =
 });
 
 // ★2-6: 操作説明モーダル
-document.getElementById('btn-help').addEventListener('click', () => {
+function openHelpModal() {
     document.getElementById('help-modal').classList.remove('d-none');
-});
+    // ★開いた時点で「見た」とみなす。閉じるのを待たない。
+    //   閉じずにタブを落とした人へ次も出すのは、親切ではなく<b>同じ邪魔の繰り返し</b>である
+    markHelpSeen();
+}
+
+document.getElementById('btn-help').addEventListener('click', openHelpModal);
 document.getElementById('help-modal-close').addEventListener('click', () => {
     document.getElementById('help-modal').classList.add('d-none');
 });
@@ -5107,7 +5261,7 @@ function createBandItem(card, seatId, zoneName) {
         const badge = document.createElement('div');
         badge.className = 'manual-tile-badge manual-band-badge';
         badge.textContent = '+' + (card.stackSize - 1);
-        badge.title = 'クリックで進化スタックを開く';
+        badge.title = tileTitle('進化スタック', '左=中身を開く');
         badge.addEventListener('click', (e) => {
             e.stopPropagation();
             openEvolutionBand(card, seatId);

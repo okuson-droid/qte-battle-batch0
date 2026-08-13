@@ -38,7 +38,7 @@ html = html.replace(
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=24)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=25)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -64,7 +64,9 @@ stub = """
      30 で入れた「コントラスト比 4.5:1 以上」の機械判定さえ白背景で測っていたため、
      黒背景の上では読めない文字を「合格」と報告していた。
      ★見た目の検証は、実ページと同じ背景の上でしか意味を持たない。
-     ★ロビー(manual-lobby.html)は <body class="bg-light"> なので下のスタブは白のままでよい。 */
+     ★★Batch 34: ロビー(manual-lobby.html)も <body class="bg-dark text-light"> になった。
+       lobby_stub(このファイル下部)の背景も同時に黒へ直してある。片方だけ直すと
+       「ハーネスでだけ白いロビー」を検証することになり、31 と同じ穴が開く。 */
   body { font-family: sans-serif; background: #212529; color: #f8f9fa; }
   .bg-dark { background-color: #212529; }
   .text-light { color: #f8f9fa; }
@@ -148,6 +150,15 @@ stub = """
   // ★入室ダイアログ(prompt)を出さないため、occupant を先に保存しておく
   localStorage.setItem('qte-manual-occupant-TESTRM',
       JSON.stringify({ occupantId: 'occ-test', displayName: 'テスト' }));
+  // ★★Batch 34: 既定は「操作説明をすでに見た人」である。
+  //   34 で初回の自動表示を入れたため、ここを既定にしないと全面のモーダル
+  //   (z-index 2000)が開いたままになり、<b>33 までの全項目がクリックできなくなる</b>。
+  //   ★?firstvisit を付けたときだけ<b>触らない</b>。触らない=検証側が localStorage を
+  //     操作して「初回」と「2回目」を作れる、という意味である。スタブが毎回消してしまうと
+  //     「2回目は開かない」が作れず、検証がスタブの挙動を見るだけになる。
+  if (!new URLSearchParams(location.search).has('firstvisit')) {
+    localStorage.setItem('qte-manual-help-seen', '1');
+  }
 </script>
 """
 html = html.replace("</head>", stub + "</head>")
@@ -170,13 +181,35 @@ lobby = re.sub(r'\s+th:href="[^"]*"', ' href="#"', lobby)
 
 lobby_stub = """
 <style>
+  /* ★★Batch 34: ロビーが黒背景になった(レビュー B-2)。
+     ★色そのものはテンプレート側の <style> が持っている。Bootstrap を落としても
+       あちらは残るので、ここで重ねて書くのは<b>Bootstrap が持っていた分だけ</b>である。
+     ★ここに body の背景を書いてあるのは保険ではなく<b>宣言</b>である。
+       テンプレート側の指定が消えたときに、ハーネスが黙って白へ戻らないようにする。 */
+  *, *::before, *::after { box-sizing: border-box; }
   .d-none { display: none !important; }
-  body { font-family: sans-serif; }
+  body { font-family: sans-serif; background: #212529; color: #f8f9fa; }
+  .bg-dark { background-color: #212529; }
+  .text-light { color: #f8f9fa; }
   .d-flex { display: flex; } .ms-auto { margin-left: auto; }
   .align-items-center { align-items: center; } .align-items-end { align-items: flex-end; }
   .table { width: 100%; border-collapse: collapse; }
   .form-control, .form-select { width: 100%; box-sizing: border-box; }
   .row { display: block; }
+  /* ★Bootstrap 代替。ロビーの文字もコントラスト判定に載せた(34)ので、
+     ボタン・帯の色は<b>実ページと同じ値</b>を置くこと。ここが実物とずれると、
+     判定は通るのに実ページでは読めない、という 31 の事故がロビー側で再発する。 */
+  .btn { display: inline-block; padding: 4px 10px; border-radius: 4px;
+         border-width: 1px; border-style: solid; border-color: transparent; background: transparent; }
+  /* ★.btn を後から当てているので、outline 系はここで色を戻す(順序の問題であって
+     テンプレート側の指定が間違っているわけではない) */
+  .btn-outline-light { color: #f8f9fa; border-color: #f8f9fa; }
+  .btn-outline-primary { color: #6ea8fe; border-color: #6ea8fe; }
+  .btn-primary { color: #fff; background: #0d6efd; border-color: #0d6efd; }
+  .btn-success { color: #fff; background: #198754; border-color: #198754; }
+  .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; background: #6c757d; }
+  /* ★border-color はテンプレート側(.alert-danger)が決めるので、ここでは触らない */
+  .alert { padding: 8px 12px; border-radius: 4px; border-width: 1px; border-style: solid; }
 </style>
 <script>
   // ★遷移させない。location.href の代入を捕まえて記録するだけにする

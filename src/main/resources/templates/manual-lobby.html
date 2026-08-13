@@ -1,6 +1,13 @@
 <!DOCTYPE html>
-<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<html lang="ja" data-bs-theme="dark" xmlns:th="http://www.thymeleaf.org">
 <head>
+    <!--
+      ★★Batch 34: <html> の data-bs-theme="dark" は Bootstrap 5.3 の色モード切替である。
+      これだけでフォーム部品・テーブル・カードの既定色がまとめて暗色側へ寄る。
+      ただし<b>ハーネスは Bootstrap を落とす</b>ので、これに頼りきると
+      「ハーネスでだけ白いロビー」を検証することになる(31 の教訓)。
+      そのため主要な色は下の <style> に自分で書き、この属性は仕上げとして使う。
+    -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>手動モード ロビー — クイン・タブーエレメント</title>
@@ -13,16 +20,63 @@
     <link rel="alternate icon" th:href="@{/favicon-32.png}">
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★共有されうるページなので OGP を持たせる(設計解説 2-4)。
-         og:image は絶対URLで書く(相対URLの解決はクローラ依存である) -->
+         og:image は絶対URLで書く(相対URLの解決はクローラ依存である)。
+         ★★Batch 34(裁定24): 絶対URLは設定 qte.public-base-url に出した。
+            組み立ては PublicUrlAdvice の1箇所。ここは受け取るだけである -->
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="クイン・タブーエレメント">
     <meta property="og:title" content="クイン・タブーエレメント — 手動モード">
     <meta property="og:description" content="ブラウザだけで遊ぶ2人対戦カードゲーム。部屋を作ってリンクを渡すだけで始められます。">
-    <meta property="og:image" content="https://qte-battle-batch0.onrender.com/og-image.png">
+    <meta property="og:image" th:content="${ogImageUrl}">
     <meta name="twitter:card" content="summary_large_image">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!--
+      ★★Batch 34(レビュー B-2): ロビーを盤面と同じ黒背景に揃える。
+      揃える前は <body class="bg-light"> で、入室のたびに<b>白→黒のフラッシュ</b>が出ていた。
+
+      ★なぜ Bootstrap の色モードだけに任せず、ここに色を書くのか。
+        検証ハーネス(verify/build_harness.py)は Bootstrap を落として代替を当てる。
+        色モードに任せた部分はハーネスに現れず、「ハーネスでだけ違う画面」を
+        検証することになる(31 で実際に踏んだ)。ここに書いた色は<b>両方に効く</b>。
+      ★色は盤面(bg-dark / text-light = #212529 / #f8f9fa)と同じ値を使う。
+        近い色を新しく作らない。2つの黒があると、どちらが正か分からなくなる。
+      ★battle.css には書かない。あれは盤面と通常モードの共有ファイルであり、
+        ロビーは読み込んでいない。読み込ませると共有範囲が理由なく広がる。
+    -->
+    <style>
+        /* ★スクロールバー・フォーム部品の既定色をブラウザ側にも伝える */
+        :root { color-scheme: dark; }
+
+        body { background-color: #212529; color: #f8f9fa; }
+
+        /* ★カードは本文よりわずかに明るい面にする。同じ色だと枠線だけが仕切りになり、
+           枠線を落とすCDN障害時に構造が消える */
+        .card { background-color: #2b3035; border-color: #495057; }
+        .card-header { background-color: #343a40; border-bottom-color: #495057; }
+
+        /* ★テーブルは Bootstrap が CSS 変数経由で色を決めるため、変数と実色の両方を書く。
+           変数だけだとハーネス(Bootstrap なし)で効かず、実色だけだと実ページで負ける */
+        .table { color: #f8f9fa; --bs-table-color: #f8f9fa;
+                 --bs-table-bg: transparent; --bs-table-border-color: #495057; }
+
+        .form-control, .form-select { background-color: #2b3035; border-color: #6c757d; color: #f8f9fa; }
+        .form-control::placeholder { color: #adb5bd; }
+
+        /* ★薄い文字は #6c757d のままだと黒地で 3.4:1 しかなく、4.5:1 の判定に落ちる。
+           盤面と同じ #adb5bd(黒地で約 7.4:1)へ寄せる */
+        .text-muted, .form-text { color: #adb5bd !important; }
+
+        a { color: #6ea8fe; }
+
+        /* ★Bootstrap の色モードは outline 系ボタンの色を暗色側へ寄せてくれない。
+           #0d6efd は黒地で 2.6:1 しかないので、ここで明るい側の青に置き換える */
+        .btn-outline-primary { color: #6ea8fe; border-color: #6ea8fe; }
+
+        /* ★エラー帯も両方の環境で同じ色になるよう、ここで固定する */
+        .alert-danger { color: #ea868f; background-color: #2c0b0e; border-color: #842029; }
+    </style>
 </head>
-<body class="bg-light">
+<body class="bg-dark text-light">
 <!--
   ★Batch 21b: ロビーを部屋一覧つきに作り替えた(設計書 1-3・F1)。
   この画面は「部屋を選ぶ」までを担当し、名前と席の決定は盤面ページの席選択画面(2-1)が行う。
@@ -44,7 +98,9 @@
         <div class="card-header d-flex align-items-center">
             <strong>部屋一覧</strong>
             <!-- ★自動ポーリングはしない(1-3)。更新は手動ボタンで行う -->
-            <button id="refresh-rooms" class="btn btn-sm btn-outline-secondary ms-auto">更新</button>
+            <!-- ★Batch 34: 黒地では btn-outline-secondary の文字(#6c757d)が読めない。
+                 盤面が使っているのと同じ btn-outline-light に揃える -->
+            <button id="refresh-rooms" class="btn btn-sm btn-outline-light ms-auto">更新</button>
         </div>
         <div class="card-body p-0">
             <table class="table table-sm mb-0 align-middle">

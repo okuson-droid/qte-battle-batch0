@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<html lang="ja" data-bs-theme="dark" xmlns:th="http://www.thymeleaf.org">
 <head>
+    <!-- ★Batch 34: <html> の data-bs-theme="dark" はロビーと同じ理由である(下の <style> と対) -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>カード確認(手動モード) — クイン・タブーエレメント</title>
@@ -15,6 +16,16 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
         /* 目視確認のためだけの画面なので、CSSはここに閉じる(battle.css を汚さない)。 */
+
+        /* ★★Batch 34: ロビーを黒にしたので、ロビーから1クリックで来るこの画面も黒に揃える。
+           ここを白のまま残すと、消したはずの白→黒のフラッシュが経路を変えて戻る。
+           色の値はロビー・盤面と同一(#212529 / #f8f9fa)である。 */
+        :root { color-scheme: dark; }
+        body { background-color: #212529; color: #f8f9fa; }
+        .card { background-color: #2b3035; border-color: #495057; }
+        .card-header { background-color: #343a40; border-bottom-color: #495057; }
+        .text-muted { color: #adb5bd !important; }
+
         .card-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
@@ -24,7 +35,8 @@
             width: 100%;
             aspect-ratio: 5 / 7;
             object-fit: contain;
-            background: #e9ecef;
+            /* ★Batch 34: 透過部分の下地。黒背景に合わせて暗い側へ寄せる */
+            background: #343a40;
             border-radius: .25rem;
         }
         .card-cell .cap {
@@ -35,11 +47,12 @@
         .card-cell .imgid {
             font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
             font-size: .6rem;
-            color: #6c757d;
+            /* ★Batch 34: #6c757d は黒地で 3.4:1 しかない */
+            color: #adb5bd;
         }
     </style>
 </head>
-<body class="bg-light">
+<body class="bg-dark text-light">
 <div class="container-fluid py-4" style="max-width: 1400px">
 
     <h1 class="mb-1 h3">手動モード カード確認</h1>

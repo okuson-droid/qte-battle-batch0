@@ -851,7 +851,8 @@ async function clearZoom(page) {
   });
   check('★LP・ATK/HP・ウェポンATK が .manual-stat-button になり鉛筆と title を持つ(4-2)',
     ['lp', 'minion', 'weapon'].every((k) => statButtons[k]
-      && statButtons[k].pen && statButtons[k].title === 'クリックで編集'),
+      // ★Batch 34: 文言は tileTitle 経由になった(2章)。名前が先頭に来る形へ変わっている
+      && statButtons[k].pen && statButtons[k].title.startsWith('数値を編集')),
     JSON.stringify(statButtons));
   await page.locator('#seat-self-minions .manual-tile .manual-stat-button').first().click();
   await page.waitForTimeout(60);
@@ -1603,6 +1604,56 @@ async function clearZoom(page) {
   check('★場のタイルにも効果テキストが載る(25c)',
     (await page.locator('#seat-self-minions .manual-tile-face .mtf-text').first().textContent())
       === 'タイル検証テキスト');
+
+  // ---- ★Batch 34: 動的生成要素の title(レビュー A-3) ----
+  // ★見るのは「付いているか」ではなく「<b>名前で呼べるか</b>」である。
+  //   空でない title を数えるだけの判定は、`title=" "` でも通ってしまう。
+  //   カード名・ゾーン名が実際に入っていることまで確かめる。
+  // ★マナだけは baseView に無いので、この検証のためにマナ入りのビューを1回流す
+  const titleView = baseView();
+  titleView.seatA.zones.MANA = [card('tm1', 'タイトル用マナ')];
+  syncCounts(titleView.seatA);
+  await render(page, titleView);
+  const titles = await page.evaluate(() => {
+    const t = (sel) => {
+      const el = document.querySelector(sel);
+      return el ? (el.title || '') : null;
+    };
+    return {
+      minion: t('#seat-self-minions .manual-tile'),
+      hand: t('#hand-row .manual-hand-card'),
+      mana: t('.mana-tile'),
+      pile: t('#pile-grid .manual-pile[data-zone="TRASH"]'),
+      leader: t('#pile-grid .manual-leader-tile'),
+    };
+  });
+  // ★fixture のカード名(自席の場のミニオン)。名前で呼べることの証拠として使う
+  const minionName = await page.locator('#seat-self-minions .manual-tile-name')
+    .first().textContent();
+  check('★動的生成された盤面の要素に title が付く(34・2章)',
+    Object.values(titles).every((v) => typeof v === 'string' && v.length > 0),
+    JSON.stringify(titles));
+  check('★★title は名前で呼べる(カード名・ゾーン名が入っている)(34・2章)',
+    titles.minion.startsWith(minionName)
+      && titles.pile.startsWith('墓地')
+      && titles.mana.includes('マナ')
+      && titles.hand.length > 0,
+    JSON.stringify(titles));
+  // ★操作規約(左=見る / 右=動かす)は業界慣習と逆である。ヘルプを閉じた後にも
+  //   参照できるよう、動かせる要素の title には操作が書かれていること
+  check('★title に操作の書き方(左/右/ドラッグ)が入る(34・2章)',
+    titles.minion.includes('左=') && titles.minion.includes('右=')
+      && titles.minion.includes('ドラッグ='),
+    titles.minion);
+  // ★★文言は TITLE_HINTS 1箇所に集める(設計判断28)。
+  //   生の日本語を title へ直接代入している箇所が残っていないことを見る
+  const jsSrc = fs.readFileSync(
+    path.join(RES, 'static/js/manual-battle.js'), 'utf8');
+  const rawTitles = (jsSrc.match(/\.title = (?!tileTitle\()[^;\n]*/g) || [])
+    .filter((line) => /[ぁ-んァ-ヶ一-龠]/.test(line));
+  check('★★title の文言は tileTitle / TITLE_HINTS 経由で組み立てる(34・2章)',
+    rawTitles.length === 0, rawTitles.join(' / '));
+
   await page.evaluate(() => {
     // eslint-disable-next-line no-undef
     cardTextById = null;
@@ -2949,11 +3000,37 @@ async function clearZoom(page) {
     for (const need of ['og:title', 'og:description', 'og:image', 'twitter:card']) {
       if (!src.includes(need)) ogMissing.push(`${name}:${need}`);
     }
-    // ★og:image は絶対URLでなければならない(相対URLの解決はクローラ依存)
-    if (!/property="og:image" content="https:\/\//.test(src)) ogMissing.push(`${name}:og:image が絶対URLでない`);
+    // ★★Batch 34(裁定24): og:image は<b>設定から来る</b>ようになった。
+    //   33 の判定は content="https:// の直書きを見ていたので、そのままでは
+    //   「設定化したら落ちる」判定になる。見るべきものが変わったので式を差し替える。
+    //   ★直書きが残っていないことも同時に見る。片方だけ設定化して片方が直書きのままだと、
+    //     公開URLを変えたときに<b>1枚だけ古い画像を配る</b>という一番分かりにくい壊れ方をする。
+    if (!/property="og:image" th:content="\$\{ogImageUrl\}"/.test(src)) {
+      ogMissing.push(`${name}:og:image が ${'${ogImageUrl}'} を参照していない`);
+    }
+    if (/property="og:image"[^>]*content="https?:\/\//.test(src)) {
+      ogMissing.push(`${name}:og:image に公開URLが直書きされている`);
+    }
   }
-  check('★共有されるページには OGP があり og:image は絶対URLである(33・2-4)',
+  check('★共有されるページには OGP があり og:image は設定由来である(34・裁定24)',
     ogMissing.length === 0, ogMissing.join(' / '));
+
+  // ---- ★Batch 34: 公開URLの設定と、絶対URLを組み立てる側 ----
+  // ★「設定に出した」は、設定に<b>正しい形の値が入っている</b>ことまで含めて初めて成立する。
+  //   相対URLへ退化させないのが裁定22 の要点なので、絶対URLであることを機械で押さえる。
+  const props = fs.readFileSync(path.join(RES, 'application.properties'), 'utf8');
+  const baseUrl = (props.match(/^qte\.public-base-url=(.*)$/m) || [])[1];
+  check('★公開URLが設定にあり、絶対URLである(34・裁定24)',
+    !!baseUrl && /^https?:\/\/[^\s/]+/.test(baseUrl.trim()), String(baseUrl));
+
+  // ★組み立てが1箇所であることを見る。テンプレートが '/og-image.png' を持っていたら
+  //   それは連結がテンプレート側へ漏れているということである(設計判断28)。
+  const adviceSrc = fs.readFileSync(
+    path.join(ROOT, 'src/main/java/com/example/qte/web/PublicUrlAdvice.java'), 'utf8');
+  const ogPathLeak = ['manual-battle', 'manual-lobby'].filter((name) => fs
+    .readFileSync(path.join(RES, 'templates', `${name}.html`), 'utf8').includes('/og-image.png'));
+  check('★og:image のURL組み立ては PublicUrlAdvice の1箇所だけである(34・裁定24)',
+    adviceSrc.includes('/og-image.png') && ogPathLeak.length === 0, ogPathLeak.join(' / '));
 
   const assetMissing = ['favicon.svg', 'favicon-32.png', 'apple-touch-icon.png', 'og-image.png']
     .filter((f) => !fs.existsSync(path.join(RES, 'static', f)));
@@ -3106,8 +3183,98 @@ async function clearZoom(page) {
     (await lobby.locator('#status').textContent()).includes('名前が必要'),
     await lobby.locator('#status').textContent());
 
+  // ---- ★Batch 34: ロビーのダークテーマ統一(レビュー B-2) ----
+  // ★★見るのはクラス名ではなく<b>実際に解決された色</b>である。
+  //   `bg-dark が付いている` を見る判定は、Bootstrap の代替が漏れていても通ってしまう
+  //   (31 で踏んだのはまさにその穴で、ハーネスは白背景のまま「合格」と言っていた)。
+  const lobbyTheme = await lobby.evaluate(() => ({
+    body: getComputedStyle(document.body).backgroundColor,
+    text: getComputedStyle(document.body).color,
+  }));
+  check('★★ロビーの背景が盤面と同じ黒である(34・B-2)',
+    lobbyTheme.body === 'rgb(33, 37, 41)' && lobbyTheme.text === 'rgb(248, 249, 250)',
+    JSON.stringify(lobbyTheme));
+
+  // ★盤面と同じ 4.5:1 の条件をロビーの文字にも当てる。
+  //   ★ここへ足す色は<b>実ページと同じ値</b>でなければならない。ハーネス側の代替が
+  //     実物とずれていると、判定は通るのに実ページでは読めない、が再発する(31)。
+  const lobbyContrast = await lobby.evaluate(() => {
+    const parse = (c) => {
+      const m = (c || '').match(/[\d.]+/g);
+      if (!m) return [0, 0, 0, 0];
+      const v = m.map(Number);
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1];
+    };
+    const bodyBg = parse(getComputedStyle(document.body).backgroundColor);
+    const eff = (el) => {
+      let n = el;
+      while (n && n !== document.documentElement) {
+        const c = parse(getComputedStyle(n).backgroundColor);
+        if (c[3] >= 0.98) return c;
+        n = n.parentElement;
+      }
+      return bodyBg;
+    };
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+    const out = [];
+    const targets = ['h1', 'p', '.form-label', '.form-text', '.form-check-label',
+      'th', '#room-list td', '#room-list .room-locked-hint', '#refresh-rooms',
+      '.room-enter', '#create-submit', '#join-submit', '.card-header'];
+    for (const sel of targets) {
+      for (const el of document.querySelectorAll(sel)) {
+        const t = (el.textContent || '').trim();
+        if (!t) continue;
+        const fg = parse(getComputedStyle(el).color);
+        const bg = eff(el);
+        const ratio = (Math.max(L(fg), L(bg)) + 0.05) / (Math.min(L(fg), L(bg)) + 0.05);
+        if (ratio < 4.5) out.push({ sel, text: t.slice(0, 12), ratio: Math.round(ratio * 100) / 100 });
+      }
+    }
+    return out;
+  });
+  check('★ロビーの文字もコントラスト比 4.5:1 以上(34・B-2)',
+    lobbyContrast.length === 0, JSON.stringify(lobbyContrast));
+
   check('ロビーでJSエラーが出ない', lobbyErrors.length === 0, lobbyErrors.join(' | '));
   await lobby.close();
+
+  // ---- ★Batch 34: ロビーから1クリックで行くカード一覧も黒である ----
+  // ★ロビーだけ直すと、白→黒のフラッシュが<b>経路を変えて戻る</b>。
+  //   この画面はサーバ描画なのでハーネスを作らず、テンプレートを静的に見る。
+  const cardsHtml = fs.readFileSync(path.join(RES, 'templates/manual-cards.html'), 'utf8');
+  check('★手動モードのカード一覧もダークテーマである(34・B-2)',
+    /<body class="bg-dark text-light">/.test(cardsHtml)
+      && cardsHtml.includes('background-color: #212529'),
+    (cardsHtml.match(/<body[^>]*>/) || [])[0]);
+
+  // ---- ★Batch 34: 初回だけ操作説明が開く(レビュー A-3・裁定16) ----
+  // ★★「初回」と「2回目」を<b>実際の入口から</b>作る(33 の教訓)。
+  //   フラグを直接倒して確かめると、自動表示のコードを消しても検証が通ってしまう。
+  //   ここでは localStorage を消してページを開き直す = 初見の人と同じ経路を通す。
+  const help1 = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+  const helpErrors = [];
+  help1.on('pageerror', (e) => helpErrors.push(String(e)));
+  await help1.goto(`http://127.0.0.1:${port}/harness.html?firstvisit=1`);
+  await help1.evaluate(() => localStorage.removeItem('qte-manual-help-seen'));
+  await help1.reload();
+  await help1.waitForTimeout(200);
+  check('★初回入室では操作説明が自動で開く(34・1章)',
+    !(await help1.locator('#help-modal').getAttribute('class')).includes('d-none'));
+  check('★開いた時点で「見た」と記録する(閉じるのを待たない)(34・1章)',
+    (await help1.evaluate(() => localStorage.getItem('qte-manual-help-seen'))) === '1');
+
+  // 2回目。★同じURLで開き直す = スタブは何もしない。差は localStorage だけである
+  await help1.reload();
+  await help1.waitForTimeout(200);
+  check('★★2回目からは自動で開かない(34・1章)',
+    (await help1.locator('#help-modal').getAttribute('class')).includes('d-none'));
+  // ★自動表示をやめても [?] からはいつでも開けること(導線を1本にしない)
+  await help1.locator('#btn-help').click();
+  check('★[?] ボタンからはいつでも開ける(34・1章)',
+    !(await help1.locator('#help-modal').getAttribute('class')).includes('d-none'));
+  check('初回ヘルプの検証でJSエラーが出ない', helpErrors.length === 0, helpErrors.join(' | '));
+  await help1.close();
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
