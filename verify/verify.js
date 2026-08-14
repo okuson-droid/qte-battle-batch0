@@ -737,6 +737,55 @@ async function clearZoom(page) {
     stripLabels.length === 2 && stripLabels[0] === '表 2枚' && stripLabels[1] === '裏 1枚',
     JSON.stringify(stripLabels));
 
+  // ---- ★★Batch 34 hotfix: マナが枠を越えて右列(ウェポン枠)へ侵食しない ----
+  // ★測るのは「重なりの計算式」ではなく<b>結果の座標</b>である。
+  //   式を測ると、式を変えたときに検証も一緒に変わってしまい、番人にならない。
+  //   見るべき決めごとは1つ:「どのタイルもトラックの外へ出ない」。
+  // ★最悪ケースを作る: 上限の15枚が<b>全部裏・全部タップ済</b>。
+  //   タップ済は回転して外接88pxになるので、1枚あたりの占有がいちばん大きい。
+  //   直す前はこの条件で 819px の中身を 323px のトラックに入れようとして、
+  //   約480px を右列(ウェポン枠)へはみ出させていた。
+  const manaWorst = baseView();
+  manaWorst.seatA.zones.MANA = [];
+  for (let i = 0; i < 15; i += 1) {
+    manaWorst.seatA.zones.MANA.push(
+      card(`mw${i}`, `裏マナ${i}`, { faceDown: true, tapped: true }));
+  }
+  manaWorst.seatA.mp = 0;
+  syncCounts(manaWorst.seatA);
+  await render(page, manaWorst);
+  await page.waitForTimeout(120);
+  const manaFit = await page.evaluate(() => {
+    const out = { over: [], scroll: [], weaponLeft: null, worstRight: 0 };
+    for (const track of document.querySelectorAll('.mana-strip-track')) {
+      // ★1px の丸め誤差は許す。侵食は数十〜数百pxの単位で起きる
+      if (track.scrollWidth > track.clientWidth + 1) {
+        out.scroll.push({ w: track.clientWidth, sw: track.scrollWidth });
+      }
+      const edge = track.getBoundingClientRect().right;
+      for (const tile of track.children) {
+        const r = tile.getBoundingClientRect().right;
+        out.worstRight = Math.max(out.worstRight, r);
+        if (r > edge + 1) out.over.push(Math.round(r - edge));
+      }
+    }
+    const weapon = document.querySelector('#pile-grid .manual-weapon-slot');
+    out.weaponLeft = weapon ? weapon.getBoundingClientRect().left : null;
+    return out;
+  });
+  check('★★マナ15枚が全部タップ済でも枠からはみ出さない(34 hotfix)',
+    manaFit.over.length === 0 && manaFit.scroll.length === 0, JSON.stringify(manaFit));
+  check('★★マナがウェポン枠へ侵食しない(34 hotfix)',
+    manaFit.weaponLeft !== null && manaFit.worstRight <= manaFit.weaponLeft,
+    JSON.stringify({ worstRight: Math.round(manaFit.worstRight),
+      weaponLeft: Math.round(manaFit.weaponLeft) }));
+  // ★空のストリップも残す。マナは「表向きに置く / 裏向きに置く」のドロップ先でもあり、
+  //   幅0にすると操作そのものが画面から消える(下駄 MANA_STRIP_BASE_GROW)
+  check('★枚数0のストリップも幅を残す(ドロップ先を消さない)(34 hotfix)',
+    (await page.evaluate(
+      () => document.querySelector('.mana-strip-up .mana-strip-track').clientWidth)) >= 64);
+  await render(page, manaView);
+
   // ★公開のみ視点の観戦者は「自席側」の裏向きマナのカードが届かない。
   //   それでも合計と裏の枚数は counts / manaFaceDownCount から出る(2-8)
   const specMana = versusView(null);
@@ -2164,6 +2213,8 @@ async function clearZoom(page) {
       //   ★これらは表示中でなくても判定できる(色も背景も d-none とは無関係に解決される)。
       '#manual-offline .manual-offline-title', '#manual-offline p', '#manual-offline button',
       '#manual-conn-bar', '.manual-copy-btn',
+      // ★Batch 34 hotfix: モーダルの × も同じ1本の条件で見る
+      '.info-modal-x',
     ].map((s) => '#manual-root ' + s)
       // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
       //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
@@ -3273,6 +3324,60 @@ async function clearZoom(page) {
   await help1.locator('#btn-help').click();
   check('★[?] ボタンからはいつでも開ける(34・1章)',
     !(await help1.locator('#help-modal').getAttribute('class')).includes('d-none'));
+
+  // ---- ★★Batch 34 hotfix: 閉じる手段が「スクロールしないと出てこない」問題 ----
+  // ★操作説明は本文が長く、[閉じる] は<b>いちばん下</b>にしかなかった。
+  //   34 で初回に自動で開くようにしたので、これは
+  //   「初めて見る画面から出られない」に直結する。
+  // ★★測るのは「× が存在するか」ではなく<b>スクロールしても見えているか</b>である。
+  //   存在だけを見る判定は、position: sticky を消しても通ってしまう。
+  //   本文を最下部までスクロールさせてから、× がまだ本文の見えている範囲に
+  //   収まっていることを確かめる。
+  const scrolled = await help1.evaluate(() => {
+    const body = document.querySelector('#help-modal .info-modal-body');
+    body.scrollTop = body.scrollHeight;
+    return { scrollTop: body.scrollTop, scrollable: body.scrollHeight > body.clientHeight + 1 };
+  });
+  check('★操作説明の本文は実際にスクロールする(前提の確認)',
+    scrolled.scrollable && scrolled.scrollTop > 0, JSON.stringify(scrolled));
+  const xVisible = await help1.evaluate(() => {
+    const body = document.querySelector('#help-modal .info-modal-body');
+    const x = document.getElementById('help-modal-x');
+    const b = body.getBoundingClientRect();
+    const r = x.getBoundingClientRect();
+    return { ok: r.top >= b.top - 1 && r.bottom <= b.bottom + 1 && r.width > 0,
+      x: Math.round(r.top), body: Math.round(b.top) };
+  });
+  check('★★最下部までスクロールしても × は見えたままである(34 hotfix)',
+    xVisible.ok, JSON.stringify(xVisible));
+  // ★× は右上にある(見出しの右端側)
+  const xRight = await help1.evaluate(() => {
+    const b = document.querySelector('#help-modal .info-modal-body').getBoundingClientRect();
+    const r = document.getElementById('help-modal-x').getBoundingClientRect();
+    return r.right > b.right - 60;
+  });
+  check('★× は本文の右上に置かれている(34 hotfix)', xRight);
+  await help1.locator('#help-modal-x').click();
+  check('★× を押すと閉じる(34 hotfix)',
+    (await help1.locator('#help-modal').getAttribute('class')).includes('d-none'));
+
+  // ★★開始シーケンスの2つには × を付けない。
+  //   出口が「リセットして最初から」しか無いのが意図であり(23 設計書 7-2)、
+  //   サーバ側の状態を残したまま画面だけ閉じられるようにしてはいけない。
+  const xCoverage = await help1.evaluate(() => {
+    const out = { missing: [], extra: [] };
+    for (const m of document.querySelectorAll('.info-modal')) {
+      const hasClose = !!m.querySelector('[id$="-close"]');
+      const hasX = !!m.querySelector('.info-modal-x');
+      if (hasClose && !hasX) out.missing.push(m.id);
+      if (!hasClose && hasX) out.extra.push(m.id);
+    }
+    return out;
+  });
+  check('★★[閉じる] を持つモーダルには必ず × があり、持たないものには無い(34 hotfix)',
+    xCoverage.missing.length === 0 && xCoverage.extra.length === 0,
+    JSON.stringify(xCoverage));
+
   check('初回ヘルプの検証でJSエラーが出ない', helpErrors.length === 0, helpErrors.join(' | '));
   await help1.close();
 

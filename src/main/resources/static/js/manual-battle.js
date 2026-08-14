@@ -2379,6 +2379,11 @@ function renderManaRow(view) {
 function createManaStrip(label, cards, seatId, faceDown, backImageId) {
     const strip = document.createElement('div');
     strip.className = 'mana-strip' + (faceDown ? ' mana-strip-down' : ' mana-strip-up');
+    // ★★Batch 34 hotfix: 幅は枚数に比例させる(CSS の 6:4 固定をやめた)。
+    //   ★下駄(MANA_STRIP_BASE_GROW)を履かせるのは、0枚の側を潰さないためである。
+    //     マナのストリップは<b>ドロップ先</b>でもあり、幅0にすると
+    //     「表向きに置く」操作そのものが画面から消える。
+    strip.style.flexGrow = String(MANA_STRIP_BASE_GROW + cards.length);
 
     const label_ = document.createElement('div');
     label_.className = 'mana-strip-label small manual-count-label';
@@ -2453,11 +2458,26 @@ function createManaTile(card, seatId, backImageId) {
 /**
  * マナストリップの重ね表示(設計書2-3)。「はみ出す場合のみ負のマージンを計算して
  * 均等に重ねる」ため、DOMに実際に載せた後の実測幅(clientWidth)を使う。
- * 1枚あたり最小約28pxは露出させる(タイル幅64pxに対し最大重なり36px)。
  */
 /** マナタイルの寸法。★CSS の .mana-tile と対である(片方だけ変えないこと) */
 const MANA_TILE_WIDTH = 64;
 const MANA_TILE_HEIGHT = 88;
+/**
+ * 1枚あたり露出させたい幅。★Batch 34 hotfix: 1つの定数から2つへ増やした。
+ *
+ * 従来は 28px の1つだけで、入らないときは<b>諦めてはみ出していた</b>。
+ * はみ出した先が右列(ウェポン枠)であり、重なった部分は押せなくなる。
+ * 「読みやすさ」と「隣を侵食しないこと」が衝突したとき、優先されるのは後者である。
+ * 読みにくいマナは読み直せるが、押せないウェポンは操作できない。
+ */
+const MANA_MIN_EXPOSURE = 28;
+/** ★これ以上は詰めない下限。ここまで詰めても入らないときはトラック側が横スクロールする */
+const MANA_HARD_EXPOSURE = 14;
+/**
+ * 表/裏ストリップの幅の下駄。★枚数0の側を潰さないための値である。
+ * 幅は「下駄 + 枚数」の比で配る(createManaStrip)。3 はタイル約1.8枚ぶんにあたる。
+ */
+const MANA_STRIP_BASE_GROW = 3;
 
 /**
  * マナの重ね表示。★Batch 30: 回転したタップ済タイルのぶんの幅を確保する。
@@ -2484,16 +2504,33 @@ function applyManaOverlap(wrap) {
         if (tiles.length === 0) continue;
         const tapped = tiles.map((t) => t.classList.contains('tapped'));
         // ★回転したタイルは外接が MANA_TILE_HEIGHT(88px)になる
+        const footprint = (i) => (tapped[i] ? MANA_TILE_HEIGHT : MANA_TILE_WIDTH);
         let naturalWidth = 0;
-        tiles.forEach((tile, i) => {
-            naturalWidth += tapped[i] ? MANA_TILE_HEIGHT : MANA_TILE_WIDTH;
-        });
-        const trackWidth = track.clientWidth;
-        const minExposure = 28;
-        const maxOverlap = MANA_TILE_WIDTH - minExposure;
-        const perTileOverlap = tiles.length <= 1 || naturalWidth <= trackWidth
+        tiles.forEach((tile, i) => { naturalWidth += footprint(i); });
+        // ★clientWidth は padding を<b>含む</b>。トラックには padding: 1px 3px があるので、
+        //   そのまま使うと左右6pxぶん多く見積もり、その6pxが枠の外へ出る。
+        //   「はみ出さない」を目標にする以上、比べる相手は<b>中身が置ける幅</b>である。
+        const cs = window.getComputedStyle(track);
+        const trackWidth = track.clientWidth
+            - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+
+        // ★★Batch 34 hotfix: 重なりの上限を<b>そのタイル自身の占有幅</b>から引く。
+        //   従来は常に MANA_TILE_WIDTH(64)基準で上限 36px としていた。
+        //   ところがタップ済のタイルは占有幅が 88px なので、36px しか重ねられないと
+        //   1枚あたり 52px も食う。15枚すべてタップ済だと 816px 必要になり、
+        //   裏ストリップ(実測 323px)を<b>約 480px はみ出して</b>右列を覆っていた。
+        //   基準をタイルごとにすると、タップ済は 88 - 28 = 60px まで重ねられる。
+        const overlapCapAt = (exposure) => Math.min(
+            ...tiles.slice(1).map((t, k) => footprint(k + 1) - exposure));
+        const needed = tiles.length <= 1 || naturalWidth <= trackWidth
             ? 0
-            : Math.min(maxOverlap, (naturalWidth - trackWidth) / (tiles.length - 1));
+            : (naturalWidth - trackWidth) / (tiles.length - 1);
+        // ★まず 28px の露出で詰め、それで足りなければ 14px まで譲る。
+        //   「入らないなら詰める」の一段深い版であり、判断が増えたわけではない。
+        let perTileOverlap = Math.min(needed, overlapCapAt(MANA_MIN_EXPOSURE));
+        if (needed > perTileOverlap) {
+            perTileOverlap = Math.min(needed, overlapCapAt(MANA_HARD_EXPOSURE));
+        }
         tiles.forEach((tile, i) => {
             const base = tapped[i] ? pad : 0;
             tile.style.marginLeft = `${base - (i > 0 ? perTileOverlap : 0)}px`;
@@ -4939,6 +4976,34 @@ document.getElementById('occupant-list').addEventListener('click', () => {
 document.getElementById('occupant-popover-close').addEventListener('click', () => {
     document.getElementById('occupant-popover').classList.add('d-none');
 });
+
+// ---------------------------------------------------------------
+// モーダルの × ボタン(★Batch 34 hotfix。マスター指摘)
+// ---------------------------------------------------------------
+//
+// ★何が問題だったか。閉じる手段が本文の<b>いちばん下</b>にしかなく、
+//   操作説明のように長いモーダルではスクロールしないと出口が見えなかった。
+//   34 で初回に自動で開くようにしたので、これは「初めて見る画面から出られない」に直結する。
+//
+// ★★× は<b>[閉じる] を押す</b>だけにする。独自に `d-none` を付けない。
+//   LPモーダルは `lpModalSeatId` を、ウェポンモーダルは `weaponModalCardId` を
+//   閉じるときに捨てている。× 側に「閉じる処理」を書き写すと、
+//   後片付けが2箇所になり、片方だけ直したときに<b>閉じたのに参照が残る</b>。
+//   閉じ方を1つに保つのが目的であって、ボタンを増やすのが目的ではない。
+//
+// ★[閉じる] のハンドラはモーダルを開くたびに `.onclick` で貼り替えられる。
+//   だからここで「そのときのハンドラ」を掴んではいけない。
+//   毎回 `click()` を投げれば、常に最新のハンドラが走る。
+//
+// ★開始シーケンスの2つ(start-method / start-order)には × を付けていない。
+//   あれは出口が「リセットして最初から」しか無いのが意図であり(23 設計書 7-2)、
+//   サーバ側の状態を残したまま画面だけ閉じられるようにしてはいけない。
+for (const x of document.querySelectorAll('.info-modal-x')) {
+    const closeId = x.id.replace(/-x$/, '-close');
+    const closeBtn = document.getElementById(closeId);
+    if (!closeBtn) continue;
+    x.addEventListener('click', () => closeBtn.click());
+}
 
 // ★2-6: 操作説明モーダル
 function openHelpModal() {

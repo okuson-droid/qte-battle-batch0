@@ -62,6 +62,31 @@
     border-radius: 8px; padding: 16px; max-width: 480px; width: 90%;
     max-height: 70vh; overflow-y: auto;
 }
+/* ★★Batch 34 hotfix(マスター指摘): 閉じる手段が<b>いちばん下</b>にしか無く、
+   操作説明のように長いモーダルではスクロールしないと出てこなかった。
+   34 で初回に自動で開くようにしたので、これは「初めて見る画面から出られない」に直結する。
+
+   ★スクロールしているのは .info-modal-body 自身である。したがって
+     `position: absolute` で右上に置いても<b>中身と一緒に流れて消える</b>。
+     ここが効くのは `position: sticky` だけで、そのためには
+     「スクロール領域の中の、通常フローの先頭要素」である必要がある。
+   ★背景は inherit にする。ハーネス(Bootstrap 代替)と実ページで
+     .info-modal-body の背景が一致していなくても、見出し帯だけが浮くことがない。
+     ここに具体的な色を書くと、色の正が2箇所になる。
+   ★左右の負マージンで本文の padding を打ち消し、帯を端まで伸ばす。
+     伸ばさないと、左右16pxの隙間から中身がスクロールして見える。
+   ★下の [閉じる] は<b>消さない</b>。長い説明を読み終えた位置にも出口が要る。
+     出口を1つに減らすのではなく、届く場所に増やすのが今回の主旨である。 */
+.info-modal-head {
+    position: sticky; top: 0; z-index: 1;
+    background: inherit;
+    margin: -16px -16px 8px; padding: 12px 16px 8px;
+    border-bottom: 1px solid #495057;
+    display: flex; align-items: center; gap: 8px;
+}
+.info-modal-head h6 { margin: 0; }
+/* ★見出しが長くても × を右端へ押し出す。幅は22pxで、ヘッダの [×] と同じ寸法である */
+.info-modal-x { margin-left: auto; flex: 0 0 auto; line-height: 1; padding: 0 6px; }
 .game-card.mulligan-selected { border-color: #ab47bc; box-shadow: 0 0 8px #ab47bc; }
 .link-info { text-decoration: none; }
 
@@ -286,9 +311,14 @@
 
 /* ★19b: マナ行(リーダー行の直下。設計書2-3)。表(約6割)/裏(約4割)の2ストリップを横に並べる。 */
 .mana-strips { display: flex; gap: 12px; }
-.mana-strip { display: flex; flex-direction: column; }
-.mana-strip-up { flex: 6; min-width: 0; }
-.mana-strip-down { flex: 4; min-width: 0; }
+/* ★★Batch 34 hotfix: 幅の配分を 6:4 の固定値から<b>中身の枚数</b>へ変えた。
+   6:4 は「たいてい表のほうが多い」という前提の数字であり、闇文明のように
+   裏向きマナが増える側では前提が崩れる。全部が裏になった瞬間、
+   裏ストリップは 4/10 の幅しか持たないまま 15枚を抱えることになり、
+   はみ出した先が右列(ウェポン枠)だった。
+   ★grow は JS(createManaStrip)が枚数から決める。ここは基準だけを持つ。
+   ★min-width: 0 が無いと flex 子は内容幅より縮まない(20c と同じ罠)。 */
+.mana-strip { display: flex; flex-direction: column; flex: 1 1 0; min-width: 0; }
 /* ★20c: マナ行の縦詰め。タイル(64×88)の大きさは据え置き、
    ラベル・padding・トラックの余白だけを削る(マスター確認済み)。
    MP表示は「表」ラベルへ寄せたため、行見出しの1行(約20px)がまるごと消えている。 */
@@ -296,6 +326,13 @@
 .mana-strip-track {
     display: flex; align-items: flex-end; min-height: 90px;
     border: 1px dashed #495057; border-radius: 4px; padding: 1px 3px;
+    /* ★★Batch 34 hotfix(マスター指摘): マナが枠を越えて右列(ウェポン枠)へ侵食していた。
+       主因は JS 側(applyManaOverlap と幅の配分)で直してあり、これは<b>最後の砦</b>である。
+       ★hidden ではなく auto にする。hidden はカードを画面のどこからも触れなくするが、
+         これは手動モードでは「消失と同じ扱い」である(ハンドオフ3章)。
+         auto なら、極端に狭い窓でも横スクロールで全部に手が届く。
+       ★通常はスクロールバーは出ない。出たら「窓が狭すぎる」という合図である。 */
+    overflow-x: auto;
 }
 #seat-self-mana-row { padding: 4px 8px !important; min-height: 0; }
 .mana-tile {

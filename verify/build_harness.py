@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=32)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=33)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=25)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=26)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -73,9 +73,14 @@ stub = """
   .text-danger { color: #ea868f; }
   .btn-outline-light { color: #f8f9fa; border: 1px solid #f8f9fa; background: transparent; }
   .btn-outline-secondary { color: #dee2e6; border: 1px solid #6c757d; background: transparent; }
-  .info-modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 2000;
-                display: flex; align-items: center; justify-content: center; }
-  .info-modal-body { background: #222; padding: 16px; border-radius: 6px; }
+  /* ★★★Batch 34 hotfix: ここにあった .info-modal / .info-modal-body の定義を<b>消した</b>。
+     この2つは Bootstrap のクラスではなく<b>こちらの battle.css が持っているクラス</b>である。
+     スタブは battle.css より後ろに入るので、上書きしていたのは代替ではなく<b>本物</b>だった。
+     実害があった: 本物の .info-modal-body は `max-height: 70vh; overflow-y: auto` を持つが、
+     スタブ版は持たない。つまりハーネスの操作説明は<b>スクロールしないモーダル</b>であり、
+     「長くて閉じるボタンに届かない」というマスターの指摘が<b>原理的に再現しない</b>状態だった。
+     z-index も 1000(本物)ではなく 2000 にすり替わっていた。
+     ★スタブに書いてよいのは、落とした CDN の代わりだけである。 */
   /* ★Bootstrap の代替。ここに漏れがあると「ハーネスでだけ壊れる」ため、
      テンプレートで使っているユーティリティは必ず足すこと(20cで flex-column の
      欠落によりログ幅が16pxになり、実態とズレた検証をしかけた)。 */
