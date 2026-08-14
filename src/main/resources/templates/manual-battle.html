@@ -27,7 +27,7 @@
     <meta property="og:image" th:content="${ogImageUrl}">
     <meta name="twitter:card" content="summary_large_image">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=34)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=35)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -189,8 +189,9 @@
     </div>
 
     <!-- 数値編集モーダル -->
-    <div id="stat-modal" class="info-modal d-none">
-        <div class="info-modal-body">
+    <div id="stat-modal" class="info-modal d-none" data-initial-focus="#stat-modal-fields input">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="stat-modal-title">
             <!-- ★Batch 34 hotfix: 見出しと × を1本の帯にする。帯は sticky で、
                  中身をスクロールしても<b>出口が常に見えている</b>(battle.css .info-modal-head) -->
             <div class="info-modal-head">
@@ -208,8 +209,9 @@
     </div>
 
     <!-- LP編集モーダル(設計書 Batch20a 2-4)。prompt() を廃止し、ATK/HPと同じ体裁にする -->
-    <div id="lp-modal" class="info-modal d-none">
-        <div class="info-modal-body">
+    <div id="lp-modal" class="info-modal d-none" data-initial-focus="#lp-modal-fields input">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="lp-modal-title">
             <!-- ★Batch 34 hotfix: 見出しと × を1本の帯にする。帯は sticky で、
                  中身をスクロールしても<b>出口が常に見えている</b>(battle.css .info-modal-head) -->
             <div class="info-modal-head">
@@ -234,8 +236,9 @@
       合体タイルのミニタイルは 44×60 しかなく、ATK・使用済・札をすべて載せられない。
       ミニタイルは画像と枚数バッジだけを持ち、操作はこのモーダルへ集約する。
     -->
-    <div id="weapon-modal" class="info-modal d-none">
-        <div class="info-modal-body">
+    <div id="weapon-modal" class="info-modal d-none" data-initial-focus="#weapon-modal-fields input">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="weapon-modal-title">
             <!-- ★Batch 34 hotfix: 見出しと × を1本の帯にする。帯は sticky で、
                  中身をスクロールしても<b>出口が常に見えている</b>(battle.css .info-modal-head) -->
             <div class="info-modal-head">
@@ -267,8 +270,9 @@
 
     <!-- 開始方法モーダル(3-1)。★①の文言は部屋の種類で変わる(ソロは「ランダムで決める」) -->
     <div id="start-method-modal" class="info-modal d-none">
-        <div class="info-modal-body" style="max-width:420px;">
-            <h6>ゲームを始める — 先攻・後攻の決め方</h6>
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="start-method-modal-title" style="max-width:420px;">
+            <h6 id="start-method-modal-title">ゲームを始める — 先攻・後攻の決め方</h6>
             <p class="small text-muted mb-2" id="start-method-note"></p>
             <div class="d-flex flex-column gap-1 mb-2">
                 <button id="start-method-dice" class="btn btn-sm btn-outline-warning"
@@ -287,7 +291,8 @@
 
     <!-- 先攻・後攻の選択モーダル(3-3)。★ダイスで勝った席のプレイヤーだけに出る -->
     <div id="start-order-modal" class="info-modal d-none">
-        <div class="info-modal-body" style="max-width:420px;">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="start-order-title" style="max-width:420px;">
             <h6 id="start-order-title">先攻・後攻を選ぶ</h6>
             <p class="small text-muted mb-2">
                 先攻は初期手札4枚、後攻は5枚と【ピュア・エレメント】を受け取る(総合ルール 2-5)。</p>
@@ -314,12 +319,13 @@
     </div>
 
     <!-- 札編集モーダル -->
-    <div id="label-modal" class="info-modal d-none">
-        <div class="info-modal-body">
+    <div id="label-modal" class="info-modal d-none" data-initial-focus="#label-modal-input">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="label-modal-title">
             <!-- ★Batch 34 hotfix: 見出しと × を1本の帯にする。帯は sticky で、
                  中身をスクロールしても<b>出口が常に見えている</b>(battle.css .info-modal-head) -->
             <div class="info-modal-head">
-                <h6>札</h6>
+                <h6 id="label-modal-title">札</h6>
                 <button type="button" id="label-modal-x"
                         class="btn btn-sm btn-outline-light info-modal-x"
                         aria-label="閉じる" title="閉じる">×</button>
@@ -347,12 +353,13 @@
       20c までは「カード共通」「ドラッグ」「リーダー」…という場所ごとの箇条書きであり、
       新しい規約(左=見る / 右=動かす)が読み取れなかった。
     -->
-    <div id="help-modal" class="info-modal d-none">
-        <div class="info-modal-body" style="max-width:680px;">
+    <div id="help-modal" class="info-modal d-none" data-initial-focus="#help-modal-x">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="help-modal-title" style="max-width:680px;">
             <!-- ★Batch 34 hotfix: 見出しと × を1本の帯にする。帯は sticky で、
                  中身をスクロールしても<b>出口が常に見えている</b>(battle.css .info-modal-head) -->
             <div class="info-modal-head">
-                <h6>操作説明</h6>
+                <h6 id="help-modal-title">操作説明</h6>
                 <button type="button" id="help-modal-x"
                         class="btn btn-sm btn-outline-light info-modal-x"
                         aria-label="閉じる" title="閉じる">×</button>
@@ -452,6 +459,40 @@
     </div>
 
     <!--
+      ★★Batch 36: 破壊的操作の確認(設計解説3章・レビュー A-1)。
+      素の confirm() を置き換える。confirm() はOSの見た目が出てテーマが崩れ、
+      ボタンの文言を決められず、待っている間 JavaScript を止めるため
+      <b>相手の操作がこちらの画面に反映されなくなる</b>。
+
+      ★出口は [キャンセル] の1つであり、× も Esc もそこを通る(裁定35 の一般化)。
+        id が -close で終わるのは 34 hotfix からの規約であり、× の結線と
+        「[閉じる] を持つものには必ず ×」の機械判定がこの規約に載っている。
+      ★初期フォーカスは [キャンセル] である(data-initial-focus)。既定のままだと
+        DOM の順で [実行] に載る。破壊的操作でそれをやってはいけない。
+      ★z-index は 1965。開始モーダル(1960)より上——マリガンや開始の帯からも
+        呼ばれるためである。切断オーバーレイ(1970)より下——切断中は
+        「相手に届かない」の案内のほうが上位の情報である。
+    -->
+    <div id="confirm-modal" class="info-modal manual-confirm d-none"
+         data-initial-focus="#confirm-modal-close">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="confirm-modal-title" style="max-width:380px;">
+            <div class="info-modal-head">
+                <h6 id="confirm-modal-title">確認</h6>
+                <button type="button" id="confirm-modal-x"
+                        class="btn btn-sm btn-outline-light info-modal-x"
+                        aria-label="閉じる" title="閉じる">&times;</button>
+            </div>
+            <p id="confirm-modal-text" class="small mb-3"></p>
+            <div class="d-flex justify-content-end gap-2">
+                <button type="button" id="confirm-modal-ok" class="btn btn-sm btn-warning">実行</button>
+                <button type="button" id="confirm-modal-close"
+                        class="btn btn-sm btn-outline-light">キャンセル</button>
+            </div>
+        </div>
+    </div>
+
+    <!--
       ★席選択画面(21b・設計書 2-1)。
       独立ページではなく盤面ページ内のゲートにしてある。こうしておくと
       /manual/battle/{roomId} の直リンクで来た人も構造的に必ずここを通る
@@ -488,8 +529,9 @@
     <!-- 接続の帯。切断中に盤面を覗いている間と、再接続の直後に出る(1-5) -->
     <div id="manual-conn-bar" class="manual-conn-bar d-none"></div>
 
-    <div id="seat-gate" class="manual-gate d-none">
-        <div class="manual-gate-body">
+    <div id="seat-gate" class="manual-gate d-none" data-initial-focus="#seat-gate-name">
+        <div class="manual-gate-body" role="dialog" aria-modal="true"
+             aria-labelledby="seat-gate-room">
             <h5 class="mb-1" id="seat-gate-room">部屋</h5>
             <div class="small text-muted mb-2 d-flex align-items-center gap-1 flex-wrap">
                 <span>部屋 <span id="seat-gate-code"></span> /
@@ -532,6 +574,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=27)}"></script>
+<script th:src="@{/js/manual-battle.js(v=28)}"></script>
 </body>
 </html>

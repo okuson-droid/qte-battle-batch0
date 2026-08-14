@@ -1041,8 +1041,10 @@ async function clearZoom(page) {
   check('着席中はヘッダのボタンが「席を立つ」になる(2-2)',
     (await page.locator('#btn-seat').textContent()).trim() === '席を立つ');
   await clearSent(page);
-  page.once('dialog', (d) => d.accept());
+  // ★Batch 36: 素の confirm() ではなく自前の確認モーダルを通る(0-4)
   await page.locator('#btn-seat').click();
+  await page.waitForTimeout(60);
+  await page.locator('#confirm-modal-ok').click();
   await page.waitForTimeout(80);
   msgs = await sent(page);
   check('「席を立つ」で seat:null が送られる(2-2)',
@@ -1559,8 +1561,9 @@ async function clearZoom(page) {
 
   // ★リセットだけは通る(7-2)。抜けられない画面を作らない
   await clearSent(page);
-  page.once('dialog', (d) => d.accept());
   await page.locator('#start-banner .manual-start-reset').click();
+  await page.waitForTimeout(60);
+  await page.locator('#confirm-modal-ok').click();
   await page.waitForTimeout(60);
   msgs = boardMessages(await sent(page));
   check('★★開始中でも待機表示からリセットへ抜けられる(7-2)',
@@ -2217,6 +2220,9 @@ async function clearZoom(page) {
       '.info-modal-x',
       // ★Batch 35: ログの決着行。★半透明(log-box)の上にさらに半透明を重ねている
       '.manual-log-decisive',
+      // ★Batch 36: 確認モーダルの文字。★本文は空のうちは判定を素通りするので、
+      //   出している間に測る専用の項目も別に立ててある(36・5章)
+      '#confirm-modal-text', '#confirm-modal-ok', '#confirm-modal-close',
     ].map((s) => '#manual-root ' + s)
       // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
       //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
@@ -3442,6 +3448,21 @@ async function clearZoom(page) {
   });
   check('★★最下部までスクロールしても × は見えたままである(34 hotfix)',
     xVisible.ok, JSON.stringify(xVisible));
+  // ★★Batch 36 hotfix: 見出し帯が中身にかぶさっていないこと。
+  //   34 は負の上マージンで帯を持ち上げようとしたが、sticky の位置は
+  //   スクロール容器のパディングボックスで頭打ちになるため押し返され、
+  //   <b>後続の中身だけが16px上に来て8px重なっていた</b>。
+  //   ★測るのは式(margin の値)ではなく<b>結果の座標</b>である。
+  const headOverlap = await help1.evaluate(() => {
+    const body = document.querySelector('#help-modal .info-modal-body');
+    body.scrollTop = 0;
+    const head = body.querySelector('.info-modal-head');
+    const next = head.nextElementSibling;
+    return { headBottom: Math.round(head.getBoundingClientRect().bottom),
+      nextTop: Math.round(next.getBoundingClientRect().top) };
+  });
+  check('★★見出し帯は本文の中身にかぶさらない(36 hotfix)',
+    headOverlap.nextTop >= headOverlap.headBottom, JSON.stringify(headOverlap));
   // ★× は右上にある(見出しの右端側)
   const xRight = await help1.evaluate(() => {
     const b = document.querySelector('#help-modal .info-modal-body').getBoundingClientRect();
@@ -3472,6 +3493,225 @@ async function clearZoom(page) {
 
   check('初回ヘルプの検証でJSエラーが出ない', helpErrors.length === 0, helpErrors.join(' | '));
   await help1.close();
+
+  // ---- ★★Batch 36: Esc・フォーカス管理・confirm() の置換(レビュー A-1) ----
+  //
+  // ★★見る決めごとは3つである。
+  //   1. Esc は × と同じ資格しか持たない(裁定35 の一般化)。
+  //      どちらも [閉じる] を click() するだけなので、
+  //      「[閉じる] を持たないモーダルでは Esc も効かない」が自動的に成り立つ。
+  //   2. Esc は<b>下の層へ落とさない</b>。
+  //   3. 破壊的操作で<b>素の confirm() を呼ばない</b>。
+  // ★ここまでの検証で部屋消失(showRoomLostFatal)を通っており、
+  //   ゲートが開いたまま・接続も落としたままである。どちらも戻してから入る
+  //   (ゲートは盤面全体を覆い、切断中は send() が publish しない)
+  await page.evaluate(() => {
+    /* eslint-disable no-undef */
+    connectionFatal = false;
+    socketDown = false;
+    client.activate();
+    closeGate();
+    /* eslint-enable no-undef */
+  });
+  await render(page, baseView());
+  await page.waitForTimeout(60);
+
+  // --- Esc の基本(出口があるモーダル) ---
+  await page.locator('#btn-help').click();
+  await page.waitForTimeout(60);
+  const escOpened = !(await page.locator('#help-modal').getAttribute('class')).includes('d-none');
+  // ★★初期フォーカスは × である。既定(本文の先頭の焦点可能要素)だと
+  //   操作説明では [閉じる] に載り、focus が要素を見せようとして
+  //   <b>開いた瞬間に最下部までスクロールする</b>
+  const helpFocus = await page.evaluate(() => ({
+    id: document.activeElement ? document.activeElement.id : null,
+    scrollTop: document.querySelector('#help-modal .info-modal-body').scrollTop,
+  }));
+  check('★★モーダルを開くと中へ初期フォーカスが入る(36・0-3)',
+    escOpened && helpFocus.id === 'help-modal-x', JSON.stringify(helpFocus));
+  check('★操作説明は開いた時点で本文の先頭を見せている(初期フォーカスが下へ送らない)',
+    helpFocus.scrollTop === 0, JSON.stringify(helpFocus));
+
+  // ★Tab の折り返し。★「クラスが付いたか」ではなく<b>実際の activeElement</b> を見る
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  const tabInside = await page.evaluate(() => ({
+    inside: document.getElementById('help-modal').contains(document.activeElement),
+    id: document.activeElement ? document.activeElement.id : null,
+  }));
+  check('★★Tab を繰り返してもフォーカスは裏の盤面へ抜けない(36・0-3)',
+    tabInside.inside, JSON.stringify(tabInside));
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Shift+Tab');
+  const shiftInside = await page.evaluate(() => ({
+    inside: document.getElementById('help-modal').contains(document.activeElement),
+    id: document.activeElement ? document.activeElement.id : null,
+  }));
+  check('★★Shift+Tab でも先頭から末尾へ折り返す(36・0-3)',
+    shiftInside.inside, JSON.stringify(shiftInside));
+
+  // ★Tab を通らない経路(裏の要素が自分でフォーカスを取る)にも網がある
+  await page.evaluate(() => document.getElementById('btn-help').focus());
+  await page.waitForTimeout(30);
+  check('★裏の要素へフォーカスが移ってもモーダルへ引き戻す(36・0-3)',
+    await page.evaluate(() =>
+      document.getElementById('help-modal').contains(document.activeElement)));
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★★Esc でモーダルが閉じる(36・0-3)',
+    (await page.locator('#help-modal').getAttribute('class')).includes('d-none'));
+  check('★閉じるとフォーカスは開く前の位置へ戻る(36・0-3)',
+    (await page.evaluate(() => (document.activeElement ? document.activeElement.id : null)))
+      === 'btn-help');
+
+  // --- 出口が無いモーダルでは Esc も効かない(裁定34)+ 下の層へ落とさない ---
+  let v36 = versusView('A');
+  v36.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: true,
+    waiting: 'ゲームの開始方法を選んでいます' });
+  await render(page, v36);
+  await page.waitForTimeout(60);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★★[閉じる] を持たないモーダルは Esc でも閉じない(36・裁定34)',
+    !(await page.locator('#start-method-modal').getAttribute('class')).includes('d-none'));
+
+  await clearSent(page);
+  await page.locator('#start-method-modal .manual-start-reset').click();
+  await page.waitForTimeout(60);
+  check('★開始シーケンスのモーダルの上にも確認を出せる(36・3章)',
+    !(await page.locator('#confirm-modal').getAttribute('class')).includes('d-none'));
+  check('★確認の初期フォーカスは [キャンセル] である(実行に載せない)(36・3章)',
+    (await page.evaluate(() => (document.activeElement ? document.activeElement.id : null)))
+      === 'confirm-modal-close');
+  const confirmContrast = await page.evaluate(() => window.__contrastAudit());
+  check('★確認モーダルの文字もコントラスト比 4.5:1 以上(36・5章)',
+    confirmContrast.length === 0, JSON.stringify(confirmContrast));
+
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★★Esc はいちばん上の層だけを閉じる(下のモーダルは残る)(36・0-3)',
+    (await page.locator('#confirm-modal').getAttribute('class')).includes('d-none')
+      && !(await page.locator('#start-method-modal').getAttribute('class')).includes('d-none'));
+  check('★取り消した確認は何も送らない(36・3章)',
+    boardMessages(await sent(page)).length === 0,
+    JSON.stringify(boardMessages(await sent(page))));
+
+  // --- 帯は Esc で閉じる / マリガンは閉じない(裁定34) ---
+  await render(page, baseView());
+  await page.waitForTimeout(60);
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    openZoneBand('A', 'TRASH');
+  });
+  await page.waitForTimeout(60);
+  const bandBefore = await page.locator('.manual-band').count();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★Esc で帯が閉じる(36・0-3)',
+    bandBefore === 1 && (await page.locator('.manual-band').count()) === 0);
+
+  // ★★★出口の無いモーダルが<b>いちばん上</b>のとき、Esc はそこで止まる。
+  //   帯(Esc で閉じる)を開いたまま開始モーダルが載る状況で確かめる。
+  //   ここを「上から順に、出口のある層を探す」と書くと、
+  //   <b>画面のいちばん上は閉じないのに裏の帯だけが消える</b>という
+  //   目で追えない挙動になる。上の項目(確認モーダル)ではこの誤りを検出できない
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    openZoneBand('A', 'TRASH');
+  });
+  await page.waitForTimeout(60);
+  v36 = versusView('A');
+  v36.start = startState({ phase: 'ORDER_METHOD', locking: true, canChooseMethod: true,
+    waiting: 'ゲームの開始方法を選んでいます' });
+  await render(page, v36);
+  await page.waitForTimeout(60);
+  const stacked = await page.locator('.manual-band').count();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★★★Esc は下の層へ落とさない(出口の無いモーダルが上なら何も閉じない)(36・0-3)',
+    stacked === 1 && (await page.locator('.manual-band').count()) === 1
+      && !(await page.locator('#start-method-modal').getAttribute('class')).includes('d-none'),
+    JSON.stringify({ stacked, after: await page.locator('.manual-band').count() }));
+  await page.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    closeOverlay();
+  });
+
+  v36 = versusView('A');
+  v36.start = startState({ phase: 'MULLIGAN', locking: true, firstSeat: 'A',
+    mulliganSeats: ['A', 'B'], mulliganDone: [], myMulliganSeats: ['A'],
+    waiting: 'マリガンの確定を待っています' });
+  await render(page, v36);
+  await page.waitForTimeout(60);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★★マリガンは Esc で閉じない(開始シーケンスに出口を作らない・裁定34)',
+    (await page.locator('.manual-mulligan').count()) === 1);
+
+  // ★★確認モーダルが<b>マリガンの上に出る</b>ことを座標で測る(34 hotfix の教訓)。
+  //   マリガンのオーバーレイは z-index 1950 であり、確認が .info-modal の 1000 のままだと
+  //   <b>問いが下に潜り、押せないボタンを待つ</b>ことになる。
+  //   ★式(z-index の値)ではなく結果(その座標に何があるか)を見る。
+  //   式を測ると、式を変えたときに検証も一緒に変わって番人にならない
+  await page.locator('.manual-mulligan .manual-start-reset').click();
+  await page.waitForTimeout(60);
+  const confirmOnTop = await page.evaluate(() => {
+    const r = document.getElementById('confirm-modal-ok').getBoundingClientRect();
+    const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { hit: el ? el.id : null, w: Math.round(r.width) };
+  });
+  check('★★★確認モーダルはマリガンのオーバーレイより手前に出る(36・3章)',
+    confirmOnTop.hit === 'confirm-modal-ok', JSON.stringify(confirmOnTop));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+
+  // --- confirm() の置換 ---
+  // ★★素の confirm() が呼ばれていないことを<b>実際に張り込んで</b>見る。
+  //   ソースを grep するだけの判定は、呼び出しを変数に逃がすと通ってしまう。
+  await render(page, baseView());
+  await page.waitForTimeout(60);
+  await page.evaluate(() => {
+    window.__nativeConfirmCalls = 0;
+    window.confirm = () => { window.__nativeConfirmCalls += 1; return true; };
+  });
+  await clearSent(page);
+  await page.locator('#btn-reset').click();
+  await page.waitForTimeout(60);
+  const nativeCalls = await page.evaluate(() => window.__nativeConfirmCalls);
+  check('★★破壊的操作で素の confirm() を呼ばない(36・3章)', nativeCalls === 0, `${nativeCalls}回`);
+  check('★確認を出している間はまだ何も送らない(36・3章)',
+    boardMessages(await sent(page)).length === 0);
+  await page.locator('#confirm-modal-ok').click();
+  await page.waitForTimeout(60);
+  const resetMsgs = boardMessages(await sent(page));
+  check('★確認の [実行] でようやく操作が送られる(36・3章)',
+    resetMsgs.length === 1 && resetMsgs[0].destination.endsWith('/reset'),
+    JSON.stringify(resetMsgs));
+  check('★実行したら確認は閉じている(36・3章)',
+    (await page.locator('#confirm-modal').getAttribute('class')).includes('d-none'));
+
+  // ★★番人: ソースに confirm( が1つも残っていないこと。
+  //   置き換え漏れは「そこだけOSのダイアログが出る」という、
+  //   通してみるまで分からない壊れ方をする
+  // ★注釈の中の confirm() は数えない(3章の説明文が引っかかる)。
+  //   見たいのは<b>呼び出しが残っているか</b>である
+  const leftoverConfirm = jsSrc.split('\n')
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .filter((line) => /(?<![A-Za-z0-9_$])confirm\s*\(/.test(line))
+    .map((line) => line.trim());
+  check('★★manual-battle.js に素の confirm( が残っていない(36・3章)',
+    leftoverConfirm.length === 0, leftoverConfirm.join(' / '));
+
+  // ★★番人: モーダルの開閉が classList の直接操作へ戻っていないこと。
+  //   戻ると「開いたのに層に積まれていない」= Esc もトラップも効かない
+  //   モーダルが静かに1枚増える(0-3)
+  const rawModalToggle = (jsSrc.match(/^.*-modal'\)\.classList\.(add|remove)\('d-none'\).*$/gm)
+    || []);
+  check('★★情報モーダルの開閉は openInfoModal / closeInfoModal を通る(36・0-3)',
+    rawModalToggle.length === 0, rawModalToggle.join(' / '));
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 

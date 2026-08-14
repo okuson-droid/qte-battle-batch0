@@ -368,8 +368,25 @@ function setGateBusy(busy) {
 function closeGate() {
     gateEl('seat-gate').classList.add('d-none');
     gateMode = null;
+    // ★Batch 36: 層から降ろす(0-3)。フォーカスは開く前の位置へ戻る
+    popModalLayer(gateEl('seat-gate'));
     // ★Batch 33: ゲートの開閉は切断オーバーレイの出る条件でもある(1-3)
     updateOfflineLock();
+}
+
+/**
+ * ゲートを層に積む(★Batch 36)。
+ *
+ * ★Esc は [キャンセル] を押すだけである。したがって<b>入室前のゲートでは効かない</b>
+ * ——あそこには [キャンセル] が出ていない(出口が無いのが意図である。
+ * 席を選ばずに盤面へ入れてはいけない)。昇格のゲート(観戦者 → 席)では効く。
+ * 情報モーダルと同じ「出口があるものにだけ Esc」の規約である。
+ */
+function pushGateLayer() {
+    const cancel = gateEl('seat-gate-cancel');
+    pushModalLayer(gateEl('seat-gate'), {
+        escape: () => { if (isShown(cancel)) cancel.click(); },
+    });
 }
 
 /**
@@ -428,6 +445,7 @@ function openJoinGate(summary) {
         summary.spectatorAllowed,
         null);
     gateEl('seat-gate').classList.remove('d-none');
+    pushGateLayer();
     updateOfflineLock();
     return new Promise((resolve) => { gateResolve = resolve; });
 }
@@ -458,6 +476,7 @@ function openSeatChangeGate() {
     }
     applyGateSeats(names, notes, latestView.spectatorAllowed, latestView.viewerSeat);
     gateEl('seat-gate').classList.remove('d-none');
+    pushGateLayer();
     updateOfflineLock();
 }
 
@@ -473,6 +492,7 @@ function showGateFatal(message) {
     gateEl('seat-gate-copy').classList.add('d-none');
     showGateError(message);
     gateEl('seat-gate').classList.remove('d-none');
+    pushGateLayer();
     updateOfflineLock();
 }
 
@@ -528,6 +548,271 @@ async function resolveOccupant() {
         throw new Error((await res.json()).message || '部屋が見つかりません');
     }
     return openJoinGate(await res.json());
+}
+
+// ---------------------------------------------------------------
+// 0-3) モーダルの層(★Batch 36 設計解説1章・レビュー A-1)
+// ---------------------------------------------------------------
+//
+// ★何が無かったか。34 hotfix で「出口はどこにあるか」は直したが、
+//   <b>キーボードだけで出口へ到達できるか</b>は手つかずだった。
+//   Esc は効かず、Tab はモーダルの裏の盤面へ抜け、閉じた後にフォーカスが
+//   どこへ戻るかも決まっていなかった。
+//
+// ★★<b>層は1本のスタックで持つ</b>。
+//   画面を覆うものは既に7種類ある(情報モーダル・確認モーダル・席選択ゲート・
+//   帯・全面表示・マリガン・在室者ポップオーバー)。「今 Esc が誰のものか」を
+//   それぞれが自分で判断すると、重なったときに<b>2つが同時に閉じる</b>。
+//   開いた順に積み、いちばん上だけが Esc とフォーカスを握る。
+//
+// ★★<b>Esc は × と同じ資格しか持たない</b>(裁定35 の一般化)。
+//   どちらも [閉じる] を {@code click()} するだけであり、閉じ方の本体は
+//   相変わらず [閉じる] のハンドラ1箇所である。したがって
+//   <b>[閉じる] を持たないモーダルでは Esc も効かない</b>——
+//   開始シーケンスの2つ(start-method / start-order)がそれである(裁定34)。
+//   出口の有無という1つの事実から、× と Esc の2つが同時に決まる。
+//
+// ★★<b>Esc は下の層へ落とさない</b>。いちばん上に出口が無ければ、そこで止まる。
+//   落とすと「閉じられない画面が出ているのに、その裏のモーダルだけが閉じる」
+//   という、画面に現れない変化が起きる。
+//
+// ★<b>トラップするのはモーダルだけである</b>(情報モーダル・確認モーダル・ゲート)。
+//   帯・全面表示・マリガンは Esc の対象にはするが、フォーカスは閉じ込めない。
+//   あれらは配信のたびに中身を作り直す({@code refreshOverlay})ため、
+//   フォーカスを持った要素が再描画で消える。閉じ込めの維持がビューの更新と
+//   競合し、「盤面が更新されるたびにフォーカスが飛ぶ」ほうが害が大きい。
+//   Esc は document 上の1本なので、この競合とは無関係に効く。
+
+/** 焦点を取れる要素。★disabled と tabindex="-1" は除く */
+const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]),'
+    + ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// { el, trap, escape, restore } を開いた順に積む。いちばん後ろが「今の主役」である
+const modalStack = [];
+
+/**
+ * 画面に出ているか。
+ * ★{@code offsetParent} は使えない。{@code .info-modal} は position: fixed であり、
+ * 出ていても offsetParent が null になる。矩形の有無で見る。
+ */
+function isShown(el) {
+    return !!el && el.isConnected && el.getClientRects().length > 0;
+}
+
+function focusablesIn(el) {
+    return Array.from(el.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isShown);
+}
+
+/**
+ * 初期フォーカス。
+ *
+ * ★既定は「見出し帯の × を<b>除いた</b>最初の焦点可能要素」である。
+ *   × は出口であって用件ではない。数値モーダルを開いた人の用件は数値の入力である。
+ * ★用件が先頭に無いモーダルは {@code data-initial-focus} で名指しする。
+ *   操作説明は本文に焦点可能な要素が [閉じる] しか無く、既定のままだと
+ *   <b>開いた瞬間に最下部までスクロールする</b>(focus は要素を見える位置へ送る)。
+ *   確認モーダルは、既定だと [実行] に載る。破壊的操作でそれをやってはいけない。
+ */
+function applyInitialFocus(el) {
+    const hint = el.getAttribute('data-initial-focus');
+    const named = hint ? el.querySelector(hint) : null;
+    if (isShown(named)) {
+        named.focus();
+        return;
+    }
+    const list = focusablesIn(el);
+    const body = list.filter((n) => !n.classList.contains('info-modal-x'));
+    const target = body.length > 0 ? body[0] : list[0];
+    if (target) target.focus();
+}
+
+/** 閉じたあとの戻り先。★消えている要素へは戻さない(戻せないなら body へ落とす) */
+function restoreFocus(el) {
+    if (isShown(el) && typeof el.focus === 'function') {
+        el.focus();
+        return;
+    }
+    if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+    }
+}
+
+/**
+ * 層を積む。
+ * @param el      画面を覆っている要素(トラップの範囲でもある)
+ * @param options escape: Esc で呼ぶもの(無ければ Esc は効かない) /
+ *                trap: フォーカスを閉じ込めるか(既定 true)
+ */
+function pushModalLayer(el, options) {
+    const opts = options || {};
+    const trap = opts.trap !== false;
+    // ★二重に積まない。開いているモーダルを開き直すのは「同じ層の中身の入れ替え」であり、
+    //   層が増える出来事ではない(数値モーダルを開いたまま別のカードを右クリックできる)
+    const known = modalStack.find((layer) => layer.el === el);
+    if (known) {
+        // ★<b>フォーカスが中にあるうちは触らない</b>。開始シーケンスのモーダルは
+        //   サーバの配信のたびに開き直すので(11-2 の toggleStartModal)、
+        //   毎回フォーカスを当て直すと<b>入力中に先頭のボタンへ飛ぶ</b>。
+        //   当て直すのは、中身の作り直しでフォーカスを持った要素が消えたときだけでよい。
+        if (known.trap && !el.contains(document.activeElement)) applyInitialFocus(el);
+        return;
+    }
+    modalStack.push({ el, trap, escape: opts.escape || null, restore: document.activeElement });
+    if (trap) applyInitialFocus(el);
+}
+
+/**
+ * 層を降ろす。
+ * ★いちばん上でなければフォーカスを戻さない。サーバ由来で勝手に閉じるもの
+ * (開始シーケンスのモーダル)が下から抜けることがあり、そのときに戻すと
+ * <b>上に出ているモーダルからフォーカスを奪う</b>。
+ */
+function popModalLayer(el) {
+    const index = modalStack.findIndex((layer) => layer.el === el);
+    if (index < 0) return;
+    const layer = modalStack.splice(index, 1)[0];
+    if (index !== modalStack.length) return;
+    if (layer.trap) restoreFocus(layer.restore);
+}
+
+function topModalLayer() {
+    return modalStack.length > 0 ? modalStack[modalStack.length - 1] : null;
+}
+
+// ★Esc と Tab は<b>1つのハンドラ</b>で受ける。どちらも「いちばん上の層は誰か」を
+//   最初に決めてから分岐するので、判断が2箇所に分かれると必ずずれる。
+document.addEventListener('keydown', (e) => {
+    const top = topModalLayer();
+    if (!top) return;
+    if (e.key === 'Escape') {
+        // ★出口が無くても preventDefault する。ここで止めるのが「下へ落とさない」の実体である
+        e.preventDefault();
+        if (top.escape) top.escape();
+        return;
+    }
+    if (e.key !== 'Tab' || !top.trap) return;
+    const list = focusablesIn(top.el);
+    if (list.length === 0) {
+        e.preventDefault();
+        return;
+    }
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = document.activeElement;
+    const outside = !top.el.contains(active);
+    if (e.shiftKey && (outside || active === first)) {
+        e.preventDefault();
+        last.focus();
+    } else if (!e.shiftKey && (outside || active === last)) {
+        e.preventDefault();
+        first.focus();
+    }
+});
+
+// ★Tab の折り返しだけでは足りない。裏の盤面を<b>クリック</b>したときや、
+//   ブラウザが独自にフォーカスを移したときは keydown を通らない。網をもう1枚張る。
+document.addEventListener('focusin', (e) => {
+    const top = topModalLayer();
+    if (!top || !top.trap || top.el.contains(e.target)) return;
+    applyInitialFocus(top.el);
+});
+
+// ---- 情報モーダル(.info-modal)の出入り ----
+//
+// ★開閉を {@code classList} の直接操作から関数へ移した。層への出入りが
+//   開閉と同じ1行に載っていないと、「開いたのに積まれていない」が静かに起きる。
+
+/** [閉じる] ボタン。★34 hotfix の × と<b>同じ規約</b>(id が -close で終わる)で引く */
+function infoModalCloseButton(el) {
+    return el.querySelector('[id$="-close"]');
+}
+
+function openInfoModal(id) {
+    const el = document.getElementById(id);
+    if (!el) return null;
+    el.classList.remove('d-none');
+    const closeBtn = infoModalCloseButton(el);
+    // ★Esc は [閉じる] を押すだけ。× とまったく同じ経路である(裁定35 の一般化)
+    pushModalLayer(el, { escape: closeBtn ? () => closeBtn.click() : null });
+    return el;
+}
+
+function closeInfoModal(id) {
+    const el = typeof id === 'string' ? document.getElementById(id) : id;
+    if (!el) return;
+    el.classList.add('d-none');
+    popModalLayer(el);
+}
+
+function isInfoModalOpen(id) {
+    const el = document.getElementById(id);
+    return !!el && !el.classList.contains('d-none');
+}
+
+// ---------------------------------------------------------------
+// 0-4) 確認モーダル(★Batch 36 設計解説3章・レビュー A-1)
+// ---------------------------------------------------------------
+//
+// ★素の {@code confirm()} を捨てた理由は3つある。
+//   1. <b>OSの見た目</b>が出る。黒い盤面の上に白いダイアログが出て、
+//      33〜34 で揃えたテーマがそこだけ崩れる。
+//   2. <b>ボタンの文言を決められない</b>。[OK] / [キャンセル] しか出せないので、
+//      何が起きるのかを問いの本文に全部書くことになる。
+//   3. <b>JavaScript を止める</b>。止まっている間は STOMP の受信も描画も進まない。
+//      通話しながら「ちょっと待って」と言われて手が止まる数十秒、
+//      相手の操作がこちらの画面に一切反映されない。
+//
+// ★★<b>コールバックで受ける</b>(Promise ではない)。
+//   置き換える6箇所は<b>すべて</b>「取り消したときは何もしない」である。
+//   真偽値を返せば呼び出し側に必ず {@code if} が1つ増えるが、
+//   使う分岐は片方しかない。既存の {@code if (confirm(...)) { ... }} と
+//   1対1で対応する形が、いちばん読み替えが要らない。
+//
+// ★<b>問いは1つずつ</b>。開いている間の {@code askConfirm} は捨てる。
+//   問いを重ねると、答えたのがどちらの問いなのか画面から分からなくなる。
+
+let confirmPending = null;
+
+/**
+ * 破壊的操作の確認を出す。
+ *
+ * @param text    何が起きるか(1〜2文)
+ * @param okLabel 実行ボタンの文言。★「はい」ではなく<b>動詞</b>を書く。
+ *                問いを読み飛ばしてもボタンだけで何が起きるか分かるようにするため
+ * @param onOk    実行したときに呼ぶもの
+ * @return 問いを出したか(既に出ているときは false)
+ */
+function askConfirm(text, okLabel, onOk) {
+    if (confirmPending) return false;
+    confirmPending = onOk;
+    document.getElementById('confirm-modal-text').textContent = text;
+    document.getElementById('confirm-modal-ok').textContent = okLabel;
+    openInfoModal('confirm-modal');
+    return true;
+}
+
+function closeConfirmModal() {
+    confirmPending = null;
+    closeInfoModal('confirm-modal');
+}
+
+document.getElementById('confirm-modal-close').addEventListener('click', closeConfirmModal);
+document.getElementById('confirm-modal-ok').addEventListener('click', () => {
+    const run = confirmPending;
+    // ★先に閉じる。実行が location.href への遷移でも、層とフォーカスの後片付けは済んでいる
+    closeConfirmModal();
+    if (run) run();
+});
+
+/**
+ * 「リセットして最初から」の確認。★開始シーケンスの3つの画面と
+ * マリガンのオーバーレイで使う。文言を1箇所に置くための関数である(設計判断28)。
+ */
+function bindStartReset(button) {
+    button.addEventListener('click', () => {
+        askConfirm('盤面をリセットして最初からやり直す。Undo では戻せない。',
+            'リセットする', () => send('reset', {}));
+    });
 }
 
 // ---------------------------------------------------------------
@@ -4712,10 +4997,10 @@ function openStatModal(card) {
 
     document.getElementById('stat-modal-reset').onclick = () => {
         send('stat-reset', { cardId: card.instanceId });
-        modal.classList.add('d-none');
+        closeInfoModal(modal);
     };
-    document.getElementById('stat-modal-close').onclick = () => modal.classList.add('d-none');
-    modal.classList.remove('d-none');
+    document.getElementById('stat-modal-close').onclick = () => closeInfoModal(modal);
+    openInfoModal('stat-modal');
 }
 
 // ---------------------------------------------------------------
@@ -4746,10 +5031,10 @@ function openLpModal(seatId, currentLp) {
     document.getElementById('lp-modal-minus1').onclick = () => delta(-1);
     document.getElementById('lp-modal-plus1').onclick = () => delta(1);
     document.getElementById('lp-modal-close').onclick = () => {
-        modal.classList.add('d-none');
+        closeInfoModal(modal);
         lpModalSeatId = null;
     };
-    modal.classList.remove('d-none');
+    openInfoModal('lp-modal');
 }
 
 /** モーダルが開いている間、再配信されたビューの数値を差し替える。専用の再描画経路は作らない */
@@ -4822,10 +5107,10 @@ function openWeaponModal(card) {
         send('stat-reset', { cardId: card.instanceId });
     };
     document.getElementById('weapon-modal-close').onclick = () => {
-        modal.classList.add('d-none');
+        closeInfoModal(modal);
         weaponModalCardId = null;
     };
-    modal.classList.remove('d-none');
+    openInfoModal('weapon-modal');
 }
 
 /**
@@ -4846,7 +5131,7 @@ function refreshWeaponModal(view) {
         || findCardByInstanceId(view.seatB.zones.WEAPON, weaponModalCardId);
     if (!card) {
         // ★付け替えなどでウェポン枠から居なくなった。開いたままにする意味が無い
-        modal.classList.add('d-none');
+        closeInfoModal(modal);
         weaponModalCardId = null;
         return;
     }
@@ -4940,8 +5225,8 @@ function openLabelModal(card) {
             input.value = '';
         }
     };
-    document.getElementById('label-modal-close').onclick = () => modal.classList.add('d-none');
-    modal.classList.remove('d-none');
+    document.getElementById('label-modal-close').onclick = () => closeInfoModal(modal);
+    openInfoModal('label-modal');
 }
 
 // ---------------------------------------------------------------
@@ -4955,18 +5240,20 @@ function openLabelModal(card) {
 document.getElementById('btn-undo').addEventListener('click', () => send('undo', {}));
 document.getElementById('btn-redo').addEventListener('click', () => send('redo', {}));
 
+// ★Batch 36: 素の confirm() をやめた(0-4)。文言は「何が起きるか」を書き、
+//   ボタンには動詞を置く。[OK] しか出せない confirm() では書けなかったものである。
 document.getElementById('btn-reset').addEventListener('click', () => {
-    if (confirm('リセットして引き直す。よろしいですか?')) {
-        send('reset', {});
-    }
+    askConfirm('盤面をリセットして引き直す。Undo では戻せない。',
+        'リセットする', () => send('reset', {}));
 });
 
 document.getElementById('btn-leave').addEventListener('click', () => {
-    if (confirm('退室する。よろしいですか?')) {
-        send('leave', {});
-        forgetOccupant();
-        location.href = '/';
-    }
+    askConfirm('この部屋から退室する。席は空き、盤面はこの端末から見えなくなる。',
+        '退室する', () => {
+            send('leave', {});
+            forgetOccupant();
+            location.href = '/';
+        });
 });
 
 /**
@@ -4984,14 +5271,16 @@ document.getElementById('btn-seat').addEventListener('click', () => {
         return;
     }
     if (latestView.spectatorAllowed) {
-        if (!confirm('席を立って観戦に移ります。よろしいですか?')) return;
-        send('seat', { seat: null });
+        askConfirm('席を立って観戦に移る。席は空き、以後は盤面を操作できない。',
+            '席を立つ', () => send('seat', { seat: null }));
         return;
     }
-    if (!confirm('この部屋は観戦できないため、席を立つと退室になります。よろしいですか?')) return;
-    send('seat', { seat: null });
-    forgetOccupant();
-    location.href = '/';
+    askConfirm('この部屋は観戦できないため、席を立つと退室になる。',
+        '席を立って退室する', () => {
+            send('seat', { seat: null });
+            forgetOccupant();
+            location.href = '/';
+        });
 });
 
 /**
@@ -5024,12 +5313,26 @@ document.getElementById('btn-start').addEventListener('click', () => {
 });
 
 // 在室者ポップオーバー(2-3)。チップ列のクリックで開閉する
+//
+// ★Batch 36: Esc の対象に加えた。ただし<b>トラップはしない</b>(0-3)。
+//   ポップオーバーは画面を覆っていない。裏を触れる物の中へフォーカスを
+//   閉じ込めるのは、見た目と挙動が食い違う。
+function closeOccupantPopover() {
+    const pop = document.getElementById('occupant-popover');
+    pop.classList.add('d-none');
+    popModalLayer(pop);
+}
+
 document.getElementById('occupant-list').addEventListener('click', () => {
-    document.getElementById('occupant-popover').classList.toggle('d-none');
+    const pop = document.getElementById('occupant-popover');
+    if (pop.classList.contains('d-none')) {
+        pop.classList.remove('d-none');
+        pushModalLayer(pop, { trap: false, escape: closeOccupantPopover });
+    } else {
+        closeOccupantPopover();
+    }
 });
-document.getElementById('occupant-popover-close').addEventListener('click', () => {
-    document.getElementById('occupant-popover').classList.add('d-none');
-});
+document.getElementById('occupant-popover-close').addEventListener('click', closeOccupantPopover);
 
 // ---------------------------------------------------------------
 // モーダルの × ボタン(★Batch 34 hotfix。マスター指摘)
@@ -5052,6 +5355,11 @@ document.getElementById('occupant-popover-close').addEventListener('click', () =
 // ★開始シーケンスの2つ(start-method / start-order)には × を付けていない。
 //   あれは出口が「リセットして最初から」しか無いのが意図であり(23 設計書 7-2)、
 //   サーバ側の状態を残したまま画面だけ閉じられるようにしてはいけない。
+//
+// ★★Batch 36: <b>Esc も同じ資格しか持たない</b>(0-3)。× と Esc は
+//   どちらも [閉じる] を click() するだけであり、閉じ方の本体は1箇所のままである。
+//   したがって「× が無いモーダルでは Esc も効かない」が自動的に成り立つ。
+//   出口の有無という1つの事実から、2つの入口が同時に決まっている。
 for (const x of document.querySelectorAll('.info-modal-x')) {
     const closeId = x.id.replace(/-x$/, '-close');
     const closeBtn = document.getElementById(closeId);
@@ -5061,7 +5369,7 @@ for (const x of document.querySelectorAll('.info-modal-x')) {
 
 // ★2-6: 操作説明モーダル
 function openHelpModal() {
-    document.getElementById('help-modal').classList.remove('d-none');
+    openInfoModal('help-modal');
     // ★開いた時点で「見た」とみなす。閉じるのを待たない。
     //   閉じずにタブを落とした人へ次も出すのは、親切ではなく<b>同じ邪魔の繰り返し</b>である
     markHelpSeen();
@@ -5069,7 +5377,7 @@ function openHelpModal() {
 
 document.getElementById('btn-help').addEventListener('click', openHelpModal);
 document.getElementById('help-modal-close').addEventListener('click', () => {
-    document.getElementById('help-modal').classList.add('d-none');
+    closeInfoModal('help-modal');
 });
 
 document.getElementById('note-form').addEventListener('submit', (e) => {
@@ -5165,7 +5473,22 @@ function refreshOverlay() {
 function closeOverlay() {
     activeOverlay = null;
     const root = document.getElementById('manual-overlay-root');
-    if (root) root.remove();
+    if (root) {
+        popModalLayer(root);
+        root.remove();
+    }
+}
+
+/**
+ * Esc でオーバーレイを閉じる(★Batch 36)。
+ *
+ * ★★マリガンだけは閉じない。あれは開始シーケンスであり、
+ * 出口は「リセットして最初から」しか無い(裁定34)。
+ * 画面だけ閉じられるとサーバ側の状態が残り、盤面が固まったまま理由が消える。
+ */
+function escapeOverlay() {
+    if (activeOverlay && activeOverlay.kind === 'mulligan') return;
+    closeOverlay();
 }
 
 function overlayRoot() {
@@ -5174,6 +5497,9 @@ function overlayRoot() {
         root = document.createElement('div');
         root.id = 'manual-overlay-root';
         document.body.appendChild(root);
+        // ★トラップはしない(0-3)。帯と全面表示は配信のたびに中身を作り直すため、
+        //   フォーカスの閉じ込めがビューの更新と競合する
+        pushModalLayer(root, { trap: false, escape: escapeOverlay });
     }
     return root;
 }
@@ -5678,8 +6004,22 @@ function startView() {
     return (latestView && latestView.start) || {};
 }
 
+/**
+ * 開始シーケンスのモーダルの開閉。
+ *
+ * ★★Batch 36: ここは<b>サーバの状態が開閉を決める</b>唯一のモーダルである。
+ * 人が閉じるのではなく、配信のたびに開いたり閉じたりする。だから層への
+ * 出し入れも配信のたびに要る。{@code openInfoModal} は二重に積まないので、
+ * 開いている間は毎回呼んでも層は1つのままである(0-3)。
+ * ★このモーダルには [閉じる] が無いので、Esc も効かない(裁定34)。
+ * 出口は「リセットして最初から」だけである。
+ */
 function toggleStartModal(id, show) {
-    document.getElementById(id).classList.toggle('d-none', !show);
+    if (show) {
+        openInfoModal(id);
+    } else {
+        closeInfoModal(id);
+    }
 }
 
 /** 開始シーケンスの画面。renderAll の最後に呼ぶ(モーダル・オーバーレイ・待機表示) */
@@ -5743,12 +6083,10 @@ document.getElementById('start-order-second').addEventListener('click', () => {
  * 止まったまま抜けられない画面を作らないための1つ穴であり、
  * 開始まわりの3つの画面すべてに同じボタンを置いてある。
  */
+// ★Batch 36: 文言と確認は bindStartReset(0-4)へ移した。
+//   マリガンのオーバーレイが動的に作る同じボタンと<b>同じ1箇所</b>を通す。
 for (const btn of document.querySelectorAll('.manual-start-reset')) {
-    btn.addEventListener('click', () => {
-        if (confirm('リセットして最初から。よろしいですか?')) {
-            send('reset', {});
-        }
-    });
+    bindStartReset(btn);
 }
 
 // ---- マリガン専用オーバーレイ(4-3) ----
@@ -5859,24 +6197,22 @@ function renderMulliganOverlay() {
     count.textContent = `${picked.length}枚を戻す`;
     foot.appendChild(count);
 
-    const confirm = document.createElement('button');
-    confirm.id = 'mulligan-confirm';
-    confirm.className = 'btn btn-sm btn-warning ms-auto';
-    confirm.textContent = '確定';
-    confirm.addEventListener('click', () => {
+    // ★Batch 36: 変数名を confirmBtn に変えた。0-4 で askConfirm を入れたので、
+    //   ここで confirm という名前を使うと「素の confirm()」と読み違える
+    const confirmBtn = document.createElement('button');
+    confirmBtn.id = 'mulligan-confirm';
+    confirmBtn.className = 'btn btn-sm btn-warning ms-auto';
+    confirmBtn.textContent = '確定';
+    confirmBtn.addEventListener('click', () => {
         // ★引く枚数は載せない。サーバが戻した枚数と同数を引く(4-4・設計判断27)
         send('mulligan', { seat: seatId, cardIds: mulliganPicked(hand) });
     });
-    foot.appendChild(confirm);
+    foot.appendChild(confirmBtn);
 
     const reset = document.createElement('button');
     reset.className = 'btn btn-sm btn-outline-danger manual-start-reset';
     reset.textContent = 'リセットして最初から';
-    reset.addEventListener('click', () => {
-        if (window.confirm('リセットして最初から。よろしいですか?')) {
-            send('reset', {});
-        }
-    });
+    bindStartReset(reset);
     foot.appendChild(reset);
 
     box.appendChild(foot);

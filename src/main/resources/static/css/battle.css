@@ -77,16 +77,60 @@
      伸ばさないと、左右16pxの隙間から中身がスクロールして見える。
    ★下の [閉じる] は<b>消さない</b>。長い説明を読み終えた位置にも出口が要る。
      出口を1つに減らすのではなく、届く場所に増やすのが今回の主旨である。 */
+/* ★★Batch 36 hotfix: 34 の負の上マージンは<b>効かないどころか害があった</b>。
+
+   position: sticky の位置は、スクロール容器の<b>パディングボックス</b>で頭打ちになる。
+   .info-modal-body には padding-top: 16px があるので、帯の自然位置を負マージンで
+   16px 引き上げても、sticky がその16pxを押し返す。ところが<b>後続の中身は
+   自然位置のまま流れる</b>ため、帯が中身の上に8px かぶさっていた
+   (34・35 の実測: 帯の下端 196 / 直後の中身の上端 188)。
+   スクロールしていないとき、つまり<b>モーダルを開いた瞬間に必ず</b>起きていた。
+
+   ★直し方: 負マージンで押し上げるのをやめ、<b>上のパディングを帯に譲る</b>。
+     帯を持つ本文だけ padding-top を 0 にし、その16pxぶんの余白は帯自身が持つ。
+     こうすると帯の自然位置とパディングボックスの上端が一致するので、
+     sticky が押し返すものが無くなる。
+   ★左右の負マージンはそのまま。あれは「帯を端まで伸ばす」ためのものであり、
+     sticky の位置とは関係が無い(34 の判断は左右については正しい)。
+   ★:has() を使うのは、見出し帯を持たないモーダル(開始シーケンスの2つ)から
+     上の余白を奪わないためである。クラスを1つ足して呼び分けると、
+     「帯を足したらもう1つクラスも足す」という覚えごとが増える。 */
+.info-modal-body:has(> .info-modal-head) { padding-top: 0; }
 .info-modal-head {
     position: sticky; top: 0; z-index: 1;
     background: inherit;
-    margin: -16px -16px 8px; padding: 12px 16px 8px;
+    margin: 0 -16px 8px; padding: 12px 16px 8px;
     border-bottom: 1px solid #495057;
     display: flex; align-items: center; gap: 8px;
 }
 .info-modal-head h6 { margin: 0; }
 /* ★見出しが長くても × を右端へ押し出す。幅は22pxで、ヘッダの [×] と同じ寸法である */
 .info-modal-x { margin-left: auto; flex: 0 0 auto; line-height: 1; padding: 0 6px; }
+
+/* ★★Batch 36: 確認モーダル(破壊的操作。設計解説3章)。
+
+   ★z-index を .info-modal(1000)から上げてある。
+     開始シーケンスのモーダル(1950/1960)とマリガンのオーバーレイからも
+     「リセットして最初から」の確認が出るため、1000 のままだと
+     <b>問いが下に潜って、押せないボタンを待つことになる</b>。
+   ★上げ先は 1965 である。切断オーバーレイ(1970)より<b>下</b>に置く。
+     切断中は「操作が相手に届かない」のほうが上位の情報であり、
+     その上に確認を重ねると「実行しても何も起きない問い」を最前面に出すことになる。 */
+.info-modal.manual-confirm { z-index: 1965; }
+
+/* ★★Batch 36: キーボードの居場所を見せる(レビュー A-1)。
+
+   ★Bootstrap にも :focus-visible の指定はあるが、
+     <b>検証ハーネスは Bootstrap を落としている</b>(裁定39)。
+     フォーカスの移動そのものを見る検証を入れる以上、
+     見え方の指定もこちら側に持っていないと実物とハーネスで別物になる。
+   ★:focus ではなく :focus-visible である。マウスでボタンを押しただけの
+     ときに枠が出るのは、22 のクリック規約(左=見る)の邪魔になる。 */
+.info-modal-body :focus-visible,
+.manual-gate-body :focus-visible {
+    outline: 2px solid #ffd166;
+    outline-offset: 1px;
+}
 .game-card.mulligan-selected { border-color: #ab47bc; box-shadow: 0 0 8px #ab47bc; }
 .link-info { text-decoration: none; }
 
