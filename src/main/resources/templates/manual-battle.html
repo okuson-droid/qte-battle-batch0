@@ -27,7 +27,7 @@
     <meta property="og:image" th:content="${ogImageUrl}">
     <meta name="twitter:card" content="summary_large_image">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=36)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=37)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!--
@@ -94,6 +94,11 @@
             <a id="btn-log" class="btn btn-sm btn-outline-light"
                th:href="@{/manual/api/rooms/{roomId}/log(roomId=${roomId})}">ログ書出</a>
             <button id="btn-leave" class="btn btn-sm btn-outline-secondary">退室</button>
+            <!-- ★Batch 37: 音の設定(裁定67)。通話と音量が干渉するため設定パネルは必須である。
+                 [?] の隣に置く。どちらも「盤面の操作ではないもの」であり、
+                 盤面の操作ボタン群(席・元に戻す・リセット…)と混ぜない -->
+            <button id="btn-sound" class="btn btn-sm btn-outline-info"
+                    title="音の設定(ミュート・音量)">♪</button>
             <button id="btn-help" class="btn btn-sm btn-outline-info" title="操作説明">?</button>
         </span>
     </div>
@@ -459,6 +464,47 @@
     </div>
 
     <!--
+      ★Batch 37: 音の設定(設計解説5章・レビュー S-2)。
+
+      ★BGM は作らない(裁定16)。ここにあるのはミュートと音量だけである。
+      ★★初期音量は控えめ(30)である。Discord の通話と同時に鳴るため、
+        既定で大きいと「まず音を切る」から始まることになる。
+      ★出口は [閉じる] であり、× と Esc も同じところを通る(裁定35・48)。
+      ★状態行(#sound-modal-status)は「なぜ鳴らないのか」を出す唯一の場所である。
+        ミュート・音量0・ブラウザ非対応を区別して書く。
+    -->
+    <div id="sound-modal" class="info-modal d-none" data-initial-focus="#sound-mute">
+        <div class="info-modal-body" role="dialog" aria-modal="true"
+             aria-labelledby="sound-modal-title" style="max-width:420px;">
+            <div class="info-modal-head">
+                <h6 id="sound-modal-title">音の設定</h6>
+                <button type="button" id="sound-modal-x"
+                        class="btn btn-sm btn-outline-light info-modal-x"
+                        aria-label="閉じる" title="閉じる">&times;</button>
+            </div>
+            <div class="sound-row mb-2">
+                <input type="checkbox" id="sound-mute">
+                <label for="sound-mute" class="small mb-0">ミュートする</label>
+            </div>
+            <div class="sound-row mb-1">
+                <label for="sound-volume" class="small mb-0">音量</label>
+                <input type="range" id="sound-volume" class="sound-range"
+                       min="0" max="100" step="5">
+                <span id="sound-volume-value" class="small sound-volume-value">30</span>
+            </div>
+            <p id="sound-modal-status" class="small sound-status mb-2"></p>
+            <p class="small sound-note mb-3">
+                鳴るのは効果音だけである(ドロー・配置・タップ・めくり・LPの増減・決着・
+                確認の実行)。BGM は鳴らない。通話に重なるため、初期音量は控えめにしてある。
+            </p>
+            <div class="d-flex justify-content-end">
+                <button type="button" id="sound-modal-close"
+                        class="btn btn-sm btn-outline-light">閉じる</button>
+            </div>
+        </div>
+    </div>
+
+    <!--
       ★★Batch 36: 破壊的操作の確認(設計解説3章・レビュー A-1)。
       素の confirm() を置き換える。confirm() はOSの見た目が出てテーマが崩れ、
       ボタンの文言を決められず、待っている間 JavaScript を止めるため
@@ -574,6 +620,6 @@
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const DEFAULT_LABELS = /*[[${defaultLabels}]]*/ [];
 </script>
-<script th:src="@{/js/manual-battle.js(v=28)}"></script>
+<script th:src="@{/js/manual-battle.js(v=29)}"></script>
 </body>
 </html>

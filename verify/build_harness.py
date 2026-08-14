@@ -34,11 +34,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=36)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=37)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=28)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=29)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -130,6 +130,10 @@ stub = """
      代替に漏れがあると「ハーネスでだけ壊れる」(20c 以来の罠) */
   .mb-0 { margin-bottom: 0; }
   p { margin-top: 0; margin-bottom: 1rem; }
+  /* ★Batch 37: 音の設定パネルが使う Bootstrap ユーティリティ。
+     代替に漏れがあると「ハーネスでだけ壊れる」(20c 以来の罠) */
+  .btn-outline-info { color: #6edff6; border: 1px solid #6edff6; background: transparent; }
+  .mb-3 { margin-bottom: 16px; }
 </style>
 <script>
   window.__sent = [];

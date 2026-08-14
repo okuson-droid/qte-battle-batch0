@@ -2223,6 +2223,9 @@ async function clearZoom(page) {
       // ★Batch 36: 確認モーダルの文字。★本文は空のうちは判定を素通りするので、
       //   出している間に測る専用の項目も別に立ててある(36・5章)
       '#confirm-modal-text', '#confirm-modal-ok', '#confirm-modal-close',
+      // ★Batch 37: 音の設定パネル。新しい文字を作ったら必ずここへ足す(32a からの規約)
+      '#sound-modal-status', '#sound-modal .sound-note', '#sound-modal label',
+      '#sound-volume-value', '#sound-modal-close',
     ].map((s) => '#manual-root ' + s)
       // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
       //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
@@ -3740,6 +3743,258 @@ async function clearZoom(page) {
     || []);
   check('★★情報モーダルの開閉は openInfoModal / closeInfoModal を通る(36・0-3)',
     rawModalToggle.length === 0, rawModalToggle.join(' / '));
+
+  // =====================================================================
+  // ★★Batch 37: 効果音(レビュー S-2・裁定67)
+  //
+  // ★★音そのものは機械で測れない。測るのは<b>測れる決めごと</b>のほうである
+  //   (31 以来の規約)。ここで測っているのは次の2つに分かれる。
+  //   (a) 「どの音を選ぶか」…… 純関数({@code sfxChoose} / {@code sfxNameFor})を直接呼ぶ
+  //   (b) 「実際に鳴ったか」…… <b>WebAudio の境界</b>に張り込み、音源ノードの生成を数える
+  //   (b) を「sfxPlay が呼ばれたか」で測らないのは、呼ばれても
+  //   ミュートや unlock 前で鳴っていないことがあるからである。
+  // =====================================================================
+
+  // ---- 音の選び方(1配信1音・優先順位)----
+  // ★★1回の配信で鳴らす音は1つである。差分の件数だけ鳴らすと、音が語るのは
+  //   「何をしたか」ではなく「何件変わったか」になる(0-5 の章)
+  const pick = async (target, effects) => target.evaluate((list) =>
+    // eslint-disable-next-line no-undef
+    sfxChoose(list), effects);
+
+  check('★差分の種類ごとに音が決まる(移動・出現・消滅・吸収は同じ「配置」に畳む)',
+    (await pick(page, [{ kind: 'move' }])) === 'place'
+      && (await pick(page, [{ kind: 'appear' }])) === 'place'
+      && (await pick(page, [{ kind: 'vanish' }])) === 'place'
+      && (await pick(page, [{ kind: 'sink' }])) === 'place'
+      && (await pick(page, [{ kind: 'draw' }])) === 'draw'
+      && (await pick(page, [{ kind: 'tap' }])) === 'tap'
+      && (await pick(page, [{ kind: 'flip' }])) === 'flip'
+      && (await pick(page, [{ kind: 'declare' }])) === 'decisive');
+  check('★LPは増と減で別の音である(表では決まらない唯一のもの)',
+    (await pick(page, [{ kind: 'lp', delta: -3 }])) === 'lpDown'
+      && (await pick(page, [{ kind: 'lp', delta: 2 }])) === 'lpUp');
+  // ★★珍しい出来事ほど優先する。頻度の高い音は「何が起きたか」を語らない
+  check('★★1回の配信で選ばれる音は1つで、珍しいものが勝つ(37・3-2)',
+    (await pick(page, [{ kind: 'move' }, { kind: 'tap' }, { kind: 'lp', delta: -1 }]))
+        === 'lpDown'
+      && (await pick(page, [{ kind: 'move' }, { kind: 'declare' }, { kind: 'lp', delta: -1 }]))
+        === 'decisive'
+      && (await pick(page, [{ kind: 'tap' }, { kind: 'move' }])) === 'tap');
+  check('★鳴らすものが無い差分では何も選ばない', (await pick(page, [])) === null);
+
+  // ★★番人: 演出の種類を足したときに、音の表への追加を忘れないための項目である。
+  //   ★fxEffects が作る kind を<b>ソースから拾う</b>。テスト側に一覧を書き写すと、
+  //     写した一覧のほうが古くなるだけで番人にならない
+  const fxKindsSrc = jsSrc.slice(jsSrc.indexOf('function fxEffects('),
+    jsSrc.indexOf('// ---- 位置の採取'));
+  const fxKinds = [...new Set([...fxKindsSrc.matchAll(/kind: '([a-z]+)'/g)].map((m) => m[1]))];
+  const unmappedKinds = await page.evaluate((ks) => ks.filter((k) =>
+    // eslint-disable-next-line no-undef
+    !sfxNameFor({ kind: k, delta: -1 })), fxKinds);
+  check('★★演出の種類はすべて音の表に載っている(取りこぼしの番人・37)',
+    fxKinds.length >= 9 && unmappedKinds.length === 0,
+    JSON.stringify({ fxKinds, unmappedKinds }));
+
+  // ---- 設定パネル ----
+  await page.locator('#btn-sound').click();
+  await page.waitForTimeout(60);
+  check('★[♪] で音の設定が開く(37・5章)',
+    !(await page.locator('#sound-modal').getAttribute('class')).includes('d-none'));
+  check('★★初期音量は控えめ(30)である(裁定67: 通話と干渉させない)',
+    (await page.locator('#sound-volume').inputValue()) === '30'
+      && (await page.locator('#sound-volume-value').textContent()) === '30');
+  // ★色が意味を持つのは「鳴らない理由がある」ときだけである(37・5章)
+  check('★問題が無いときの状態行は警告色にならない(37・5章)',
+    !(await page.locator('#sound-modal-status').getAttribute('class')).includes('sound-status-warn'),
+    await page.locator('#sound-modal-status').textContent());
+  const soundContrast = await page.evaluate(() => window.__contrastAudit());
+  check('★音の設定パネルの文字もコントラスト比 4.5:1 以上(37・5章)',
+    soundContrast.length === 0, JSON.stringify(soundContrast));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(60);
+  check('★音の設定も Esc で閉じる(36 の規約に載っている)',
+    (await page.locator('#sound-modal').getAttribute('class')).includes('d-none'));
+
+  // ---- 実際に鳴ったか。★WebAudio の境界に張り込んで数える ----
+  const audioSpy = () => {
+    window.__audio = { contexts: 0, nodes: [] };
+    const Real = window.AudioContext;
+    // ★本物を包む。差し替えてしまうと「鳴らせない環境」の経路を測ることになる
+    window.AudioContext = function Spy() {
+      const ctx = new Real();
+      window.__audio.contexts += 1;
+      const osc = ctx.createOscillator.bind(ctx);
+      const buf = ctx.createBufferSource.bind(ctx);
+      ctx.createOscillator = () => { window.__audio.nodes.push('osc'); return osc(); };
+      ctx.createBufferSource = () => { window.__audio.nodes.push('buf'); return buf(); };
+      return ctx;
+    };
+  };
+  const snd = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+  const sndErrors = [];
+  snd.on('pageerror', (e) => sndErrors.push(String(e)));
+  snd.on('console', (m) => { if (m.type() === 'error') sndErrors.push(m.text()); });
+  await snd.addInitScript(audioSpy);
+  await snd.goto(`http://127.0.0.1:${port}/harness.html`);
+  await snd.waitForTimeout(200);
+
+  const audioNodes = async (target) => target.evaluate(() => window.__audio.nodes.length);
+  const clearAudio = async (target) => target.evaluate(() => { window.__audio.nodes = []; });
+  /** 「1手ぶんの配信」を作る。場のミニオン1枚を墓地へ移す */
+  const moveDelivery = async (target) => {
+    await fxReset(target);
+    const a = baseView();
+    await deliver(target, a);
+    await clearAudio(target);
+    const b = clone(a);
+    b.seatA.zones.FIELD = [];
+    b.seatA.zones.TRASH = [card('t1', '墓地1'), card('f1', '場1')];
+    syncCounts(b.seatA);
+    await deliver(target, b);
+    await target.waitForTimeout(60);
+  };
+
+  // ★★自動再生ポリシー: ユーザーが何か操作するまで AudioContext を作らない。
+  //   作ってしまうと suspended のまま溜まり、後から resume しても
+  //   「最初の数手ぶんが鳴らない」という再現性の低い挙動になる
+  await moveDelivery(snd);
+  check('★★最初のユーザー操作まで AudioContext を作らない(37・4章)',
+    (await snd.evaluate(() => window.__audio.contexts)) === 0
+      && (await audioNodes(snd)) === 0);
+
+  // ★★入口は「最初のユーザー操作」であって特定の操作ではない。
+  //   席選択ゲートの決定を入口にすると<b>復帰した人には二度と鳴らない</b>。
+  //   ここでキーボードだけで unlock できることを見ているのが、その証明である
+  await snd.keyboard.press('Shift');
+  await snd.waitForTimeout(60);
+  check('★★最初のユーザー操作で音が使えるようになる(操作の種類を問わない・37・4章)',
+    (await snd.evaluate(() => window.__audio.contexts)) === 1
+      && (await snd.evaluate(() => window.sfxReady && window.sfxReady())) === true);
+
+  await moveDelivery(snd);
+  check('★★カードが動く配信で実際に音が鳴る(37・2章)', (await audioNodes(snd)) === 1,
+    JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
+
+  // ★1配信1音。3枚まとめて動かしても音源は1つしか作られない
+  await fxReset(snd);
+  const sfxMany1 = baseView();
+  sfxMany1.seatA.zones.FIELD = [card('m1', 'ミ1'), card('m2', 'ミ2'), card('m3', 'ミ3')];
+  syncCounts(sfxMany1.seatA);
+  await deliver(snd, sfxMany1);
+  await clearAudio(snd);
+  const sfxMany2 = clone(sfxMany1);
+  sfxMany2.seatA.zones.FIELD = [];
+  sfxMany2.seatA.zones.TRASH = [card('m1', 'ミ1'), card('m2', 'ミ2'), card('m3', 'ミ3')];
+  syncCounts(sfxMany2.seatA);
+  await deliver(snd, sfxMany2);
+  await snd.waitForTimeout(60);
+  check('★★3枚が同時に動いても鳴るのは1音である(37・3-2)', (await audioNodes(snd)) === 1,
+    JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
+
+  // ★★裁定8(差分が8件を超えたら演出を出さない)は音にも効く。
+  //   総入れ替えは1手ではないので、音でも語らない
+  await fxReset(snd);
+  const sfxBulk1 = baseView();
+  sfxBulk1.seatA.zones.FIELD = [];
+  for (let i = 0; i < 9; i++) sfxBulk1.seatA.zones.FIELD.push(card('b' + i, '一括' + i));
+  syncCounts(sfxBulk1.seatA);
+  await deliver(snd, sfxBulk1);
+  await clearAudio(snd);
+  const sfxBulk2 = clone(sfxBulk1);
+  sfxBulk2.seatA.zones.TRASH = sfxBulk1.seatA.zones.FIELD.slice();
+  sfxBulk2.seatA.zones.FIELD = [];
+  syncCounts(sfxBulk2.seatA);
+  await deliver(snd, sfxBulk2);
+  await snd.waitForTimeout(60);
+  check('★★差分が上限(8件)を超えると音も鳴らない(裁定8 は音にも効く・37)',
+    (await audioNodes(snd)) === 0,
+    JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
+
+  // ★ミュートと音量0。どちらも「鳴らさない」であり、パネルは理由を書き分ける
+  await snd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    sfxSettings.muted = true;
+    // eslint-disable-next-line no-undef
+    applySfxVolume();
+  });
+  await moveDelivery(snd);
+  check('★★ミュート中は鳴らない(37・5章)', (await audioNodes(snd)) === 0);
+  await snd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    sfxSettings.muted = false;
+    // eslint-disable-next-line no-undef
+    sfxSettings.volume = 0;
+    // eslint-disable-next-line no-undef
+    applySfxVolume();
+  });
+  await moveDelivery(snd);
+  check('★音量が0でも鳴らない(37・5章)', (await audioNodes(snd)) === 0);
+  await snd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    sfxSettings.volume = 30;
+    // eslint-disable-next-line no-undef
+    applySfxVolume();
+  });
+
+  // ★★破壊的操作の [実行]。リセットは差分が8件を超えるので<b>演出が出ない</b>。
+  //   押した手応えが画面に残らない場所であり、音だけがその1手を語る
+  await fxReset(snd);
+  await deliver(snd, baseView());
+  await clearAudio(snd);
+  await snd.locator('#btn-reset').click();
+  await snd.waitForTimeout(60);
+  check('★確認を出しただけでは鳴らない(37・2章)', (await audioNodes(snd)) === 0);
+  await snd.locator('#confirm-modal-ok').click();
+  await snd.waitForTimeout(60);
+  check('★★確認の [実行] で音が鳴る(演出が出ない操作の手応え・37・2章)',
+    (await audioNodes(snd)) === 1,
+    JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
+
+  // ★設定は localStorage に残る。★裁定31 と同じく部屋ごとにしない
+  await snd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    sfxSettings.volume = 55;
+    // eslint-disable-next-line no-undef
+    sfxSettings.muted = true;
+    // eslint-disable-next-line no-undef
+    saveSfxSettings();
+  });
+  await snd.reload();
+  await snd.waitForTimeout(200);
+  await snd.locator('#btn-sound').click();
+  await snd.waitForTimeout(60);
+  check('★音の設定はページを開き直しても残る(37・5章)',
+    (await snd.locator('#sound-volume').inputValue()) === '55'
+      && (await snd.locator('#sound-mute').isChecked()) === true);
+  check('★ミュート中は音量のつまみを触らせない(理由が1つに見える)',
+    (await snd.locator('#sound-volume').isDisabled()) === true);
+  check('★なぜ鳴らないのかはパネルの状態行に出る(37・5章)',
+    (await snd.locator('#sound-modal-status').textContent()).includes('ミュート')
+      && (await snd.locator('#sound-modal-status').getAttribute('class'))
+        .includes('sound-status-warn'));
+  check('音の検証でJSエラーが出ない', sndErrors.length === 0, sndErrors.join(' | '));
+  await snd.close();
+
+  // ★★★音は動きではない。prefers-reduced-motion は「画面を動かすな」であって
+  //   「静かにしろ」ではない。演出を止めている人にこそ、音は状態変化を伝える手段になる。
+  //   ★この項目は、差分の計算を fxAllowed だけでゲートすると落ちる
+  //   (音が見た目の道連れで消える)
+  const quiet = await browser.newPage({
+    viewport: { width: 1280, height: 950 }, reducedMotion: 'reduce',
+  });
+  const quietErrors = [];
+  quiet.on('pageerror', (e) => quietErrors.push(String(e)));
+  await quiet.addInitScript(audioSpy);
+  await quiet.goto(`http://127.0.0.1:${port}/harness.html`);
+  await quiet.waitForTimeout(200);
+  await quiet.keyboard.press('Shift');
+  await moveDelivery(quiet);
+  check('★★★prefers-reduced-motion でもゴーストは出ないが音は鳴る(37・0-5)',
+    (await audioNodes(quiet)) === 1 && (await fxGhosts(quiet)).length === 0
+      && quietErrors.length === 0,
+    JSON.stringify({ nodes: await audioNodes(quiet), quietErrors }));
+  await quiet.close();
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 

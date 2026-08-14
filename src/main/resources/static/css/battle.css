@@ -150,6 +150,27 @@
     outline: 2px solid #ffd166;
     outline-offset: 1px;
 }
+
+/* ★Batch 37: 音の設定パネル(設計解説5章)。
+
+   ★ここに書く色は<b>すべて明示する</b>。.text-muted に頼ると、Bootstrap を落としている
+     ハーネスでは色が解決されず、コントラストの機械判定が実物と別のものを測る
+     (31 の事故と同じ形である)。
+   ★つまみ(input[type=range])の見た目はブラウザに任せる。:root の color-scheme: dark
+     (36)が効いているので、指定しなくても暗色側で描かれる。
+     <b>色の正を増やさない</b>ためにここでは触らない(裁定32 と同じ考え方)。 */
+.sound-row { display: flex; align-items: center; gap: 8px; }
+.sound-range { flex: 1 1 0; min-width: 0; }
+/* ★数字は等幅の桁を確保する。動かすたびに幅が変わるとつまみが左右に揺れる */
+.sound-volume-value {
+    flex: 0 0 auto; min-width: 28px; text-align: right;
+    font-variant-numeric: tabular-nums; color: #f8f9fa;
+}
+/* ★状態行は、鳴らない理由があるときだけ色を変える。
+   何も問題が無いときまで警告色にすると、色が「異常」を意味しなくなる */
+.sound-status { color: #adb5bd; }
+.sound-status.sound-status-warn { color: #ffd166; }
+.sound-note { color: #adb5bd; }
 .game-card.mulligan-selected { border-color: #ab47bc; box-shadow: 0 0 8px #ab47bc; }
 .link-info { text-decoration: none; }
 

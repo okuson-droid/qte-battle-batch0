@@ -801,6 +801,10 @@ document.getElementById('confirm-modal-ok').addEventListener('click', () => {
     const run = confirmPending;
     // ★先に閉じる。実行が location.href への遷移でも、層とフォーカスの後片付けは済んでいる
     closeConfirmModal();
+    // ★★Batch 37: 効果音の2つめの取り付け点である(0-5)。
+    //   破壊的操作は差分が8件を超えることが多く(リセット・退室)、裁定8 によって
+    //   <b>演出が丸ごと出ない</b>。押した手応えが画面に残らないので、音だけがその1手を語る。
+    sfxPlay('commit');
     if (run) run();
 });
 
@@ -814,6 +818,362 @@ function bindStartReset(button) {
             'リセットする', () => send('reset', {}));
     });
 }
+
+// ---------------------------------------------------------------
+// 0-5) 効果音(★Batch 37 設計解説2〜4章・レビュー S-2)
+// ---------------------------------------------------------------
+//
+// ★★<b>発火点を1つも増やしていない</b>。音は既存の3箇所に相乗りする。
+//   (a) 盤面の所作・LP・決着 …… {@link fxSpawn}(32a の演出と同じ差分の列を読む)
+//   (b) 破壊的操作の実行 ……… 確認モーダルの [実行](0-4)
+//   これで裁定67 が挙げた取り付け点(fxBuild のディスパッチ / fxBuildDeclare /
+//   askConfirm)を全部覆える。fxBuildDeclare に個別の呼び出しは要らなかった——
+//   決着は他の演出と<b>同じ effects の列</b>に kind='declare' として並んでいるためである。
+//
+// ★★<b>音は動きではない</b>。したがって {@code prefers-reduced-motion} を
+//   音のゲートにしない。あの設定が言っているのは「画面を動かすな」であって
+//   「静かにしろ」ではない。演出を止めている人にこそ、音は状態変化を伝える手段になる。
+//   ゲートは2本に分かれる: 見た目は {@link fxAllowed}、音は {@link sfxReady} である。
+//
+// ★★<b>1回の配信で鳴らす音は1つである</b>(3-2)。手動モードの1配信は1操作であり、
+//   1操作に対応する手応えは1つである。差分の件数だけ鳴らすと、音が語るのは
+//   「何をしたか」ではなく「何件変わったか」になる。これは裁定8(差分が8件を超えたら
+//   演出を出さない)や「演出は1手を語る道具である」と同じ考え方の音側である。
+//
+// ★★<b>音源はコードで合成する</b>(2-3)。音声ファイルを同梱しない。
+//   理由は「失敗の広さ」(裁定27)である。ファイルにすると
+//   読み込み失敗・404・キャッシュ版数という失敗経路が3つ増えるが、
+//   合成にはどれも無い。あわせて、音の性格が<b>数値の表1つ</b>
+//   ({@link SFX_SPECS})に出るので、実機で聞いた印象から直接調整できる。
+//
+// ★★<b>自動再生ポリシーの unlock は「最初のユーザー操作」で行う</b>(4章)。
+//   席選択ゲートの決定を入口にすると素直に見えるが、<b>復帰はゲートを通らない</b>ので
+//   その経路の人には二度と音が鳴らない。特定の操作を名指しすると、必ず
+//   「名指ししていない経路」ができる。名指ししないのが1箇所に決める、の中身である。
+
+/** 設定の保存先。★裁定31 と同じく<b>部屋ごとにしない</b>。音量は人の性質である */
+const SFX_STORAGE_KEY = 'qte-manual-sound';
+
+/** ★初期音量は控えめである(裁定67)。通話の音声と干渉させない */
+const SFX_DEFAULT_VOLUME = 30;
+
+/**
+ * 音の仕様(★マスターが実機で聞いて調整するのはこの表だけである)。
+ *
+ * <ul>
+ *   <li>{@code gain} は音どうしの相対バランス(0〜1)。実出力は gain × 音量スライダー/100</li>
+ *   <li>{@code ms} は長さ。{@code from}/{@code to} は周波数の始点と終点(Hz)</li>
+ *   <li>{@code tone} = 楽音 / {@code noise} = 帯域を絞った雑音 / {@code chord} = 和音</li>
+ * </ul>
+ *
+ * ★8種である(裁定67 の「6〜8種」)。うち7種は盤面の差分から、
+ * {@code commit} だけが確認モーダルの [実行] から鳴る。
+ */
+const SFX_SPECS = {
+    // 紙を引き抜く感じ。上へ抜ける短い擦過音
+    draw: { type: 'noise', ms: 150, from: 700, to: 2800, q: 5, gain: 0.55 },
+    // 置く・動かす。低く短い打音
+    place: { type: 'tone', ms: 110, from: 230, to: 110, wave: 'triangle', gain: 0.80 },
+    // タップ / アンタップ。いちばん回数が多いので、いちばん軽くしてある
+    tap: { type: 'tone', ms: 60, from: 660, to: 540, wave: 'square', gain: 0.30 },
+    // めくる。下へ抜ける短い擦過音(draw と逆向きにして聞き分けられるようにした)
+    flip: { type: 'noise', ms: 100, from: 2600, to: 800, q: 4, gain: 0.45 },
+    // LPが減る。下降する2次的な唸り
+    lpDown: { type: 'tone', ms: 280, from: 400, to: 140, wave: 'sawtooth', gain: 0.60 },
+    // LPが増える。上昇させて減少と対にする
+    lpUp: { type: 'tone', ms: 280, from: 330, to: 700, wave: 'triangle', gain: 0.50 },
+    // 決着。★1試合に1回しか鳴らない音なので、唯一の和音にしてある
+    decisive: { type: 'chord', ms: 900, notes: [392.0, 523.25, 659.25], wave: 'triangle', gain: 0.55 },
+    // 破壊的操作の実行(リセット・退室・席を立つ)。★「押した」の手応えである
+    commit: { type: 'tone', ms: 130, from: 300, to: 300, wave: 'square', gain: 0.45 },
+};
+
+/**
+ * 差分の種類 → 音。
+ *
+ * ★<b>音の語彙は演出の語彙より粗い</b>。9種類ある {@code fx.kind} を7つの音に畳んでいる。
+ * 移動・出現・消滅・スタックへの吸収は、耳から見ればどれも「カードが動いた」である。
+ * ★{@code lp} だけはここに無い。増と減で意味が逆であり、表では決まらないためである
+ * ({@link sfxNameFor})。
+ */
+const SFX_FOR_KIND = {
+    draw: 'draw',
+    move: 'place',
+    appear: 'place',
+    vanish: 'place',
+    sink: 'place',
+    tap: 'tap',
+    flip: 'flip',
+    declare: 'decisive',
+};
+
+/**
+ * 1配信で1つだけ鳴らすときの優先順位(前ほど強い)。
+ *
+ * ★★<b>珍しい出来事ほど優先する。</b>頻度の高い音は「何が起きたか」を語らない。
+ * 決着は1試合に1回、LPの増減は数回、ドローは毎ターン、タップと移動は毎手である。
+ * ★{@code commit} はここに無い。あれは差分から来ないので競合しない。
+ */
+const SFX_PRIORITY = ['decisive', 'lpDown', 'lpUp', 'draw', 'flip', 'tap', 'place'];
+
+/** 音量スライダーを動かしたときの試聴音。★いちばん耳につく音で合わせてもらう */
+const SFX_PREVIEW = 'place';
+
+/** unlock の入口。★特定の操作を名指ししない(上の章) */
+const SFX_UNLOCK_EVENTS = ['pointerdown', 'keydown'];
+
+let sfxCtx = null;
+let sfxMaster = null;
+let sfxNoise = null;
+/** この環境に AudioContext が無い(または生成に失敗した)。パネルに理由を出すために持つ */
+let sfxUnsupported = false;
+let sfxSettings = loadSfxSettings();
+
+function loadSfxSettings() {
+    const fallback = { muted: false, volume: SFX_DEFAULT_VOLUME };
+    try {
+        // ★localStorage は例外を投げうる(0-1章と同じ理由で握りつぶす)。
+        //   音の設定は、対戦の続行より優先されるものではない
+        const raw = JSON.parse(localStorage.getItem(SFX_STORAGE_KEY) || 'null');
+        if (!raw || typeof raw !== 'object') return fallback;
+        const volume = Number(raw.volume);
+        return {
+            muted: raw.muted === true,
+            volume: Number.isFinite(volume) ? Math.min(100, Math.max(0, Math.round(volume)))
+                : SFX_DEFAULT_VOLUME,
+        };
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function saveSfxSettings() {
+    try {
+        localStorage.setItem(SFX_STORAGE_KEY, JSON.stringify(sfxSettings));
+    } catch (e) {
+        // 記録できないだけで、今回の設定は効いている
+    }
+}
+
+/**
+ * 音を出せる状態か。
+ * ★{@link fxAllowed} と<b>別のゲート</b>である(上の章)。
+ * reduced-motion は見ない。見るのは「unlock 済みか」「ミュートでないか」だけである。
+ */
+function sfxReady() {
+    return !!sfxCtx && !sfxSettings.muted && sfxSettings.volume > 0;
+}
+
+/** パネルに出す状態。★unlock 前に開くことは実際には起きない(パネルを開く操作自体が unlock する) */
+function sfxStatusText() {
+    if (sfxUnsupported) return 'この環境では音を出せない(ブラウザが対応していない)';
+    if (!sfxCtx) return '画面をどこか一度クリックすると音が使えるようになる';
+    if (sfxSettings.muted) return 'ミュート中';
+    if (sfxSettings.volume === 0) return '音量が 0 になっている';
+    return '音は有効である';
+}
+
+/**
+ * ★★最初のユーザー操作で音を使えるようにする(4章)。
+ *
+ * ブラウザは、ユーザーの操作を経ていない音の再生を止める。
+ * {@code AudioContext} の生成と {@code resume()} を<b>操作のハンドラの中</b>で行う必要があり、
+ * ここが唯一その条件を満たす場所である。
+ * ★入口を1つの操作に決めない理由は上の章のとおりである。
+ */
+function sfxUnlock() {
+    if (sfxCtx || sfxUnsupported) return;
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) {
+        sfxUnsupported = true;
+        syncSoundPanel();
+        return;
+    }
+    try {
+        sfxCtx = new Ctor();
+        sfxMaster = sfxCtx.createGain();
+        sfxMaster.connect(sfxCtx.destination);
+        applySfxVolume();
+        if (sfxCtx.state === 'suspended') sfxCtx.resume();
+    } catch (e) {
+        sfxCtx = null;
+        sfxMaster = null;
+        sfxUnsupported = true;
+    }
+    syncSoundPanel();
+}
+
+function sfxUnlockFromGesture() {
+    sfxUnlock();
+    for (const type of SFX_UNLOCK_EVENTS) {
+        document.removeEventListener(type, sfxUnlockFromGesture, true);
+    }
+}
+
+for (const type of SFX_UNLOCK_EVENTS) {
+    // ★capture で受ける。盤面のハンドラが stopPropagation しても unlock は通す
+    document.addEventListener(type, sfxUnlockFromGesture, true);
+}
+
+function applySfxVolume() {
+    if (!sfxMaster) return;
+    sfxMaster.gain.value = sfxSettings.muted ? 0 : sfxSettings.volume / 100;
+}
+
+/** ホワイトノイズは1本だけ作って使い回す(擦過音の材料) */
+function sfxNoiseBuffer() {
+    if (sfxNoise) return sfxNoise;
+    const frames = Math.floor(sfxCtx.sampleRate * 0.5);
+    const buffer = sfxCtx.createBuffer(1, frames, sfxCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < frames; i++) {
+        data[i] = Math.random() * 2 - 1;
+    }
+    sfxNoise = buffer;
+    return buffer;
+}
+
+/**
+ * 立ち上がりと減衰。★どの音も同じ形の包絡線を通す。
+ * 減衰を指数にしているのは、直線だと切れ際に「プツ」と鳴るためである。
+ */
+function sfxEnvelope(at, seconds, gain) {
+    const env = sfxCtx.createGain();
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.linearRampToValueAtTime(gain, at + 0.006);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+    env.connect(sfxMaster);
+    return env;
+}
+
+function sfxTone(at, seconds, wave, from, to, gain) {
+    const osc = sfxCtx.createOscillator();
+    osc.type = wave || 'triangle';
+    osc.frequency.setValueAtTime(from, at);
+    if (to !== from) {
+        osc.frequency.exponentialRampToValueAtTime(Math.max(1, to), at + seconds);
+    }
+    osc.connect(sfxEnvelope(at, seconds, gain));
+    osc.start(at);
+    osc.stop(at + seconds);
+}
+
+function sfxNoiseSweep(at, seconds, from, to, q, gain) {
+    const src = sfxCtx.createBufferSource();
+    src.buffer = sfxNoiseBuffer();
+    const band = sfxCtx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = q;
+    band.frequency.setValueAtTime(from, at);
+    band.frequency.exponentialRampToValueAtTime(Math.max(1, to), at + seconds);
+    src.connect(band);
+    band.connect(sfxEnvelope(at, seconds, gain));
+    src.start(at);
+    src.stop(at + seconds);
+}
+
+/**
+ * 音を1つ鳴らす。
+ * @return 実際に鳴らしたか(ミュート中・unlock 前は false)
+ */
+function sfxPlay(name) {
+    const spec = SFX_SPECS[name];
+    if (!spec || !sfxReady()) return false;
+    try {
+        // ★タブを裏へ回すと suspended へ落ちるブラウザがある。鳴らす直前に起こす
+        if (sfxCtx.state === 'suspended') sfxCtx.resume();
+        const at = sfxCtx.currentTime;
+        const seconds = spec.ms / 1000;
+        if (spec.type === 'noise') {
+            sfxNoiseSweep(at, seconds, spec.from, spec.to, spec.q, spec.gain);
+        } else if (spec.type === 'chord') {
+            // ★和音は少しずつずらして重ねる。同時に立ち上げると1つの濁った音になる
+            spec.notes.forEach((hz, i) => {
+                sfxTone(at + i * 0.07, seconds - i * 0.07, spec.wave, hz, hz,
+                    spec.gain / spec.notes.length);
+            });
+        } else {
+            sfxTone(at, seconds, spec.wave, spec.from, spec.to, spec.gain);
+        }
+    } catch (e) {
+        // ★音で対戦を止めない。鳴らせなかったことは盤面の正しさに影響しない
+        return false;
+    }
+    return true;
+}
+
+/** 差分1件に対応する音の名前。★{@code lp} だけは表では決まらない(増と減で逆) */
+function sfxNameFor(fx) {
+    if (!fx) return null;
+    if (fx.kind === 'lp') return fx.delta > 0 ? 'lpUp' : 'lpDown';
+    return SFX_FOR_KIND[fx.kind] || null;
+}
+
+/**
+ * ★★1配信で鳴らす1つを選ぶ(3-2)。優先順位は {@link SFX_PRIORITY} の1箇所にある。
+ * @return 音の名前(鳴らすものが無ければ null)
+ */
+function sfxChoose(effects) {
+    let best = null;
+    let bestRank = SFX_PRIORITY.length;
+    for (const fx of effects || []) {
+        const name = sfxNameFor(fx);
+        const rank = name ? SFX_PRIORITY.indexOf(name) : -1;
+        if (rank >= 0 && rank < bestRank) {
+            best = name;
+            bestRank = rank;
+        }
+    }
+    return best;
+}
+
+// ---- 設定パネル(★裁定67: 通話と音量が干渉するため必須である)----
+
+function syncSoundPanel() {
+    const mute = document.getElementById('sound-mute');
+    const volume = document.getElementById('sound-volume');
+    const status = document.getElementById('sound-modal-status');
+    if (!mute || !volume || !status) return;
+    mute.checked = sfxSettings.muted;
+    volume.value = String(sfxSettings.volume);
+    volume.disabled = sfxSettings.muted;
+    document.getElementById('sound-volume-value').textContent = String(sfxSettings.volume);
+    status.textContent = sfxStatusText();
+    // ★色が意味を持つのは「鳴らない理由がある」ときだけである。
+    //   正常時まで警告色にすると、色は何も言わなくなる
+    status.classList.toggle('sound-status-warn', !sfxReady());
+}
+
+function openSoundModal() {
+    syncSoundPanel();
+    openInfoModal('sound-modal');
+}
+
+document.getElementById('btn-sound').addEventListener('click', openSoundModal);
+document.getElementById('sound-modal-close').addEventListener('click', () => {
+    closeInfoModal('sound-modal');
+});
+
+document.getElementById('sound-mute').addEventListener('change', (e) => {
+    sfxSettings.muted = e.target.checked;
+    saveSfxSettings();
+    applySfxVolume();
+    syncSoundPanel();
+    // ★ミュートを解除したときだけ鳴らす。切ったのに音が出るのは矛盾である
+    if (!sfxSettings.muted) sfxPlay(SFX_PREVIEW);
+});
+
+// ★値の反映は input(つまみを動かしている間)、試聴は change(離したとき)である。
+//   input で鳴らすと、つまみを動かしている間じゅう音が連射される
+document.getElementById('sound-volume').addEventListener('input', (e) => {
+    sfxSettings.volume = Number(e.target.value);
+    applySfxVolume();
+    syncSoundPanel();
+});
+document.getElementById('sound-volume').addEventListener('change', () => {
+    saveSfxSettings();
+    sfxPlay(SFX_PREVIEW);
+});
 
 // ---------------------------------------------------------------
 // 1) 接続
@@ -4185,6 +4545,21 @@ function fxAllowed() {
     return true;
 }
 
+/**
+ * 差分を採る必要があるか(★Batch 37)。
+ * ★見た目と音は<b>別のゲート</b>だが、材料(ビューの差分)は共通である。
+ * どちらか一方でも使うなら採る。
+ */
+function fxDiffNeeded() {
+    return fxAllowed() || sfxReady();
+}
+
+/** ★1配信につき1音だけ鳴らす(0-5 の 3-2)。選び方は {@link sfxChoose} の1箇所にある */
+function sfxPlayForEffects(effects) {
+    const name = sfxChoose(effects);
+    if (name) sfxPlay(name);
+}
+
 function fxLayer() {
     let el = document.getElementById('manual-fx-layer');
     if (el) {
@@ -4906,7 +5281,16 @@ function fxBuild(fx, origin, layer) {
 function fxSpawn() {
     const pending = pendingFx;
     pendingFx = null;
-    if (!pending || !fxAllowed()) {
+    if (!pending) {
+        return;
+    }
+    // ★★Batch 37: 効果音の1つめの取り付け点である(0-5)。<b>ここ1箇所で
+    //   ドロー・配置・タップ・めくり・LP増減・決着の6種すべてを覆う</b>——
+    //   決着も他の演出と同じ effects の列に kind='declare' として並んでいるためである。
+    //   ★★見た目のゲート(fxAllowed)より<b>前</b>に置く。音は動きではないので
+    //     prefers-reduced-motion では止めない(0-5 の章)。
+    sfxPlayForEffects(pending.effects);
+    if (!fxAllowed()) {
         return;
     }
     const layer = fxLayer();
@@ -4961,13 +5345,20 @@ function fxStartLocking(view) {
  */
 function applyView(view) {
     let effects = null;
-    if (fxAllowed() && prevView && !fxStartLocking(prevView) && !fxStartLocking(view)) {
+    // ★★Batch 37: 差分を採る条件に「音が使えるか」を足した。演出を切っている人
+    //   (prefers-reduced-motion)にも音は鳴るので、見た目のゲートだけで差分の計算を
+    //   飛ばすと<b>音が道連れで消える</b>。★上限(FX_BULK_LIMIT)と開始シーケンスの
+    //   除外は音にもそのまま効かせる。総入れ替えは1手ではないので、音でも語らない
+    if (fxDiffNeeded() && prevView && !fxStartLocking(prevView) && !fxStartLocking(view)) {
         effects = fxEffects(diffViews(prevView, view));
         if (effects.length === 0 || effects.length > FX_BULK_LIMIT) {
             effects = null;
         }
     }
-    pendingFx = effects ? { effects: effects, origins: fxCaptureOrigins(effects) } : null;
+    // ★旧位置の採取は<b>見た目のためだけ</b>のものである。音しか出さないときは読まない
+    pendingFx = effects
+        ? { effects: effects, origins: fxAllowed() ? fxCaptureOrigins(effects) : new Map() }
+        : null;
     prevView = view;
     latestView = view;
     renderAll(view);
