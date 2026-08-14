@@ -3388,6 +3388,34 @@ async function clearZoom(page) {
   check('ロビーでJSエラーが出ない', lobbyErrors.length === 0, lobbyErrors.join(' | '));
   await lobby.close();
 
+  // ---- ★★Batch 36: battle.css の color-scheme(34 の質問1・マスター裁定) ----
+  //
+  // ★見るのは宣言そのものではなく、<b>宣言してよい条件が成り立っていること</b>である。
+  //   `color-scheme: dark` は「このファイルを読む画面はどれも暗い」を前提にしている。
+  //   白い画面から battle.css を読み込んだ瞬間、この1行は読めない画面に変わる。
+  //   条件のほうを番人にする(裁定32 と同じ考え方)。
+  const battleCss = fs.readFileSync(path.join(RES, 'static/css/battle.css'), 'utf8');
+  check('★★battle.css は :root に color-scheme: dark を持つ(36・34 Q1)',
+    /:root\s*\{[^}]*color-scheme:\s*dark/.test(battleCss));
+  const cssConsumers = fs.readdirSync(path.join(RES, 'templates'))
+    .filter((n) => n.endsWith('.html'))
+    .map((n) => ({ name: n,
+      src: fs.readFileSync(path.join(RES, 'templates', n), 'utf8') }))
+    .filter((t) => /css\/battle\.css/.test(t.src));
+  const notDark = cssConsumers
+    .filter((t) => !/<body[^>]*class="[^"]*bg-dark/.test(t.src))
+    .map((t) => t.name);
+  check('★★★battle.css を読み込むテンプレートはすべて黒背景である(36・color-scheme の前提)',
+    cssConsumers.length >= 2 && notDark.length === 0,
+    JSON.stringify({ consumers: cssConsumers.map((t) => t.name), notDark }));
+  // ★キャッシュバスティングの手動管理は既に破綻の実例が出ている
+  //   (battle.html が v=10 のまま取り残されていた)。版数を揃えることを機械で守る。
+  const cssVersions = Array.from(new Set(cssConsumers
+    .map((t) => (t.src.match(/css\/battle\.css\(v=(\d+)\)/) || [])[1])));
+  check('★★battle.css の版数はすべてのテンプレートで揃っている(36)',
+    cssVersions.length === 1 && cssVersions[0] !== undefined,
+    JSON.stringify(cssVersions));
+
   // ---- ★Batch 34: ロビーから1クリックで行くカード一覧も黒である ----
   // ★ロビーだけ直すと、白→黒のフラッシュが<b>経路を変えて戻る</b>。
   //   この画面はサーバ描画なのでハーネスを作らず、テンプレートを静的に見る。
