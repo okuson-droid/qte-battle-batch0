@@ -29,8 +29,11 @@ import java.util.List;
  *       いくつからいくつへ動いたかは相手に渡さない</li>
  * </ul>
  *
- * @param actorSeat 操作した席。★観戦者・システムでは null。ログの主語ではなく
- *                  「誰が押したか」であり、対象の席({@code cards} の所在)とは別物である
+ * @param actorSeat   操作した席。★観戦者・システムでは null。ログの主語ではなく
+ *                    「誰が押したか」であり、対象の席({@code cards} の所在)とは別物である
+ * @param declaration ★Batch 35: 勝敗宣言の構造({@link ManualLogDeclaration})。
+ *                    宣言以外の種別では null である。本文と重複しているように見えるが、
+ *                    本文は人が読むもの、こちらは<b>画面が読むもの</b>である(2-2)
  */
 public record ManualLogEvent(
         ManualLogKind kind,
@@ -40,7 +43,8 @@ public record ManualLogEvent(
         List<ManualLogCard> cards,
         String publicNote,
         String secretNote,
-        String text) {
+        String text,
+        ManualLogDeclaration declaration) {
 
     public ManualLogEvent {
         cards = cards == null ? List.of() : List.copyOf(cards);
@@ -51,13 +55,34 @@ public record ManualLogEvent(
         return plain(ManualLogKind.SYSTEM, null, text);
     }
 
-    /** 本文をそのまま出す種別(LP・ターン・ドロー・メモ・宣言など)。 */
+    /** 本文をそのまま出す種別(LP・ターン・ドロー・メモなど)。 */
     public static ManualLogEvent plain(ManualLogKind kind, ManualSeatId actorSeat, String text) {
         if (!kind.isPlain()) {
             throw new IllegalArgumentException(
                     "マスク対象の種別を本文だけで記録することはできません: " + kind);
         }
-        return new ManualLogEvent(kind, actorSeat, null, null, List.of(), null, null, text);
+        // ★★Batch 35: 宣言だけは本文のみで作らせない。構造({@link ManualLogDeclaration})が
+        //   欠けた DECLARE 行は、ログには出るのに<b>帯も強調も出ない</b>という静かな壊れ方をする。
+        //   「分類を忘れると名前が漏れる」を型で止めているのと同じ考え方である。
+        if (kind == ManualLogKind.DECLARE) {
+            throw new IllegalArgumentException("宣言は declaration(...) で記録すること: " + kind);
+        }
+        return new ManualLogEvent(kind, actorSeat, null, null, List.of(), null, null, text, null);
+    }
+
+    /**
+     * 勝敗の宣言(★Batch 35 設計書 2-2)。本文に加えて構造を残す唯一の入口である。
+     *
+     * @param actorSeat   押した人の席(全公開部屋では null になりうる)
+     * @param declaration 宣言の主語と内容。★押した人ではなく<b>宣言される席</b>である
+     */
+    public static ManualLogEvent declaration(ManualSeatId actorSeat,
+            ManualLogDeclaration declaration, String text) {
+        if (declaration == null || declaration.declaration() == null) {
+            throw new IllegalArgumentException("宣言の内容が指定されていません");
+        }
+        return new ManualLogEvent(ManualLogKind.DECLARE, actorSeat, null, null, List.of(),
+                null, null, text, declaration);
     }
 
     /**
@@ -73,7 +98,7 @@ public record ManualLogEvent(
             throw new IllegalArgumentException("本文だけで足りる種別です: " + kind);
         }
         return new ManualLogEvent(kind, actorSeat, origin, destination, cards,
-                publicNote, secretNote, null);
+                publicNote, secretNote, null, null);
     }
 
     /**

@@ -730,7 +730,11 @@ public class ManualOperationService {
         if (request.note() != null && !request.note().isBlank()) {
             note = " — " + request.note().trim();
         }
-        return ManualLogEvent.plain(ManualLogKind.DECLARE, actor.seat(),
+        // ★★Batch 35: 本文に加えて構造を残す(2-2)。帯とログの強調はこの構造だけを読む。
+        //   主語は request.seat() であって actor.seat() ではない
+        //   ——全公開部屋では1人が両席を宣言できる。
+        return ManualLogEvent.declaration(actor.seat(),
+                new ManualLogDeclaration(request.seat(), request.declaration()),
                 "%s%sを宣言した%s".formatted(seatText, request.declaration().getDisplayName(), note));
     }
 

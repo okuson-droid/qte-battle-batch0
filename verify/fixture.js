@@ -132,6 +132,8 @@ function baseView() {
       { seq: 3, time: '10:00:02', text: 'ログ3' },
       { seq: 4, time: '10:00:03', text: 'ログ4' },
     ],
+    // ★Batch 35: 勝敗宣言(ManualDeclarationView 相当)。既定は「まだ決着していない」
+    declarations: [],
     canUndo: true,
     canRedo: false,
   };
@@ -205,6 +207,22 @@ function roomSummary(overrides = {}) {
   };
 }
 
+/**
+ * 勝敗宣言1件(★Batch 35。ManualDeclarationView 相当)。
+ *
+ * ★{@code label} はサーバの {@code ManualDeclaration.getDisplayName()} と同じ文字である。
+ * fixture が勝手な文言を持つと「クライアントが label を使っているか」を検証できない
+ * (自前の表を使っていても通ってしまう)。
+ *
+ * ★{@code seq} は<b>配ったログ行のどれか</b>を指すこと。サーバは同じ範囲から作る(2-3)。
+ */
+const DECLARATION_LABELS = { WIN: '勝利', LOSE: '敗北', DRAW: '引き分け', CONCEDE: '投了' };
+
+function declaration(seq, seat, kind = 'WIN') {
+  return { seq, seat, declaration: kind, label: DECLARATION_LABELS[kind] };
+}
+
 module.exports = {
   baseView, versusView, roomSummary, card, occupant, emptyZones, syncCounts, startState,
+  declaration,
 };

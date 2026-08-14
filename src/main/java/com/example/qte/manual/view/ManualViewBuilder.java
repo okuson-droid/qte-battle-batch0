@@ -16,6 +16,7 @@ import com.example.qte.manual.ManualCardInstance;
 import com.example.qte.manual.ManualCardMaster;
 import com.example.qte.manual.ManualCardRepository;
 import com.example.qte.manual.ManualGameState;
+import com.example.qte.manual.ManualLogDeclaration;
 import com.example.qte.manual.ManualLogEntry;
 import com.example.qte.manual.ManualLogRenderer;
 import com.example.qte.manual.ManualOccupant;
@@ -126,9 +127,19 @@ public class ManualViewBuilder {
         List<ManualLogEntry> entries = room.getLog();
         int logTotal = entries.size();
         List<ManualLogView> log = new ArrayList<>();
+        // ★★Batch 35: 宣言は<b>同じ範囲を同じ1周で</b>拾う(設計書 2-3)。
+        //   別に room.getLog() を走査すると、配った行に無い seq を指しうる。
+        //   「強調する行」と「配った行」が別の場所から来ると、そのズレは静かに起きる。
+        List<ManualDeclarationView> declarations = new ArrayList<>();
         for (ManualLogEntry entry : entries.subList(Math.max(0, logTotal - LOG_TAIL), logTotal)) {
             log.add(new ManualLogView(entry.seq(), TIME_FORMAT.format(entry.at()),
                     logRenderer.render(entry.event(), viewpoint)));
+            ManualLogDeclaration mark = entry.event().declaration();
+            if (mark != null) {
+                // ★宣言は plain 種別である。誰が見ても同じ内容が出てよい(視点で削らない)
+                declarations.add(new ManualDeclarationView(entry.seq(), mark.seat(),
+                        mark.declaration(), mark.declaration().getDisplayName()));
+            }
         }
 
         ManualActor actor = ManualActor.of(room, viewer);
@@ -151,6 +162,7 @@ public class ManualViewBuilder {
                 occupants,
                 log,
                 logTotal,
+                declarations,
                 // ★ボタンの活性と実際の可否が同じ判定を通る(設計判断34 の型)
                 ManualPermissions.denyUndo(actor, room) == null,
                 ManualPermissions.denyRedo(actor, room) == null && room.getHistory().canRedo());

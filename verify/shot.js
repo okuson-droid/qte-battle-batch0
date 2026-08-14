@@ -42,5 +42,18 @@ server.listen(0,async()=>{
  else if(stage==='begin') v.start=startState({canBegin:true});
  await p.evaluate((view)=>{window.latestView=view;latestView=view;renderAll(view);},v);
  await p.waitForTimeout(300);
+ // ★Batch 35: 決着の帯とログの決着行を目視するための経路。
+ //   帯はビューの差分から出るので、renderAll ではなく applyView を2回通す。
+ //   例: DECLARE=WIN PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node verify/shot.js
+ const kind=process.env.DECLARE||'';
+ if(kind){
+  const label={WIN:'勝利',LOSE:'敗北',DRAW:'引き分け',CONCEDE:'投了'}[kind]||'勝利';
+  const seq=(v.log[v.log.length-1]||{seq:0}).seq+1;
+  const after=JSON.parse(JSON.stringify(v));
+  after.log=after.log.concat([{seq,time:'10:00:04',text:`席A の ${label}を宣言した`}]);
+  after.declarations=[{seq,seat:'A',declaration:kind,label}];
+  await p.evaluate((views)=>{applyView(views[0]);applyView(views[1]);},[v,after]);
+  await p.waitForTimeout(250);
+ }
  await p.screenshot({path:process.env.OUT||'verify/layout.png',fullPage:false});
  await b.close();server.close();console.log('shot ok');});

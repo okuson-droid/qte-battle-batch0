@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
 import com.example.qte.manual.ManualActor;
+import com.example.qte.manual.ManualDeclaration;
 import com.example.qte.manual.ManualDeckImport;
 import com.example.qte.manual.ManualGameService;
 import com.example.qte.manual.ManualCardInstance;
@@ -33,6 +34,7 @@ import com.example.qte.manual.ManualStartMethod;
 import com.example.qte.manual.ManualStartService;
 import com.example.qte.manual.ManualViewpoint;
 import com.example.qte.manual.ManualZone;
+import com.example.qte.manual.view.ManualDeclarationView;
 import com.example.qte.manual.view.ManualGameView;
 import com.example.qte.manual.view.ManualSeatView;
 import com.example.qte.manual.view.ManualViewBuilder;
@@ -748,6 +750,37 @@ class ManualVersusTest {
 
         ManualGameView view = viewBuilder.build(room, a);
         assertThat(view.logTotal()).isEqualTo(view.log().size());
+    }
+
+    // ================= ★Batch 35: 勝敗の宣言 =================
+
+    @Test
+    void 宣言は配信のdeclarationsに主語と表示名つきで載る() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        ManualActor actor = ManualActor.of(room, a);
+
+        operations.applyDirect(room, ignored -> operations.declare(actor,
+                new ManualOpRequest.Declare(a.getOccupantId(), ManualSeatId.A,
+                        ManualDeclaration.WIN, null)));
+
+        ManualGameView view = viewBuilder.build(room, a);
+        assertThat(view.declarations()).hasSize(1);
+        ManualDeclarationView declaration = view.declarations().get(0);
+        assertThat(declaration.seat()).isEqualTo(ManualSeatId.A);
+        assertThat(declaration.declaration()).isEqualTo(ManualDeclaration.WIN);
+        assertThat(declaration.label()).isEqualTo("勝利");
+        // ★★seq は<b>配ったログ行のどれか</b>を必ず指す(2-3)。
+        //   ここがズレると、強調する行が1行手前になる類の静かな壊れ方をする
+        assertThat(view.log()).anyMatch(line -> line.seq() == declaration.seq());
+    }
+
+    @Test
+    void 宣言が無い部屋のdeclarationsは空である() {
+        ManualRoom room = versusRoom();
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+
+        assertThat(viewBuilder.build(room, a).declarations()).isEmpty();
     }
 
     // ================= 補助 =================

@@ -36,6 +36,10 @@ import com.example.qte.manual.ManualZone;
  *                      ({@code ManualViewBuilder.LOG_TAIL})。全文はダウンロードで取れる
  * @param logTotal      ログの総行数。{@code log.size()} より大きければ古い行が省略されている。
  *                      画面が「以前のぶんはログ書出から」と案内するために使う
+ * @param declarations  ★Batch 35: 配った {@code log} の中にある勝敗宣言だけを抜き出したもの。
+ *                      勝敗の帯とログの決着行はこれだけを読む(設計書 2-3)。
+ *                      ★{@code log} と同じ範囲から作るので、ここにある {@code seq} は
+ *                      <b>必ず配った行のどれかを指す</b>
  * @param shared        プレイヤー間で共有するゾーン(PLAY / REVEAL)。席に属さない(20b 3-2)
  * @param start         ★Batch 23: 開始シーケンスの状態と「自分が今押せること」。
  *                      クライアントがフェーズから押せる人を組み立て直すと判定が2箇所に分かれる
@@ -59,6 +63,7 @@ public record ManualGameView(
         List<ManualOccupantView> occupants,
         List<ManualLogView> log,
         int logTotal,
+        List<ManualDeclarationView> declarations,
         boolean canUndo,
         boolean canRedo) {
 }

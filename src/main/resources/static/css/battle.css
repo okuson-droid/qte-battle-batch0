@@ -1213,21 +1213,45 @@ body.manual-drag-active .manual-band {
     100% { transform: none; }
 }
 
-/* ---- ターン開始の合図 ---- */
-/* ★★色は<b>黒背景(#212529)の上</b>で選んである(31 の教訓)。
-   #ffd166 は地(rgba(0,0,0,0.78) 越しの #212529)に対して 13.9:1 である。
-   ★このラベルもコントラストの機械判定の対象セレクタに入れてある(verify.js)。 */
-.manual-fx-turn {
+/* ---- ★★Batch 35: 決着の帯(32b のターン帯からの転用。裁定17)---- */
+/* ★形・大きさ・座席・遷移の書き方は 32b のターン帯のままである。
+   帯の描画機構を捨てずに<b>役目だけ</b>を差し替えた、というのが裁定17 の主旨である。
+   ★★色は<b>黒背景(#212529)の上</b>で選んである(31 の教訓)。地は
+   rgba(0,0,0,0.78) 越しの #212529 であり、対比は 勝利 13.0 / 敗北 9.1 /
+   引分 15.4 / 投了 12.5 :1 である。
+   ★このラベルもコントラストの機械判定の対象セレクタに入れてある(verify.js)。
+   ★字を大きくしたのは決着が1試合に1回だからである(ターンは何十回も出ていた)。 */
+.manual-fx-declare {
     position: absolute; transform: translate(-50%, -50%);
-    padding: 6px 22px; border-radius: 999px;
-    font-size: 20px; font-weight: 900; line-height: 1.25;
+    padding: 10px 30px; border-radius: 999px;
+    font-size: 26px; font-weight: 900; line-height: 1.25;
     letter-spacing: 0.08em; white-space: nowrap;
-    color: #ffd166;
+    color: #dee2e6;
     background: rgba(0, 0, 0, 0.78); border: 1px solid rgba(255, 255, 255, 0.22);
     transition-property: transform, opacity;
     transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
     transition-duration: 0ms;
     will-change: transform, opacity;
+}
+/* ★出し分けは列挙値(WIN / LOSE / DRAW / CONCEDE)で行う。
+   既定色(引分の灰)を基底に置いてあるので、将来 宣言の種類が増えても
+   <b>色が無い帯</b>にはならない。 */
+.manual-fx-declare-win { color: #7ee787; border-color: rgba(126, 231, 135, 0.5); }
+.manual-fx-declare-lose { color: #ff8f8f; border-color: rgba(255, 143, 143, 0.5); }
+.manual-fx-declare-draw { color: #dee2e6; }
+.manual-fx-declare-concede { color: #ffc078; border-color: rgba(255, 192, 120, 0.5); }
+
+/* ---- ★Batch 35: ログの決着行 ---- */
+/* ★帯は数秒で消えるが、ログは残る。「後から見返せる決着」がこちらの役目である
+   (レビュー S-3 の「ログに埋もれる決着」への答え)。
+   ★色を宣言の種類で変えないのは、ここが<b>節目の印</b>であって勝敗の表明ではないからである。
+   1行だけ色が違うことに意味があり、4色に散らすと目印としては弱くなる。
+   ★地(rgba(0,0,0,0.4) 越しの #212529 に自前の 12% を重ねたもの)に対して 9.6:1。 */
+.manual-log-decisive {
+    color: #ffd166; font-weight: 700;
+    background: rgba(255, 209, 102, 0.12);
+    border-left: 3px solid #ffd166;
+    padding-left: 5px;
 }
 
 /* ---- 演出を切る経路(設計書 2-8)----

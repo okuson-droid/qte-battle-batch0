@@ -13,7 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const {
-  baseView, versusView, roomSummary, card, occupant, syncCounts, startState,
+  baseView, versusView, roomSummary, card, occupant, syncCounts, startState, declaration,
 } = require('./fixture');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -2215,12 +2215,15 @@ async function clearZoom(page) {
       '#manual-conn-bar', '.manual-copy-btn',
       // ★Batch 34 hotfix: モーダルの × も同じ1本の条件で見る
       '.info-modal-x',
+      // ★Batch 35: ログの決着行。★半透明(log-box)の上にさらに半透明を重ねている
+      '.manual-log-decisive',
     ].map((s) => '#manual-root ' + s)
       // ★★Batch 32a: fx層のラベル(LPポップ)も<b>同じ1本の条件</b>で判定する。
       //   fx層は position: fixed で body 直下にあり #manual-root の中に無いため、
       //   ここで明示的に足さないと判定の網から静かに漏れる(設計書 2-5)。
-      // ★Batch 32b: ターン合図の帯も同じ1本の条件で見る(fx層に文字を足したら必ずここへ)
-      .concat(['#manual-fx-layer .manual-fx-lp', '#manual-fx-layer .manual-fx-turn']);
+      // ★Batch 35: 決着の帯も同じ1本の条件で見る(fx層に文字を足したら必ずここへ)。
+      //   32b のターン帯はここに居た。退役に伴い、座席ごと勝敗の帯へ引き渡している
+      .concat(['#manual-fx-layer .manual-fx-lp', '#manual-fx-layer .manual-fx-declare']);
     window.__contrastAudit = () => {
       const out = [];
       for (const sel of targets) {
@@ -2785,41 +2788,127 @@ async function clearZoom(page) {
     (await page.locator('[data-instance-id="f1"].manual-fx-sink').count()) === 1
       && (await fxGhosts(page)).length === 0);
 
-  // ---- 57. ★ターン開始の合図 ----
+  // ---- 57. ★★Batch 35: 決着の合図(32b のターン帯からの差し替え。裁定17)----
+  // ★宣言は盤面に触らない操作である。したがって<b>盤面の差分は1つも無い</b>状態で
+  //   帯だけが出なければならない。ここが 32b のターン帯と違う唯一の性質である。
+  const declaredView = (kind, seat = 'A', seq = 5) => {
+    const v = baseView();
+    v.log = v.log.concat([{ seq, time: '10:00:04', text: `席${seat} の ${
+      { WIN: '勝利', LOSE: '敗北', DRAW: '引き分け', CONCEDE: '投了' }[kind]}を宣言した` }]);
+    v.declarations = [declaration(seq, seat, kind)];
+    return v;
+  };
   await fxReset(page);
-  const turn1 = baseView();
-  await deliver(page, turn1);
-  const turn2 = clone(turn1);
-  turn2.turnNumber = 2;
-  await deliver(page, turn2);
-  const turnBand = page.locator('#manual-fx-layer .manual-fx-turn');
-  check('★turnNumber が増えたらターンの帯が出る(32b・2-6)',
-    (await turnBand.count()) === 1 && (await turnBand.first().textContent()) === 'ターン 2',
-    await turnBand.first().textContent().catch(() => '(なし)'));
+  const decl1 = baseView();
+  await deliver(page, decl1);
+  const decl2 = declaredView('WIN', 'A');
+  await deliver(page, decl2);
+  const declBand = page.locator('#manual-fx-layer .manual-fx-declare');
+  check('★★宣言が届いたら勝敗の帯が出る(35・3章)',
+    (await declBand.count()) === 1
+      && (await declBand.first().textContent()) === '席A の勝利'
+      && (await declBand.first().getAttribute('class')).includes('manual-fx-declare-win')
+      && (await fxGhosts(page)).length === 0,
+    await declBand.first().textContent().catch(() => '(なし)'));
 
-  // ---- 58. ★★巻き戻しでは合図を出さない ----
-  // ★Undo で移動やLPが逆再生されるのは<b>抑制しない</b>(実際に起きた状態変化の描画)。
-  //   ターンの帯だけが例外なのは、あれが描画ではなく<b>宣言</b>だからである。
-  check('★★turnNumber が減る(Undo)ときは帯を出さない(32b・設計書 1-2)', await (async () => {
+  // ---- 58. ★★同じ宣言が再び届いても帯は出さない ----
+  // ★32b の「巻き戻しでは合図を出さない」の後継である。合図は<b>宣言</b>であり、
+  //   二度出れば二度決着したことになる。再接続の resync や、決着後の別の操作による
+  //   配信でも declarations は同じものが載り続けるため、ここは実際に起きる。
+  check('★★同じ宣言が再配信されても帯は出さない(35・3-2)', await (async () => {
     await fxReset(page);
-    await deliver(page, turn2);
-    const back = clone(turn2);
-    back.turnNumber = 1;
-    back.seatA.lp = 19;   // ★他の差分は出ること(演出そのものが止まっているのではない)
-    await deliver(page, back);
-    return (await page.locator('#manual-fx-layer .manual-fx-turn').count()) === 0
+    await deliver(page, decl2);
+    const again = clone(decl2);
+    again.seatA.lp = 19;   // ★他の差分は出ること(演出そのものが止まっているのではない)
+    await deliver(page, again);
+    return (await page.locator('#manual-fx-layer .manual-fx-declare').count()) === 0
       && (await page.locator('#manual-fx-layer .manual-fx-lp').count()) === 1;
   })());
 
-  // ---- 59. 帯の文字も同じ1本の条件で判定する ----
-  await fxReset(page);
-  await deliver(page, turn1);
-  await deliver(page, turn2);
-  check('★ターンの帯も黒背景でコントラスト 4.5:1 以上(32b・30/31 の1本の条件)',
-    (await page.evaluate(() => window.__contrastAudit()))
-      .filter((f) => f.sel.includes('manual-fx-turn')).length === 0
-      && (await page.locator('#manual-fx-layer .manual-fx-turn').count()) > 0,
+  // ---- 58-2. ★★★ターン帯の退役(裁定17)----
+  // ★★これは「消したこと」の番人である。turnNumber は今も配信に載っており
+  //   (手動モードの記帳として残る)、検出だけを外した。うっかり戻すと押し忘れで
+  //   ずれた帯が「嘘をつく演出」として復活する。
+  check('★★★turnNumber が増えても帯は出ない(35・ターン帯の退役・裁定17)', await (async () => {
+    await fxReset(page);
+    const t1 = baseView();
+    await deliver(page, t1);
+    const t2 = clone(t1);
+    t2.turnNumber = 2;
+    t2.seatA.lp = 19;   // ★演出そのものは生きていること
+    await deliver(page, t2);
+    return (await page.locator('#manual-fx-layer .manual-fx-turn').count()) === 0
+      && (await page.locator('#manual-fx-layer .manual-fx-declare').count()) === 0
+      && (await page.locator('#manual-fx-layer .manual-fx-lp').count()) === 1;
+  })());
+
+  // ---- 59. 帯の文字も同じ1本の条件で判定する(4種すべて)----
+  // ★★色を4つに分けたので、4つとも判定する。1つだけ見て通すと、
+  //   増やした色が判定の外に置かれる(30/31 の「1本の条件」の主旨に反する)。
+  check('★勝敗の帯は4種とも黒背景でコントラスト 4.5:1 以上(35・30/31 の1本の条件)',
+    await (async () => {
+      for (const kind of ['WIN', 'LOSE', 'DRAW', 'CONCEDE']) {
+        await fxReset(page);
+        await deliver(page, baseView());
+        await deliver(page, declaredView(kind, 'B'));
+        const audit = await page.evaluate(() => window.__contrastAudit());
+        const shown = await page.locator('#manual-fx-layer .manual-fx-declare').count();
+        if (shown !== 1 || audit.filter((f) => f.sel.includes('manual-fx-declare')).length > 0) {
+          return false;
+        }
+      }
+      return true;
+    })(),
     JSON.stringify(await page.evaluate(() => window.__contrastAudit())));
+
+  // ---- 59-2. ★Batch 35: ログの決着行を強調する ----
+  // ★★印は<b>seq で指す</b>(本文を読まない)。差分追記でも作り直しでも同じ1行に付く。
+  await fxReset(page);
+  await render(page, baseView());
+  await render(page, declaredView('CONCEDE', 'B', 5));
+  const logMark = await page.evaluate(() => ({
+    decisive: [...document.querySelectorAll('#log-box .manual-log-decisive')]
+      .map((el) => el.dataset.seq),
+    total: document.querySelectorAll('#log-box div[data-seq]').length,
+  }));
+  check('★ログの決着行だけが強調される(35・4章)',
+    logMark.decisive.length === 1 && logMark.decisive[0] === '5' && logMark.total === 5,
+    JSON.stringify(logMark));
+
+  // ★決着行も同じ1本の条件で判定する。★<b>出ている間にしか測れない</b>ので、
+  //   帯とは別にここで測る(baseView には決着行が無く、他の項目では現れない)
+  check('★ログの決着行もコントラスト 4.5:1 以上(35・30/31 の1本の条件)',
+    (await page.evaluate(() => window.__contrastAudit()))
+      .filter((f) => f.sel.includes('manual-log-decisive')).length === 0
+      && (await page.locator('#log-box .manual-log-decisive').count()) === 1,
+    JSON.stringify(await page.evaluate(() => window.__contrastAudit())));
+
+  // ★作り直し(seq が飛ぶ)でも印は復元される。追記のときだけ付く作りだと、
+  //   再接続のあとに決着行の印が<b>静かに消える</b>
+  const rebuilt = declaredView('WIN', 'A', 40);
+  rebuilt.log = [{ seq: 39, time: '10:00:39', text: '直前の行' },
+    { seq: 40, time: '10:00:40', text: '席A の 勝利を宣言した' }];
+  rebuilt.logTotal = 40;
+  await render(page, rebuilt);
+  const logRebuilt = await page.evaluate(() => ({
+    decisive: [...document.querySelectorAll('#log-box .manual-log-decisive')]
+      .map((el) => el.dataset.seq),
+    total: document.querySelectorAll('#log-box div[data-seq]').length,
+  }));
+  check('★★作り直しでも決着行の印は復元される(35・4章)',
+    logRebuilt.decisive.length === 1 && logRebuilt.decisive[0] === '40' && logRebuilt.total === 2,
+    JSON.stringify(logRebuilt));
+
+  // ---- 59-3. ★自己確認: 帯の検出器が生きている ----
+  // ★★項目57 と<b>同じシナリオ・同じ判定</b>を fxEnabled を切って走らせる。
+  //   「宣言が届いたら必ず1本」を常に真で返す作りなら、ここが落ちる。
+  await setFxEnabled(page, false);
+  await fxReset(page);
+  await deliver(page, baseView());
+  await deliver(page, declaredView('WIN', 'A'));
+  check('★fxEnabled を切ると項目57が検出できなくなる(35・検出器が生きている確認)',
+    (await page.locator('#manual-fx-layer .manual-fx-declare').count()) === 0);
+  await setFxEnabled(page, true);
 
   // ---- 60. ★自己確認: 状態系の検出器が生きている ----
   // ★★fxEnabled を切って<b>項目53と全く同じシナリオ・全く同じ判定</b>を走らせる。
@@ -3157,14 +3246,17 @@ async function clearZoom(page) {
   calmState2.seatA.zones.MANA[0].tapped = true;
   calmState2.seatA.zones.FIELD[0].stackSize = 2;
   calmState2.seatA.zones.FIELD[0].materials = [card('mat1', '素材1')];
-  calmState2.turnNumber = 2;
+  // ★Batch 35: 節目は決着に差し替わった(ターン帯は退役。裁定17)
+  calmState2.log = calmState1.log.concat([
+    { seq: 5, time: '10:00:04', text: '席A の 勝利を宣言した' }]);
+  calmState2.declarations = [declaration(5, 'A', 'WIN')];
   await deliver(calm, calmState2);
   const calmTr = await fxTransitions(calm);
-  check('★prefers-reduced-motion では状態系・節目系も出ない(32b)',
+  check('★prefers-reduced-motion では状態系・節目系も出ない(32b/35)',
     !tapDetected(calmTr, 'm1', 'transform')
       && (await calm.locator('.manual-fx-sink').count()) === 0
       && (await calm.locator('.manual-fx-tap').count()) === 0
-      && (await calm.locator('#manual-fx-layer .manual-fx-turn').count()) === 0
+      && (await calm.locator('#manual-fx-layer .manual-fx-declare').count()) === 0
       && calmErrors.length === 0,
     JSON.stringify(calmTr) + ' | ' + calmErrors.join(' | '));
   await calm.close();

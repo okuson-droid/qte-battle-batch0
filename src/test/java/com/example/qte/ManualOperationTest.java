@@ -18,6 +18,9 @@ import com.example.qte.manual.ManualCardType;
 import com.example.qte.manual.ManualDeclaration;
 import com.example.qte.manual.ManualGameService;
 import com.example.qte.manual.ManualLabels;
+import com.example.qte.manual.ManualLogDeclaration;
+import com.example.qte.manual.ManualLogEvent;
+import com.example.qte.manual.ManualLogKind;
 import com.example.qte.manual.ManualOpRequest;
 import com.example.qte.manual.ManualOperationService;
 import com.example.qte.manual.ManualPhase;
@@ -673,6 +676,31 @@ class ManualOperationTest {
         assertThat(room.getLog()).hasSize(2);
         // ★盤面に触らない操作は Undo の1手を消費しない
         assertThat(room.getHistory().canUndo()).isFalse();
+    }
+
+    /**
+     * ★★Batch 35: 宣言を本文だけで記録する入口を塞いである(設計書 2-2)。
+     * 構造が欠けた DECLARE 行は、ログには出るのに帯も強調も出ない——
+     * 「動いているが何かが足りない」という、いちばん気づきにくい壊れ方をする。
+     */
+    @Test
+    void 宣言を本文だけで記録することはできない() {
+        assertThatThrownBy(() -> ManualLogEvent.plain(
+                ManualLogKind.DECLARE, ManualSeatId.A, "席A の 勝利を宣言した"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void 宣言のログは主語と内容を構造として持つ() {
+        ManualRoom room = new ManualRoom("TESTRM");
+        operations.applyDirect(room, ignored -> operations.declare(ACTOR,
+                new ManualOpRequest.Declare(null, ManualSeatId.B, ManualDeclaration.CONCEDE, null)));
+
+        ManualLogDeclaration mark = room.getLog().get(0).event().declaration();
+        assertThat(mark).isNotNull();
+        // ★主語は「押した人の席」ではなく「宣言される席」である
+        assertThat(mark.seat()).isEqualTo(ManualSeatId.B);
+        assertThat(mark.declaration()).isEqualTo(ManualDeclaration.CONCEDE);
     }
 
     @Test

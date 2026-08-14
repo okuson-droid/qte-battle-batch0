@@ -1149,7 +1149,7 @@ function renderAll(view) {
     renderManaRow(view);
     renderHand(view);
     renderPiles(view);
-    renderLog(view.log, view.logTotal);
+    renderLog(view.log, view.logTotal, view.declarations);
     if (pinnedZoom) {
         renderZoom(pinnedZoom);
     }
@@ -2751,12 +2751,21 @@ let logLastSeq = null;
  * </ol>
  * この3つを見落とすと「行が飛ぶ」「二重に出る」という、静かで気づきにくい壊れ方をする。
  *
- * @param entries 届いたログ(★末尾60行だけである。ManualViewBuilder.LOG_TAIL)
- * @param total   サーバが持っているログの総行数。省略が起きていることの案内に使う
+ * <h3>★Batch 35: 決着行の強調</h3>
+ * 強調する行は {@code declarations} の {@code seq} で指す。行そのものを調べて
+ * 「決着っぽい文か」を判定しない——それは 21a が捨てた「文字列から意味を復元する」ことである。
+ * ★<b>差分追記と両立する</b>: 宣言の行と declarations は<b>同じ配信</b>に乗って届くので
+ * (サーバが同じ範囲から作る。2-3)、追記のその場で印を当てられる。
+ * 作り直しのときも全行を回すので、印は同じ1行にだけ復元される。
+ *
+ * @param entries      届いたログ(★末尾60行だけである。ManualViewBuilder.LOG_TAIL)
+ * @param total        サーバが持っているログの総行数。省略が起きていることの案内に使う
+ * @param declarations ★Batch 35: 届いたログの中の勝敗宣言。決着行の強調に使う
  */
-function renderLog(entries, total) {
+function renderLog(entries, total, declarations) {
     const box = document.getElementById('log-box');
     const list = entries || [];
+    const decisive = new Set((declarations || []).map((d) => d.seq));
     const first = list.length > 0 ? list[0].seq : null;
     const last = list.length > 0 ? list[list.length - 1].seq : null;
     const mustRebuild = logLastSeq === null
@@ -2776,6 +2785,9 @@ function renderLog(entries, total) {
         }
         const line = document.createElement('div');
         line.dataset.seq = e.seq;
+        if (decisive.has(e.seq)) {
+            line.className = 'manual-log-decisive';
+        }
         appendLogText(line, `[${e.time}] ${e.text}`);
         box.appendChild(line);
         logLastSeq = e.seq;
@@ -3823,7 +3835,12 @@ function drawDragCue(svg, cue) {
 //       「破壊されたから墓地へ」という解釈はどこにも入り込まない。
 //
 // ★ログを演出の材料にしない(32 の裁定)。配信されるログは描画済みテキストであり
-//   イベント種別が無い。書式に依存した検出は書式を直した瞬間に黙って壊れる。
+//   書式に依存した検出は書式を直した瞬間に黙って壊れる。
+//   ★★Batch 35 の勝敗の帯もこの裁定を破っていない。読むのはログの本文ではなく
+//     ビューの declarations(構造)であり、検出は他と同じ「前後のビューの比較」である。
+//     宣言は盤面に一切触らない操作なので、盤面の差分には現れない——だから
+//     <b>サーバ側に観測できる形を1つ足した</b>(設計書 2-2/2-3)。
+//     「材料にしてよいのは、書式ではなく構造である」がこの裁定の一般形である。
 // ---------------------------------------------------------------
 
 /** 同時に走らせる演出の上限(設計書 2-3)。超えたぶんは演出なしで即着地させる */
@@ -3845,7 +3862,12 @@ const FX_LP_MS = 700;
 const FX_TAP_MS = 160;
 const FX_FLIP_HALF_MS = 110;
 const FX_SINK_MS = 180;
-const FX_TURN_MS = 900;
+/**
+ * ★Batch 35: 勝敗の帯。32b のターン帯(900ms)より長く出す。
+ * ターンは1試合に何十回も出る合図だったが、決着は1回しか出ない。
+ * 目を上げるまでの猶予がいる。
+ */
+const FX_DECLARE_MS = 2200;
 
 /**
  * 演出の有効フラグ(設計書 2-8)。
@@ -4015,7 +4037,8 @@ function diffViews(prev, next) {
     const out = {
         moved: [], appeared: [], vanished: [], drew: [], lpChanged: [],
         // ★Batch 32b: その場で変わる系(状態)と、盤面全体の節目
-        tapChanged: [], flipped: [], stackGrew: [], turnAdvanced: null,
+        // ★Batch 35: turnAdvanced は退役した(裁定17)。節目は「決着」だけになった
+        tapChanged: [], flipped: [], stackGrew: [], declared: null,
     };
     if (!prev || !next) {
         return out;
@@ -4078,15 +4101,29 @@ function diffViews(prev, next) {
         }
     }
 
-    // ★★Batch 32b: ターンの合図は<b>増加したときだけ</b>出す(設計書 1-2)。
-    //   Undo で巻き戻ったときに「ターン n」の帯が出るのは、合図として嘘になる。
-    //   移動やLPの逆再生を抑制しないのと扱いが違うのは、あちらが
-    //   「実際に起きた状態変化の描画」なのに対し、こちらは<b>宣言</b>だからである。
-    if (typeof prev.turnNumber === 'number' && typeof next.turnNumber === 'number'
-            && next.turnNumber > prev.turnNumber) {
-        out.turnAdvanced = { from: prev.turnNumber, to: next.turnNumber };
+    // ★★Batch 35: 決着の合図は<b>新しい宣言が届いたときだけ</b>出す(設計書 3-2)。
+    //   32b のターン帯が「増加したときだけ」だったのと同じ形であり、検出機構ごと転用している。
+    //   ★宣言はログの通し番号を持つ。番号が増えたときだけ、というのは
+    //   「同じ宣言が再配信されても二度は出さない」という意味である
+    //   (再接続の resync・別の操作による配信でも declarations は同じものが載り続ける)。
+    //   ★ログは追記専用で seq が単調増加する(29)。だから比較は番号の大小で足りる。
+    const wasDeclared = fxLatestDeclaration(prev);
+    const nowDeclared = fxLatestDeclaration(next);
+    if (nowDeclared && (!wasDeclared || nowDeclared.seq > wasDeclared.seq)) {
+        out.declared = nowDeclared;
     }
     return out;
+}
+
+/**
+ * ★ビューに載っている宣言のうち<b>いちばん新しいもの</b>を返す(Batch 35)。
+ *
+ * サーバは配ったログ行の範囲から宣言を拾って {@code declarations} に並べる(2-3)ので、
+ * 並びはログと同じ昇順である。ここで並べ替えないのは、順序の正をサーバ1箇所に置くためである。
+ */
+function fxLatestDeclaration(view) {
+    const list = view && view.declarations;
+    return list && list.length > 0 ? list[list.length - 1] : null;
 }
 
 /** 差分を「1つずつ独立に走る演出」の平たい列にする。鍵は instanceId で一意にする */
@@ -4125,9 +4162,10 @@ function fxEffects(diff) {
     for (const s of diff.stackGrew) {
         list.push({ kind: 'sink', key: 'sink:' + s.id, id: s.id, at: s.at });
     }
-    if (diff.turnAdvanced) {
-        // ★鍵は席にもカードにも属さない1つだけ。連打しても帯は1本しか走らない
-        list.push({ kind: 'turn', key: 'turn', turnNumber: diff.turnAdvanced.to });
+    if (diff.declared) {
+        // ★鍵は席にもカードにも属さない1つだけ。連続で宣言しても帯は1本しか走らない
+        //   (32b のターン帯から引き継いだ性質である)
+        list.push({ kind: 'declare', key: 'declare', declaration: diff.declared });
     }
     return list;
 }
@@ -4501,29 +4539,45 @@ function fxBuildSink(fx) {
 }
 
 /**
- * ★ターン開始の合図(設計書 2-6)。盤面中央に短い帯を出して消す。
+ * ★★決着の合図(★Batch 35 設計書3章)。盤面中央に帯を出して消す。
+ *
+ * <h3>32b のターン帯をそのまま引き継いでいる</h3>
+ * 位置決め・出し方・消し方・fx層の座席・鍵の作り方は 32b の {@code fxBuildTurn} と同じである
+ * (裁定17「帯の描画機構は勝敗の帯へ転用する」)。変えたのは<b>何を合図するか</b>と、
+ * <b>宣言の種類で色が変わること</b>、そして出ている時間だけである。
  *
  * ★20b でターン表示を削った理由は「縦100pxの<b>常設行</b>」だった。
  * これは一過性のオーバーレイでレイアウトを1pxも消費しないため、当時の判断と矛盾しない。
  * ★帯の文字もコントラストの機械判定の対象に入れてある(30/31 の1本の条件)。
+ *
+ * ★<b>盤面は止めない</b>(裁定16 の軽量版)。帯は数秒で消え、そのあとも操作できる。
+ * 決着したあとに盤面を並べ直して見せ合う使い方があり、通話ではそれをしながら喋る。
  */
-function fxBuildTurn(fx, layer) {
+function fxBuildDeclare(fx, layer) {
     const rect = fxRectOf(document.getElementById('center-line'))
         || fxRectOf(document.getElementById('manual-root'));
     if (!rect) {
         return null;
     }
+    const declared = fx.declaration;
     const band = document.createElement('div');
-    band.className = 'manual-fx-turn';
-    band.textContent = 'ターン ' + fx.turnNumber;
-    band.dataset.fxTurn = String(fx.turnNumber);
+    // ★色の出し分けは<b>列挙値</b>で行う。表示名で分岐すると、文言を直した瞬間に色が消える
+    band.className = 'manual-fx-declare manual-fx-declare-'
+        + String(declared.declaration || '').toLowerCase();
+    // ★★文言はサーバの label をそのまま使う(設計判断28)。
+    //   「勝利」「敗北」の対応表をクライアントにもう1枚作らない。
+    //   席の書き方だけがここの仕事であり、ログの「席A の 勝利を宣言した」と揃えてある。
+    band.textContent = declared.seat
+        ? '席' + declared.seat + ' の' + declared.label
+        : declared.label;
+    band.dataset.fxDeclare = String(declared.declaration || '');
     band.style.left = (rect.left + rect.width / 2) + 'px';
     band.style.top = (rect.top + rect.height / 2) + 'px';
     layer.appendChild(band);
-    return fxRegister(fx.key, band, FX_TURN_MS, () => {
+    return fxRegister(fx.key, band, FX_DECLARE_MS, () => {
         // ★出たまま少し留めてから消える。transform は動かさず opacity だけ遅らせる
         band.style.transitionDuration = '0ms, 380ms';
-        band.style.transitionDelay = '0ms, ' + (FX_TURN_MS - 380) + 'ms';
+        band.style.transitionDelay = '0ms, ' + (FX_DECLARE_MS - 380) + 'ms';
         band.style.opacity = '0';
     });
 }
@@ -4544,8 +4598,8 @@ function fxBuild(fx, origin, layer) {
     if (fx.kind === 'sink') {
         return fxBuildSink(fx);
     }
-    if (fx.kind === 'turn') {
-        return fxBuildTurn(fx, layer);
+    if (fx.kind === 'declare') {
+        return fxBuildDeclare(fx, layer);
     }
     if (!origin) {
         return null;   // 旧位置が採れなかったものは演出しない(推測で描かない)
