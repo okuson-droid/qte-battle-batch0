@@ -10,6 +10,7 @@
  *   PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers OUT=/tmp/deck.png node verify/deckshot.js
  *   CONFIRM=1 を付けると、確認モーダルを開いた状態で撮る。
  *   ★Batch 40: VALIDATE=1 を付けると、検証一覧のモーダルを開いた状態で撮る。
+ *   ★Batch 40 追補: HL=<コスト> を付けると、その列を押して強調した状態で撮る。
  */
 const http = require('http');
 const fs = require('fs');
@@ -21,6 +22,7 @@ const RES = path.join(ROOT, 'src/main/resources');
 const OUT = process.env.OUT || '/tmp/deckmaker.png';
 const WITH_CONFIRM = process.env.CONFIRM === '1';
 const WITH_VALIDATE = process.env.VALIDATE === '1';
+const HL = process.env.HL || '';
 
 /** ★カード台帳。verify.js の deckMakerLibrary と同じ形の、目で見るための最小データ */
 function library() {
@@ -76,6 +78,13 @@ function library() {
     await page.locator('.tab-btn', { hasText: 'リーダー' }).click();
     await page.locator('#pool-grid .tile').first().click({ button: 'right' });
     await page.locator('#validate-btn').click();
+    await page.waitForTimeout(120);
+  } else if (HL) {
+    // ★Batch 40 追補: 強調は「立てる」より「落とす」で見せている。
+    //   周りが暗くなりすぎていないかは目で見るしかない
+    await page.locator('#pool-grid .tile').nth(2).click({ button: 'right' });
+    await page.locator('#pool-grid .tile').nth(3).click({ button: 'right' });
+    await page.locator(`.curve-col[data-cost="${HL}"]`).click();
     await page.waitForTimeout(120);
   } else {
     await page.evaluate(() => toast('デッキを保存しました'));

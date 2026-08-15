@@ -4607,6 +4607,43 @@ async function clearZoom(page) {
     curve.stats.join('|') === '平均コスト4.00|ミニオン4|進化1|スペル1|ウェポン1',
     JSON.stringify(curve.stats));
 
+  // ---- 40-1b. カーブの列で強調する(39 Q3 = c / 裁定133・134)----
+  //
+  // ★★見ている主語は「デッキ」である。押しても<b>プールは動かない</b> ——
+  //   コストフィルタ(プールを絞る)と同じ見た目の軸が2つの主語を持たないようにしている
+  // ★★プールを<b>メイン用</b>へ戻してから測る。禁忌タブのままだと、プールに並ぶのは
+  //   他文明の札ばかりで「メインの札だけを強調する」条件に最初から掛からない ——
+  //   <b>漏れていても漏れようがない状態</b>で測ることになり、番人にならない
+  await tryUi(() => deckPage.locator('.tab-btn', { hasText: 'メイン用' }).click({ timeout: 5000 }));
+  const beforeHl = await deckPage.evaluate(() => localStorage.getItem('qte-deckmaker-draft'));
+  await tryUi(() => deckPage.locator('.curve-col[data-cost="3"]').click({ timeout: 5000 }));
+  const hl = await deckPage.evaluate(() => ({
+    cost: highlightCost,
+    on: document.querySelectorAll('#deck-main .tile.hl-on').length,
+    dim: document.querySelectorAll('#deck-main .tile.hl-dim').length,
+    taboo: document.querySelectorAll('#deck-taboo .tile[class*="hl-"]').length,
+    pool: document.querySelectorAll('#pool-grid .tile[class*="hl-"]').length,
+    sel: document.querySelectorAll('.curve-col.sel').length,
+    focus: document.activeElement ? document.activeElement.dataset.cost : null,
+    disabled: document.querySelectorAll('.curve-col[disabled]').length,
+    draft: localStorage.getItem('qte-deckmaker-draft'),
+  }));
+  check('★★マナカーブの列を押すとメインデッキでそのコストが強調される(40 追補・39 Q3)',
+    hl.cost === '3' && hl.on === 1 && hl.dim === 3 && hl.sel === 1 && hl.focus === '3',
+    JSON.stringify(hl));
+  // ★★★カーブが数えていないものは強調しない。数えるのはメインだけである(裁定127・133)
+  check('★★★強調は禁忌デッキにもプールにも及ばない(主語はデッキのメインである・40 追補)',
+    hl.taboo === 0 && hl.pool === 0, JSON.stringify(hl));
+  // ★0枚の列を選べると「誰も明るくないのに全部が暗い」状態を作れる
+  check('★0枚の列は押せない(40 追補)', hl.disabled === 7, String(hl.disabled));
+  // ★★見え方は編集内容ではない。棒を押しただけで localStorage が書かれてはいけない
+  check('★★強調は保存の対象ではない(40 追補・裁定134)',
+    hl.draft === beforeHl && beforeHl !== null);
+  await tryUi(() => deckPage.locator('.curve-col[data-cost="3"]').click({ timeout: 5000 }));
+  check('★同じ列をもう一度押すと強調が解ける(40 追補)',
+    (await deckPage.evaluate(() => highlightCost === null
+      && document.querySelectorAll('.tile[class*="hl-"]').length === 0)) === true);
+
   // ---- 40-2. autosave(裁定31・119)----
   const draftKey = 'qte-deckmaker-draft';
   const stored = await deckPage.evaluate((k) => {

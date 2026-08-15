@@ -208,6 +208,13 @@ input[type=file]{display:none;}
       color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
 }
 .tile.in-deck{box-shadow:0 0 0 2px var(--accent), 0 1px 6px rgba(0,0,0,.6);}
+/* ★★Batch 40 追補(裁定133): マナカーブで選んだコストの強調。
+   ★<b>効かせるのはメインデッキの節だけ</b>である。カーブが数えていないもの
+     (禁忌・リーダー・プール)は明るいままにする —— 見ている主語が違う。
+   ★強調は「立てる」より「落とす」でやる。デッキタイルは全部 .in-deck の黄枠を
+     持っているので、選んだ側に枠を足しても差が出ない。周りを暗くするほうが効く。 */
+.tile.hl-dim{opacity:.26;filter:saturate(.45);}
+.tile.hl-on{box-shadow:0 0 0 3px var(--accent), 0 0 12px color-mix(in srgb,var(--accent) 55%, transparent);}
 .tile-inner{
   height:100%;display:flex;flex-direction:column;border-radius:5px;overflow:hidden;
   background:linear-gradient(180deg,#17151f,#1b1827);border:1px solid rgba(0,0,0,.4);
@@ -330,7 +337,20 @@ input[type=file]{display:none;}
   display:grid;grid-template-columns:repeat(11,1fr);gap:3px;align-items:end;
   height:78px;margin-bottom:8px;
 }
-.curve-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;}
+/* ★★Batch 40 追補(裁定132・39 Q3 = c): 列は <button> である。
+   押せるものを <div> で作らない —— Tab で届かず、Enter でも押せない画面ができる
+   (レビュー A-1 が盤面について指摘したのと同じ欠陥を、新しい場所に作ることになる)。
+   ★見た目は素のままにする。ボタンの既定の地・枠・字を全部落とす。 */
+.curve-col{
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  height:100%;gap:2px;background:transparent;border:none;padding:0;font-family:inherit;
+}
+.curve-col:not([disabled]){cursor:pointer;}
+.curve-col[disabled]{cursor:default;}
+/* ★選ばれている列は、棒ではなく<b>目盛りの文字</b>で示す。棒の色は文明色であり、
+   そこへ選択の色を混ぜると「何の色か」が2つになる(裁定32・108)。 */
+.curve-col.sel .curve-k{color:var(--accent);font-weight:900;box-shadow:0 2px 0 var(--accent);}
+.curve-col.sel .curve-n{color:var(--accent);}
 .curve-n{font-size:9.5px;line-height:1;color:var(--text-dim);font-family:monospace;}
 .curve-col.has .curve-n{color:var(--text);}
 /* ★0枚の列も「軸」として残す。棒が消えると目盛りの位置が動き、
@@ -591,6 +611,14 @@ let byId = new Map();
 let mainCiv = '火';
 let currentTab = 'main';
 let selectedId = null;
+/**
+ * ★★Batch 40 追補(裁定134・39 Q3 = c): マナカーブで選んでいるコスト(COST_KEYS の1つ / null)。
+ *
+ * ★★<b>これはスナップショットに入れない。</b> 編集内容ではなく<b>見え方</b>であり、
+ *   入れると「棒を押しただけで localStorage が書かれる」ことになる。
+ *   保存するのは「何を組んだか」であって「何を見ていたか」ではない。
+ */
+let highlightCost = null;
 let deck = { leaderId:null, counts:new Map() };   // counts: id -> qty (リーダー以外)
 
 let filters = { civ:{}, type:{MINION:true,EVOLUTION:true,SPELL:true,WEAPON:true}, cost:{} };
@@ -871,11 +899,21 @@ function resetDeck(){
 }
 
 /* ---------- 集計 ---------- */
+/**
+ * ★★Batch 40 追補: 「メインの札か禁忌の札か」を決める述語。
+ *
+ * ★この1行が、検証一覧に文明の項目を立てていない理由そのものである(裁定129)——
+ *   区別が文明で<b>定義されている</b>ので、違反という状態を作れない。
+ * ★38 まではこの式が集計・描画・検証の3箇所に散っていた。名前を与えたので、
+ *   4箇所目(マナカーブの強調)を足すときに<b>書き写さずに済んだ</b>。
+ */
+function isMainCard(c){ return c.type!=='LEADER' && c.civ===mainCiv; }
+
 function totals(){
   let main=0, taboo=0;
   for(const [id,q] of deck.counts){
     const c=byId.get(id); if(!c) continue;
-    if(c.civ===mainCiv) main+=q; else taboo+=q;
+    if(isMainCard(c)) main+=q; else taboo+=q;
   }
   return { leader: deck.leaderId?1:0, main, taboo };
 }
@@ -890,8 +928,9 @@ function changeCount(id, delta){
   }
   const cur = deck.counts.get(id)||0;
   if(delta>0){
-    const max = (c.civ!==mainCiv) ? TABOO_SAME : (isUnlimited(c) ? MAIN_SIZE : MAX_SAME);
-    if(cur>=max){ toast(c.civ!==mainCiv?'禁忌デッキは同名1枚までです':`同名カードは${max}枚までです`); return; }
+    const isMain = isMainCard(c);
+    const max = isMain ? (isUnlimited(c) ? MAIN_SIZE : MAX_SAME) : TABOO_SAME;
+    if(cur>=max){ toast(!isMain?'禁忌デッキは同名1枚までです':`同名カードは${max}枚までです`); return; }
     deck.counts.set(id,cur+1);
   }else{
     if(cur<=1) deck.counts.delete(id); else deck.counts.set(id,cur-1);
@@ -935,7 +974,12 @@ function tileHtml(c, context){
   const foot = isL
     ? `<div class="t-leader">LEADER</div>`
     : `${hasAtk?`<div class="t-stat atk">⚔${c.atk??'-'}</div>`:'<span></span>'}${hasHp?`<div class="t-stat hp">♥${c.hp??'-'}</div>`:'<span></span>'}`;
-  return `<div class="tile${isE?' evo':''}${qty>0?' in-deck':''}" style="--c:${col}"
+  // ★★Batch 40 追補: 強調が効くのは<b>メインデッキの節だけ</b>である(裁定133)。
+  //   カーブが数えていないもの(禁忌・リーダー・プール)には触らない ——
+  //   同じ見た目のものが2つの主語を持つと、何を見ているのか分からなくなる。
+  const hl = (context==='deck' && highlightCost!==null && isMainCard(c))
+    ? (costKey(c.cost)===highlightCost ? ' hl-on' : ' hl-dim') : '';
+  return `<div class="tile${isE?' evo':''}${qty>0?' in-deck':''}${hl}" style="--c:${col}"
     data-id="${esc(c.id)}" data-ctx="${context}">
     <div class="count-badge">x${qty}</div>
     <div class="tile-inner">
@@ -999,8 +1043,12 @@ function renderAll(){
   const mainList=[], tabooList=[];
   for(const [id] of deck.counts){
     const c=byId.get(id); if(!c) continue;
-    (c.civ===mainCiv ? mainList : tabooList).push(c);
+    (isMainCard(c) ? mainList : tabooList).push(c);
   }
+  // ★★Batch 40 追補: 選んだコストの札が1枚も無くなったら強調を解く。
+  //   解かないと、<b>誰も明るくないのに全部が暗い</b>デッキができる(0枚の列を
+  //   押せなくしているのと同じ理由である)。描く前に直すので、1回も見えない。
+  if(highlightCost!==null && !mainList.some(c=>costKey(c.cost)===highlightCost)) highlightCost = null;
   const sortLogic = makeSort();
   mainList.sort(sortLogic); tabooList.sort(sortLogic);
   document.getElementById('deck-leader').innerHTML = leader?tileHtml(leader,'deck'):'';
@@ -1066,14 +1114,22 @@ function renderStats(mainList){
   }
   const max = Math.max(1, ...counts.values());
   const col = civColor(mainCiv);
+  // ★★Batch 40 追補(39 Q3 = c): 列は押せる。押すとそのコストがメインデッキで強調される。
+  //   ★<b>0枚の列は押せない</b>(`disabled`)。何も無いコストを選べると、
+  //     デッキ全体が暗くなるだけの状態を作れてしまう。軸としては残す(2-3)。
   document.getElementById('curve').innerHTML = COST_KEYS.map(k=>{
     const n = counts.get(k)||0;
     const h = n===0 ? 0 : Math.round((n/max)*100);
-    return `<div class="curve-col${n>0?' has':''}" style="--curve:${col}">
+    const label = k==='10plus' ? '10+' : k;
+    const sel = highlightCost===k;
+    return `<button type="button" class="curve-col${n>0?' has':''}${sel?' sel':''}"
+      style="--curve:${col}" data-cost="${k}"${n===0?' disabled':''}
+      aria-pressed="${sel}" title="${n===0?`コスト${label} のカードは入っていない`
+        :`コスト${label} のカードをメインデッキで強調する`}">
       <span class="curve-n">${n}</span>
       <div class="curve-bar" style="height:${h}%"></div>
-      <span class="curve-k">${k==='10plus'?'10+':k}</span>
-    </div>`;
+      <span class="curve-k">${label}</span>
+    </button>`;
   }).join('');
   const avg = cards>0 ? (costSum/cards).toFixed(2) : '—';
   const chips = [
@@ -1106,7 +1162,7 @@ function validateDeck(){
   const overMain=[], overTaboo=[];
   for(const [id,q] of deck.counts){
     const c = byId.get(id); if(!c) continue;
-    if(c.civ!==mainCiv){ if(q>TABOO_SAME) overTaboo.push(`${c.name}(${q})`); }
+    if(!isMainCard(c)){ if(q>TABOO_SAME) overTaboo.push(`${c.name}(${q})`); }
     else if(!isUnlimited(c) && q>MAX_SAME) overMain.push(`${c.name}(${q})`);
   }
   const shortage = (n, size)=> n===size ? 'ちょうど' : (n<size ? `あと ${size-n} 枚` : `${n-size} 枚多い`);
@@ -1169,7 +1225,18 @@ function makeSort(){
 }
 
 /* ---------- クリック(イベント委譲) ---------- */
+/** ★★Batch 40 追補(39 Q3 = c): 同じ列をもう一度押すと解ける。出口はそれ1つでよい */
+function toggleHighlight(k){
+  highlightCost = (highlightCost===k) ? null : k;
+  renderAll();
+  // ★押した列そのものは innerHTML の入れ替えで消えている。同じ場所へ戻す ——
+  //   戻さないと、キーボードで押した人は Tab の位置を毎回失う(36 の復帰フォーカスと同じ話)
+  const again = document.querySelector(`#curve .curve-col[data-cost="${k}"]`);
+  if(again) again.focus();
+}
 document.addEventListener('click', e=>{
+  const col = e.target.closest('.curve-col');
+  if(col){ toggleHighlight(col.dataset.cost); return; }
   const tile = e.target.closest('.tile');
   if(!tile) return;
   selectedId = tile.dataset.id;
@@ -1197,7 +1264,7 @@ function writeDeckFile(){
   const main=[], taboo=[];
   for(const [id,q] of deck.counts){
     const c=byId.get(id); if(!c) continue;
-    if(c.civ===mainCiv) main.push({cardId:id, name:c.name, qty:q});
+    if(isMainCard(c)) main.push({cardId:id, name:c.name, qty:q});
     else taboo.push({cardId:id, name:c.name});
   }
   const payload={
