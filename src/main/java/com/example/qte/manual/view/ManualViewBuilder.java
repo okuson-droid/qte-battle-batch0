@@ -19,6 +19,7 @@ import com.example.qte.manual.ManualGameState;
 import com.example.qte.manual.ManualLogDeclaration;
 import com.example.qte.manual.ManualLogEntry;
 import com.example.qte.manual.ManualLogRenderer;
+import com.example.qte.manual.ManualLogStartRite;
 import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualPermissions;
 import com.example.qte.manual.ManualRoom;
@@ -131,6 +132,11 @@ public class ManualViewBuilder {
         //   別に room.getLog() を走査すると、配った行に無い seq を指しうる。
         //   「強調する行」と「配った行」が別の場所から来ると、そのズレは静かに起きる。
         List<ManualDeclarationView> declarations = new ArrayList<>();
+        // ★★Batch 38: 開始シーケンスの儀式も<b>同じ1周</b>で拾う(裁定42 の適用)。
+        //   儀式は「配った行のどれか」を指す seq を持ち、画面はその番号が増えたときだけ再生する。
+        //   ★視点で削らない。儀式が運ぶのは席と枚数だけであり、どちらも公開情報である
+        //   (どのカードかは構造上そもそも持てない。ManualStartDeal の javadoc)
+        List<ManualStartRiteView> rites = new ArrayList<>();
         for (ManualLogEntry entry : entries.subList(Math.max(0, logTotal - LOG_TAIL), logTotal)) {
             log.add(new ManualLogView(entry.seq(), TIME_FORMAT.format(entry.at()),
                     logRenderer.render(entry.event(), viewpoint)));
@@ -139,6 +145,10 @@ public class ManualViewBuilder {
                 // ★宣言は plain 種別である。誰が見ても同じ内容が出てよい(視点で削らない)
                 declarations.add(new ManualDeclarationView(entry.seq(), mark.seat(),
                         mark.declaration(), mark.declaration().getDisplayName()));
+            }
+            ManualLogStartRite rite = entry.event().startRite();
+            if (rite != null) {
+                rites.add(new ManualStartRiteView(entry.seq(), rite));
             }
         }
 
@@ -163,6 +173,7 @@ public class ManualViewBuilder {
                 log,
                 logTotal,
                 declarations,
+                rites,
                 // ★ボタンの活性と実際の可否が同じ判定を通る(設計判断34 の型)
                 ManualPermissions.denyUndo(actor, room) == null,
                 ManualPermissions.denyRedo(actor, room) == null && room.getHistory().canRedo());

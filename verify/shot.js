@@ -55,5 +55,28 @@ server.listen(0,async()=>{
   await p.evaluate((views)=>{applyView(views[0]);applyView(views[1]);},[v,after]);
   await p.waitForTimeout(250);
  }
+ // ★Batch 38: 開始の儀式を目視するための経路(RITE=dice|deal|mulligan)。
+ //   儀式も差分と同じ effects の列から出るので、applyView を2回通すのは決着と同じである。
+ //   AT で撮る時刻(ms)をずらせる。配りは 400 前後、マリガンは 700 前後が見どころである。
+ //   例: RITE=deal AT=450 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node verify/shot.js
+ const riteKind=process.env.RITE||'';
+ if(riteKind){
+  const seq=(v.log[v.log.length-1]||{seq:0}).seq+1;
+  const before=JSON.parse(JSON.stringify(v));
+  before.start=startState({phase:'ORDER_METHOD',locking:true});
+  const after=JSON.parse(JSON.stringify(before));
+  after.start=startState({phase:'MULLIGAN',locking:true,firstSeat:'A',
+    mulliganSeats:['A','B'],myMulliganSeats:['A'],waiting:'マリガンの確定を待っています'});
+  const body=riteKind==='dice'
+   ?{kind:'DICE',diceA:17,diceB:4,winner:'A',label:'席A が選択権',dealt:[]}
+   :riteKind==='mulligan'
+    ?{kind:'MULLIGAN',diceA:null,diceB:null,winner:null,label:null,
+      dealt:[{seat:'A',back:3,drew:3}]}
+    :{kind:'DEAL',diceA:null,diceB:null,winner:null,label:null,
+      dealt:[{seat:'A',back:0,drew:4},{seat:'B',back:0,drew:5}]};
+  after.rites=[{seq,rite:body}];
+  await p.evaluate((views)=>{applyView(views[0]);applyView(views[1]);},[before,after]);
+  await p.waitForTimeout(parseInt(process.env.AT||'400',10));
+ }
  await p.screenshot({path:process.env.OUT||'verify/layout.png',fullPage:false});
  await b.close();server.close();console.log('shot ok');});

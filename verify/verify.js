@@ -14,6 +14,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const {
   baseView, versusView, roomSummary, card, occupant, syncCounts, startState, declaration,
+  rite, dealRite,
 } = require('./fixture');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -2232,7 +2233,9 @@ async function clearZoom(page) {
       //   ここで明示的に足さないと判定の網から静かに漏れる(設計書 2-5)。
       // ★Batch 35: 決着の帯も同じ1本の条件で見る(fx層に文字を足したら必ずここへ)。
       //   32b のターン帯はここに居た。退役に伴い、座席ごと勝敗の帯へ引き渡している
-      .concat(['#manual-fx-layer .manual-fx-lp', '#manual-fx-layer .manual-fx-declare']);
+      // ★Batch 38: ダイスの帯の文字(出目・勝った側・結果の文)も同じ1本の条件で見る
+      .concat(['#manual-fx-layer .manual-fx-lp', '#manual-fx-layer .manual-fx-declare',
+        '#manual-fx-layer .manual-fx-dice-chip', '#manual-fx-layer .manual-fx-dice-note']);
     window.__contrastAudit = () => {
       const out = [];
       for (const sel of targets) {
@@ -3973,6 +3976,187 @@ async function clearZoom(page) {
     (await snd.locator('#sound-modal-status').textContent()).includes('ミュート')
       && (await snd.locator('#sound-modal-status').getAttribute('class'))
         .includes('sound-status-warn'));
+  // =====================================================================
+  // ★★Batch 38: 開始シーケンスの一括演出(レビュー B-1・裁定77 / 81)
+  //
+  // ★★このバッチの核心は「差分の抑制を緩めずに節目を語る」ことである(裁定81)。
+  //   したがって測るべきものは<b>入口が別であること</b>に集中する。
+  //   (a) 開始シーケンス中でも儀式は通り、差分は通らないこと
+  //   (b) 儀式は差分の上限(8件)に縛られないこと ——
+  //       ただし<b>上限に特例を作ったのではない</b>ことを、
+  //       同じ配信の差分がやはり空であることで示す(裁定11)
+  //   (c) 儀式が運ぶのは席と枚数だけで、カードの中身を持たないこと
+  // =====================================================================
+
+  /** 開始シーケンス中の2連の配信を作る。★どちらも locking = true である */
+  const startPair = (riteView, opts = {}) => {
+    const before = baseView();
+    before.start = startState({ phase: 'ORDER_METHOD', locking: true });
+    const after = clone(before);
+    after.start = startState({
+      phase: 'MULLIGAN', locking: true, firstSeat: 'A',
+      mulliganSeats: ['A', 'B'], myMulliganSeats: opts.mine || [],
+      waiting: '席A / 席B のマリガンを待っています',
+    });
+    // ★総入れ替えを再現する。instanceId を全部作り直すので、差分から見れば
+    //   「9枚消えて9枚出てきた」ようにしか見えない —— それが意味を持たないことの証明でもある
+    after.seatA.zones.HAND = [];
+    for (let i = 0; i < 4; i++) after.seatA.zones.HAND.push(card('na' + i, '新A' + i));
+    after.seatB.zones.HAND = [];
+    for (let i = 0; i < 5; i++) after.seatB.zones.HAND.push(card('nb' + i, '新B' + i));
+    syncCounts(after.seatA);
+    syncCounts(after.seatB);
+    after.rites = [riteView];
+    return [before, after];
+  };
+  const deliverPair = async (target, pair) => {
+    await fxReset(target);
+    await deliver(target, pair[0]);
+    await deliver(target, pair[1]);
+  };
+  const riteGhosts = async (target) => (await fxGhosts(target))
+    .filter((g) => ['dice', 'deal', 'mulligan'].indexOf(g.kind) >= 0);
+  const diffOf = async (target, pair) => target.evaluate(([x, y]) => {
+    // eslint-disable-next-line no-undef
+    const d = diffViews(x, y);
+    return {
+      rite: d.rite ? d.rite.kind : null,
+      others: d.moved.length + d.appeared.length + d.vanished.length + d.drew.length,
+    };
+  }, pair);
+
+  // ---- 入口(純関数)----
+  const dealPair = startPair(dealRite(5, 'A'));
+  const dealDiff = await diffOf(page, dealPair);
+  // ★★これが裁定81 への答えそのものである。開始シーケンス中は差分を1件も採らず、
+  //   それでも儀式は届く。抑制を緩めたのではなく、入口を1本足したのである
+  check('★★★開始シーケンス中は差分を採らないが、儀式は通る(38・1章・裁定81)',
+    dealDiff.rite === 'DEAL' && dealDiff.others === 0, JSON.stringify(dealDiff));
+
+  const riteSeq = await page.evaluate(([a, b]) => {
+    // eslint-disable-next-line no-undef
+    const first = fxNewRite(a, b);
+    // eslint-disable-next-line no-undef
+    const again = fxNewRite(b, b);   // ★同じ儀式が載り続けた再配信
+    return { first: first ? first.kind : null, again: again ? again.kind : null };
+  }, dealPair);
+  // ★35 の決着と同じ約束である。resync で二度出さない
+  check('★儀式は通し番号が増えたときだけ出る(再配信で二度出さない・38・2-3)',
+    riteSeq.first === 'DEAL' && riteSeq.again === null, JSON.stringify(riteSeq));
+
+  check('★開始の3種はそれぞれの音に割り当たっている(38・5章)',
+    (await pick(page, [{ kind: 'dice' }])) === 'dice'
+      && (await pick(page, [{ kind: 'deal' }])) === 'deal'
+      // ★マリガンの音は shuffle である。名前がずれているのは語彙が粗くてよいから(裁定72)
+      && (await pick(page, [{ kind: 'mulligan' }])) === 'shuffle');
+  // ★★ソロのランダムはダイスと配りが同じ配信で起きる。それでも鳴るのは1つである
+  check('★★ダイスと配りが同じ配信でも鳴るのは1つ(珍しいほうが勝つ・38・5章)',
+    (await pick(page, [{ kind: 'deal' }, { kind: 'dice' }])) === 'dice');
+
+  // ---- 配りの演出 ----
+  await deliverPair(page, dealPair);
+  const dealGhosts = await riteGhosts(page);
+  // ★★9枚 = 先攻4 + 後攻5。差分の上限は8だが、儀式はその勘定に入っていない
+  check('★★配りは員数どおりのゴーストを出す(先攻4 / 後攻5・38・3-2)',
+    dealGhosts.length === 9, JSON.stringify({ ghosts: dealGhosts.length }));
+  // ★★中身を持たない。相手席の手札は「窓」で届かないが、枚数は元から公開情報である
+  check('★★儀式のゴーストは裏面で、カードの中身を1つも持たない(38・3章)',
+    dealGhosts.every((g) => g.imageIds.length === 0 && !g.text.includes('新')),
+    JSON.stringify(dealGhosts.slice(0, 2)));
+  // ★★入れ物1つで登録する。FX_LIMIT(同時8本)の勘定でも儀式は1本である(裁定11)
+  check('★★儀式は9枚出しても走行中の演出としては1本である(38・3-2)',
+    // eslint-disable-next-line no-undef
+    (await page.evaluate(() => fxRunning.size)) === 1);
+  // ★配り終えるころには全部飛んでいる(シャッフルの間 + 5枚ぶんのずらし)
+  await page.waitForTimeout(700);
+  const flown = await riteGhosts(page);
+  check('★配りのゴーストは実際に飛ぶ(38・3-2)',
+    flown.length === 0 || flown.every((g) => g.transform.startsWith('translate(')),
+    JSON.stringify(flown.slice(0, 2).map((g) => g.transform)));
+
+  // ---- ダイスの帯 ----
+  const dicePair = startPair(rite(6, 'DICE', {
+    diceA: 17, diceB: 4, winner: 'A', label: '席A が選択権',
+  }));
+  await deliverPair(page, dicePair);
+  const diceBand = await page.evaluate(() => {
+    const el = document.querySelector('#manual-fx-layer .manual-fx-dice');
+    if (!el) return null;
+    return {
+      chips: [...el.querySelectorAll('.manual-fx-dice-chip')].map((c) => c.textContent),
+      win: [...el.querySelectorAll('.manual-fx-dice-win')].map((c) => c.textContent),
+      note: (el.querySelector('.manual-fx-dice-note') || {}).textContent || '',
+    };
+  });
+  // ★★出目は最初からDOMにある(段階的に現れるのは animation-delay である)。
+  //   「待ってから測る」検証にしない、という 31 以来の規約に沿っている
+  check('★★ダイスの帯は出目2つと結果を出す(38・3-1)',
+    !!diceBand && diceBand.chips.length === 2
+      && diceBand.chips[0].includes('17') && diceBand.chips[1].includes('4'),
+    JSON.stringify(diceBand));
+  check('★勝った側に印が付く(色の出し分けは列挙値ではなく席で決まる・38・3-1)',
+    !!diceBand && diceBand.win.length === 1 && diceBand.win[0].includes('席A'));
+  // ★★文言はサーバの label である。対戦部屋のダイスが与えるのは先攻ではなく選択権であり、
+  //   その書き分けをクライアントに写すと条件が2箇所に分かれる(裁定46 と同じ形)
+  check('★★ダイスの結果の文はサーバの label をそのまま使う(38・3-1)',
+    !!diceBand && diceBand.note === '席A が選択権', diceBand && diceBand.note);
+  const diceContrast = await page.evaluate(() => window.__contrastAudit());
+  check('★ダイスの帯の文字もコントラスト比 4.5:1 以上(38・3-1)',
+    diceContrast.length === 0, JSON.stringify(diceContrast));
+
+  // ---- マリガン ----
+  const mullPair = startPair(rite(7, 'MULLIGAN', {
+    dealt: [{ seat: 'A', back: 3, drew: 3 }],
+  }));
+  await deliverPair(page, mullPair);
+  const mullGhosts = await riteGhosts(page);
+  // ★戻す3枚 + 引き直す3枚。★「同じ枚数だから片道でよい」とはしない ——
+  //   マリガンは往復であり、往復であることが読めなければ何をしたのか分からない
+  check('★マリガンは戻す枚数と引く枚数の両方を出す(38・3-3)',
+    mullGhosts.length === 6, JSON.stringify({ ghosts: mullGhosts.length }));
+  const shuffled = await page.evaluate(() => new Promise((resolve) => {
+    // ★戻し終わったあとに山札が混ざる。段取りの順どおりに出ているかを見る
+    setTimeout(() => resolve(
+      document.querySelectorAll('.manual-fx-shuffle').length), 520);
+  }));
+  check('★戻したあとに山札が混ざる(38・3-3)', shuffled >= 1, String(shuffled));
+  // ★★実要素に当てたクラスは必ず剥がす(32b の規約)。残ると次の描画まで揺れ続ける
+  await page.waitForTimeout(1400);
+  check('★★シャッフルのクラスは終了時に剥がれる(38・3-3)',
+    (await page.evaluate(() => document.querySelectorAll('.manual-fx-shuffle').length)) === 0);
+
+  // ---- ★★開始画面の保留(38・4章)----
+  // ★★fx層(1030)は開始モーダル(1950)より下にある。待たせなければ儀式は1pxも見えない。
+  //   ★層の順序を演出の都合で崩さず、<b>時間で</b>解いている
+  const holdPair = startPair(dealRite(8, 'A'), { mine: ['A'] });
+  await deliverPair(page, holdPair);
+  check('★★儀式のあいだマリガンの画面は開かない(38・4章)',
+    (await page.evaluate(() => !document.querySelector('.manual-mulligan-backdrop')))
+      && (await page.evaluate(() => window.riteHolding())));
+  // ★★保留は<b>時刻で明ける</b>。配信を待たずに開く —— 儀式のあとに配信が来る保証は無い
+  await page.waitForTimeout(1300);
+  check('★★★保留は必ず明けて画面が開く(行き止まりを作らない・38・4章)',
+    (await page.evaluate(() => !window.riteHolding()))
+      && (await page.evaluate(() => !!document.querySelector('.manual-mulligan-backdrop'))));
+  // eslint-disable-next-line no-undef
+  await page.evaluate(() => closeOverlay());
+  await fxReset(page);
+  await deliver(page, baseView());
+
+  // ---- 音 ----
+  // ★直前の項目でミュートしたまま再読込しているので、鳴る状態へ戻してから測る。
+  //   ★unlock も取り直す(再読込で AudioContext は失われている。37・4章)
+  await snd.locator('#sound-mute').uncheck();
+  await snd.waitForTimeout(60);
+  await clearAudio(snd);
+  await deliverPair(snd, startPair(dealRite(9, 'A')));
+  await snd.waitForTimeout(60);
+  // ★★ダイスは粒が複数だが、儀式の音も「1つの音」である。裁定70 が数えているのは
+  //   <b>出来事</b>であって音源ノードではない —— だからここは件数ではなく
+  //   「鳴ったか」で見る(どれを鳴らすかは上の純関数の項目が見ている)
+  check('★★配りの配信で実際に音が鳴る(38・5章)', (await audioNodes(snd)) > 0,
+    JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
+
   check('音の検証でJSエラーが出ない', sndErrors.length === 0, sndErrors.join(' | '));
   await snd.close();
 
@@ -3994,6 +4178,18 @@ async function clearZoom(page) {
     (await audioNodes(quiet)) === 1 && (await fxGhosts(quiet)).length === 0
       && quietErrors.length === 0,
     JSON.stringify({ nodes: await audioNodes(quiet), quietErrors }));
+
+  // ★★Batch 38: 儀式も同じ形である。見た目は出ないが音は鳴り、
+  //   <b>開始画面を待たせない</b>——待つ理由(儀式が見えている)が無いのに待たせると、
+  //   演出を切っている人にとっては操作が遅れるだけになる(38・4章)
+  await clearAudio(quiet);
+  await deliverPair(quiet, startPair(dealRite(11, 'A'), { mine: ['A'] }));
+  await quiet.waitForTimeout(60);
+  check('★★★演出を切っている人は儀式で待たされない(音は鳴る・38・4章)',
+    (await audioNodes(quiet)) > 0
+      && (await quiet.evaluate(() => window.riteHolding())) === false
+      && (await quiet.evaluate(() => !!document.querySelector('.manual-mulligan-backdrop'))),
+    JSON.stringify({ nodes: await audioNodes(quiet) }));
   await quiet.close();
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));

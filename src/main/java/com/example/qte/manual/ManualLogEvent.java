@@ -34,6 +34,12 @@ import java.util.List;
  * @param declaration ★Batch 35: 勝敗宣言の構造({@link ManualLogDeclaration})。
  *                    宣言以外の種別では null である。本文と重複しているように見えるが、
  *                    本文は人が読むもの、こちらは<b>画面が読むもの</b>である(2-2)
+ * @param startRite   ★Batch 38: 開始シーケンスの儀式の構造({@link ManualLogStartRite})。
+ *                    {@link ManualLogKind#START} の行のうち<b>儀式を伴うものだけ</b>が持つ。
+ *                    ★{@code declaration} と違い、<b>構造を持たない START 行が正当に存在する</b>
+ *                    (「ゲーム開始の準備に入った」「席A が選択権を得た」)。
+ *                    したがって型で強制できるのは「構造を作る入口が1つであること」までであり、
+ *                    35 のように「この種別は必ず構造を持つ」とは書けない(設計書 2-4)
  */
 public record ManualLogEvent(
         ManualLogKind kind,
@@ -44,7 +50,8 @@ public record ManualLogEvent(
         String publicNote,
         String secretNote,
         String text,
-        ManualLogDeclaration declaration) {
+        ManualLogDeclaration declaration,
+        ManualLogStartRite startRite) {
 
     public ManualLogEvent {
         cards = cards == null ? List.of() : List.copyOf(cards);
@@ -67,7 +74,31 @@ public record ManualLogEvent(
         if (kind == ManualLogKind.DECLARE) {
             throw new IllegalArgumentException("宣言は declaration(...) で記録すること: " + kind);
         }
-        return new ManualLogEvent(kind, actorSeat, null, null, List.of(), null, null, text, null);
+        return new ManualLogEvent(kind, actorSeat, null, null, List.of(), null, null, text,
+                null, null);
+    }
+
+    /**
+     * 開始シーケンスの儀式(★Batch 38 設計書 2-4)。本文に加えて構造を残す唯一の入口である。
+     *
+     * <h3>★入口を1つに保つのはここまでである</h3>
+     * 35 の {@link #declaration} は「DECLARE 行は必ず構造を持つ」を型で守れた。
+     * START はそうではない —— 準備の開始や選択権の告知は構造を持たない正当な行である。
+     * 型で守れるのは「構造を作るならこの入口を通る」までであり、
+     * <b>守れない約束を守れるふりで書かない</b>。
+     * 代わりに、この入口を呼ぶのは {@code ManualStartService.startLog} 1箇所だけであることを
+     * 機械判定で見ている(設計書7章)。
+     *
+     * @param actorSeat 押した人の席(全公開部屋では null になりうる)
+     * @param rite      起きた儀式。★ダイスの出目と席ごとの員数だけを持つ
+     */
+    public static ManualLogEvent startRite(ManualSeatId actorSeat, ManualLogStartRite rite,
+            String text) {
+        if (rite == null || rite.kind() == null) {
+            throw new IllegalArgumentException("儀式の内容が指定されていません");
+        }
+        return new ManualLogEvent(ManualLogKind.START, actorSeat, null, null, List.of(),
+                null, null, text, null, rite);
     }
 
     /**
@@ -82,7 +113,7 @@ public record ManualLogEvent(
             throw new IllegalArgumentException("宣言の内容が指定されていません");
         }
         return new ManualLogEvent(ManualLogKind.DECLARE, actorSeat, null, null, List.of(),
-                null, null, text, declaration);
+                null, null, text, declaration, null);
     }
 
     /**
@@ -98,7 +129,7 @@ public record ManualLogEvent(
             throw new IllegalArgumentException("本文だけで足りる種別です: " + kind);
         }
         return new ManualLogEvent(kind, actorSeat, origin, destination, cards,
-                publicNote, secretNote, null, null);
+                publicNote, secretNote, null, null, null);
     }
 
     /**

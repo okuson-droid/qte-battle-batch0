@@ -134,6 +134,9 @@ function baseView() {
     ],
     // ★Batch 35: 勝敗宣言(ManualDeclarationView 相当)。既定は「まだ決着していない」
     declarations: [],
+    // ★Batch 38: 開始シーケンスの儀式(ManualStartRiteView 相当)。
+    //   既定は空。宣言と同じく<b>seq が増えたときだけ</b>再生される
+    rites: [],
     canUndo: true,
     canRedo: false,
   };
@@ -222,7 +225,44 @@ function declaration(seq, seat, kind = 'WIN') {
   return { seq, seat, declaration: kind, label: DECLARATION_LABELS[kind] };
 }
 
+/**
+ * 開始シーケンスの儀式1件(★Batch 38。ManualStartRiteView 相当)。
+ *
+ * ★中身の形は `ManualLogStartRite` に合わせてある。ここがずれると
+ * 「動いているつもり」の検証になる(このファイル冒頭の注意)。
+ * ★{@code label} はサーバが作る文言である。fixture が勝手な文言を持つと、
+ * クライアントが label を使っているかを検証できない(35 の declaration と同じ理由)。
+ *
+ * @param seq  配ったログ行のどれかを指す通し番号
+ * @param kind 'DICE' / 'DEAL' / 'MULLIGAN'
+ */
+function rite(seq, kind, overrides = {}) {
+  return {
+    seq,
+    rite: {
+      kind,
+      diceA: null,
+      diceB: null,
+      winner: null,
+      label: null,
+      dealt: [],
+      ...overrides,
+    },
+  };
+}
+
+/** 初期ドローの儀式(先攻4 / 後攻5)。★総合ルール 2-5 の枚数そのものである */
+function dealRite(seq, firstSeat = 'A', overrides = {}) {
+  return rite(seq, 'DEAL', {
+    dealt: [
+      { seat: 'A', back: 0, drew: firstSeat === 'A' ? 4 : 5 },
+      { seat: 'B', back: 0, drew: firstSeat === 'B' ? 4 : 5 },
+    ],
+    ...overrides,
+  });
+}
+
 module.exports = {
   baseView, versusView, roomSummary, card, occupant, emptyZones, syncCounts, startState,
-  declaration,
+  declaration, rite, dealRite,
 };

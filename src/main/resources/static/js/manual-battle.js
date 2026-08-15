@@ -886,15 +886,24 @@ const SFX_SPECS = {
     decisive: { type: 'chord', ms: 900, notes: [392.0, 523.25, 659.25], wave: 'triangle', gain: 0.55 },
     // 破壊的操作の実行(リセット・退室・席を立つ)。★「押した」の手応えである
     commit: { type: 'tone', ms: 130, from: 300, to: 300, wave: 'square', gain: 0.45 },
+    // ---- ★Batch 38: 開始シーケンスの3種(裁定77・81)。どれも1試合に数回しか鳴らない ----
+    // 先後判定のダイス。★転がって止まる。唯一の rattle 型である
+    dice: { type: 'rattle', ms: 620, hits: 5, from: 2600, to: 1100, q: 9, gain: 0.55 },
+    // 初期ドローの配り。★draw より低く長い。1枚ではなく<b>ひと配り</b>の音である
+    deal: { type: 'noise', ms: 300, from: 480, to: 1700, q: 2, gain: 0.60 },
+    // マリガンの切り直し。★いちばん長い擦過音で「束をまとめて混ぜた」を語る
+    shuffle: { type: 'noise', ms: 460, from: 1500, to: 850, q: 1.4, gain: 0.50 },
 };
 
 /**
- * 差分の種類 → 音。
+ * 演出の種類 → 音。
  *
- * ★<b>音の語彙は演出の語彙より粗い</b>。9種類ある {@code fx.kind} を7つの音に畳んでいる。
+ * ★<b>音の語彙は演出の語彙より粗い</b>。12種類ある {@code fx.kind} を10の音に畳んでいる。
  * 移動・出現・消滅・スタックへの吸収は、耳から見ればどれも「カードが動いた」である。
  * ★{@code lp} だけはここに無い。増と減で意味が逆であり、表では決まらないためである
  * ({@link sfxNameFor})。
+ * ★★Batch 38 の3種はここに<b>素直に載った</b>。儀式は差分ではないが、
+ * {@code fxEffects} が作る列に同じ形で並ぶので、音の側からは区別が要らない(裁定68)。
  */
 const SFX_FOR_KIND = {
     draw: 'draw',
@@ -905,16 +914,27 @@ const SFX_FOR_KIND = {
     tap: 'tap',
     flip: 'flip',
     declare: 'decisive',
+    // ★Batch 38: 開始の儀式。マリガンだけは名前と音がずれている(語彙は粗くてよい・裁定72)
+    dice: 'dice',
+    deal: 'deal',
+    mulligan: 'shuffle',
 };
 
 /**
  * 1配信で1つだけ鳴らすときの優先順位(前ほど強い)。
  *
  * ★★<b>珍しい出来事ほど優先する。</b>頻度の高い音は「何が起きたか」を語らない。
- * 決着は1試合に1回、LPの増減は数回、ドローは毎ターン、タップと移動は毎手である。
+ * 決着は1試合に1回、ダイスと配りも1回、マリガンは最大2回、LPの増減は数回、
+ * ドローは毎ターン、タップと移動は毎手である。
  * ★{@code commit} はここに無い。あれは差分から来ないので競合しない。
+ * ★★Batch 38: ソロのランダムは<b>ダイスと配りが同じ配信で起きる</b>。
+ * そこで鳴るのはダイスだけであり、配りの音は鳴らない —— これは取りこぼしではなく、
+ * 1配信1音(裁定70)がそういう決まりだからである。
+ * ★★★儀式が上位に来るのは「珍しいから」であって「大事だから」ではない。
+ * 順序の理由を1本に保つ(頻度)。理由が2本になると、次に足す音の位置が決まらなくなる。
  */
-const SFX_PRIORITY = ['decisive', 'lpDown', 'lpUp', 'draw', 'flip', 'tap', 'place'];
+const SFX_PRIORITY = ['decisive', 'dice', 'deal', 'shuffle',
+    'lpDown', 'lpUp', 'draw', 'flip', 'tap', 'place'];
 
 /** 音量スライダーを動かしたときの試聴音。★いちばん耳につく音で合わせてもらう */
 const SFX_PREVIEW = 'place';
@@ -1073,6 +1093,26 @@ function sfxNoiseSweep(at, seconds, from, to, q, gain) {
 }
 
 /**
+ * ★★Batch 38: ダイスの転がり。短い雑音の粒を間隔を詰めながら並べ、最後の1粒だけ低く強くする。
+ *
+ * ★他の音と違い<b>粒が複数ある</b>。それでもこれは「1つの音」である ——
+ * 裁定70 が数えているのは<b>出来事</b>であって音源ノードではない。
+ * (だから検証も「何個ノードを作ったか」ではなく「鳴ったか」で見る。設計書7章)
+ */
+function sfxRattle(at, seconds, hits, from, to, q, gain) {
+    const count = Math.max(2, hits || 4);
+    const grain = 0.024;
+    for (let i = 0; i < count; i++) {
+        // ★間隔を等分ではなく後半ほど詰める。等分だと機械のノイズに聞こえる
+        const ratio = Math.pow(i / (count - 1), 1.7);
+        const last = i === count - 1;
+        const hz = from + (to - from) * (i / (count - 1));
+        sfxNoiseSweep(at + ratio * (seconds - grain), grain, hz, hz * 0.8, q,
+            gain * (last ? 1 : 0.55));
+    }
+}
+
+/**
  * 音を1つ鳴らす。
  * @return 実際に鳴らしたか(ミュート中・unlock 前は false)
  */
@@ -1086,6 +1126,8 @@ function sfxPlay(name) {
         const seconds = spec.ms / 1000;
         if (spec.type === 'noise') {
             sfxNoiseSweep(at, seconds, spec.from, spec.to, spec.q, spec.gain);
+        } else if (spec.type === 'rattle') {
+            sfxRattle(at, seconds, spec.hits, spec.from, spec.to, spec.q, spec.gain);
         } else if (spec.type === 'chord') {
             // ★和音は少しずつずらして重ねる。同時に立ち上げると1つの濁った音になる
             spec.notes.forEach((hz, i) => {
@@ -4515,6 +4557,30 @@ const FX_SINK_MS = 180;
 const FX_DECLARE_MS = 2200;
 
 /**
+ * ★★Batch 38: 開始シーケンスの儀式の時間(設計書3章)。
+ *
+ * ★演出の時間定数は1箇所にまとめる、という 32a の規約に載っている。
+ * 儀式は「1手」ではなく<b>段取り</b>なので、他の演出より長くてよい ——
+ * ただし待たされるのは人であり、上限({@link FX_RITE_HOLD_MAX_MS})を必ず置く。
+ */
+const FX_RITE_DICE_MS = 900;
+/** 山札が混ざる間。★配りの前置きであり、マリガンでは戻したあとに置く */
+const FX_RITE_SHUFFLE_MS = 260;
+/** 1枚が飛ぶ時間 */
+const FX_RITE_FLIGHT_MS = 240;
+/** 次の1枚までの間。★枚数に比例して伸びるのはここだけである */
+const FX_RITE_STEP_MS = 70;
+/**
+ * ★★開始シーケンスの画面を待たせてよい上限(4章)。
+ * 儀式が長引いても、ここを過ぎれば必ず選択画面が開く。
+ * <b>時間で明ける</b>という性質が、行き止まりを構造的に作らない保証になっている。
+ */
+const FX_RITE_HOLD_MAX_MS = 2400;
+
+/** 儀式の演出の種類。★{@link SFX_FOR_KIND} に載っているものと同じ並びである */
+const FX_RITE_KINDS = ['dice', 'deal', 'mulligan'];
+
+/**
  * 演出の有効フラグ(設計書 2-8)。
  * ★検証の「わざと壊す」入口であり、将来の設定UIの取り付け点でもある
  * (設定UIそのものは 32a では作らない)。
@@ -4692,6 +4758,14 @@ function fxDetectDraw(out, prevSeat, nextSeat) {
  * ★前後のビューを instanceId で突合して、起きたことを<b>観測の語彙</b>で返す。
  * DOM には一切触らない純オブジェクト比較であり、検証がこの1本を直接叩ける
  * (設計書 2-2 の末尾)。
+ *
+ * <h3>★★Batch 38: 出口が2つある(設計書1章)</h3>
+ * 開始シーケンスの間は<b>儀式だけを載せて帰る</b>。総入れ替えを差分で語らないという
+ * 32 設計書 2-3 の判断は1文字も緩めていない —— 緩める代わりに、
+ * <b>差分の網に最初からかかっていない入口</b>({@code out.rite})を1本足した。
+ * ★裁定11(節目の帯は上限の特例にしない)にも触れていない。
+ * 儀式は上限({@link FX_BULK_LIMIT})に特例を作るのではなく、
+ * <b>数えられる件数が最初から1〜2件しかない</b>だけである。
  */
 function diffViews(prev, next) {
     const out = {
@@ -4699,8 +4773,15 @@ function diffViews(prev, next) {
         // ★Batch 32b: その場で変わる系(状態)と、盤面全体の節目
         // ★Batch 35: turnAdvanced は退役した(裁定17)。節目は「決着」だけになった
         tapChanged: [], flipped: [], stackGrew: [], declared: null,
+        // ★★Batch 38: 開始シーケンスの儀式。これだけは差分から来ない
+        rite: null,
     };
     if (!prev || !next) {
+        return out;
+    }
+    // ★★儀式は差分より<b>先</b>に採る。開始シーケンス中は差分をここで打ち切るためである
+    out.rite = fxNewRite(prev, next);
+    if (fxStartLocking(prev) || fxStartLocking(next)) {
         return out;
     }
     const before = fxIndex(prev);
@@ -4786,6 +4867,30 @@ function fxLatestDeclaration(view) {
     return list && list.length > 0 ? list[list.length - 1] : null;
 }
 
+/** ★ビューに載っている儀式のうちいちばん新しいもの(★Batch 38)。並べ替えない理由は上と同じ */
+function fxLatestRite(view) {
+    const list = view && view.rites;
+    return list && list.length > 0 ? list[list.length - 1] : null;
+}
+
+/**
+ * ★★新しく届いた儀式(★Batch 38 設計書 2-3)。
+ *
+ * 判定の形は 35 の決着とまったく同じ ——<b>通し番号が増えたときだけ</b>である。
+ * 再接続の resync でも、別の操作による配信でも、{@code rites} には同じものが載り続ける。
+ * ★以後 {@code seq} は使わない。使うのは中身だけなので、ここで剥がして返す。
+ *
+ * @return {@code ManualLogStartRite} 相当のオブジェクト(新しいものが無ければ null)
+ */
+function fxNewRite(prev, next) {
+    const was = fxLatestRite(prev);
+    const now = fxLatestRite(next);
+    if (!now || !now.rite || (was && now.seq <= was.seq)) {
+        return null;
+    }
+    return now.rite;
+}
+
 /** 差分を「1つずつ独立に走る演出」の平たい列にする。鍵は instanceId で一意にする */
 function fxEffects(diff) {
     const list = [];
@@ -4826,6 +4931,22 @@ function fxEffects(diff) {
         // ★鍵は席にもカードにも属さない1つだけ。連続で宣言しても帯は1本しか走らない
         //   (32b のターン帯から引き継いだ性質である)
         list.push({ kind: 'declare', key: 'declare', declaration: diff.declared });
+    }
+    // ★★Batch 38: 開始シーケンスの儀式。<b>ここへ並べるのが要点である</b> ——
+    //   演出も音も既存の列を読むだけになり、発火点が1つも増えない(裁定68)。
+    //   ★出し分けはサーバが埋めた欄で決まる。クライアント側に推測が入らない
+    //   (「dealt が空だからダイスだけ」のような読み方をしない)
+    if (diff.rite) {
+        const rite = diff.rite;
+        if (rite.diceA !== null && rite.diceA !== undefined) {
+            list.push({ kind: 'dice', key: 'dice', rite: rite });
+        }
+        if (rite.kind === 'DEAL') {
+            list.push({ kind: 'deal', key: 'deal', rite: rite });
+        }
+        if (rite.kind === 'MULLIGAN') {
+            list.push({ kind: 'mulligan', key: 'mulligan', rite: rite });
+        }
     }
     return list;
 }
@@ -5242,7 +5363,237 @@ function fxBuildDeclare(fx, layer) {
     });
 }
 
+// ---- ★★Batch 38: 開始シーケンスの儀式 ----
+//
+// ★★<b>ここは差分ではない</b>。運ばれてくるのは席と枚数だけであり、
+//   どのカードかは構造上そもそも持てない(ManualStartDeal の javadoc)。
+//   ★これは制限ではなく<b>この演出の性質</b>である。開始の配り直しでは
+//   instanceId が全部作り直されるので、同一性を追っても意味が無い。
+//   一方、枚数(先攻4 / 後攻5)は総合ルール 2-5 そのものであり、意味しかない。
+//   ★おかげで<b>相手席の配りも演出できる</b>。手札は「窓」のゾーンで中身が届かない
+//   (裁定7)が、枚数は元から公開情報である。
+
+/** 儀式の1本の飛翔にかかる時間。★枚数に比例して伸びるのはここだけである */
+function fxRiteSpan(count) {
+    return count > 0 ? FX_RITE_FLIGHT_MS + (count - 1) * FX_RITE_STEP_MS : 0;
+}
+
+/**
+ * 儀式を「席 × 向き × 枚数 × いつ始めるか」の並びにほどく。
+ *
+ * ★★ダイスを伴う配り(ソロのランダム)は、ダイスの帯が終わってから飛ばす。
+ * 同じ配信で起きた2つの出来事だが、<b>順序があるものは順序どおりに見せる</b>。
+ */
+function fxRiteLegs(fx) {
+    const rite = fx.rite || {};
+    // ★ダイスの帯と重ならないようにずらす。ずらす量は帯の時間そのものである
+    const base = fx.kind !== 'dice' && rite.diceA !== null && rite.diceA !== undefined
+        ? FX_RITE_DICE_MS : 0;
+    const legs = [];
+    for (const d of rite.dealt || []) {
+        if (fx.kind === 'mulligan') {
+            const backSpan = fxRiteSpan(d.back);
+            if (d.back > 0) {
+                legs.push({ seat: d.seat, from: 'HAND', to: 'DECK', count: d.back, at: base });
+            }
+            if (d.drew > 0) {
+                // ★戻し終わってから混ぜ、混ぜ終わってから引く。段取りの順である
+                legs.push({
+                    seat: d.seat, from: 'DECK', to: 'HAND', count: d.drew,
+                    at: base + backSpan + FX_RITE_SHUFFLE_MS, shuffleAt: base + backSpan,
+                });
+            } else {
+                legs.push({
+                    seat: d.seat, from: null, to: null, count: 0,
+                    at: base + backSpan, shuffleAt: base + backSpan,
+                });
+            }
+        } else if (d.drew > 0) {
+            // ★配りは「混ぜてから配る」。席ごとの飛翔は<b>同時に</b>走らせる
+            //   (順番に配ると、席が2つあるだけで待ち時間が倍になる)
+            legs.push({
+                seat: d.seat, from: 'DECK', to: 'HAND', count: d.drew,
+                at: base + FX_RITE_SHUFFLE_MS, shuffleAt: base,
+            });
+        }
+    }
+    return legs;
+}
+
+/** 儀式1件が終わるまでの時間。★開始画面をどれだけ待たせるかもこの1本で決まる(4章) */
+function fxRiteDuration(fx) {
+    if (fx.kind === 'dice') {
+        return FX_RITE_DICE_MS;
+    }
+    let end = 0;
+    for (const leg of fxRiteLegs(fx)) {
+        end = Math.max(end, leg.at + fxRiteSpan(leg.count));
+    }
+    return end;
+}
+
+/** 一連の演出のうち、儀式が要求する待ち時間。★{@link applyView} が保留の長さに使う */
+function fxRiteHoldMs(effects) {
+    let ms = 0;
+    for (const fx of effects || []) {
+        if (FX_RITE_KINDS.indexOf(fx.kind) >= 0) {
+            ms = Math.max(ms, fxRiteDuration(fx));
+        }
+    }
+    return ms;
+}
+
+/**
+ * ★★先後判定のダイス(設計書 3-1)。
+ *
+ * 帯の位置・消し方は 35 の決着の帯と同じ座席・同じ書き方である。
+ * 違うのは<b>中身が3つの部品でできている</b>ことだけで、出目2つと結果の文になっている。
+ *
+ * ★★<b>見えている内容は最初からDOMにある</b>。段階的に現れるのは CSS の
+ * animation-delay であって、JS がテキストを書き換えるのではない。
+ * 「待ってから測る」検証にしないためであり、31 以来の
+ * 「測れる決めごとのほうを測る」に沿っている。
+ * ★★文言はサーバの {@code label} をそのまま使う。対戦部屋のダイスが与えるのは
+ * <b>先攻ではなく選択権</b>であり、その書き分けをクライアントに写すと条件が2箇所に分かれる。
+ */
+function fxBuildDice(fx, layer) {
+    const rect = fxRectOf(document.getElementById('center-line'))
+        || fxRectOf(document.getElementById('manual-root'));
+    if (!rect) {
+        return null;
+    }
+    const rite = fx.rite;
+    const band = document.createElement('div');
+    band.className = 'manual-fx-dice';
+    band.dataset.fxDice = String(rite.winner || '');
+    for (const seatId of ['A', 'B']) {
+        const chip = document.createElement('span');
+        chip.className = 'manual-fx-dice-chip'
+            + (rite.winner === seatId ? ' manual-fx-dice-win' : '');
+        chip.textContent = '席' + seatId + ' ' + (seatId === 'A' ? rite.diceA : rite.diceB);
+        band.appendChild(chip);
+    }
+    const note = document.createElement('span');
+    note.className = 'manual-fx-dice-note';
+    note.textContent = rite.label || '';
+    band.appendChild(note);
+    band.style.left = (rect.left + rect.width / 2) + 'px';
+    band.style.top = (rect.top + rect.height / 2) + 'px';
+    layer.appendChild(band);
+    return fxRegister(fx.key, band, FX_RITE_DICE_MS, () => {
+        band.style.transitionDuration = '0ms, 260ms';
+        band.style.transitionDelay = '0ms, ' + (FX_RITE_DICE_MS - 260) + 'ms';
+        band.style.opacity = '0';
+    }, { event: null });
+}
+
+/**
+ * ★★シャッフルと配り / マリガン(設計書 3-2・3-3)。
+ *
+ * <h3>★儀式は「1つの演出」として登録する</h3>
+ * ゴーストが9枚あっても {@link fxRegister} に積むのは<b>入れ物1つ</b>である。
+ * こうしておくと {@link FX_LIMIT}(同時8本)の勘定でも儀式は1本と数えられ、
+ * 裁定11 が嫌った「上限の特例」を作らずに済む。
+ * 後片付けも入れ物ごと1回で終わる。
+ *
+ * <h3>★ゴーストは最初に全部作り、飛ばす時刻だけをずらす</h3>
+ * 途中で作ると、その1枚だけ<b>開始状態が確定していない</b>まま終了状態を当てることになり、
+ * 遷移が発火しない(32a の {@code offsetHeight} の idiom が効くのは、
+ * 確定の時点でDOMに在るものだけである)。
+ * 飛ぶ前のゴーストは山札(または手札)の上に重なっているので、見た目には現れない。
+ */
+function fxBuildRiteFlights(fx, layer) {
+    const legs = fxRiteLegs(fx);
+    if (legs.length === 0) {
+        return null;
+    }
+    const box = document.createElement('div');
+    box.className = 'manual-fx-rite';
+    layer.appendChild(box);
+
+    const flights = [];
+    const shakes = [];
+    for (const leg of legs) {
+        if (leg.shuffleAt !== undefined) {
+            const pile = anchorElement(fxPlace(leg.seat, 'DECK'));
+            if (pile) {
+                shakes.push({ el: pile, at: leg.shuffleAt });
+            }
+        }
+        if (leg.count <= 0) {
+            continue;
+        }
+        const from = fxRectOf(anchorElement(fxPlace(leg.seat, leg.from)));
+        const to = fxRectOf(anchorElement(fxPlace(leg.seat, leg.to)));
+        if (!from || !to) {
+            continue;   // ★引けない席は演出しない(推測で描かない。32a と同じ)
+        }
+        for (let i = 0; i < leg.count; i++) {
+            // ★裏面ゴーストである。card を渡さないので中身を持ちようがない
+            const ghost = fxGhost(from, null);
+            ghost.dataset.fxKind = fx.kind;
+            box.appendChild(ghost);
+            flights.push({
+                el: ghost, at: leg.at + i * FX_RITE_STEP_MS,
+                dx: to.left - from.left, dy: to.top - from.top,
+            });
+        }
+    }
+    if (flights.length === 0 && shakes.length === 0) {
+        box.remove();
+        return null;
+    }
+
+    const timers = [];
+    const shaken = [];
+    const launch = (f) => {
+        f.el.style.transitionDuration = FX_RITE_FLIGHT_MS + 'ms, 110ms';
+        f.el.style.transitionDelay = '0ms, ' + (FX_RITE_FLIGHT_MS - 110) + 'ms';
+        f.el.style.transform = 'translate(' + f.dx + 'px, ' + f.dy + 'px)';
+        f.el.style.opacity = '0';
+    };
+    const shake = (s) => {
+        s.el.classList.add('manual-fx-shuffle');
+        shaken.push(s.el);
+    };
+    return fxRegister(fx.key, box, fxRiteDuration(fx), () => {
+        for (const s of shakes) {
+            if (s.at <= 0) {
+                shake(s);
+            } else {
+                timers.push(setTimeout(() => shake(s), s.at));
+            }
+        }
+        for (const f of flights) {
+            // ★0ms のものは同期で当てる。setTimeout(…, 0) に落とすと、
+            //   配信直後に観測する検証から1ティックぶん見えなくなる
+            if (f.at <= 0) {
+                launch(f);
+            } else {
+                timers.push(setTimeout(() => launch(f), f.at));
+            }
+        }
+    }, {
+        event: null,
+        // ★★実要素へ当てたクラスは必ず剥がす(32b の規約)。予約も全部取り消す
+        onStop: () => {
+            for (const t of timers) {
+                clearTimeout(t);
+            }
+            for (const el of shaken) {
+                el.classList.remove('manual-fx-shuffle');
+            }
+        },
+    });
+}
+
 function fxBuild(fx, origin, layer) {
+    if (fx.kind === 'dice') {
+        return fxBuildDice(fx, layer);
+    }
+    if (fx.kind === 'deal' || fx.kind === 'mulligan') {
+        return fxBuildRiteFlights(fx, layer);
+    }
     if (fx.kind === 'lp') {
         return fxBuildLp(fx, layer);
     }
@@ -5287,6 +5638,8 @@ function fxSpawn() {
     // ★★Batch 37: 効果音の1つめの取り付け点である(0-5)。<b>ここ1箇所で
     //   ドロー・配置・タップ・めくり・LP増減・決着の6種すべてを覆う</b>——
     //   決着も他の演出と同じ effects の列に kind='declare' として並んでいるためである。
+    //   ★★Batch 38 のシャッフル・ダイス・配りも<b>1行も足さずにここから鳴っている</b>。
+    //     儀式を fxEffects の列に並べたことの配当である(裁定68)。
     //   ★★見た目のゲート(fxAllowed)より<b>前</b>に置く。音は動きではないので
     //     prefers-reduced-motion では止めない(0-5 の章)。
     sfxPlayForEffects(pending.effects);
@@ -5329,6 +5682,46 @@ function fxStartLocking(view) {
     return !!(view && view.start && view.start.locking);
 }
 
+// ---- ★★Batch 38: 儀式のあいだ開始シーケンスの画面を待たせる(設計書4章)----
+//
+// ★★<b>なぜ待たせるのか。</b>fx層は z-index 1030 であり、開始モーダル(1950/1960)と
+//   マリガンのオーバーレイ(1950)より<b>下</b>にある。配りの儀式が走る配信では
+//   同じ瞬間にマリガンの画面が開くので、待たせなければ儀式は1pxも見えない。
+//   ★fx層を持ち上げる案は採らなかった。z-index の並び(33 で1本に決めたもの)を
+//   演出の都合で崩すと、次に何かを重ねる人が読む順序が消える。
+//   <b>層の順序ではなく時間で解く</b>ほうが、決めごとが増えない。
+//
+// ★★<b>行き止まりを作らない。</b>保留は時刻で明ける。儀式の組み立てが失敗しても、
+//   ゴーストが1枚も出なくても、{@link FX_RITE_HOLD_MAX_MS} を待てば必ず画面が開く。
+//   ★閉じるほうは保留しない(「儀式のあいだ閉じられない画面」を作らない)。
+
+let riteHoldUntil = 0;
+let riteHoldTimer = null;
+
+/** 開始シーケンスの画面をいま保留中か */
+function riteHolding() {
+    return riteHoldUntil > Date.now();
+}
+
+function riteHold(ms) {
+    const wait = Math.min(FX_RITE_HOLD_MAX_MS, Math.max(0, ms || 0));
+    if (wait <= 0) {
+        return;
+    }
+    riteHoldUntil = Math.max(riteHoldUntil, Date.now() + wait);
+    if (riteHoldTimer !== null) {
+        clearTimeout(riteHoldTimer);
+    }
+    riteHoldTimer = setTimeout(() => {
+        riteHoldTimer = null;
+        // ★保留していた画面をここで開く。配信を待たずに開くのは、
+        //   儀式のあとに配信が来る保証がどこにも無いためである
+        if (latestView) {
+            renderStartUi(latestView);
+        }
+    }, Math.max(0, riteHoldUntil - Date.now()) + 20);
+}
+
 /**
  * ★★配信1件を反映する<b>唯一の入口</b>(設計書 2-2 の流れ)。
  *
@@ -5342,18 +5735,31 @@ function fxStartLocking(view) {
  * ★Undo で差分が逆向きに出るのは<b>抑制しない</b>(設計書 1-2)。
  * 逆向きの移動は実際に起きた状態変化の正確な描画であり、
  * 何が取り消されたかが見えるのはむしろ利益である。
+ *
+ * <h3>★★Batch 38: 開始シーケンスの除外が<b>ここから消えた</b></h3>
+ * 除外そのものは無くなっていない —— {@link diffViews} の中へ移した。
+ * 移したことで「開始シーケンス中でも儀式だけは通る」が1箇所で言えるようになり、
+ * ここは「差分を採るか」だけを見る形に戻っている。
+ * ★上限({@link FX_BULK_LIMIT})はそのまま全体にかかる。儀式は1〜2件しか作らないので
+ * 引っかからないが、<b>特例で外しているのではない</b>(裁定11)。
  */
 function applyView(view) {
     let effects = null;
     // ★★Batch 37: 差分を採る条件に「音が使えるか」を足した。演出を切っている人
     //   (prefers-reduced-motion)にも音は鳴るので、見た目のゲートだけで差分の計算を
-    //   飛ばすと<b>音が道連れで消える</b>。★上限(FX_BULK_LIMIT)と開始シーケンスの
-    //   除外は音にもそのまま効かせる。総入れ替えは1手ではないので、音でも語らない
-    if (fxDiffNeeded() && prevView && !fxStartLocking(prevView) && !fxStartLocking(view)) {
+    //   飛ばすと<b>音が道連れで消える</b>
+    if (fxDiffNeeded() && prevView) {
         effects = fxEffects(diffViews(prevView, view));
         if (effects.length === 0 || effects.length > FX_BULK_LIMIT) {
             effects = null;
         }
+    }
+    // ★★Batch 38: 儀式を出す配信では、開始シーケンスの画面を儀式が終わるまで待たせる。
+    //   ★見た目を出さないとき(prefers-reduced-motion / fxEnabled = false)は待たせない。
+    //     待つ理由が無いのに待たせると、操作が遅れるだけになる ——
+    //     音だけの人にとって儀式は「一瞬で終わるもの」である
+    if (effects && fxAllowed()) {
+        riteHold(fxRiteHoldMs(effects));
     }
     // ★旧位置の採取は<b>見た目のためだけ</b>のものである。音しか出さないときは読まない
     pendingFx = effects
@@ -6416,6 +6822,10 @@ function toggleStartModal(id, show) {
 /** 開始シーケンスの画面。renderAll の最後に呼ぶ(モーダル・オーバーレイ・待機表示) */
 function renderStartUi(view) {
     const start = view.start || {};
+    // ★★Batch 38: 儀式の最中は開始シーケンスの画面を<b>開かない</b>(38 設計書4章)。
+    //   モーダルもオーバーレイも fx層より上にあり、開いていると儀式が見えない。
+    //   ★閉じるほうは保留しない。保留するのは「開く」だけである
+    const holding = riteHolding();
 
     // 1) 開始方法の3択(3-1)。★①の意味は部屋の種類で変わる
     const solo = view.roomType !== 'VERSUS';
@@ -6433,24 +6843,26 @@ function renderStartUi(view) {
         subject ? `席${subject} が先攻をとる` : '自分が先攻をとる';
     document.getElementById('start-method-second').textContent =
         subject ? `席${subject} が後攻をとる(5枚+ピュア・エレメント)` : '自分が後攻をとる';
-    toggleStartModal('start-method-modal', !!start.canChooseMethod);
+    toggleStartModal('start-method-modal', !holding && !!start.canChooseMethod);
 
     // 2) 先攻・後攻の選択(3-3)。ダイスで勝った席のプレイヤーだけに出る
     if (start.canChooseOrder) {
         document.getElementById('start-order-title').textContent =
             `席${start.orderChooser} が先攻・後攻を選ぶ`;
     }
-    toggleStartModal('start-order-modal', !!start.canChooseOrder);
+    toggleStartModal('start-order-modal', !holding && !!start.canChooseOrder);
 
     // 3) マリガン(4-3)。専用オーバーレイの開閉を決める
-    syncMulliganOverlay(start);
+    syncMulliganOverlay(start, holding);
 
     // 4) 待機表示(7-3)。★自分が今押すものが無いときだけ出す。
     //    盤面が固まっている理由が画面に書かれていない状態を作らない(21 3-5)
+    //    ★★Batch 38: 儀式のあいだは出さない。<b>盤面が固まっている理由は儀式そのもの</b>
+    //      であり、目の前で起きていることの説明を重ねて出す必要は無い
     const busy = start.canChooseMethod || start.canChooseOrder
         || (start.myMulliganSeats || []).length > 0;
     const banner = document.getElementById('start-banner');
-    banner.classList.toggle('d-none', !(start.locking && start.waiting && !busy));
+    banner.classList.toggle('d-none', holding || !(start.locking && start.waiting && !busy));
     document.getElementById('start-banner-text').textContent = start.waiting || '';
 }
 
@@ -6500,8 +6912,9 @@ function openMulliganOverlay(seatId) {
  * 自分の担当席が無くなったら閉じ、まだ残っていれば次の席へ移る
  * (全公開部屋では1人が両席ぶんを順に確定する)。
  */
-function syncMulliganOverlay(start) {
-    const mine = start.myMulliganSeats || [];
+function syncMulliganOverlay(start, holding) {
+    // ★★Batch 38: 儀式のあいだは開かない。閉じるほうは通す(38 設計書4章)
+    const mine = holding ? [] : (start.myMulliganSeats || []);
     const open = activeOverlay && activeOverlay.kind === 'mulligan';
     if (start.phase !== 'MULLIGAN' || mine.length === 0) {
         if (open) closeOverlay();

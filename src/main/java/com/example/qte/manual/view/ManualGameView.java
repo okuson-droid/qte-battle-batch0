@@ -40,6 +40,11 @@ import com.example.qte.manual.ManualZone;
  *                      勝敗の帯とログの決着行はこれだけを読む(設計書 2-3)。
  *                      ★{@code log} と同じ範囲から作るので、ここにある {@code seq} は
  *                      <b>必ず配った行のどれかを指す</b>
+ * @param rites         ★Batch 38: 配った {@code log} の中にある開始シーケンスの儀式
+ *                      (ダイス・シャッフルと配り・マリガン)。開始の一括演出はこれだけを読む。
+ *                      ★{@code declarations} とまったく同じ作られ方であり、<b>同じ1周</b>で
+ *                      拾う(裁定42)。差分(diffViews)からは何も来ない —— 開始シーケンスは
+ *                      盤面の総入れ替えであり、差分が語れる「1手」ではないためである
  * @param shared        プレイヤー間で共有するゾーン(PLAY / REVEAL)。席に属さない(20b 3-2)
  * @param start         ★Batch 23: 開始シーケンスの状態と「自分が今押せること」。
  *                      クライアントがフェーズから押せる人を組み立て直すと判定が2箇所に分かれる
@@ -64,6 +69,7 @@ public record ManualGameView(
         List<ManualLogView> log,
         int logTotal,
         List<ManualDeclarationView> declarations,
+        List<ManualStartRiteView> rites,
         boolean canUndo,
         boolean canRedo) {
 }

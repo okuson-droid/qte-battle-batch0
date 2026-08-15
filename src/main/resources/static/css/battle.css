@@ -1338,6 +1338,70 @@ body.manual-drag-active .manual-band {
     padding-left: 5px;
 }
 
+/* ============================================================
+   ★★Batch 38: 開始シーケンスの儀式(シャッフル・ダイス・配り・マリガン)
+
+   ★★これは<b>差分の演出ではない</b>。材料はサーバが配る儀式の構造
+   (ManualStartRiteView)であり、運ばれてくるのは席と枚数だけである。
+   ★描き方そのものは 32a のゴーストと 35 の帯の使い回しであり、
+   新しい描画機構は1つも作っていない。
+   ★儀式は fx層(1030)に居る。開始モーダル(1950/1960)より下なので、
+   JS 側が儀式のあいだモーダルを開かずに待つ(manual-battle.js の riteHold)。
+   ============================================================ */
+
+/* ---- ダイスの帯 ---- */
+/* ★形と座席は 35 の決着の帯と同じである。違うのは中身が3つの部品であることだけ。
+   ★★色は<b>黒背景(#212529)の上</b>で選んである(31 の教訓)。地は
+   rgba(0,0,0,0.78) 越しの #212529 であり、出目 #dee2e6 が 15.4:1、
+   勝った側 #ffd166 が 11.6:1、結果の文 #a8d5ff が 10.5:1 である。
+   ★どの文字もコントラストの機械判定の対象セレクタに入れてある(verify.js)。 */
+.manual-fx-dice {
+    position: absolute; transform: translate(-50%, -50%);
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 22px; border-radius: 999px; white-space: nowrap;
+    background: rgba(0, 0, 0, 0.78); border: 1px solid rgba(255, 255, 255, 0.22);
+    transition-property: transform, opacity;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-duration: 0ms;
+    will-change: transform, opacity;
+}
+/* ★★出目は<b>最初からDOMにある</b>。段階的に現れるのは animation-delay であって
+   JS がテキストを書き換えるのではない(「待ってから測る」検証にしないため)。 */
+.manual-fx-dice-chip {
+    color: #dee2e6; font-size: 22px; font-weight: 900; letter-spacing: 0.04em;
+    animation: manual-fx-dice-pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.manual-fx-dice-chip:nth-child(2) { animation-delay: 150ms; }
+.manual-fx-dice-win { color: #ffd166; }
+/* ★出目と結果のあいだに区切りを置く。3つの部品が地続きに見えると
+   「席B 4 席A が選択権」がひと続きの文に読める(裁定36 の小型版) */
+.manual-fx-dice-note {
+    color: #a8d5ff; font-size: 16px; font-weight: 700;
+    padding-left: 12px; border-left: 1px solid rgba(255, 255, 255, 0.25);
+    animation: manual-fx-dice-pop 220ms cubic-bezier(0.2, 0.8, 0.2, 1) 340ms both;
+}
+@keyframes manual-fx-dice-pop {
+    from { opacity: 0; transform: scale(0.7); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ---- 配り・マリガンのゴーストの入れ物 ---- */
+/* ★儀式1件につき1つだけ作る。fxRegister に積むのもこれ1つであり、
+   FX_LIMIT の勘定でも儀式は1本と数えられる(裁定11 の「特例を作らない」)。 */
+.manual-fx-rite { position: absolute; inset: 0; }
+
+/* ---- シャッフル(山札が混ざる) ---- */
+/* ★★実要素(山札のアンカー)に当てる演出なので animation である。
+   32a 以来の規約どおり、JS が終了時に必ずクラスを剥がす(fxBuildRiteFlights の onStop)。
+   ★動かすのは transform だけである。 */
+.manual-fx-shuffle { animation: manual-fx-shuffle 260ms cubic-bezier(0.4, 0, 0.6, 1); }
+@keyframes manual-fx-shuffle {
+    0% { transform: none; }
+    25% { transform: translateX(-4px) rotate(-1.5deg); }
+    60% { transform: translateX(4px) rotate(1.5deg); }
+    100% { transform: none; }
+}
+
 /* ---- 演出を切る経路(設計書 2-8)----
    ★CSS と JS の両方で止める。CSS だけだと DOM は作られ続け、
    JS だけだと将来 CSS 側で足した演出が漏れる。
@@ -1350,6 +1414,8 @@ body.manual-drag-active .manual-band {
     .manual-fx-sink .manual-tile-badge { animation: none; }
     .manual-fx-tap { transition: none; }
     .manual-fx-hidden { opacity: 1; }
+    /* ★Batch 38: シャッフルも実要素に当たる。層を消すだけでは止まらない */
+    .manual-fx-shuffle { animation: none; }
 }
 
 /* =========================================================================

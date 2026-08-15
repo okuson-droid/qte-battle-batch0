@@ -17,6 +17,7 @@ import com.example.qte.manual.ManualDeckImport;
 import com.example.qte.manual.ManualGameService;
 import com.example.qte.manual.ManualLogEntry;
 import com.example.qte.manual.ManualLogKind;
+import com.example.qte.manual.ManualLogStartRite;
 import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualOpRequest;
 import com.example.qte.manual.ManualOperationService;
@@ -24,8 +25,10 @@ import com.example.qte.manual.ManualRoom;
 import com.example.qte.manual.ManualRoomOptions;
 import com.example.qte.manual.ManualRoomType;
 import com.example.qte.manual.ManualSeatId;
+import com.example.qte.manual.ManualStartDeal;
 import com.example.qte.manual.ManualStartMethod;
 import com.example.qte.manual.ManualStartPhase;
+import com.example.qte.manual.ManualStartRite;
 import com.example.qte.manual.ManualStartService;
 import com.example.qte.manual.ManualZone;
 import com.example.qte.manual.view.ManualGameView;
@@ -546,7 +549,124 @@ class ManualStartSequenceTest {
         assertThat(forB.start().waiting()).doesNotContain("1枚");
     }
 
+    // ================= ★Batch 38. 開始の儀式(構造) =================
+    //
+    // ★★ここで確かめているのは「演出が出るか」ではなく<b>演出の材料が正しく作られるか</b>
+    //   である。見た目は verify のハーネスが見る(38 設計書7章)。
+    //   材料が壊れていても画面はそれらしく描かれるので、23 と同じ理由でサーバ側から見る。
+
+    @Test
+    void 配りの儀式は先攻4枚後攻5枚を員数として運ぶ() {
+        ManualRoom room = toMulligan(ManualSeatId.A);
+        ManualLogStartRite rite = lastRite(room);
+        assertThat(rite.kind()).isEqualTo(ManualStartRite.DEAL);
+        // ★ダイスを使っていないので出目は載らない
+        assertThat(rite.diceA()).isNull();
+        assertThat(rite.diceB()).isNull();
+        assertThat(rite.dealt()).containsExactly(
+                new ManualStartDeal(ManualSeatId.A, 0, 4),
+                new ManualStartDeal(ManualSeatId.B, 0, 5));
+    }
+
+    @Test
+    void 対戦部屋のダイスは配りを伴わない儀式になる() {
+        ManualRoom room = versusRoom();
+        room.setCreatorSeat(ManualSeatId.A);
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        room.join("ばんり", ManualSeatId.B);
+        loadBoth(room);
+        ManualActor actor = ManualActor.of(room, a);
+        startService.begin(room, actor);
+        startService.chooseMethod(room, actor, ManualStartMethod.DICE);
+
+        ManualLogStartRite rite = lastRite(room);
+        assertThat(rite.kind()).isEqualTo(ManualStartRite.DICE);
+        assertThat(rite.dealt()).isEmpty();
+        assertThat(rite.diceA()).isBetween(1, ManualStartService.DICE_SIDES);
+        assertThat(rite.diceB()).isBetween(1, ManualStartService.DICE_SIDES);
+        assertThat(rite.diceA()).isNotEqualTo(rite.diceB());   // ★同値は振り直す(23 3-2)
+        assertThat(rite.winner()).isNotNull();
+        // ★★文言はサーバが作る。対戦部屋のダイスが与えるのは先攻ではなく<b>選択権</b>である
+        assertThat(rite.label()).contains("選択権");
+    }
+
+    @Test
+    void ソロのランダムはダイスと配りを1件の儀式にまとめる() {
+        ManualRoom room = openRoom();
+        ManualOccupant a = room.join("ひとり", ManualSeatId.A);
+        room.setCreatorSeat(ManualSeatId.A);
+        loadBoth(room);
+        ManualActor actor = ManualActor.of(room, a);
+        startService.begin(room, actor);
+        startService.chooseMethod(room, actor, ManualStartMethod.DICE);
+
+        ManualLogStartRite rite = lastRite(room);
+        // ★主たる儀式は配りである。ダイスは別の欄に載る(画面が推測しなくて済む)
+        assertThat(rite.kind()).isEqualTo(ManualStartRite.DEAL);
+        assertThat(rite.diceA()).isNotNull();
+        assertThat(rite.label()).contains("先攻");
+        assertThat(rite.dealt()).hasSize(2);
+    }
+
+    @Test
+    void マリガンの儀式は戻した枚数と引いた枚数を持つ() {
+        ManualRoom room = toMulligan(ManualSeatId.A);
+        List<String> back = new ArrayList<>();
+        for (ManualCardInstance card : hand(room, ManualSeatId.A).subList(0, 2)) {
+            back.add(card.getInstanceId());
+        }
+        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
+                ManualSeatId.A, back);
+
+        ManualLogStartRite rite = lastRite(room);
+        assertThat(rite.kind()).isEqualTo(ManualStartRite.MULLIGAN);
+        assertThat(rite.dealt()).containsExactly(new ManualStartDeal(ManualSeatId.A, 2, 2));
+    }
+
+    @Test
+    void ゼロ枚のマリガンでも儀式は作られる() {
+        ManualRoom room = toMulligan(ManualSeatId.A);
+        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
+                ManualSeatId.A, List.of());
+        // ★「儀式が無い」と「儀式が空だった」を画面が区別できなくなるので、必ず作る
+        assertThat(lastRite(room).dealt())
+                .containsExactly(new ManualStartDeal(ManualSeatId.A, 0, 0));
+    }
+
+    @Test
+    void 儀式を伴わない開始ログも正当に存在する() {
+        ManualRoom room = versusRoom();
+        room.setCreatorSeat(ManualSeatId.A);
+        ManualOccupant a = room.join("あかり", ManualSeatId.A);
+        room.join("ばんり", ManualSeatId.B);
+        loadBoth(room);
+        startService.begin(room, ManualActor.of(room, a));
+        // ★準備に入っただけの行は構造を持たない。DECLARE と違い型では強制できない(2-4)
+        List<ManualLogEntry> log = room.getLog();
+        assertThat(log.get(log.size() - 1).event().startRite()).isNull();
+    }
+
+    @Test
+    void 儀式は配ったログ行の通し番号でビューに載る() {
+        ManualRoom room = toMulligan(ManualSeatId.A);
+        ManualGameView view = viewBuilder.build(room, seated(room, ManualSeatId.B));
+        assertThat(view.rites()).hasSize(1);
+        int seq = view.rites().get(0).seq();
+        // ★★宣言と同じ約束: ここの seq は必ず<b>配った行のどれか</b>を指す(裁定42)
+        assertThat(view.log()).anyMatch(line -> line.seq() == seq);
+        // ★相手席の配りも届く。運ぶのは席と枚数だけで、どのカードかは構造上持てない
+        assertThat(view.rites().get(0).rite().dealt()).hasSize(2);
+    }
+
     // ================= 補助 =================
+
+    /** 直近のログ行が持つ儀式。★無ければテストを落とす(儀式が消えたことに気づくため)。 */
+    private ManualLogStartRite lastRite(ManualRoom room) {
+        List<ManualLogEntry> log = room.getLog();
+        ManualLogStartRite rite = log.get(log.size() - 1).event().startRite();
+        assertThat(rite).isNotNull();
+        return rite;
+    }
 
     private ManualRoom versusRoom() {
         return new ManualRoom("VSSTART", new ManualRoomOptions(
