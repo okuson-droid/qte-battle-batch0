@@ -898,7 +898,7 @@ const SFX_SPECS = {
 /**
  * 演出の種類 → 音。
  *
- * ★<b>音の語彙は演出の語彙より粗い</b>。12種類ある {@code fx.kind} を10の音に畳んでいる。
+ * ★<b>音の語彙は演出の語彙より粗い</b>。13種類ある {@code fx.kind} を10の音に畳んでいる。
  * 移動・出現・消滅・スタックへの吸収は、耳から見ればどれも「カードが動いた」である。
  * ★{@code lp} だけはここに無い。増と減で意味が逆であり、表では決まらないためである
  * ({@link sfxNameFor})。
@@ -914,10 +914,12 @@ const SFX_FOR_KIND = {
     tap: 'tap',
     flip: 'flip',
     declare: 'decisive',
-    // ★Batch 38: 開始の儀式。マリガンだけは名前と音がずれている(語彙は粗くてよい・裁定72)
+    // ★Batch 38: 儀式。マリガンだけは名前と音がずれている(語彙は粗くてよい・裁定72)
     dice: 'dice',
     deal: 'deal',
     mulligan: 'shuffle',
+    // ★手動のシャッフルは名前も音も同じ。マリガンの中で鳴るのと同じ音である
+    shuffle: 'shuffle',
 };
 
 /**
@@ -4557,7 +4559,7 @@ const FX_SINK_MS = 180;
 const FX_DECLARE_MS = 2200;
 
 /**
- * ★★Batch 38: 開始シーケンスの儀式の時間(設計書3章)。
+ * ★★Batch 38: 儀式の時間(設計書3章)。
  *
  * ★演出の時間定数は1箇所にまとめる、という 32a の規約に載っている。
  * 儀式は「1手」ではなく<b>段取り</b>なので、他の演出より長くてよい ——
@@ -4578,7 +4580,26 @@ const FX_RITE_STEP_MS = 70;
 const FX_RITE_HOLD_MAX_MS = 2400;
 
 /** 儀式の演出の種類。★{@link SFX_FOR_KIND} に載っているものと同じ並びである */
-const FX_RITE_KINDS = ['dice', 'deal', 'mulligan'];
+const FX_RITE_KINDS = ['dice', 'deal', 'mulligan', 'shuffle'];
+
+/**
+ * ★儀式の飛翔の出発点が<b>ゾーンではない</b>ことを表す印(★38 追補)。
+ * 【ピュア・エレメント】はデッキの外から渡される。山札から出すのは嘘になる。
+ */
+const FX_RITE_CENTER = '@CENTER';
+
+/** ピュア・エレメントを出すまでの間。★引き直しが着いてから渡す */
+const FX_RITE_PURE_GAP_MS = 120;
+
+/**
+ * 混ざる所作で舞う枚数と、その散らばり(★38 追補)。x / y / 傾き(度)。
+ *
+ * ★<b>散らばった状態から束へ戻る</b>1段の動きである。「混ぜて揃えた」が1回で読める。
+ * ★傾きを入れているのは、ゴーストが山札のタイルと同じ寸法だからである ——
+ * 平行にずらしただけでは「少し大きい札束」にしか見えず、混ざったように読めない。
+ * ★動かすのは transform だけである(32a の規約)。
+ */
+const FX_SHUFFLE_SCATTER = [[34, -20, -8], [-30, -9, 7], [20, 17, -4]];
 
 /**
  * 演出の有効フラグ(設計書 2-8)。
@@ -4779,9 +4800,14 @@ function diffViews(prev, next) {
     if (!prev || !next) {
         return out;
     }
-    // ★★儀式は差分より<b>先</b>に採る。開始シーケンス中は差分をここで打ち切るためである
+    // ★★儀式は差分より<b>先</b>に採る。ここで差分を打ち切るためである
     out.rite = fxNewRite(prev, next);
-    if (fxStartLocking(prev) || fxStartLocking(next)) {
+    // ★★★<b>1つの配信に語り手は1人である</b>(38 追補・裁定93)。
+    //   儀式が語る配信では差分を採らない。手動のシャッフルは山札の最上段が
+    //   入れ替わることがあり、放っておくと「シャッフルした」と「1枚消えて1枚出た」を
+    //   同時に語ってしまう。後者はシャッフルの<b>結果の一部</b>であって別の出来事ではない。
+    //   ★開始シーケンス中に差分を採らないのは 32 設計書 2-3 のとおりである(こちらは据え置き)。
+    if (out.rite || fxStartLocking(prev) || fxStartLocking(next)) {
         return out;
     }
     const before = fxIndex(prev);
@@ -4880,7 +4906,7 @@ function fxLatestRite(view) {
  * 再接続の resync でも、別の操作による配信でも、{@code rites} には同じものが載り続ける。
  * ★以後 {@code seq} は使わない。使うのは中身だけなので、ここで剥がして返す。
  *
- * @return {@code ManualLogStartRite} 相当のオブジェクト(新しいものが無ければ null)
+ * @return {@code ManualLogRite} 相当のオブジェクト(新しいものが無ければ null)
  */
 function fxNewRite(prev, next) {
     const was = fxLatestRite(prev);
@@ -4946,6 +4972,9 @@ function fxEffects(diff) {
         }
         if (rite.kind === 'MULLIGAN') {
             list.push({ kind: 'mulligan', key: 'mulligan', rite: rite });
+        }
+        if (rite.kind === 'SHUFFLE') {
+            list.push({ kind: 'shuffle', key: 'shuffle', rite: rite });
         }
     }
     return list;
@@ -5366,12 +5395,32 @@ function fxBuildDeclare(fx, layer) {
 // ---- ★★Batch 38: 開始シーケンスの儀式 ----
 //
 // ★★<b>ここは差分ではない</b>。運ばれてくるのは席と枚数だけであり、
-//   どのカードかは構造上そもそも持てない(ManualStartDeal の javadoc)。
+//   どのカードかは構造上そもそも持てない(ManualRiteDeal の javadoc)。
 //   ★これは制限ではなく<b>この演出の性質</b>である。開始の配り直しでは
 //   instanceId が全部作り直されるので、同一性を追っても意味が無い。
 //   一方、枚数(先攻4 / 後攻5)は総合ルール 2-5 そのものであり、意味しかない。
 //   ★おかげで<b>相手席の配りも演出できる</b>。手札は「窓」のゾーンで中身が届かない
 //   (裁定7)が、枚数は元から公開情報である。
+
+/**
+ * ★デッキの外から来るカードの出発点(★38 追補)。
+ * 中央(センターライン)に、<b>着地点と同じ寸法で</b>置く。
+ * ★中央の要素の寸法をそのまま使うと横長の帯になってしまう ——
+ * 出発点は「場所」であって「その要素」ではない。
+ */
+function fxRiteCenterRect(to) {
+    const center = fxRectOf(document.getElementById('center-line'))
+        || fxRectOf(document.getElementById('manual-root'));
+    if (!center || !to) {
+        return null;
+    }
+    return {
+        left: center.left + center.width / 2 - to.width / 2,
+        top: center.top + center.height / 2 - to.height / 2,
+        width: to.width,
+        height: to.height,
+    };
+}
 
 /** 儀式の1本の飛翔にかかる時間。★枚数に比例して伸びるのはここだけである */
 function fxRiteSpan(count) {
@@ -5390,8 +5439,14 @@ function fxRiteLegs(fx) {
     const base = fx.kind !== 'dice' && rite.diceA !== null && rite.diceA !== undefined
         ? FX_RITE_DICE_MS : 0;
     const legs = [];
+    let end = base;
     for (const d of rite.dealt || []) {
-        if (fx.kind === 'mulligan') {
+        if (fx.kind === 'shuffle') {
+            // ★★手動のシャッフル(38 追補)。<b>1枚も動かない</b>ので飛翔は無く、
+            //   混ざる所作だけが出る。それがこの操作で起きたことの全部である
+            legs.push({ seat: d.seat, from: null, to: null, count: 0, at: base, shuffleAt: base });
+            end = Math.max(end, base + FX_RITE_SHUFFLE_MS);
+        } else if (fx.kind === 'mulligan') {
             const backSpan = fxRiteSpan(d.back);
             if (d.back > 0) {
                 legs.push({ seat: d.seat, from: 'HAND', to: 'DECK', count: d.back, at: base });
@@ -5402,11 +5457,13 @@ function fxRiteLegs(fx) {
                     seat: d.seat, from: 'DECK', to: 'HAND', count: d.drew,
                     at: base + backSpan + FX_RITE_SHUFFLE_MS, shuffleAt: base + backSpan,
                 });
+                end = Math.max(end, base + backSpan + FX_RITE_SHUFFLE_MS + fxRiteSpan(d.drew));
             } else {
                 legs.push({
                     seat: d.seat, from: null, to: null, count: 0,
                     at: base + backSpan, shuffleAt: base + backSpan,
                 });
+                end = Math.max(end, base + backSpan + FX_RITE_SHUFFLE_MS);
             }
         } else if (d.drew > 0) {
             // ★配りは「混ぜてから配る」。席ごとの飛翔は<b>同時に</b>走らせる
@@ -5415,7 +5472,18 @@ function fxRiteLegs(fx) {
                 seat: d.seat, from: 'DECK', to: 'HAND', count: d.drew,
                 at: base + FX_RITE_SHUFFLE_MS, shuffleAt: base,
             });
+            end = Math.max(end, base + FX_RITE_SHUFFLE_MS + fxRiteSpan(d.drew));
         }
+    }
+    // ★★【ピュア・エレメント】(38 追補・マスター裁定 Q1 = b)。
+    //   マリガンが両席とも確定した配信でだけ入る。<b>山札からではなく中央から</b>飛ぶ ——
+    //   あれはデッキの外から渡されるカードであり、山札から出すのは嘘になる。
+    //   ★音は増やさない。1配信1音(裁定70)であり、この配信の主役はマリガンである
+    if (rite.pureSeat) {
+        legs.push({
+            seat: rite.pureSeat, from: FX_RITE_CENTER, to: 'HAND', count: 1,
+            at: end + FX_RITE_PURE_GAP_MS,
+        });
     }
     return legs;
 }
@@ -5428,6 +5496,11 @@ function fxRiteDuration(fx) {
     let end = 0;
     for (const leg of fxRiteLegs(fx)) {
         end = Math.max(end, leg.at + fxRiteSpan(leg.count));
+        // ★混ざる所作にも長さがある。★これを忘れると、飛翔が無い儀式
+        //   (手動のシャッフル・0枚のマリガン)の長さが 0 になり、演出が出た瞬間に消える
+        if (leg.shuffleAt !== undefined) {
+            end = Math.max(end, leg.shuffleAt + FX_RITE_SHUFFLE_MS);
+        }
     }
     return end;
 }
@@ -5516,15 +5589,39 @@ function fxBuildRiteFlights(fx, layer) {
     for (const leg of legs) {
         if (leg.shuffleAt !== undefined) {
             const pile = anchorElement(fxPlace(leg.seat, 'DECK'));
+            const pileRect = fxRectOf(pile);
             if (pile) {
                 shakes.push({ el: pile, at: leg.shuffleAt });
+            }
+            // ★★混ざる所作は「揺れ」だけでは弱い。散らばった数枚が束へ戻る絵を重ねる。
+            //   ★手動のシャッフルは<b>これしか出ない</b>ので、揺れだけでは
+            //   押したことに気づけない(38 追補)。マリガンの中の混ざる所作も同じ絵にしてある
+            if (pileRect) {
+                for (const offset of FX_SHUFFLE_SCATTER) {
+                    const ghost = fxGhost(pileRect, null);
+                    ghost.dataset.fxKind = fx.kind;
+                    // ★★混ざる所作のゴーストは<b>員数ではない</b>。飛翔と同じ印を付けると
+                    //   「何枚動いたか」を数える検証が舞う枚数まで数えてしまう
+                    ghost.dataset.fxPhase = 'shuffle';
+                    // ★散らばった位置を<b>作った時点で</b>当てる。transition-duration は
+                    //   既定が 0ms なので、ここは動かずに置かれるだけである
+                    ghost.style.transform = 'translate(' + offset[0] + 'px, ' + offset[1]
+                        + 'px) rotate(' + offset[2] + 'deg)';
+                    ghost.style.opacity = '0.7';
+                    box.appendChild(ghost);
+                    flights.push({ el: ghost, at: leg.shuffleAt, dx: 0, dy: 0,
+                        ms: FX_RITE_SHUFFLE_MS });
+                }
             }
         }
         if (leg.count <= 0) {
             continue;
         }
-        const from = fxRectOf(anchorElement(fxPlace(leg.seat, leg.from)));
+        // ★出発点はゾーンのアンカー。ただしピュア・エレメントだけは中央から来る(38 追補)
         const to = fxRectOf(anchorElement(fxPlace(leg.seat, leg.to)));
+        const from = leg.from === FX_RITE_CENTER
+            ? fxRiteCenterRect(to)
+            : fxRectOf(anchorElement(fxPlace(leg.seat, leg.from)));
         if (!from || !to) {
             continue;   // ★引けない席は演出しない(推測で描かない。32a と同じ)
         }
@@ -5532,6 +5629,7 @@ function fxBuildRiteFlights(fx, layer) {
             // ★裏面ゴーストである。card を渡さないので中身を持ちようがない
             const ghost = fxGhost(from, null);
             ghost.dataset.fxKind = fx.kind;
+            ghost.dataset.fxPhase = 'flight';
             box.appendChild(ghost);
             flights.push({
                 el: ghost, at: leg.at + i * FX_RITE_STEP_MS,
@@ -5547,8 +5645,9 @@ function fxBuildRiteFlights(fx, layer) {
     const timers = [];
     const shaken = [];
     const launch = (f) => {
-        f.el.style.transitionDuration = FX_RITE_FLIGHT_MS + 'ms, 110ms';
-        f.el.style.transitionDelay = '0ms, ' + (FX_RITE_FLIGHT_MS - 110) + 'ms';
+        const ms = f.ms || FX_RITE_FLIGHT_MS;
+        f.el.style.transitionDuration = ms + 'ms, 110ms';
+        f.el.style.transitionDelay = '0ms, ' + Math.max(0, ms - 110) + 'ms';
         f.el.style.transform = 'translate(' + f.dx + 'px, ' + f.dy + 'px)';
         f.el.style.opacity = '0';
     };
@@ -5591,7 +5690,7 @@ function fxBuild(fx, origin, layer) {
     if (fx.kind === 'dice') {
         return fxBuildDice(fx, layer);
     }
-    if (fx.kind === 'deal' || fx.kind === 'mulligan') {
+    if (fx.kind === 'deal' || fx.kind === 'mulligan' || fx.kind === 'shuffle') {
         return fxBuildRiteFlights(fx, layer);
     }
     if (fx.kind === 'lp') {

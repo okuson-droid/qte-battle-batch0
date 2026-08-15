@@ -14,7 +14,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const {
   baseView, versusView, roomSummary, card, occupant, syncCounts, startState, declaration,
-  rite, dealRite,
+  rite, dealRite, shuffleRite,
 } = require('./fixture');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -4015,7 +4015,10 @@ async function clearZoom(page) {
     await deliver(target, pair[1]);
   };
   const riteGhosts = async (target) => (await fxGhosts(target))
-    .filter((g) => ['dice', 'deal', 'mulligan'].indexOf(g.kind) >= 0);
+    .filter((g) => ['dice', 'deal', 'mulligan', 'shuffle'].indexOf(g.kind) >= 0);
+  /** ★員数を数えるのは<b>飛翔だけ</b>である(混ざる所作のゴーストは枚数を語っていない) */
+  const riteFlights = async (target) => (await riteGhosts(target))
+    .filter((g) => g.phase === 'flight');
   const diffOf = async (target, pair) => target.evaluate(([x, y]) => {
     // eslint-disable-next-line no-undef
     const d = diffViews(x, y);
@@ -4055,7 +4058,7 @@ async function clearZoom(page) {
 
   // ---- 配りの演出 ----
   await deliverPair(page, dealPair);
-  const dealGhosts = await riteGhosts(page);
+  const dealGhosts = await riteFlights(page);
   // ★★9枚 = 先攻4 + 後攻5。差分の上限は8だが、儀式はその勘定に入っていない
   check('★★配りは員数どおりのゴーストを出す(先攻4 / 後攻5・38・3-2)',
     dealGhosts.length === 9, JSON.stringify({ ghosts: dealGhosts.length }));
@@ -4069,7 +4072,7 @@ async function clearZoom(page) {
     (await page.evaluate(() => fxRunning.size)) === 1);
   // ★配り終えるころには全部飛んでいる(シャッフルの間 + 5枚ぶんのずらし)
   await page.waitForTimeout(700);
-  const flown = await riteGhosts(page);
+  const flown = await riteFlights(page);
   check('★配りのゴーストは実際に飛ぶ(38・3-2)',
     flown.length === 0 || flown.every((g) => g.transform.startsWith('translate(')),
     JSON.stringify(flown.slice(0, 2).map((g) => g.transform)));
@@ -4109,7 +4112,7 @@ async function clearZoom(page) {
     dealt: [{ seat: 'A', back: 3, drew: 3 }],
   }));
   await deliverPair(page, mullPair);
-  const mullGhosts = await riteGhosts(page);
+  const mullGhosts = await riteFlights(page);
   // ★戻す3枚 + 引き直す3枚。★「同じ枚数だから片道でよい」とはしない ——
   //   マリガンは往復であり、往復であることが読めなければ何をしたのか分からない
   check('★マリガンは戻す枚数と引く枚数の両方を出す(38・3-3)',
@@ -4140,6 +4143,77 @@ async function clearZoom(page) {
       && (await page.evaluate(() => !!document.querySelector('.manual-mulligan-backdrop'))));
   // eslint-disable-next-line no-undef
   await page.evaluate(() => closeOverlay());
+  await fxReset(page);
+  await deliver(page, baseView());
+
+  // ---- ★★38 追補: 山札のシャッフル(マスター指示)----
+  //
+  // ★★★シャッフルは<b>盤面に何も起きない操作</b>である。枚数もゾーンも変わらず、
+  //   非公開の並びだけが変わる。32a のビュー差分からは完全な無変化にしか見えず、
+  //   押しても手応えが1つも返っていなかった。★儀式の器がそのまま3つ目の類型を受けた。
+  const shufflePair = () => {
+    const before = baseView();
+    const after = clone(before);
+    // ★山札の最上段は届く1枚である。シャッフルすると入れ替わりうる ——
+    //   放っておくと「シャッフルした」と「1枚消えて1枚出た」を同時に語ってしまう
+    after.seatA.zones.DECK = [card('d9', '混ぜたあとの一番上'),
+      card('d1', '山札の一番上'), card('d2', '山札2')];
+    syncCounts(after.seatA);
+    after.rites = [shuffleRite(5, 'A')];
+    return [before, after];
+  };
+  const shufDiff = await diffOf(page, shufflePair());
+  // ★★★1つの配信に語り手は1人である(38 追補・裁定93)。
+  //   最上段の入れ替わりはシャッフルの<b>結果の一部</b>であって別の出来事ではない
+  check('★★★儀式が語る配信では差分を語らない(38 追補・裁定93)',
+    shufDiff.rite === 'SHUFFLE' && shufDiff.others === 0, JSON.stringify(shufDiff));
+
+  await deliverPair(page, shufflePair());
+  const shufNow = await page.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    running: fxRunning.size,
+    shaken: document.querySelectorAll('.manual-fx-shuffle').length,
+    ghosts: document.querySelectorAll('#manual-fx-layer [data-fx-phase="shuffle"]').length,
+  }));
+  // ★揺れだけでは押したことに気づけない。散らばった数枚が束へ戻る絵を重ねてある
+  check('★★シャッフルは山札の揺れと舞うカードで出る(38 追補)',
+    shufNow.shaken === 1 && shufNow.ghosts === 3 && shufNow.running === 1,
+    JSON.stringify(shufNow));
+  check('★シャッフルの音は shuffle である(表に載っているだけで鳴る・38 追補)',
+    (await pick(page, [{ kind: 'shuffle' }])) === 'shuffle');
+  // ★飛翔が1枚も無い儀式でも長さを持つ。0 だと出た瞬間に消える
+  check('★飛翔の無い儀式にも長さがある(38 追補)',
+    (await page.evaluate(() => fxRiteDuration({ kind: 'shuffle',
+      // eslint-disable-next-line no-undef
+      rite: { kind: 'SHUFFLE', dealt: [{ seat: 'A', back: 0, drew: 0 }] } }))) >= 200);
+  await page.waitForTimeout(500);
+  check('★★シャッフルの後始末で揺れのクラスもゴーストも残らない(38 追補)',
+    (await page.evaluate(() => document.querySelectorAll('.manual-fx-shuffle').length)) === 0
+      && (await riteGhosts(page)).length === 0);
+
+  // ---- ★★38 追補: ピュア・エレメント(マスター裁定 Q1 = b)----
+  // ★★<b>山札からではなく中央から</b>飛ぶ。デッキの外から渡されるカードだからである
+  const purePair = startPair(rite(10, 'MULLIGAN', {
+    dealt: [{ seat: 'A', back: 0, drew: 0 }], pureSeat: 'B',
+  }));
+  await deliverPair(page, purePair);
+  const pureGhosts = await riteFlights(page);
+  check('★★ピュア・エレメントは1枚だけ別に飛ぶ(38 追補・Q1 = b)',
+    pureGhosts.length === 1, JSON.stringify({ ghosts: pureGhosts.length }));
+  const centerRect = await page.evaluate(() => {
+    const el = document.getElementById('center-line');
+    const r = el.getBoundingClientRect();
+    return { cx: Math.round(r.left + r.width / 2), cy: Math.round(r.top + r.height / 2) };
+  });
+  // ★出発点が中央であることを<b>座標で</b>見る(34 hotfix の一般形: 式ではなく結果を測る)
+  const pureStart = pureGhosts[0] || { left: -9999, top: -9999 };
+  check('★★ピュア・エレメントは中央から出る(山札から出すのは嘘である・38 追補)',
+    Math.abs(pureStart.left + 40 - centerRect.cx) < 90
+      && Math.abs(pureStart.top + 60 - centerRect.cy) < 90,
+    JSON.stringify({ pureStart, centerRect }));
+  // ★音は増やさない。1配信1音であり、この配信の主役はマリガンである
+  check('★ピュア・エレメントで音は増えない(38 追補・裁定70)',
+    (await pick(page, [{ kind: 'mulligan' }])) === 'shuffle');
   await fxReset(page);
   await deliver(page, baseView());
 

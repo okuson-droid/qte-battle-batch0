@@ -16,8 +16,9 @@ import com.example.qte.manual.ManualCardRepository;
 import com.example.qte.manual.ManualDeckImport;
 import com.example.qte.manual.ManualGameService;
 import com.example.qte.manual.ManualLogEntry;
+import com.example.qte.manual.ManualLogEvent;
 import com.example.qte.manual.ManualLogKind;
-import com.example.qte.manual.ManualLogStartRite;
+import com.example.qte.manual.ManualLogRite;
 import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualOpRequest;
 import com.example.qte.manual.ManualOperationService;
@@ -25,10 +26,10 @@ import com.example.qte.manual.ManualRoom;
 import com.example.qte.manual.ManualRoomOptions;
 import com.example.qte.manual.ManualRoomType;
 import com.example.qte.manual.ManualSeatId;
-import com.example.qte.manual.ManualStartDeal;
+import com.example.qte.manual.ManualRiteDeal;
 import com.example.qte.manual.ManualStartMethod;
 import com.example.qte.manual.ManualStartPhase;
-import com.example.qte.manual.ManualStartRite;
+import com.example.qte.manual.ManualRiteKind;
 import com.example.qte.manual.ManualStartService;
 import com.example.qte.manual.ManualZone;
 import com.example.qte.manual.view.ManualGameView;
@@ -558,14 +559,14 @@ class ManualStartSequenceTest {
     @Test
     void 配りの儀式は先攻4枚後攻5枚を員数として運ぶ() {
         ManualRoom room = toMulligan(ManualSeatId.A);
-        ManualLogStartRite rite = lastRite(room);
-        assertThat(rite.kind()).isEqualTo(ManualStartRite.DEAL);
+        ManualLogRite rite = lastRite(room);
+        assertThat(rite.kind()).isEqualTo(ManualRiteKind.DEAL);
         // ★ダイスを使っていないので出目は載らない
         assertThat(rite.diceA()).isNull();
         assertThat(rite.diceB()).isNull();
         assertThat(rite.dealt()).containsExactly(
-                new ManualStartDeal(ManualSeatId.A, 0, 4),
-                new ManualStartDeal(ManualSeatId.B, 0, 5));
+                new ManualRiteDeal(ManualSeatId.A, 0, 4),
+                new ManualRiteDeal(ManualSeatId.B, 0, 5));
     }
 
     @Test
@@ -579,8 +580,8 @@ class ManualStartSequenceTest {
         startService.begin(room, actor);
         startService.chooseMethod(room, actor, ManualStartMethod.DICE);
 
-        ManualLogStartRite rite = lastRite(room);
-        assertThat(rite.kind()).isEqualTo(ManualStartRite.DICE);
+        ManualLogRite rite = lastRite(room);
+        assertThat(rite.kind()).isEqualTo(ManualRiteKind.DICE);
         assertThat(rite.dealt()).isEmpty();
         assertThat(rite.diceA()).isBetween(1, ManualStartService.DICE_SIDES);
         assertThat(rite.diceB()).isBetween(1, ManualStartService.DICE_SIDES);
@@ -600,9 +601,9 @@ class ManualStartSequenceTest {
         startService.begin(room, actor);
         startService.chooseMethod(room, actor, ManualStartMethod.DICE);
 
-        ManualLogStartRite rite = lastRite(room);
+        ManualLogRite rite = lastRite(room);
         // ★主たる儀式は配りである。ダイスは別の欄に載る(画面が推測しなくて済む)
-        assertThat(rite.kind()).isEqualTo(ManualStartRite.DEAL);
+        assertThat(rite.kind()).isEqualTo(ManualRiteKind.DEAL);
         assertThat(rite.diceA()).isNotNull();
         assertThat(rite.label()).contains("先攻");
         assertThat(rite.dealt()).hasSize(2);
@@ -618,9 +619,9 @@ class ManualStartSequenceTest {
         startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
                 ManualSeatId.A, back);
 
-        ManualLogStartRite rite = lastRite(room);
-        assertThat(rite.kind()).isEqualTo(ManualStartRite.MULLIGAN);
-        assertThat(rite.dealt()).containsExactly(new ManualStartDeal(ManualSeatId.A, 2, 2));
+        ManualLogRite rite = lastRite(room);
+        assertThat(rite.kind()).isEqualTo(ManualRiteKind.MULLIGAN);
+        assertThat(rite.dealt()).containsExactly(new ManualRiteDeal(ManualSeatId.A, 2, 2));
     }
 
     @Test
@@ -630,7 +631,7 @@ class ManualStartSequenceTest {
                 ManualSeatId.A, List.of());
         // ★「儀式が無い」と「儀式が空だった」を画面が区別できなくなるので、必ず作る
         assertThat(lastRite(room).dealt())
-                .containsExactly(new ManualStartDeal(ManualSeatId.A, 0, 0));
+                .containsExactly(new ManualRiteDeal(ManualSeatId.A, 0, 0));
     }
 
     @Test
@@ -643,7 +644,7 @@ class ManualStartSequenceTest {
         startService.begin(room, ManualActor.of(room, a));
         // ★準備に入っただけの行は構造を持たない。DECLARE と違い型では強制できない(2-4)
         List<ManualLogEntry> log = room.getLog();
-        assertThat(log.get(log.size() - 1).event().startRite()).isNull();
+        assertThat(log.get(log.size() - 1).event().rite()).isNull();
     }
 
     @Test
@@ -658,12 +659,55 @@ class ManualStartSequenceTest {
         assertThat(view.rites().get(0).rite().dealt()).hasSize(2);
     }
 
+    @Test
+    void 開始が完了した配信だけがピュアエレメントの席を持つ() {
+        ManualRoom room = toMulligan(ManualSeatId.A);
+        // ★1席目のマリガンでは開始が完了しない。渡っていないので席も載らない
+        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
+                ManualSeatId.A, List.of());
+        assertThat(lastRite(room).pureSeat()).isNull();
+
+        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.B)),
+                ManualSeatId.B, List.of());
+        // ★★2席目で完了する。設定が有効なときだけ席が載る(演出してよいのは実際に渡ったときだけ)
+        ManualLogRite done = lastRite(room);
+        assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.PLAYING);
+        if (startService.isPureElementAvailable()) {
+            assertThat(done.pureSeat()).isEqualTo(ManualSeatId.B);
+        } else {
+            assertThat(done.pureSeat()).isNull();
+        }
+    }
+
+    // ================= ★38 追補. 山札のシャッフル(マスター指示) =================
+
+    @Test
+    void 山札のシャッフルは儀式として記録される() {
+        ManualRoom room = openRoom();
+        ManualOccupant a = room.join("ひとり", ManualSeatId.A);
+        load(room, ManualSeatId.A);
+        ManualActor actor = ManualActor.of(room, a);
+        operations.apply(room, actor, state -> operations.shuffleDeck(state, actor,
+                new ManualOpRequest.Seat(a.getOccupantId(), ManualSeatId.A)));
+
+        List<ManualLogEntry> log = room.getLog();
+        ManualLogEvent event = log.get(log.size() - 1).event();
+        assertThat(event.kind()).isEqualTo(ManualLogKind.SHUFFLE);
+        // ★★シャッフルは盤面に何も起こさない。差分では語れないので、構造が唯一の材料である
+        ManualLogRite rite = event.rite();
+        assertThat(rite).isNotNull();
+        assertThat(rite.kind()).isEqualTo(ManualRiteKind.SHUFFLE);
+        // ★員数は 0 / 0 である。運ぶのは「どの席の山札を混ぜたか」だけ
+        assertThat(rite.dealt()).containsExactly(new ManualRiteDeal(ManualSeatId.A, 0, 0));
+        assertThat(rite.pureSeat()).isNull();
+    }
+
     // ================= 補助 =================
 
     /** 直近のログ行が持つ儀式。★無ければテストを落とす(儀式が消えたことに気づくため)。 */
-    private ManualLogStartRite lastRite(ManualRoom room) {
+    private ManualLogRite lastRite(ManualRoom room) {
         List<ManualLogEntry> log = room.getLog();
-        ManualLogStartRite rite = log.get(log.size() - 1).event().startRite();
+        ManualLogRite rite = log.get(log.size() - 1).event().rite();
         assertThat(rite).isNotNull();
         return rite;
     }

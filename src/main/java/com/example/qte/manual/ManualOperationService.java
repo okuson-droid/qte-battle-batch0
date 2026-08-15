@@ -703,14 +703,25 @@ public class ManualOperationService {
         return ManualLogEvent.plain(ManualLogKind.DRAW, actor.seat(), text);
     }
 
-    /** 山札のシャッフル(設計書 5-3 の11)。★並びはログに残さない(設計書 5-5)。 */
+    /**
+     * 山札のシャッフル(設計書 5-3 の11)。★並びはログに残さない(設計書 5-5)。
+     *
+     * <h3>★★Batch 38 追補: これは「儀式」である</h3>
+     * シャッフルは<b>盤面に何も起きない操作</b>である。枚数もゾーンも変わらず、
+     * 非公開の並びだけが変わる。したがって 32a のビュー差分からは
+     * <b>完全な無変化</b>にしか見えず、押しても手応えが1つも返っていなかった。
+     * ★ここで返す {@link ManualLogRite} が演出と音の唯一の材料であり、
+     * 開始シーケンスの儀式とまったく同じ経路({@code rites})で配信に載る。
+     * ★<b>並びは運ばない。</b>非公開情報であり、そもそも演出に要らない。
+     */
     public ManualLogEvent shuffleDeck(ManualGameState state, ManualActor actor,
             ManualOpRequest.Seat request) {
         ManualSeatId seatId = seatOf(request.seat());
         ManualPermissions.require(ManualPermissions.denySeatAction(actor, seatId));
         ManualSeat seat = state.seat(seatId);
         gameService.shuffleDeck(seat);
-        return ManualLogEvent.plain(ManualLogKind.SHUFFLE, actor.seat(),
+        return ManualLogEvent.rite(ManualLogKind.SHUFFLE, actor.seat(),
+                ManualLogRite.shuffle(seatId),
                 "席%s: 山札 %d枚 をシャッフルした".formatted(seatId, seat.zone(ManualZone.DECK).size()));
     }
 

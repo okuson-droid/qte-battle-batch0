@@ -201,13 +201,13 @@ public class ManualStartService {
             // ★ソロは勝った側がそのまま先攻(3-1。マスター指示)
             // ★★Batch 38: 出目を配りの儀式へ引き継ぐ。ログが1行なら儀式も1件である
             return deal(room, actor, winner, "%s → 席%s が先攻".formatted(dice, winner),
-                    ManualLogStartRite.dice(a, b, winner, "席%s が先攻".formatted(winner)));
+                    ManualLogRite.dice(a, b, winner, "席%s が先攻".formatted(winner)));
         }
         room.setOrderChooserSeat(winner);
         room.setStartPhase(ManualStartPhase.ORDER_CHOICE);
         // ★★Batch 38: 対戦部屋ではここで配らない。儀式は「ダイスだけ」である
         return startLog(actor,
-                ManualLogStartRite.dice(a, b, winner, "席%s が選択権".formatted(winner)),
+                ManualLogRite.dice(a, b, winner, "席%s が選択権".formatted(winner)),
                 "%s → 席%s が選択権を得た".formatted(dice, winner));
     }
 
@@ -241,10 +241,10 @@ public class ManualStartService {
      *
      * @param diceSeed ★Batch 38: 直前に振ったダイス。振っていなければ null。
      *                 ソロのランダムはダイスと配りが同じ1回の操作なので、
-     *                 儀式も1件にまとめて運ぶ({@link ManualLogStartRite#deal})
+     *                 儀式も1件にまとめて運ぶ({@link ManualLogRite#deal})
      */
     private ManualLogEvent deal(ManualRoom room, ManualActor actor, ManualSeatId firstSeat,
-            String decisionText, ManualLogStartRite diceSeed) {
+            String decisionText, ManualLogRite diceSeed) {
         room.setFirstSeat(firstSeat);
         room.setOrderChooserSeat(null);
         // ★20b と同じ理由で中央も片付ける。共有ゾーンは席の外にあり clearAll() が届かない
@@ -254,7 +254,7 @@ public class ManualStartService {
         // ★★Batch 38: 本文を組み立てるのと<b>同じ1周</b>で員数を拾う(裁定42 と同じ形)。
         //   別に回すと「ログに書いた枚数」と「演出した枚数」が別の場所から来ることになり、
         //   そのズレは静かに起きる
-        List<ManualStartDeal> dealt = new ArrayList<>();
+        List<ManualRiteDeal> dealt = new ArrayList<>();
         room.getMulliganDone().clear();
         room.getMulliganPending().clear();
         for (ManualSeatId seatId : ManualSeatId.values()) {
@@ -266,7 +266,7 @@ public class ManualStartService {
                 continue; // デッキ未読込の席(6-2)
             }
             room.getMulliganPending().add(seatId);
-            dealt.add(new ManualStartDeal(seatId, 0, actual));
+            dealt.add(new ManualRiteDeal(seatId, 0, actual));
             if (drawn.length() > 0) {
                 drawn.append(" / ");
             }
@@ -277,7 +277,7 @@ public class ManualStartService {
             }
         }
         room.setStartPhase(ManualStartPhase.MULLIGAN);
-        return startLog(actor, ManualLogStartRite.deal(diceSeed, dealt),
+        return startLog(actor, ManualLogRite.deal(diceSeed, dealt),
                 "%s。シャッフルして初期ドロー: %s".formatted(decisionText, drawn));
     }
 
@@ -349,24 +349,41 @@ public class ManualStartService {
             text += "(山札が尽きたため %d枚 は引けなかった)".formatted(back.size() - drew);
         }
 
+        ManualSeatId pureSeat = null;
         if (room.getMulliganDone().containsAll(room.getMulliganPending())) {
-            text = text + " / " + finish(room);
+            Finish finish = finish(room);
+            text = text + " / " + finish.text();
+            pureSeat = finish.pureSeat();
         }
         // ★★Batch 38: 0枚のマリガンでも儀式は作る。「何も起きなかった」ことは
         //   員数(back = 0)が語る。作らないと、画面側が「儀式が無い」と
         //   「儀式が空だった」を区別できなくなる
-        return startLog(actor, ManualLogStartRite.mulligan(seatId, back.size(), drew), text);
+        return startLog(actor, ManualLogRite.mulligan(seatId, back.size(), drew, pureSeat), text);
+    }
+
+    /**
+     * 開始の確定の結果(★38 追補)。
+     *
+     * ★<b>本文だけでは足りなくなった。</b>マスター裁定 Q1 = b により
+     * 【ピュア・エレメント】が渡ったことを演出するので、<b>どの席に渡ったか</b>を
+     * 呼び出し側へ返す必要がある。本文から席名を読み直すのは 21a が捨てた道である。
+     *
+     * @param text     ログ本文に足す説明
+     * @param pureSeat ピュア・エレメントが渡った席。渡っていなければ null
+     */
+    private record Finish(String text, ManualSeatId pureSeat) {
     }
 
     /**
      * 開始を確定する(ピュア・エレメントの配布 → {@link ManualStartPhase#PLAYING})。
-     *
-     * @return ログ本文に足す説明
      */
-    private String finish(ManualRoom room) {
+    private Finish finish(ManualRoom room) {
         StringBuilder text = new StringBuilder();
         ManualSeatId second = room.secondSeat();
         String pure = dealPureElement(room, second);
+        // ★「配った」と「配らなかったので省略した」はどちらも文字列を返す。
+        //   演出してよいのは前者だけなので、席は<b>実際に渡ったときだけ</b>持つ
+        ManualSeatId pureSeat = isPureElementAvailable() && pure != null ? second : null;
         if (pure != null) {
             text.append(pure).append(" / ");
         }
@@ -382,7 +399,7 @@ public class ManualStartService {
                 text.append(" ※席%s はデッキ未読込".formatted(seatId));
             }
         }
-        return text.toString();
+        return new Finish(text.toString(), pureSeat);
     }
 
     /**
@@ -480,14 +497,14 @@ public class ManualStartService {
     }
 
     /**
-     * ★★Batch 38: 儀式を伴う開始ログ。{@link ManualLogEvent#startRite} を呼ぶ<b>唯一の場所</b>である。
+     * ★★Batch 38: 儀式を伴う開始ログ。{@link ManualLogEvent#rite} を呼ぶ<b>唯一の場所</b>である。
      *
      * ★構造の有無で入口を2つに割ってあるのは、START 行には構造を持たないものが
      * 正当に存在するからである(準備の開始・選択権の告知)。
      * 「構造を持つなら必ずここを通る」だけを守り、
      * <b>守れない約束(全 START 行が構造を持つ)は型に書かない</b>。
      */
-    private ManualLogEvent startLog(ManualActor actor, ManualLogStartRite rite, String text) {
-        return ManualLogEvent.startRite(actor.seat(), rite, text);
+    private ManualLogEvent startLog(ManualActor actor, ManualLogRite rite, String text) {
+        return ManualLogEvent.rite(ManualLogKind.START, actor.seat(), rite, text);
     }
 }

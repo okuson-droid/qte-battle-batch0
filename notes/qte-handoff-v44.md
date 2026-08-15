@@ -1,14 +1,16 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-14(**Batch 38(ゲーム開始の一括演出 + 開始まわりのSFX 3種)を
-実装・納品**。商業水準レビュー(`notes/commercial-quality-review-2026-08-11.md`)の
-優先順位 **7** を消化した。**★★Java を変更している(`ManualLogEvent` に構成要素が1つ増えた)。
-`mvn test` を走らせること。** JUnit も +7件足してある。
+最終更新: 2026-08-14(**Batch 38(儀式 = ゲーム開始の一括演出 + 山札のシャッフル + SFX 3種)を
+実装・納品**。**★★納品後の追加指示(手動のシャッフル)とマスター裁定 Q1 = b
+(ピュア・エレメント)を同バッチに取り込み、型の名前から `Start` を外している。**
+商業水準レビュー(`notes/commercial-quality-review-2026-08-11.md`)の
+優先順位 **7** を消化した。**★★Java を変更している。`mvn test` を走らせること。**
+JUnit も +9件足してある。
 **★テンプレートは版数しか変えていないが、実サーバで開くことだけ確認してほしい。**
 **★★★裁定81 の問い「差分の抑制を緩めずに総入れ替えをどう演出するか」への答えは
 「関門を `applyView` から `diffViews` の中へ移し、儀式だけが通る道を1本足す」である。
 裁定8 も裁定11 も1文字も緩めていない。**
-js v=30 / css v=38。verify **416/416**。設計解説は `notes/batch38-design-notes.md`)
+js v=31 / css v=39。verify **424/424**。設計解説は `notes/batch38-design-notes.md`)
 
 **★★37 の反映は fresh clone(`55ba353`)で照合し、verify 397/397 を確認したうえで 38 に入っている。**
 
@@ -21,7 +23,7 @@ js v=30 / css v=38。verify **416/416**。設計解説は `notes/batch38-design-
 | 系統 | 前提ドキュメント |
 |---|---|
 | **今後の優先順位(商業水準レビュー)** | **`notes/commercial-quality-review-2026-08-11.md`** |
-| **Batch 38(開始の儀式・SFX3種・完了)** | **`notes/batch38-design-notes.md`** |
+| **Batch 38(儀式 = 開始の一括演出 + シャッフル・SFX3種・完了)** | **`notes/batch38-design-notes.md`** |
 | Batch 37(SFX・設定パネル・完了) | `notes/batch37-design-notes.md` |
 | Batch 36(Esc・フォーカス・confirm 置換・完了) | `notes/batch36-design-notes.md` |
 | Batch 35(勝敗の帯・ログ強調・ターン帯の退役・完了) | `notes/batch35-design-notes.md` |
@@ -42,7 +44,7 @@ js v=30 / css v=38。verify **416/416**。設計解説は `notes/batch38-design-
 3. ソースコード取得: `git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git`
    (codeload の zip URL は 403 で落ちることがある)
 4. **「反映済み」を信じず、直近バッチの変更箇所を実際に読んで照合する。**
-   ★38 の照合は「24〜38 の確認項目」の 38 の行で行い、**verify 416/416** を確認する。
+   ★38 の照合は「24〜38 の確認項目」の 38 の行で行い、**verify 424/424** を確認する。
 
 ## ★カードデータの正(2026-08-06 マスター裁定、30で3件反映済み)
 
@@ -94,26 +96,33 @@ js v=30 / css v=38。verify **416/416**。設計解説は `notes/batch38-design-
   **確認モーダルの [実行]** の2箇所だけ。`#btn-sound`(♪)と `#sound-modal`。
   `.sound-*` の CSS。verify の targets に音の設定パネルの文字5件。
   **js v=29 / css v=37。verify 397/397。**
-- **38**: **★★Java 変更あり(4新規 + 4修正)。**
-  **新規**: `ManualStartRite`(DICE / DEAL / MULLIGAN)/ `ManualStartDeal`(seat / back / drew)/
-  `ManualLogStartRite`(kind / diceA / diceB / winner / label / dealt。ファクトリ
-  `dice` `deal` `mulligan`)/ `view/ManualStartRiteView`(seq + rite)。
-  **修正**: `ManualLogEvent` に構成要素 **`startRite`** と `startRite(...)` ファクトリ
-  (★`plain(START, …)` は**通る**。構造を持たない START 行が正当に存在するため。裁定84)/
-  `ManualStartService` に `startLog(actor, rite, text)` と `deal(…, diceSeed)`(★員数は
-  本文を組み立てるのと同じ1周で拾う)/ `ManualGameView` に **`rites`** /
-  `ManualViewBuilder` がログの末尾60行と**同じ1周**で儀式を拾う。
+- **38**: **★★Java 変更あり(4新規 + 5修正)。**
+  **新規**: `ManualRiteKind`(**DICE / DEAL / MULLIGAN / SHUFFLE**)/
+  `ManualRiteDeal`(seat / back / drew)/
+  `ManualLogRite`(kind / diceA / diceB / winner / label / dealt / **pureSeat**。ファクトリ
+  `dice` `deal` `mulligan` **`shuffle`**)/ `view/ManualRiteView`(seq + rite)。
+  ★★**型の名前に `Start` は入っていない**(裁定98)。器は「開始の儀式」ではなく
+  <b>差分では語れない出来事</b>である。
+  **修正**: `ManualLogEvent` に構成要素 **`rite`** と **`rite(kind, actorSeat, rite, text)`**
+  ファクトリ(★種別を引数で受ける。★`plain(START, …)` は**通る**)/
+  `ManualStartService` に `startLog(actor, rite, text)`・`deal(…, diceSeed)`・
+  **`Finish(text, pureSeat)`**(★員数は本文と同じ1周で拾う)/
+  **`ManualOperationService.shuffleDeck` が儀式を返す**(裁定99)/
+  `ManualGameView` に **`rites`** / `ManualViewBuilder` がログの末尾60行と**同じ1周**で拾う。
   `manual-battle.js`: 0-5章に **`dice` / `deal` / `shuffle`** と **`sfxRattle`**、
-  `SFX_FOR_KIND` に3行、`SFX_PRIORITY` を10要素へ。
-  8-2章に **`FX_RITE_*` 定数**・**`fxLatestRite` / `fxNewRite`**・
-  **`fxRiteSpan` / `fxRiteLegs` / `fxRiteDuration` / `fxRiteHoldMs`**・
+  `SFX_FOR_KIND` に4行、`SFX_PRIORITY` を10要素へ。
+  8-2章に **`FX_RITE_*` 定数**(+ `FX_RITE_CENTER` / `FX_RITE_PURE_GAP_MS` /
+  `FX_SHUFFLE_SCATTER`)・**`fxLatestRite` / `fxNewRite`**・
+  **`fxRiteCenterRect` / `fxRiteSpan` / `fxRiteLegs` / `fxRiteDuration` / `fxRiteHoldMs`**・
   **`fxBuildDice` / `fxBuildRiteFlights`**・**`riteHolding` / `riteHold`**。
-  **★★`diffViews` の中に `out.rite` の採取と `fxStartLocking` の関門が入った**
-  (`applyView` からは消えた)。`renderStartUi` / `syncMulliganOverlay` が `holding` を見る。
+  **★★`diffViews` の中に `out.rite` の採取と関門が入った**(`applyView` からは消えた)。
+  **★★★関門の条件は `out.rite || fxStartLocking(prev) || fxStartLocking(next)`**(裁定93)。
+  `renderStartUi` / `syncMulliganOverlay` が `holding` を見る。
   `battle.css` に `.manual-fx-dice` / `-chip` / `-win` / `-note` / `.manual-fx-rite` /
   `.manual-fx-shuffle`(+ reduced-motion で無効化)。
-  `verify/fixture.js` に `rites` / `rite()` / `dealRite()`、`verify/shot.js` に **`RITE=`**。
-  **js v=30 / css v=38。verify 416/416。JUnit +7件。**
+  `verify/fixture.js` に `rites` / `rite()` / `dealRite()` / **`shuffleRite()`**、
+  `verify/shot.js` に **`RITE=dice|deal|mulligan|shuffle|pure`**。
+  **js v=31 / css v=39。verify 424/424。JUnit +9件。**
 
 ## ★裁定記録
 
@@ -313,6 +322,47 @@ js v=30 / css v=38。verify **416/416**。設計解説は `notes/batch38-design-
 92. **★0枚のマリガンでも儀式は作る。**「儀式が無い」と「儀式が空だった」を
     画面が区別できなくなると、判断が画面側へ移る。
 
+**2026-08-14 確定(38 の質問4件へのマスター回答):**
+
+94. **★ピュア・エレメントはマリガン完了の儀式に1枚ぶんの飛翔を足す**(38 Q1 = b)。
+    ★音は増やさない。→ 38 追補で実施済み。
+95. **★リセット・すべてアンタップは儀式にしない**(38 Q2 = a)。
+    リセットは見せ場ではなく、すべてアンタップは毎ターン起きるので重くなる。
+96. **★儀式のゴーストの寸法は既存のドロー演出と同じ決め方のままとする**(38 Q3 = a)。
+97. **★★次バッチ(39)はデッキメーカーの見た目の統合**(38 Q4 = a・裁定60)。
+
+**2026-08-14 確定(38 追補。手動のシャッフルの実装時):**
+
+93. **★★★1つの配信に語り手は1人である。**
+    儀式が語る配信では差分を語らない(`diffViews` の関門に `out.rite ||` を足した)。
+    シャッフルは山札の最上段が入れ替わりうるので、放っておくと
+    「シャッフルした」と「1枚消えて1枚出た」を同時に語る。
+    後者は<b>シャッフルの結果の一部</b>であって別の出来事ではない。**機械判定あり。**
+    ★★初版が「今は同居しない」に**寄りかからなかった**のが効いた。
+98. **★★★名前は最初の例ではなく性質に付ける。**
+    `ManualStartRite` → `ManualRiteKind` ほか、型名から `Start` を外した。
+    器が表していたのは「開始シーケンス」ではなく
+    <b>「差分では語れない、員数と段取りで語る出来事」</b>である。
+    ★2つ目の例が出た時点で名前を直すのがいちばん安い。
+    ★配信の JSON は1文字も変わっていない(`rites` / `kind` / `dealt`)。
+99. **★★シャッフルは「盤面に何も起きない操作」である。**
+    枚数もゾーンも変わらず、非公開の並びだけが変わる。差分からは完全な無変化に見える。
+    ★サーバ側の変更は `shuffleDeck` の**返り値1つ**、クライアントは
+    `fxEffects` に3行と `SFX_FOR_KIND` に1行だけで済んだ ——
+    **演出の関数も音も1つも新しく作っていない**(器を1つにしておいた配当)。
+100. **★混ざる所作は揺れだけでは足りない。** 散らばった3枚が束へ戻る絵を重ねる。
+    ★傾き(`rotate`)を入れているのは、ゴーストが山札のタイルと同じ寸法だからである。
+    ★★<b>同じ絵をマリガンの中の混ざる所作にも当てている</b>(同じ出来事に2つの描き方を作らない)。
+101. **★★ピュア・エレメントは中央から飛ぶ。** デッキの外から渡されるカードであり、
+    山札から飛ばすのは絵として嘘である。**機械判定あり(座標で測っている)。**
+    ★出発点の矩形は「中央に、<b>着地点と同じ寸法で</b>」作る ——
+    出発点は「場所」であって「その要素」ではない。
+102. **★儀式を作る入口は2つになった**(開始シーケンスと `ManualOperationService`)。
+    儀式は<b>操作の種類ごとに生まれる</b>ものであり、1箇所に集めようとすると
+    開始シーケンスのサービスがシャッフルを知ることになる。
+    ★守るのは「構造を作るなら `ManualLogRite` のファクトリと
+    `ManualLogEvent.rite(...)` を通る」までである。
+
 ---
 
 ## 1. 次の作業の候補(商業水準レビューの優先順位順)
@@ -320,7 +370,7 @@ js v=30 / css v=38。verify **416/416**。設計解説は `notes/batch38-design-
 **★レビュー優先順位 1・2 は Batch 33、4・5 は 34、3 は 35、6 は 36、8 は 37、
 7 は Batch 38 で消化した。★★残っているのは 9・10・11 と、裁定60 の単独バッチである。**
 
-1. **★★デッキメーカーの見た目の統合(裁定60・単独バッチ)**(規模 小〜中)
+1. **★★★Batch 39 = デッキメーカーの見た目の統合(裁定60・97 で確定)**(規模 小〜中)
    ★独自 `:root` パレット・Georgia セリフのブランドマーク・独自トースト・独自 `confirm()` を
    手動モードの系統へ寄せる。★★**36・37 で作った規約(モーダルの層・確認・音)が
    出来上がっているので、いま寄せると「寄せる先」が完成している**(38 Q4 の推奨)。
@@ -397,7 +447,16 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
   (`ManualStartDeal`)。ゴーストは `fxGhost(from, null)` で作る。**機械判定あり。**
 - **★`ManualLogEvent.startRite(...)` を呼ぶのは `ManualStartService.startLog` の1箇所である**
   (裁定85)。`plain(START, …)` は通る —— 構造を持たない START 行は正当である。
-- **★目視は `RITE=deal AT=430 node verify/shot.js`**(`dice` / `deal` / `mulligan`)。
+- **★★★儀式が語る配信では差分を語らない**(裁定93)。`diffViews` の関門の
+  `out.rite ||` を消さないこと。**機械判定あり。**
+- **★★シャッフルは盤面に何も起こさない操作である**(裁定99)。
+  演出と音の材料は `ManualOperationService.shuffleDeck` が返す儀式だけである。
+- **★混ざる所作の絵はシャッフルとマリガンで共通である**(裁定100)。片方だけ変えないこと。
+- **★★ピュア・エレメントは中央から飛ぶ**(裁定101)。**機械判定あり(座標)。**
+- **★飛翔が1枚も無い儀式にも長さが要る**(`fxRiteDuration` の `shuffleAt` 加算)。
+  忘れると出た瞬間に消える。**機械判定あり。**
+- **★目視は `RITE=deal AT=430 node verify/shot.js`**
+  (`dice` / `deal` / `mulligan` / **`shuffle`** / **`pure`**)。
 
 ### 効果音(Batch 37・38)
 
@@ -648,8 +707,7 @@ PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node tools/make_brand_assets.js
 
 ## 5. チャット開始テンプレート
 
-★**Batch 39 の範囲はまだ確定していない**(38 の質問 Q4 への回答待ち)。
-推奨は **裁定60 のデッキメーカーの見た目の統合**である。回答が来たら下の1行を差し替える。
+★★**Batch 39 の範囲は裁定97(38 Q4 = a)で確定している** —— デッキメーカーの見た目の統合(裁定60)。
 
 ```
 QTE Battle の開発を継続する。Batch 39(デッキメーカーの見た目の統合。裁定60)を行う。
@@ -664,7 +722,7 @@ QTE Battle の開発を継続する。Batch 39(デッキメーカーの見た目
    `notes/batch37-design-notes.md`(音)にある。
 4. git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
 5. 38 の反映を「24〜38 の確認項目」の 38 の行で照合し、
-   verify 416/416 を確認する。反映されていなければ止めて報告する。
+   verify 424/424 を確認する。反映されていなければ止めて報告する。
 
 Batch 39 の範囲(裁定60):
 - デッキメーカーの独自 `:root` パレット・Georgia セリフのブランドマーク・
@@ -692,6 +750,13 @@ Batch 39 の範囲(裁定60):
 
 ### マスターにお願いすること(Batch 38 分)
 
+- **★★★先に納品した zip(追補前)を展開している場合は、次の4ファイルを削除すること。**
+  型の名前を一般化した(裁定98)ので、古い名前のファイルが残ると<b>使われない死んだ型</b>になる。
+  ★ビルドは通ってしまうので、消し忘れても気づけない。
+  - `src/main/java/com/example/qte/manual/ManualStartRite.java`
+  - `src/main/java/com/example/qte/manual/ManualStartDeal.java`
+  - `src/main/java/com/example/qte/manual/ManualLogStartRite.java`
+  - `src/main/java/com/example/qte/manual/view/ManualStartRiteView.java`
 - **★納品 zip を展開したら GitHub へ push すること。**
 - **★★`mvn test` を走らせること。** 38 は **Java を変更している**
   (`ManualLogEvent` に構成要素が1つ増えた)。JUnit も +7件足してある。
@@ -704,7 +769,9 @@ Batch 39 の範囲(裁定60):
   ★とくに `deal` と既存の `draw` が聞き分けられるか。直すのは `SFX_SPECS` の表1つ。
 - **★ダイスの帯の読みやすさ / マリガンの往復が読めるか。**
 - **★演出を切った環境で開始画面が待たされないこと。**
-- **★質問4件(38 設計解説10章)への回答。**
+- ★**質問4件は回答済みである**(裁定94〜97)。追加でお願いすることは無い。
+- **★★山札の [シャッフル] を押してみてほしい**(追補)。今まで手応えが1つも無かった場所である。
+- **★ピュア・エレメントが中央から後攻の手札へ飛ぶこと**(追補)。
 
 ### 継続中の積み残し
 
@@ -717,8 +784,8 @@ Batch 39 の範囲(裁定60):
 - **デッキメーカーの見た目が第3系統のまま**(裁定33)。
   ★★**単独バッチで統合する裁定が出ている(裁定60)。次バッチの推奨である。**
 - ~~ゲーム開始・シャッフルの演出と音(優先順位7)~~ → **★★Batch 38 で完了。**
-- **ピュア・エレメントの配布は演出していない**(38 Q1。範囲外としたため)。
-- **リセット・すべてアンタップは今も無演出である**(38 Q2)。
+- ~~ピュア・エレメントの配布は演出していない~~ → **★裁定94 で実施済み(38 追補)。**
+- **リセット・すべてアンタップは今も無演出である**(★裁定95 で「足さない」と確定。積み残しではない)。
 - 盤面DOMの差分更新(低優先で据え置き)。
 - 演出の速さ・強さ、フェイスの質感の強さの実機確認(マスター)。
 - テキスト66枚(台帳未転記分)の目視校正。

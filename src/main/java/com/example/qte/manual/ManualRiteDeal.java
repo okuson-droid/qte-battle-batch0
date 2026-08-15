@@ -17,5 +17,5 @@ package com.example.qte.manual;
  * @param back 山札へ戻した枚数(初期ドローでは 0)
  * @param drew 山札から引いた枚数
  */
-public record ManualStartDeal(ManualSeatId seat, int back, int drew) {
+public record ManualRiteDeal(ManualSeatId seat, int back, int drew) {
 }

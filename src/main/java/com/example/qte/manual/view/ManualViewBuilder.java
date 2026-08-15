@@ -19,7 +19,7 @@ import com.example.qte.manual.ManualGameState;
 import com.example.qte.manual.ManualLogDeclaration;
 import com.example.qte.manual.ManualLogEntry;
 import com.example.qte.manual.ManualLogRenderer;
-import com.example.qte.manual.ManualLogStartRite;
+import com.example.qte.manual.ManualLogRite;
 import com.example.qte.manual.ManualOccupant;
 import com.example.qte.manual.ManualPermissions;
 import com.example.qte.manual.ManualRoom;
@@ -132,11 +132,11 @@ public class ManualViewBuilder {
         //   別に room.getLog() を走査すると、配った行に無い seq を指しうる。
         //   「強調する行」と「配った行」が別の場所から来ると、そのズレは静かに起きる。
         List<ManualDeclarationView> declarations = new ArrayList<>();
-        // ★★Batch 38: 開始シーケンスの儀式も<b>同じ1周</b>で拾う(裁定42 の適用)。
+        // ★★Batch 38: 儀式も<b>同じ1周</b>で拾う(裁定42 の適用)。
         //   儀式は「配った行のどれか」を指す seq を持ち、画面はその番号が増えたときだけ再生する。
         //   ★視点で削らない。儀式が運ぶのは席と枚数だけであり、どちらも公開情報である
-        //   (どのカードかは構造上そもそも持てない。ManualStartDeal の javadoc)
-        List<ManualStartRiteView> rites = new ArrayList<>();
+        //   (どのカードかは構造上そもそも持てない。ManualRiteDeal の javadoc)
+        List<ManualRiteView> rites = new ArrayList<>();
         for (ManualLogEntry entry : entries.subList(Math.max(0, logTotal - LOG_TAIL), logTotal)) {
             log.add(new ManualLogView(entry.seq(), TIME_FORMAT.format(entry.at()),
                     logRenderer.render(entry.event(), viewpoint)));
@@ -146,9 +146,9 @@ public class ManualViewBuilder {
                 declarations.add(new ManualDeclarationView(entry.seq(), mark.seat(),
                         mark.declaration(), mark.declaration().getDisplayName()));
             }
-            ManualLogStartRite rite = entry.event().startRite();
+            ManualLogRite rite = entry.event().rite();
             if (rite != null) {
-                rites.add(new ManualStartRiteView(entry.seq(), rite));
+                rites.add(new ManualRiteView(entry.seq(), rite));
             }
         }
 

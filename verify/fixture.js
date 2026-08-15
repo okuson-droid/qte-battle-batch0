@@ -134,7 +134,7 @@ function baseView() {
     ],
     // ★Batch 35: 勝敗宣言(ManualDeclarationView 相当)。既定は「まだ決着していない」
     declarations: [],
-    // ★Batch 38: 開始シーケンスの儀式(ManualStartRiteView 相当)。
+    // ★Batch 38: 儀式(ManualRiteView 相当)。
     //   既定は空。宣言と同じく<b>seq が増えたときだけ</b>再生される
     rites: [],
     canUndo: true,
@@ -226,15 +226,15 @@ function declaration(seq, seat, kind = 'WIN') {
 }
 
 /**
- * 開始シーケンスの儀式1件(★Batch 38。ManualStartRiteView 相当)。
+ * 儀式1件(★Batch 38。ManualRiteView 相当)。
  *
- * ★中身の形は `ManualLogStartRite` に合わせてある。ここがずれると
+ * ★中身の形は `ManualLogRite` に合わせてある。ここがずれると
  * 「動いているつもり」の検証になる(このファイル冒頭の注意)。
  * ★{@code label} はサーバが作る文言である。fixture が勝手な文言を持つと、
  * クライアントが label を使っているかを検証できない(35 の declaration と同じ理由)。
  *
  * @param seq  配ったログ行のどれかを指す通し番号
- * @param kind 'DICE' / 'DEAL' / 'MULLIGAN'
+ * @param kind 'DICE' / 'DEAL' / 'MULLIGAN' / 'SHUFFLE'
  */
 function rite(seq, kind, overrides = {}) {
   return {
@@ -246,9 +246,16 @@ function rite(seq, kind, overrides = {}) {
       winner: null,
       label: null,
       dealt: [],
+      // ★Batch 38 追補: ピュア・エレメントが渡った席(マリガン完了時だけ入る)
+      pureSeat: null,
       ...overrides,
     },
   };
+}
+
+/** 山札のシャッフル(★38 追補)。★員数は 0 / 0 で、運ぶのは席だけである */
+function shuffleRite(seq, seat = 'A') {
+  return rite(seq, 'SHUFFLE', { dealt: [{ seat, back: 0, drew: 0 }] });
 }
 
 /** 初期ドローの儀式(先攻4 / 後攻5)。★総合ルール 2-5 の枚数そのものである */
@@ -264,5 +271,5 @@ function dealRite(seq, firstSeat = 'A', overrides = {}) {
 
 module.exports = {
   baseView, versusView, roomSummary, card, occupant, emptyZones, syncCounts, startState,
-  declaration, rite, dealRite,
+  declaration, rite, dealRite, shuffleRite,
 };
