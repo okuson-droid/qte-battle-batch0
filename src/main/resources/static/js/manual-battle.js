@@ -734,6 +734,39 @@ document.addEventListener('focusin', (e) => {
     applyInitialFocus(top.el);
 });
 
+/**
+ * ★★Batch 41(レビュー C-4): 右クリックの受け皿。
+ *
+ * 盤面での右クリックは<b>操作</b>である(拡大・ウェポン・カードメニュー)。個々の要素は
+ * それぞれ preventDefault しているが、要素と要素の<b>隙間</b>には誰も居ない。
+ * そこで押すとブラウザのメニューが盤面を覆う。手が滑っただけで「アプリの外」が
+ * 顔を出すのは、22 1-7 で右クリックを操作に割り当てた時点で決着しておくべき話だった。
+ *
+ * ★★<b>document 全体では止めない。</b>止めてよいのは「右クリックが操作である場所」だけで、
+ *   次の3つは既定の動作を残す。どれも<b>ブラウザのメニューが仕事をする場所</b>である。
+ *     1. 入力欄(input / textarea / select / contenteditable)— 貼り付け・元に戻す
+ *     2. ログ(#log-box)— 対戦の記録は読んで<b>コピーする</b>ものである(設計書 5-5)
+ *     3. 開いているモーダルの中 — 説明文・確認文を選んで写せる必要がある
+ *   ★「全部止める」は1行で書けるが、そのぶん<b>奪うものが見えなくなる</b>。
+ *     奪う範囲を明示的に書くほうが、後から範囲を直せる。
+ *
+ * ★捕捉フェーズにしない。個々の要素のハンドラが先に走り、そこで preventDefault 済みなら
+ *   ここは何もしない({@code defaultPrevented} を見る)。網は<b>下</b>に張る——
+ *   上に張ると、既存の10箇所の右クリック操作を全部この1本が横取りすることになる。
+ */
+document.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented) return;
+    const el = e.target instanceof Element ? e.target : null;
+    if (!el) return;
+    const root = document.getElementById('manual-root');
+    if (!root || !root.contains(el)) return;
+    if (el.closest('input, textarea, select, [contenteditable="true"]')) return;
+    if (el.closest('#log-box')) return;
+    const top = topModalLayer();
+    if (top && top.el.contains(el)) return;
+    e.preventDefault();
+});
+
 // ---- 情報モーダル(.info-modal)の出入り ----
 //
 // ★開閉を {@code classList} の直接操作から関数へ移した。層への出入りが

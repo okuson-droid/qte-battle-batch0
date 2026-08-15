@@ -3025,6 +3025,37 @@ async function clearZoom(page) {
     faceFx.hits.length === 0 && faceFx.seen.length >= 6,
     JSON.stringify(faceFx));
 
+  // ---- 63-2. ★★★Batch 41: 光沢の強さが場所ごとに<b>実際に</b>変わっている ----
+  // ★★これは 41 で見つかった不具合の番人である。32c は「--mc-gloss を継承させたまま
+  //   --mc-sheen だけ子で上書きすれば強さだけ変わる」と書いていたが、これは誤りだった。
+  //   カスタムプロパティの中の var() は<b>宣言した要素</b>で置換され、子が継承するのは
+  //   置換済みのトークン列である。32c 以降、胴も頭も足も 0.14 の光沢で描かれていた。
+  // ★★★<b>--mc-sheen の値そのものは測らない。</b>それは「上書きしたか」しか見ておらず、
+  //   まさに今回の不具合を素通りする(上書きはされていた。効いていなかっただけである)。
+  //   測るのは<b>解決後の背景に現れた数値</b>——結果のほうである。
+  const sheenUsed = await page.evaluate(() => {
+    const alphaOf = (sel) => {
+      const el = document.querySelector('#manual-root ' + sel);
+      if (!el) return null;
+      const m = getComputedStyle(el).backgroundImage
+        .match(/115deg[^)]*\)[^)]*\)[^,]*,\s*rgba\([^)]*?([\d.]+)\)/);
+      return m ? Number(m[1]) : null;
+    };
+    return { card: alphaOf('.mcard'), inner: alphaOf('.mcard-inner'),
+      head: alphaOf('.mcard-head'), foot: alphaOf('.mcard-foot') };
+  });
+  check('★★★光沢の強さは場所ごとに実際に変わる(41・32c 2-1 が初めて成立した)',
+    sheenUsed.card === 0.14 && sheenUsed.inner === 0.05
+      && sheenUsed.head === 0.12 && sheenUsed.foot === 0.07,
+    JSON.stringify(sheenUsed));
+  // ★胴が<b>いちばん弱い</b>ことが 32c の狙いである(読む面に模様を作らない)。
+  //   数値を1つずつ書いた上の項目とは別に、<b>関係</b>のほうも固定しておく——
+  //   値を調整するときに関係まで壊す事故を防ぐ
+  check('★★胴の光沢が面の中でいちばん弱い(32c・読む面には模様を作らない)',
+    sheenUsed.inner < sheenUsed.foot && sheenUsed.foot < sheenUsed.head
+      && sheenUsed.head < sheenUsed.card,
+    JSON.stringify(sheenUsed));
+
   // =====================================================================
   // ★★Batch 33: 切断UXの強化(1章)と共有導線(2章)
   // =====================================================================
@@ -4322,6 +4353,97 @@ async function clearZoom(page) {
   await quiet.close();
 
   // =========================================================================
+  // ★★★Batch 41: 外部依存の自前配信(レビュー C-2)
+  //
+  // ★★これは見た目の検証ではなく<b>結線</b>の検証である。41 で CDN をやめ、
+  //   Bootstrap と stomp.js を static/vendor/ から配るようにした。理由は2つあり、
+  //   2つめのほうが重い:
+  //     1. integrity が無いまま CDN を読んでいた(改竄されれば任意の JS が走る)
+  //     2. ★stomp.js が読めないと WebSocket が張れず、<b>盤面が一生来ない</b>。
+  //        画面には何も出ないので、人間には原因が分からない
+  // ★ファイル名にはバージョンを入れてある。更新は手動になるため、名前に版が
+  //   無いと「今どれを配っているのか」がディスクを見ても分からなくなる。
+  // =========================================================================
+  const templateDir = path.join(RES, 'templates');
+  const templateFiles = fs.readdirSync(templateDir).filter((f) => f.endsWith('.html'));
+  const cdnLeaks = [];
+  const vendorRefs = [];
+  for (const name of templateFiles) {
+    const body = fs.readFileSync(path.join(templateDir, name), 'utf8');
+    if (body.includes('cdn.jsdelivr.net')) cdnLeaks.push(name);
+    for (const m of body.matchAll(/@\{\/vendor\/([^}]+)\}/g)) {
+      vendorRefs.push({ template: name, file: m[1] });
+    }
+  }
+  check('★★テンプレートに CDN 参照が1つも残っていない(41・C-2)',
+    cdnLeaks.length === 0, cdnLeaks.join(' | '));
+
+  // ★参照とファイルの結線。名前を打ち間違えても Thymeleaf は黙って 404 を返すだけで、
+  //   Bootstrap なら「なぜか崩れている」、stomp なら「なぜか動かない」にしかならない。
+  const vendorMissing = vendorRefs.filter(
+    (r) => !fs.existsSync(path.join(RES, 'static', 'vendor', r.file)));
+  check('★★★vendor の参照はすべて実ファイルに当たる(41・結線)',
+    vendorRefs.length >= 9 && vendorMissing.length === 0,
+    JSON.stringify({ refs: vendorRefs.length, missing: vendorMissing }));
+
+  // ★stomp を参照するのは対戦画面2つだけである。ここが減っていたら、
+  //   どちらかの画面が WebSocket を張れなくなっている
+  const stompRefs = vendorRefs.filter((r) => r.file.includes('stomp')).map((r) => r.template).sort();
+  check('★★stomp.js は対戦画面2つが自前配信で読んでいる(41・1-2)',
+    JSON.stringify(stompRefs) === JSON.stringify(['battle.html', 'manual-battle.html']),
+    JSON.stringify(stompRefs));
+
+  // =========================================================================
+  // ★★★Batch 41: 右クリックの受け皿(レビュー C-4)
+  //
+  // ★★盤面での右クリックは<b>操作</b>である(22 1-7)。個々の要素は preventDefault
+  //   しているが、隙間には誰も居ないため、そこで押すとブラウザのメニューが盤面を覆う。
+  // ★★<b>「全部止める」ではないことが本題である。</b>入力欄・ログ・開いている
+  //   モーダルの中では既定の動作を残す。だから検証も「止まること」と
+  //   「<b>止まらないこと</b>」を対で測る。片方だけ測ると、
+  //   document 全体を止める1行に書き換えても検証は通ってしまう。
+  // =========================================================================
+  await render(page, baseView());
+  await page.evaluate(() => {
+    window.__ctx = [];
+    // ★bubble フェーズの window。document のハンドラより<b>後</b>に走るので、
+    //   そこで止められたかどうかを observed できる
+    window.addEventListener('contextmenu', (e) => {
+      window.__ctx.push({ prevented: e.defaultPrevented, id: e.target.id || e.target.tagName });
+    });
+  });
+  const rightClick = async (selector) => {
+    const box = await page.locator(selector).first().boundingBox();
+    if (!box) return null;
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
+    await page.waitForTimeout(30);
+    return (await page.evaluate(() => window.__ctx[window.__ctx.length - 1])) || null;
+  };
+
+  const gapClick = await rightClick('#center-line');
+  check('★★★盤面の隙間で右クリックしてもブラウザのメニューが出ない(41・C-4)',
+    gapClick !== null && gapClick.prevented === true, JSON.stringify(gapClick));
+
+  // ★ログは<b>読んでコピーする</b>ものである(設計書 5-5)。ここを奪ってはいけない
+  const logClick = await rightClick('#log-box');
+  check('★★★ログの右クリックは奪わない(41・コピーできること)',
+    logClick !== null && logClick.prevented === false, JSON.stringify(logClick));
+
+  // ★入力欄も同じ。貼り付け・元に戻すはブラウザのメニューの仕事である
+  const inputClick = await rightClick('#note-input');
+  check('★★入力欄の右クリックは奪わない(41)',
+    inputClick !== null && inputClick.prevented === false, JSON.stringify(inputClick));
+
+  // ★モーダルの説明文も選んで写せる必要がある
+  await page.evaluate(() => openHelpModal());
+  await page.waitForTimeout(60);
+  const modalClick = await rightClick('#help-modal-title');
+  check('★★開いているモーダルの中では右クリックを奪わない(41)',
+    modalClick !== null && modalClick.prevented === false, JSON.stringify(modalClick));
+  await page.evaluate(() => closeInfoModal('help-modal'));
+  await page.waitForTimeout(60);
+
+  // =========================================================================
   // ★★★Batch 39: デッキメーカー(裁定60・レビュー B-2 / B-3)
   //
   // ★この画面は 38 まで<b>第3のデザイン系統</b>だった(裁定33)。寄せた4点
@@ -4406,6 +4528,69 @@ async function clearZoom(page) {
   check('★★デッキメーカーのタイルの色は battle.css の :root から来ている(39)',
     deckTileColor.fire !== '' && deckTileColor.c === deckTileColor.fire,
     JSON.stringify(deckTileColor));
+
+  // ---- 41-1. ★★★面の質感も盤面と同じものを使っている(41・裁定107) ----
+  // ★★39 は<b>色</b>を1本化した。41 は<b>質感</b>を1本化する。光沢の形は
+  //   battle.css の :root にある --mc-gloss ただ1つで、場所ごとに変えるのは
+  //   強さ(--mc-sheen)だけである(32c 2-1)。
+  // ★★★測るのは「光っているか」ではなく<b>仕組みが生きているか</b>である。
+  //   同じ定義を使いながら要素ごとに強さが違う、という状態は、
+  //   共有の変数が遅延解決されているときにしか作れない。ここをコピペした
+  //   ベタ書きに戻すと、強さが揃ってしまうか、:root の値と無関係になる。
+  const deckGloss = await deckPage.evaluate(() => {
+    const bg = (sel) => {
+      const el = document.querySelector(sel);
+      return el ? getComputedStyle(el).backgroundImage : '';
+    };
+    const tileEl = document.querySelector('#pool-grid .tile');
+    return {
+      // ★41: 定義は :root ではなく<b>使う要素そのもの</b>にある(そうしないと強さが効かない)。
+      //   ここで見たいのは「デッキメーカーの面にも battle.css の形が降りているか」である
+      onTile: tileEl ? getComputedStyle(tileEl).getPropertyValue('--mc-gloss').trim() : '',
+      onRoot: getComputedStyle(document.documentElement).getPropertyValue('--mc-gloss').trim(),
+      tile: bg('#pool-grid .tile'),
+      inner: bg('#pool-grid .tile .tile-inner'),
+      head: bg('#pool-grid .tile .t-head'),
+    };
+  });
+  // ★★定義が :root に<b>無い</b>ことも一緒に測る。:root に置くと継承の時点で
+  //   強さが焼き付き、場所ごとの強さが効かなくなる(41 で踏んだ不具合そのもの)
+  check('★★★光沢の形は battle.css から来ており、:root には置かれていない(41)',
+    deckGloss.onTile.includes('115deg') && deckGloss.onRoot === '',
+    JSON.stringify({ onTile: deckGloss.onTile.slice(0, 40), onRoot: deckGloss.onRoot }));
+  check('★★★デッキメーカーのタイルが盤面と同じ光沢を使っている(41・裁定107)',
+    deckGloss.tile.includes('115deg') && deckGloss.inner.includes('115deg')
+      && deckGloss.head.includes('115deg'),
+    JSON.stringify({ tile: deckGloss.tile.slice(0, 40), inner: deckGloss.inner.slice(0, 40) }));
+  // ★胴(読む面)は 0.05、外枠は 0.14。<b>同じ定義から違う強さが出ている</b>ことが、
+  //   遅延解決が効いている証拠である
+  check('★★★光沢は場所ごとに強さだけが変わる(41・32c 2-1 の仕組みが生きている)',
+    deckGloss.tile.includes('0.14') && deckGloss.inner.includes('0.05')
+      && deckGloss.head.includes('0.12'),
+    JSON.stringify({ tile14: deckGloss.tile.includes('0.14'),
+      inner05: deckGloss.inner.includes('0.05'), head12: deckGloss.head.includes('0.12') }));
+
+  // ---- 41-2. ★★質感に transform / filter を使っていない(32c 項目63 のデッキメーカー版) ----
+  // ★あちらの理由はタップの遷移だった。こちらは<b>強調とホバー</b>である——
+  //   .tile は hl-dim で filter を、:hover / :active で transform を既に使っている。
+  //   質感が同じものを使うと、40 追補のカーブ強調を押すたびに質感が巻き添えで変わる。
+  const deckFaceFx = await deckPage.evaluate(() => {
+    const sels = ['.tile', '.tile-inner', '.t-head', '.t-type', '.t-foot', '.t-cost'];
+    const out = [];
+    for (const sel of sels) {
+      for (const el of document.querySelectorAll('#pool-grid ' + sel)) {
+        const st = getComputedStyle(el);
+        if (st.transform !== 'none' || st.filter !== 'none') {
+          out.push({ sel, transform: st.transform, filter: st.filter });
+        }
+      }
+    }
+    const seen = sels.filter((x) => document.querySelectorAll('#pool-grid ' + x).length > 0);
+    return { hits: out, seen };
+  });
+  check('★★デッキメーカーの質感も transform / filter を使わない(41・強調に巻き込まれない)',
+    deckFaceFx.hits.length === 0 && deckFaceFx.seen.length >= 5,
+    JSON.stringify(deckFaceFx));
 
   // ---- 39-3. トースト ----
   await deckPage.evaluate(() => toast('試験のトースト'));

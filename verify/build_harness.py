@@ -24,23 +24,31 @@ DECK_OUT = pathlib.Path(__file__).resolve().parent / "harness-deckmaker.html"
 
 html = TEMPLATE.read_text(encoding="utf-8")
 
-# CDN を落とす(読み込めないうえ、待ち時間が検証を不安定にする)
+# ★Batch 41: vendor(自前配信)を落とす。
+#   41 以前は「CDN は読み込めないうえ待ち時間が検証を不安定にする」ことが理由だったが、
+#   自前配信になった今はローカルから実際に読める。それでも落とし続けるのは、
+#   ★ハーネスの見た目の基準が「Bootstrap 無し + 31 の黒背景スタブ」で確立しており、
+#   475項目がその上で通っているためである。配信方法を変えたバッチで基準まで動かすと、
+#   落ちた項目が「配信の失敗」なのか「基準の変化」なのか切り分けられなくなる。
+#   ★ハーネスのファイルサーバは /css/ と /js/ しか配っていない(verify.js)。
+#     読ませたくなったらルートを足すこと。
+# ★落とすのは <link>/<script> だけで、直前の説明コメントは残す(何が落ちたか追える)。
 html = html.replace(
-    '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">',
+    '<link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">',
     "",
 )
 html = html.replace(
-    '<script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>',
+    '<script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>',
     "",
 )
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=40)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=41)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=32)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=33)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -185,7 +193,7 @@ print(f"wrote {OUT} ({len(html)} bytes)")
 # ---------------------------------------------------------------------------
 lobby = LOBBY_TEMPLATE.read_text(encoding="utf-8")
 lobby = lobby.replace(
-    '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">',
+    '<link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">',
     "",
 )
 lobby = re.sub(r'\s+th:href="[^"]*"', ' href="#"', lobby)
@@ -249,7 +257,7 @@ print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")
 # ---------------------------------------------------------------------------
 deck = DECK_TEMPLATE.read_text(encoding="utf-8")
 deck = deck.replace(
-    '<link th:href="@{/css/battle.css(v=40)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=41)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 deck = re.sub(r'\s+th:href="[^"]*"', ' href="#"', deck)
