@@ -1,38 +1,69 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>デッキメーカー — クイン・タブーエレメント</title>
-<!-- ★Batch 33 2-3: アイコンとメタ情報。このテンプレートは Thymeleaf 名前空間を
-     持たない素のHTMLなので、@{...} ではなく絶対パスで書く -->
+<!-- ★Batch 33 2-3: アイコンとメタ情報。
+     ★★Batch 39: このテンプレートにも Thymeleaf の名前空間を宣言した。
+       33 の時点では素のHTMLとして絶対パスで書いていたが、下のスクリプトは
+       もともと th:inline="none" で処理されており、Thymeleaf は通っていた。
+       名前空間の宣言が無かっただけである。版数つきの CSS 参照(@{...(v=NN)})を
+       他のテンプレートと同じ書き方にするために宣言を足した。 -->
 <meta name="description" content="クイン・タブーエレメントのデッキメーカー。メインデッキ40枚・禁忌デッキ8枚・リーダーを組んで JSON として書き出せます。">
 <meta name="theme-color" content="#212529">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<link rel="alternate icon" href="/favicon-32.png">
-<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}">
+<link rel="alternate icon" th:href="@{/favicon-32.png}">
+<link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
+<!--
+  ★★★Batch 39(裁定60): デッキメーカーを手動モードの系統へ寄せる。
+
+  ★<b>battle.css を読み込む</b>。34 でロビーを黒くしたときは「共有範囲が理由なく広がる」
+    として読み込ませなかったが、あのときロビーが欲しいものは<b>1つも無かった</b>。
+    この画面は違う——確認モーダル(.info-modal 一式)・トースト(.manual-toast)・
+    フォーカスの枠(:focus-visible)・文明色(:root の --civ-*)の4つを、
+    <b>向こうが既に持っている</b>。同じ物を書き写すより読むほうが正しい。
+  ★読み込む条件は裁定59 の番人が見ている——「battle.css を読み込むテンプレートは
+    すべて黒背景である」。この画面もそれを満たす(下の body に付けた印である)。
+  ★★Bootstrap は読み込まない。この画面は Bootstrap のクラスを1つも使っておらず、
+    3ペインも カードタイルも自前である。確認モーダルの数個のユーティリティのために
+    CDN を1本増やすと、<b>実サーバでしか結果を見られない変更</b>が増えるだけである。
+    したがって `bg-dark` / `text-light` は<b>印であって実装ではない</b>——
+    色は下の <style> が持つ(ロビーが同じ理由で色を自分で書いているのと同じ形である)。
+-->
+<link th:href="@{/css/battle.css(v=40)}" rel="stylesheet">
 <style>
+/* ★★★Batch 39(裁定60・レビュー B-2): 独自パレットを捨て、手動モードと<b>同じ値</b>にした。
+   38 まではここに紫と金の16色があり、ロビー・カード一覧・盤面のどれとも違っていた。
+   裁定32「近い色を新しく作らない」——2つの黒があると、どちらが正か分からなくなる。
+
+   ★変数そのものは残してある。捨てたのは<b>値</b>と、値が嘘をついていた<b>名前</b>である
+     (--gold は金色ではなくなったので --accent へ、--emerald / --crimson は --ok / --bad へ)。
+   ★--text-faint は消した。黒地で 2.6:1 しかなく、34 でロビーが薄い灰色を捨てたのと
+     まったく同じ理由である。薄い文字は --text-dim 1本にする。 */
 :root{
-  --bg:#0c0b12;
-  --surface:#181624;
-  --surface-2:#211e33;
-  --surface-3:#2a2640;
-  --line:#3c3656;
-  --line-soft:#2a2640;
-  --gold:#c9a15a;
-  --gold-soft:#8a744a;
-  --emerald:#3f9e7a;
-  --crimson:#c23c52;
-  --text:#ece8f7;
-  --text-dim:#9d97b8;
-  --text-faint:#6a6484;
+  --bg:#212529;           /* body。ロビー・カード一覧・盤面と同一 */
+  --surface:#2b3035;      /* 面。ロビーの .card と同一 */
+  --surface-2:#343a40;    /* 濃い面。ロビーの .card-header と同一 */
+  --line:#495057;         /* 仕切り。盤面・ロビーと同一 */
+  --line-soft:#343a40;
+  --accent:#ffca28;       /* 選択・強調。盤面の .manual-tile-selected / 軌跡と同一 */
+  --text:#f8f9fa;
+  --text-dim:#adb5bd;     /* 薄い文字。黒地で約 7.4:1(34 でロビーが選んだ値) */
+  --ok:#6ee7a0;           /* 盤面の LP 増加と同一(黒地で 9.99:1) */
+  --bad:#ff9b9b;          /* 盤面の LP 減少と同一(黒地で 7.65:1) */
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;height:100%;}
 body{
-  background:radial-gradient(1200px 700px at 50% -10%, #221f36 0%, #0c0b12 55%),var(--bg);
+  /* ★背景の放射グラデーションをやめて平らな黒にした。ロビーから1クリックで来る画面が
+     別の黒だと、34 で消した「白→黒のフラッシュ」が<b>黒→別の黒</b>として残る */
+  background:var(--bg);
   color:var(--text);
-  font-family:'Noto Sans JP','Hiragino Sans',sans-serif;
+  /* ★フォントも系統へ寄せた。Bootstrap を読み込む画面(ロビー・盤面)は system-ui で
+     描かれている。'Noto Sans JP' の指名だけが残っていると、同じ文言が画面ごとに
+     別の字で出る。日本語のフォールバックは残してある */
+  font-family:system-ui,-apple-system,"Segoe UI","Helvetica Neue","Noto Sans JP","Hiragino Sans",Arial,sans-serif;
   display:flex;flex-direction:column;overflow:hidden;
   -webkit-font-smoothing:antialiased;
 }
@@ -44,104 +75,115 @@ body{
   display:flex;justify-content:space-between;align-items:center;gap:12px;
   flex-shrink:0;z-index:50;flex-wrap:wrap;
 }
-.brand{display:flex;align-items:center;gap:10px;}
-.brand .mark{
-  font-family:Georgia,serif;font-weight:900;font-size:13px;letter-spacing:.14em;
-  color:var(--gold);border:1px solid var(--gold-soft);padding:3px 8px;border-radius:3px;
-}
+.brand{display:flex;align-items:baseline;gap:10px;}
+/* ★★Batch 39(裁定60): セリフ体の [TABOO] マークを外した。
+   ★このマークが悪かったわけではない——<b>置き場所が悪かった</b>。
+     同じ意匠は手動モードにちゃんと在る(battle.css の .mcard-back-mark、
+     つまり<b>カードの裏面</b>である)。あれはカードに印刷されたものであり、
+     画面の看板ではない。同じ意匠を画面の看板にも使うと、
+     「裏向きのカード」と「このアプリ」が同じ記号になる。
+   ★代わりに、ロビー・カード一覧と同じ「見出し + 薄い補助文」の形にした。
+     製品名の書き方(『◯◯ — クイン・タブーエレメント』)も <title> と揃っている。 */
 .brand h1{font-size:15px;margin:0;letter-spacing:.04em;font-weight:700;}
+.brand .brand-sub{font-size:12px;color:var(--text-dim);}
+.brand a{color:var(--text-dim);font-size:12px;text-decoration:none;}
+.brand a:hover{color:var(--text);}
 .civ-select{display:flex;gap:6px;}
 .civ-btn{
   padding:6px 13px;cursor:pointer;border:1px solid var(--line);background:var(--surface);
   color:var(--text-dim);border-radius:4px;font-weight:700;font-size:13px;font-family:inherit;transition:.15s;
 }
-.civ-btn:hover{border-color:var(--gold-soft);color:var(--text);}
+.civ-btn:hover{border-color:var(--accent);color:var(--text);}
 .civ-btn.active{color:#fff;border-color:var(--cc);box-shadow:0 0 8px color-mix(in srgb,var(--cc) 55%,transparent);background:color-mix(in srgb,var(--cc) 22%,var(--surface));}
 .io-group{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 .io-btn{
   background:transparent;border:1px solid var(--line);color:var(--text-dim);
   padding:7px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-family:inherit;transition:.15s;
 }
-.io-btn:hover{border-color:var(--gold-soft);color:var(--text);}
-.io-btn.primary{background:var(--gold);border-color:var(--gold);color:#1a1408;font-weight:700;}
+.io-btn:hover{border-color:var(--accent);color:var(--text);}
+.io-btn.primary{background:var(--accent);border-color:var(--accent);color:#000;font-weight:700;}
 .io-btn.primary:hover{filter:brightness(1.12);}
 input[type=file]{display:none;}
 
 /* ---------- 3ペイン ---------- */
 .workspace{display:flex;flex:1;overflow:hidden;}
 .detail-pane{
-  width:290px;min-width:290px;background:#131120;border-right:1px solid var(--line);
+  width:290px;min-width:290px;background:var(--bg);border-right:1px solid var(--line);
   display:flex;flex-direction:column;padding:16px;overflow-y:auto;gap:12px;
 }
-.detail-empty{color:var(--text-faint);font-size:12px;text-align:center;padding:40px 10px;border:1px dashed var(--line);border-radius:8px;}
+.detail-empty{color:var(--text-dim);font-size:12px;text-align:center;padding:40px 10px;border:1px dashed var(--line);border-radius:8px;}
 .detail-ctrl{display:flex;gap:8px;}
 .detail-ctrl button{
   flex:1;padding:8px 0;font-size:14px;font-weight:700;border-radius:4px;cursor:pointer;font-family:inherit;
   background:var(--surface-2);border:1px solid var(--line);color:var(--text);
 }
-.detail-ctrl button:hover{border-color:var(--gold-soft);}
+.detail-ctrl button:hover{border-color:var(--accent);}
 .info-rows{display:flex;flex-direction:column;gap:6px;font-size:12px;}
 .info-row{display:flex;justify-content:space-between;background:var(--surface);padding:6px 10px;border-radius:4px;border:1px solid var(--line-soft);}
-.info-row .k{color:var(--text-faint);}
+.info-row .k{color:var(--text-dim);}
 .info-row .v{font-weight:700;}
 
 .deck-pane{
   flex:1.15;display:flex;flex-direction:column;border-right:1px solid var(--line);
-  background:#161422;overflow-y:auto;padding:14px;
+  background:var(--bg);overflow-y:auto;padding:14px;
 }
 .deck-header{
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;
   border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px;
-  position:sticky;top:-14px;background:#161422;z-index:10;padding-top:4px;
+  position:sticky;top:-14px;background:var(--bg);z-index:10;padding-top:4px;
 }
 .deck-header input{
   background:var(--surface);border:1px solid var(--line);color:var(--text);
   padding:7px 10px;border-radius:4px;font-size:13px;width:200px;outline:none;font-family:inherit;
 }
-.deck-header input:focus{border-color:var(--gold-soft);}
+.deck-header input:focus{border-color:var(--accent);}
 .counters{display:flex;gap:8px;margin-left:auto;}
 .counter-box{
   background:var(--surface);padding:5px 11px;border-radius:4px;border:1px solid var(--line-soft);
-  font-size:11px;color:var(--text-faint);
+  font-size:11px;color:var(--text-dim);
 }
 .counter-box b{font-size:14px;margin-left:5px;font-family:monospace;}
-.ok{color:var(--emerald);}
-.bad{color:var(--crimson);}
+.ok{color:var(--ok);}
+.bad{color:var(--bad);}
 .deck-section{margin-bottom:16px;background:var(--surface);padding:10px;border-radius:6px;border:1px solid var(--line-soft);min-height:80px;flex-shrink:0;}
-.section-title{font-size:12px;margin:0 0 10px;color:var(--gold);letter-spacing:.08em;border-bottom:1px dashed var(--line);padding-bottom:5px;}
-.section-title small{color:var(--text-faint);font-weight:400;margin-left:6px;}
+.section-title{font-size:12px;margin:0 0 10px;color:var(--accent);letter-spacing:.08em;border-bottom:1px dashed var(--line);padding-bottom:5px;}
+.section-title small{color:var(--text-dim);font-weight:400;margin-left:6px;}
 
-.pool-pane{flex:1;display:flex;flex-direction:column;background:#14121e;overflow:hidden;}
+.pool-pane{flex:1;display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
 .pool-tabs{display:flex;background:var(--surface);border-bottom:1px solid var(--line);flex-shrink:0;}
 .tab-btn{
-  flex:1;padding:11px;cursor:pointer;text-align:center;background:transparent;color:var(--text-faint);
+  flex:1;padding:11px;cursor:pointer;text-align:center;background:transparent;color:var(--text-dim);
   border:none;font-size:13px;font-weight:700;border-bottom:3px solid transparent;font-family:inherit;transition:.15s;
 }
 .tab-btn:hover{color:var(--text);}
-.tab-btn.active{color:var(--gold);border-bottom-color:var(--gold);background:var(--surface-2);}
+.tab-btn.active{color:var(--accent);border-bottom-color:var(--accent);background:var(--surface-2);}
 .pool-controls{padding:9px 13px;background:var(--surface-2);border-bottom:1px solid var(--line);flex-shrink:0;}
 .pool-controls-top{display:flex;align-items:center;gap:10px;}
-.pool-hint{font-size:11px;color:var(--text-faint);}
-.pool-hint b{color:var(--text-dim);}
+.pool-hint{font-size:11px;color:var(--text-dim);}
+.pool-hint b{color:var(--text);}
 .pool-controls select,.pool-controls input[type=text]{
   background:var(--surface);border:1px solid var(--line);color:var(--text);
   padding:5px 8px;border-radius:4px;font-size:12px;outline:none;font-family:inherit;
 }
 .pool-controls input[type=text]{flex:1;min-width:100px;}
 .filter-row{display:flex;align-items:center;gap:4px;margin-top:7px;flex-wrap:wrap;}
-.filter-lbl{font-size:10.5px;color:var(--text-faint);width:38px;text-align:right;margin-right:3px;flex:none;}
+.filter-lbl{font-size:10.5px;color:var(--text-dim);width:38px;text-align:right;margin-right:3px;flex:none;}
 .flt-btn{
-  background:var(--surface);border:1px solid var(--line);color:var(--text-faint);
+  background:var(--surface);border:1px solid var(--line);color:var(--text-dim);
   border-radius:4px;padding:3px 9px;font-size:11px;cursor:pointer;font-family:inherit;transition:.1s;
 }
-.flt-btn:hover{border-color:var(--gold-soft);}
-.flt-btn.on{background:var(--gold);color:#1a1408;border-color:var(--gold);font-weight:700;}
+.flt-btn:hover{border-color:var(--accent);}
+.flt-btn.on{background:var(--accent);color:#000;border-color:var(--accent);font-weight:700;}
 .flt-util{margin-left:auto;display:flex;gap:4px;}
+/* ★Batch 39: 塗りつぶし + 白文字をやめた。#6ee7a0 / #ff9b9b は<b>黒地で読ませるための</b>
+   明るい色であり、その上に白を載せると 1.5:1 前後になる(38 まではもっと暗い緑と赤に
+   白を載せていた)。盤面の btn-outline-* と同じ「地は透明・文字と枠に色」へ寄せる。 */
 .flt-util button{
-  border:none;padding:3px 9px;border-radius:4px;font-size:10.5px;cursor:pointer;font-family:inherit;color:#fff;
+  background:transparent;padding:3px 9px;border-radius:4px;border:1px solid currentColor;
+  font-size:10.5px;cursor:pointer;font-family:inherit;
 }
-.b-on{background:var(--emerald);}
-.b-off{background:var(--crimson);}
+.b-on{color:var(--ok);}
+.b-off{color:var(--bad);}
 .pool-scroll{flex:1;overflow-y:auto;padding:13px;}
 
 /* ---------- カードタイル(共通レンダラ・コンパクト) ---------- */
@@ -165,10 +207,10 @@ input[type=file]{display:none;}
       color-mix(in srgb,var(--c) 55%, #000 30%) 45%,
       color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
 }
-.tile.in-deck{box-shadow:0 0 0 2px var(--gold), 0 1px 6px rgba(0,0,0,.6);}
+.tile.in-deck{box-shadow:0 0 0 2px var(--accent), 0 1px 6px rgba(0,0,0,.6);}
 .tile-inner{
   height:100%;display:flex;flex-direction:column;border-radius:5px;overflow:hidden;
-  background:linear-gradient(180deg,#16141f,#1c1929);border:1px solid rgba(0,0,0,.4);
+  background:linear-gradient(180deg,#17151f,#1b1827);border:1px solid rgba(0,0,0,.4);
 }
 .t-head{
   display:flex;align-items:center;gap:4px;padding:4px 5px;
@@ -182,8 +224,8 @@ input[type=file]{display:none;}
   clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
   font-weight:900;font-size:10px;color:#fff;
 }
-.t-crown{width:17px;flex:none;text-align:center;font-size:11px;color:var(--gold);}
-.t-name{
+.t-crown{width:17px;flex:none;text-align:center;font-size:11px;color:var(--accent);}
+.t-name{color:#ece8f7;
   font-weight:700;font-size:9.5px;line-height:1.2;
   overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
 }
@@ -201,11 +243,13 @@ input[type=file]{display:none;}
 .t-stat{font-weight:900;font-size:10.5px;}
 .t-stat.atk{color:#f0c869;}
 .t-stat.hp{color:#e88a9a;}
-.t-leader{font-size:7px;letter-spacing:.3em;color:var(--gold);width:100%;text-align:center;}
+.t-leader{font-size:7px;letter-spacing:.3em;color:var(--accent);width:100%;text-align:center;}
+/* ★Batch 39: 赤地に白文字(1.9:1)をやめ、盤面の強調色 + 黒文字にした。
+   採用枚数は<b>異常ではない</b>ので、そもそも赤で出す理由が無かった。 */
 .count-badge{
-  position:absolute;top:-6px;right:-6px;background:var(--crimson);color:#fff;
+  position:absolute;top:-6px;right:-6px;background:var(--accent);color:#000;
   min-width:21px;height:21px;line-height:19px;text-align:center;border-radius:11px;
-  font-weight:900;font-size:11px;border:1px solid #fff;z-index:5;display:none;padding:0 3px;
+  font-weight:900;font-size:11px;border:1px solid #000;z-index:5;display:none;padding:0 3px;
   box-shadow:0 2px 4px rgba(0,0,0,.5);
 }
 .tile.in-deck .count-badge{display:block;}
@@ -227,7 +271,7 @@ input[type=file]{display:none;}
       color-mix(in srgb,var(--c) 55%, #000 30%) 45%,
       color-mix(in srgb,var(--c) 70%, #000 45%) 100%);
 }
-.bc-inner{height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#16141f,#1c1929);border-radius:6px;overflow:hidden;border:1px solid rgba(0,0,0,.4);}
+.bc-inner{height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#17151f,#1b1827);border-radius:6px;overflow:hidden;border:1px solid rgba(0,0,0,.4);}
 .bc-head{
   display:flex;align-items:center;gap:7px;padding:8px 9px;
   background:linear-gradient(180deg,color-mix(in srgb,var(--c) 38%, #14121d),color-mix(in srgb,var(--c) 18%, #14121d));
@@ -239,8 +283,8 @@ input[type=file]{display:none;}
   clip-path:polygon(50% 0%,93% 25%,93% 75%,50% 100%,7% 75%,7% 25%);
   font-weight:900;font-size:14px;color:#fff;
 }
-.bc-crown{width:27px;flex:none;text-align:center;font-size:16px;color:var(--gold);}
-.bc-name{font-weight:700;font-size:13.5px;line-height:1.3;}
+.bc-crown{width:27px;flex:none;text-align:center;font-size:16px;color:var(--accent);}
+.bc-name{font-weight:700;font-size:13.5px;line-height:1.3;color:#ece8f7;}
 .bc-type{
   display:flex;justify-content:space-between;padding:3px 9px;font-size:9.5px;letter-spacing:.12em;
   color:color-mix(in srgb,var(--c) 70%, #fff 25%);background:rgba(0,0,0,.25);
@@ -255,27 +299,42 @@ input[type=file]{display:none;}
 .bc-stat{font-weight:900;font-size:15px;}
 .bc-stat.atk{color:#f0c869;}
 .bc-stat.hp{color:#e88a9a;}
-.bc-leader{font-size:9px;letter-spacing:.35em;color:var(--gold);width:100%;text-align:center;}
+.bc-leader{font-size:9px;letter-spacing:.35em;color:var(--accent);width:100%;text-align:center;}
 
-.toast{
-  position:fixed;bottom:18px;left:50%;transform:translateX(-50%);
-  background:var(--surface-3);border:1px solid var(--gold-soft);color:var(--text);
-  padding:9px 18px;border-radius:6px;font-size:12.5px;z-index:200;
-  box-shadow:0 4px 14px rgba(0,0,0,.6);transition:opacity .3s;opacity:0;pointer-events:none;
-}
-.toast.show{opacity:1;}
+/* ★★Batch 39(裁定60): 独自トーストを捨てた。<b>この画面にトーストのCSSは無い</b>——
+   `.manual-toast` は battle.css が持っている。同じ場所・同じ地・同じ枠で出る。
+   ★38 まではこちらだけ「金の枠・角丸6px・下から18px・2.6秒」で、盤面は
+     「灰の枠・角丸4px・下から24px・1.6秒」だった。どちらが正かを決める話ではなく、
+     <b>2つある</b>ことが問題だった(設計判断28)。 */
+
+/* ★★Batch 39: 確認モーダル(0-2章)。器は battle.css の .info-modal 一式である。
+   ここに書くのは<b>この画面のボタンの見た目だけ</b>——盤面は Bootstrap の .btn を
+   使っているが、この画面は Bootstrap を読み込まないので .io-btn を当てる。
+   ★寸法と色は .info-modal-body(battle.css)が持っているので触らない。 */
+#confirm-modal .info-modal-body{max-width:380px;}
+#confirm-modal h6{margin:0;font-size:14px;}
+/* ★× の寸法は .info-modal-x(battle.css)が決めているが、.io-btn と同じ詳細度なので
+   後から読まれるこちらが勝つ。盤面と同じ「小さい四角」に戻す */
+#confirm-modal .info-modal-x{padding:1px 7px;font-size:14px;line-height:1.2;}
+#confirm-modal .confirm-text{font-size:12.5px;line-height:1.7;margin:0 0 14px;}
+#confirm-modal .confirm-buttons{display:flex;justify-content:flex-end;gap:8px;}
+
 ::-webkit-scrollbar{width:9px;}
 ::-webkit-scrollbar-track{background:var(--surface);}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;}
 </style>
 </head>
-<body>
+<!-- ★★Batch 39: bg-dark / text-light は<b>印</b>である(head のコメント参照)。
+     Bootstrap を読み込まないこの画面では色を <style> が持っており、
+     このクラスは「battle.css を読み込むテンプレートはすべて黒背景である」という
+     裁定59 の番人が読むためにある。実際の色は検証が計算値で測っている。 -->
+<body class="bg-dark text-light">
 
 <div class="top-bar">
   <div class="brand">
-    <a href="/" style="color:var(--text-faint);font-size:12px;text-decoration:none;margin-right:2px;">&larr; ロビー</a>
-    <span class="mark">TABOO</span>
+    <a th:href="@{/}">&larr; ロビー</a>
     <h1>デッキメーカー</h1>
+    <span class="brand-sub">クイン・タブーエレメント</span>
   </div>
   <div class="civ-select" id="civ-select"></div>
   <div class="io-group">
@@ -349,7 +408,34 @@ input[type=file]{display:none;}
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<!-- ★★Batch 39: トーストは盤面と同じ .manual-toast(battle.css)である。
+     hidden で閉じるのは、この画面が Bootstrap の .d-none を持たないためである
+     (battle.css 側に `.info-modal[hidden]` と対の理由を書いてある)。 -->
+<div class="manual-toast" id="toast" hidden></div>
+
+<!--
+  ★★★Batch 39(裁定53): 破壊的操作から素のブラウザ確認ダイアログを捨てた。
+  器は盤面とまったく同じである——`.info-modal` / `.info-modal-body` /
+  `.info-modal-head` / `.info-modal-x`、出口の id は `-close` で終わる(裁定34・35)、
+  初期フォーカスは [キャンセル] を名指しする(裁定52)、重ね順は `manual-confirm`。
+  ★ボタンには<b>動詞</b>を書く(裁定55)。「はい」ではない。
+-->
+<div id="confirm-modal" class="info-modal manual-confirm" hidden
+     data-initial-focus="#confirm-modal-close">
+  <div class="info-modal-body" role="dialog" aria-modal="true"
+       aria-labelledby="confirm-modal-title">
+    <div class="info-modal-head">
+      <h6 id="confirm-modal-title">確認</h6>
+      <button type="button" id="confirm-modal-x" class="io-btn info-modal-x"
+              aria-label="閉じる" title="閉じる">&times;</button>
+    </div>
+    <p id="confirm-modal-text" class="confirm-text"></p>
+    <div class="confirm-buttons">
+      <button type="button" id="confirm-modal-ok" class="io-btn primary">実行</button>
+      <button type="button" id="confirm-modal-close" class="io-btn">キャンセル</button>
+    </div>
+  </div>
+</div>
 
 <script th:inline="none">
 /* ============================================================
@@ -359,7 +445,29 @@ input[type=file]{display:none;}
  * ============================================================ */
 const LIBRARY_URL = '/manual/api/card-library';
 
-const CIV_COLOR = {'水':'#2f6fb5','火':'#b53a3a','風':'#3a8f57','光':'#b8952f','闇':'#6b42a8','土':'#c05a8e','無':'#6f6f7c'};
+/* ============================================================
+ * 0-1) 文明色(★★★Batch 39・レビュー B-2)
+ *
+ * ★<b>値はここに書かない。</b>正は battle.css の :root の --civ-* 1箇所である。
+ *   38 まではここに7色の写しがあり、盤面(manual-battle.js)と
+ *   OGP生成(tools/make_brand_assets.js)にも同じ写しがあった。
+ * ★盤面と同じ形にしてある——名前は「--civ- + 文明コードの小文字」で機械的に決まり、
+ *   <b>色の対応表を持たない</b>。持っている表(CIV_CODE)は表示名から文明コードへの
+ *   <b>名前</b>の対応であり、これは元から必要だったものである。
+ * ============================================================ */
+const CIV_JA = {WATER:'水',FIRE:'火',EARTH:'土',WIND:'風',LIGHT:'光',DARK:'闇',NONE:'無'};
+const CIV_CODE = Object.fromEntries(Object.entries(CIV_JA).map(([code,ja])=>[ja,code]));
+const civColorCache = new Map();
+function civColor(ja){
+  const key = (CIV_CODE[ja] || 'NONE').toLowerCase();
+  if(civColorCache.has(key)) return civColorCache.get(key);
+  const read = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // ★ここに既定の色を書かない。書いた瞬間、それが8つ目の複製になる
+  const value = read('--civ-'+key) || read('--civ-none');
+  civColorCache.set(key, value);
+  return value;
+}
+
 const CIVS = ['火','水','土','風','光','闇'];
 const TYPE_LABEL = {LEADER:'リーダー',MINION:'ミニオン',EVOLUTION:'進化ミニオン',SPELL:'スペル',WEAPON:'ウェポン'};
 const TYPE_WEIGHT = {LEADER:0,MINION:1,EVOLUTION:2,SPELL:3,WEAPON:4};
@@ -380,16 +488,148 @@ COST_KEYS.forEach(k=>filters.cost[k]=true);
 
 function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function norm(s){return (s||'').replace(/[・\s()（）]/g,'');}
+/**
+ * 小トースト。★★Batch 39(裁定60): 盤面の showToast(manual-battle.js 3-5)と
+ * <b>同じ見た目・同じ場所・同じ長さ</b>にした。器(.manual-toast)は battle.css にあり、
+ * ここには持っていない。1.6秒という長さも向こうに合わせてある。
+ */
+let toastTimer = null;
 function toast(msg){
   const t=document.getElementById('toast');
-  t.textContent=msg; t.classList.add('show');
-  clearTimeout(t._tm); t._tm=setTimeout(()=>t.classList.remove('show'),2600);
+  t.textContent=msg;
+  t.hidden=false;
+  if(toastTimer!==null) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{ toastTimer=null; t.hidden=true; },1600);
 }
 function costKey(c){ return (c==null)?'0':(c>=10?'10plus':String(c)); }
 function isUnlimited(c){ return !!c.unlimited; }
 
+/* ============================================================
+ * 0-2) モーダルの層と確認(★★★Batch 39・裁定47〜56)
+ *
+ * ★★<b>これは manual-battle.js の 0-3 / 0-4 と同じ規約の、同じ形の実装である。</b>
+ *   同じ<b>コード</b>ではない——この画面は盤面のスクリプトを読み込まないし、
+ *   共有のJSファイルを1つ増やすと静的ファイルの版数の系統が4つ目になる(裁定74)。
+ *   ★したがってここは<b>複製である</b>。複製を許すかわりに、
+ *     検証(verify/verify.js のデッキメーカーの節)が向こうと<b>同じ項目</b>で測っている——
+ *     Esc で閉じる / Esc は下へ落ちない / Tab が抜けない / 初期フォーカスは [キャンセル] /
+ *     素の confirm() を呼ばない。<b>黙って離れていくことができない形にしてある。</b>
+ *
+ * ★覆うものは今1つしか無いが、スタックで持つ(裁定47)。優先順位9(マナカーブ・
+ *   検証一覧)で2つ目が来たときに、規約ではなく実装から先に崩れるのを防ぐ。
+ * ★Esc は × と同じ資格しか持たない(裁定48)。どちらも [キャンセル] を click() する。
+ * ★Esc は下の層へ落とさない(裁定49)。
+ * ★開閉は openInfoModal / closeInfoModal を通す(裁定51)。
+ *   ★閉じるのは hidden 属性である。この画面は Bootstrap を読み込まないので
+ *     .d-none を持たない(battle.css 側に対の指定がある)。
+ * ============================================================ */
+const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]),'
+  + ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+const modalStack = [];
+
+/** ★position: fixed に offsetParent は使えない。矩形の有無で見る */
+function isShown(el){ return !!el && el.isConnected && el.getClientRects().length>0; }
+function focusablesIn(el){ return Array.from(el.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isShown); }
+
+/** ★既定は「× を除いた最初の焦点可能要素」。例外は data-initial-focus で名指しする(裁定52) */
+function applyInitialFocus(el){
+  const hint = el.getAttribute('data-initial-focus');
+  const named = hint ? el.querySelector(hint) : null;
+  if(isShown(named)){ named.focus(); return; }
+  const list = focusablesIn(el);
+  const body = list.filter(n=>!n.classList.contains('info-modal-x'));
+  const target = body.length>0 ? body[0] : list[0];
+  if(target) target.focus();
+}
+function restoreFocus(el){
+  if(isShown(el) && typeof el.focus==='function'){ el.focus(); return; }
+  if(document.activeElement && document.activeElement!==document.body) document.activeElement.blur();
+}
+function pushModalLayer(el, options){
+  const opts = options||{};
+  const trap = opts.trap!==false;
+  if(modalStack.some(layer=>layer.el===el)) return;
+  modalStack.push({el, trap, escape:opts.escape||null, restore:document.activeElement});
+  if(trap) applyInitialFocus(el);
+}
+function popModalLayer(el){
+  const index = modalStack.findIndex(layer=>layer.el===el);
+  if(index<0) return;
+  const layer = modalStack.splice(index,1)[0];
+  if(index!==modalStack.length) return;
+  if(layer.trap) restoreFocus(layer.restore);
+}
+function topModalLayer(){ return modalStack.length>0 ? modalStack[modalStack.length-1] : null; }
+
+document.addEventListener('keydown', e=>{
+  const top = topModalLayer();
+  if(!top) return;
+  if(e.key==='Escape'){
+    // ★出口が無くても preventDefault する。ここで止めるのが「下へ落とさない」の実体である
+    e.preventDefault();
+    if(top.escape) top.escape();
+    return;
+  }
+  if(e.key!=='Tab' || !top.trap) return;
+  const list = focusablesIn(top.el);
+  if(list.length===0){ e.preventDefault(); return; }
+  const first = list[0], last = list[list.length-1];
+  const active = document.activeElement;
+  const outside = !top.el.contains(active);
+  if(e.shiftKey && (outside || active===first)){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && (outside || active===last)){ e.preventDefault(); first.focus(); }
+});
+// ★Tab の折り返しだけでは足りない。裏をクリックした経路は keydown を通らない
+document.addEventListener('focusin', e=>{
+  const top = topModalLayer();
+  if(!top || !top.trap || top.el.contains(e.target)) return;
+  applyInitialFocus(top.el);
+});
+
+/** ★出口は id が -close で終わるものを引く(裁定34・35 と同じ規約) */
+function openInfoModal(id){
+  const el = document.getElementById(id);
+  if(!el) return null;
+  el.hidden = false;
+  const closeBtn = el.querySelector('[id$="-close"]');
+  pushModalLayer(el, {escape: closeBtn ? ()=>closeBtn.click() : null});
+  return el;
+}
+function closeInfoModal(id){
+  const el = typeof id==='string' ? document.getElementById(id) : id;
+  if(!el) return;
+  el.hidden = true;
+  popModalLayer(el);
+}
+
+let confirmPending = null;
+/**
+ * 破壊的操作の確認。★問いは1つずつ(開いている間の askConfirm は捨てる)。
+ * @param okLabel ★<b>動詞</b>を書く(裁定55)。「はい」ではない
+ */
+function askConfirm(text, okLabel, onOk){
+  if(confirmPending) return false;
+  confirmPending = onOk;
+  document.getElementById('confirm-modal-text').textContent = text;
+  document.getElementById('confirm-modal-ok').textContent = okLabel;
+  openInfoModal('confirm-modal');
+  return true;
+}
+function closeConfirmModal(){
+  confirmPending = null;
+  closeInfoModal('confirm-modal');
+}
+document.getElementById('confirm-modal-close').addEventListener('click', closeConfirmModal);
+document.getElementById('confirm-modal-x').addEventListener('click',
+  ()=>document.getElementById('confirm-modal-close').click());
+document.getElementById('confirm-modal-ok').addEventListener('click', ()=>{
+  const run = confirmPending;
+  closeConfirmModal();   // ★先に閉じる。後片付けを実行の中身に依存させない
+  if(run) run();
+});
+
 /* ---------- ライブラリ ---------- */
-const CIV_JA = {WATER:'水',FIRE:'火',EARTH:'土',WIND:'風',LIGHT:'光',DARK:'闇',NONE:'無'};
+/* ★CIV_JA は 0-1 章(文明色)へ移した。表示名と文明コードの対応は1箇所である */
 function loadLibrary(lib){
   if(!lib || !Array.isArray(lib.cards)){
     toast('カードデータを読み込めませんでした'); return false;
@@ -441,10 +681,24 @@ function changeCount(id, delta){
 }
 
 /* ---------- 文明選択 ---------- */
+/**
+ * ★★★Batch 39(裁定53): 素の confirm() をやめた。
+ *
+ * ★確認は<b>コールバックで受ける</b>(裁定54)。取り消したときにやることは無いので、
+ *   真偽値を返すと呼ぶ側の if が必ず1つ増える。実行する側だけを渡す。
+ * ★<b>実行する中身を別の関数に分けた</b>。38 までは「確認 → そのまま下へ続く」
+ *   1本の流れで書けていたが、確認が非同期になると続きを名前で呼ぶ必要がある。
+ *   applyCiv は確認の有無に関係なく<b>同じ1本</b>である(設計判断28)。
+ */
 function selectCiv(civ, silent){
   if(!silent && (deck.leaderId||deck.counts.size)){
-    if(!confirm(`メイン文明を ${civ} に変更します。\n構築中のデッキはリセットされます。よろしいですか？`)) return;
+    askConfirm(`メイン文明を ${civ} に変更する。組みかけのデッキは失われる。`,
+      '文明を変更する', ()=>applyCiv(civ));
+    return;
   }
+  applyCiv(civ);
+}
+function applyCiv(civ){
   mainCiv = civ;
   document.querySelectorAll('.civ-btn').forEach(b=>{
     b.classList.toggle('active', b.dataset.civ===civ);
@@ -456,7 +710,7 @@ function selectCiv(civ, silent){
 
 /* ---------- タイル描画(共通レンダラ・コンパクト) ---------- */
 function tileHtml(c, context){
-  const col = CIV_COLOR[c.civ]||'#888';
+  const col = civColor(c.civ);
   const isL = c.type==='LEADER', isE = c.type==='EVOLUTION';
   const hasAtk = ['MINION','EVOLUTION','WEAPON'].includes(c.type);
   const hasHp  = ['MINION','EVOLUTION'].includes(c.type);
@@ -487,7 +741,7 @@ function renderDetail(){
     pane.innerHTML = `<div class="detail-empty">カードを左クリックすると<br>ここに詳細が表示されます</div>`;
     return;
   }
-  const col = CIV_COLOR[c.civ]||'#888';
+  const col = civColor(c.civ);
   const isL = c.type==='LEADER', isE = c.type==='EVOLUTION';
   const hasAtk = ['MINION','EVOLUTION','WEAPON'].includes(c.type);
   const hasHp  = ['MINION','EVOLUTION'].includes(c.type);
@@ -503,7 +757,7 @@ function renderDetail(){
           <div class="bc-name">${esc(c.name)}</div>
         </div>
         <div class="bc-type"><span>${TYPE_LABEL[c.type]}</span><span>${esc(c.civ)}文明</span></div>
-        <div class="bc-body"><div class="bc-text">${c.text?esc(c.text):'<i style="color:var(--text-faint)">（効果なし）</i>'}</div></div>
+        <div class="bc-body"><div class="bc-text">${c.text?esc(c.text):'<i style="color:var(--text-dim)">（効果なし）</i>'}</div></div>
         <div class="bc-foot">${foot}</div>
       </div>
     </div>
@@ -512,7 +766,7 @@ function renderDetail(){
       <button id="d-plus">＋</button>
     </div>
     <div class="info-rows">
-      <div class="info-row"><span class="k">採用枚数</span><span class="v" style="color:var(--gold)">${qty} 枚</span></div>
+      <div class="info-row"><span class="k">採用枚数</span><span class="v" style="color:var(--accent)">${qty} 枚</span></div>
       <div class="info-row"><span class="k">文明</span><span class="v" style="color:${col}">${esc(c.civ)}</span></div>
       <div class="info-row"><span class="k">種類</span><span class="v">${TYPE_LABEL[c.type]}</span></div>
       <div class="info-row"><span class="k">ID</span><span class="v" style="font-family:monospace;font-size:10px;">${esc(c.id)}</span></div>
@@ -658,7 +912,7 @@ function buildStaticUi(){
   CIVS.forEach(civ=>{
     const b=document.createElement('button');
     b.className='civ-btn'; b.dataset.civ=civ; b.textContent=civ;
-    b.style.setProperty('--cc',CIV_COLOR[civ]);
+    b.style.setProperty('--cc',civColor(civ));
     b.onclick=()=>selectCiv(civ,false);
     sel.appendChild(b);
   });
@@ -735,7 +989,7 @@ fetch(LIBRARY_URL)
   .then(lib=>{ if(loadLibrary(lib)) selectCiv('火', true); })
   .catch(e=>{
     document.getElementById('pool-grid').innerHTML =
-      '<div style="color:var(--text-faint);padding:30px;font-size:13px;">カードデータの取得に失敗しました('+esc(e.message)+')。サーバが起動しているか確認してください。</div>';
+      '<div style="color:var(--text-dim);padding:30px;font-size:13px;">カードデータの取得に失敗しました('+esc(e.message)+')。サーバが起動しているか確認してください。</div>';
   });
 </script>
 </body>

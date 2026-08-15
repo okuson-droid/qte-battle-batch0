@@ -116,10 +116,27 @@ const FACE_TYPE_LABELS = {
     LEADER: 'リーダー', MINION: 'ミニオン', EVOLUTION: '進化ミニオン',
     SPELL: 'スペル', WEAPON: 'ウェポン',
 };
-const FACE_CIV_COLORS = {
-    WATER: '#2f6fb5', FIRE: '#b53a3a', WIND: '#3a8f57',
-    LIGHT: '#b8952f', DARK: '#6b42a8', EARTH: '#c05a8e', NONE: '#6f6f7c',
-};
+/**
+ * 文明色。★★★Batch 39(レビュー B-2): <b>値はここに書かない。</b>
+ * 正は battle.css の `:root` の `--civ-*` 1箇所である(そちらの注記を読むこと)。
+ *
+ * ★名前は「`--civ-` + 文明コードの小文字」で機械的に決まる。<b>対応表を持たない</b>——
+ *   表を持てば、それが色の複製と同じだけ壊れる(文明が1つ増えたときに直す場所が2つになる)。
+ * ★1度読んだら覚える。描画のたびに getComputedStyle を呼ぶと、盤面の再描画が重くなる
+ *   (29 の「描画関数の中で幅を実測しない」と同じ理由である)。
+ * ★<b>既定の色をここに書かない</b>。書いた瞬間、それが8つ目の複製になる
+ *   (読めなかったときは空文字が返り、枠の色が付かないだけである)。
+ */
+const civColorCache = new Map();
+function civColor(civ) {
+    const key = String(civ || 'NONE').toLowerCase();
+    if (civColorCache.has(key)) return civColorCache.get(key);
+    const read = (name) => getComputedStyle(document.documentElement)
+        .getPropertyValue(name).trim();
+    const value = read('--civ-' + key) || read('--civ-none');
+    civColorCache.set(key, value);
+    return value;
+}
 
 function cardFaceText(card) {
     if (cardTextById && card.cardId && cardTextById.has(card.cardId)) {
@@ -170,7 +187,7 @@ function cardFace(card, variant) {
         // 検証がカードの同一性を確かめるためのキー(verify/verify.js の zoomedImage)
         el.dataset.imageId = card.imageId;
     }
-    el.style.setProperty('--mc', FACE_CIV_COLORS[card.civilization] || '#5a5468');
+    el.style.setProperty('--mc', card.civilization ? civColor(card.civilization) : '#5a5468');
 
     const inner = document.createElement('div');
     inner.className = 'mcard-inner';
@@ -1662,12 +1679,11 @@ function openZoneOrDeny(el, seatView, zoneName) {
 // 3) 文明色(設計書 4-2)
 // ---------------------------------------------------------------
 
-// ★Batch 25b: パレットはカードフェイス(FACE_CIV_COLORS)と同一の1系統に統一した。
+// ★Batch 25b: パレットはカードフェイスと同一の1系統に統一した。
 //   タイルは明色ベタ塗り+コントラスト計算(textColorFor)をやめ、
 //   フェイスと同じ暗色トーン(.mcard-frame)+明色文字で描く。
-function civColor(civ) {
-    return FACE_CIV_COLORS[civ] || FACE_CIV_COLORS.NONE;
-}
+// ★★Batch 39: その1系統の<b>値</b>も battle.css の :root へ移した(0章の civColor)。
+//   ここに関数は残っていない——フェイスとタイルが同じ関数を呼ぶ形は 25b のままである。
 
 /** タイルをフェイスと同じ見た目の枠にする(場・リーダー・マナ・相手上段マナ) */
 function applyCivFrame(el, civ) {

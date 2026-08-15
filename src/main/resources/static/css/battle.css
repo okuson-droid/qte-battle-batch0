@@ -17,7 +17,33 @@
      安全である<b>理由のほう</b>を番人にしている(34 の裁定32 と同じ考え方)。
    ★色そのものはここで指定しない。`#212529` / `#f8f9fa` の正は各テンプレート側にある
      (裁定32: 近い色を新しく作らない)。 */
-:root { color-scheme: dark; }
+/* ★★★Batch 39(レビュー B-2): <b>文明色の正はここ1箇所である。</b>
+
+   39 まで、同じ7色が3箇所に書かれていた——manual-battle.js の FACE_CIV_COLORS、
+   manual-deck-maker.html の CIV_COLOR(キーが日本語)、tools/make_brand_assets.js の
+   CIV(配列)。設計判断28「同じ情報を2箇所に置かない」にフロント側の色が違反していた。
+
+   ★なぜ CSS に置くのか。<b>3者のうち2者が既に CSS を読むから</b>である。
+     盤面はタイルとフェイスに `--mc` を立てて色を使い、デッキメーカーも `--c` に立てる。
+     どちらも最終的な使い道は CSS のカスタムプロパティであり、JS は
+     「どの色か」を選ぶだけで「何色か」を知る必要が無い。
+   ★JS はここから読む(civColor)。名前は `--civ-` + 文明コードの小文字であり、
+     <b>対応表を持たない</b>。表を持つと、それが4つ目の複製になる。
+   ★tools/make_brand_assets.js もこのファイルを読む(Node なのでファイルとして読める)。
+   ★★焼き込んだ<b>画像</b>(favicon.svg・カードのPNG)は複製ではなく<b>出力</b>である。
+     番人の対象はコードだけにしてある。
+   ★★<b>機械判定あり</b>: この7色の hex が js / テンプレート / tools のどこにも
+     現れないことを測っている。 */
+:root {
+    color-scheme: dark;
+    --civ-water: #2f6fb5;
+    --civ-fire:  #b53a3a;
+    --civ-wind:  #3a8f57;
+    --civ-light: #b8952f;
+    --civ-dark:  #6b42a8;
+    --civ-earth: #c05a8e;
+    --civ-none:  #6f6f7c;
+}
 
 .board-side { background: rgba(255, 255, 255, 0.06); min-height: 140px; }
 .opponent-side { border-top: 3px solid #dc3545; }
@@ -136,6 +162,15 @@
      切断中は「操作が相手に届かない」のほうが上位の情報であり、
      その上に確認を重ねると「実行しても何も起きない問い」を最前面に出すことになる。 */
 .info-modal.manual-confirm { z-index: 1965; }
+
+/* ★★Batch 39: デッキメーカーは Bootstrap を読み込まないので `.d-none` を持たない。
+   落ちてもいない CDN の代わりを自分のCSSに書くのは筋が悪いため、あちらは
+   <b>hidden 属性</b>で閉じる。`.info-modal` は display: flex なので、
+   UA スタイルの `[hidden] { display: none }` はそのままでは負ける。ここで勝たせる。
+   ★盤面側は `.d-none`(Bootstrap)のままである。<b>閉じ方の違いは
+     openInfoModal / closeInfoModal の中に閉じており、呼ぶ側には出てこない</b>
+     (裁定51 が守っているのはまさにこの境界である)。 */
+.info-modal[hidden] { display: none; }
 
 /* ★★Batch 36: キーボードの居場所を見せる(レビュー A-1)。
 

@@ -24,10 +24,18 @@ const { chromium } = require('playwright');
 const ROOT = path.resolve(__dirname, '..');
 const STATIC = path.join(ROOT, 'src/main/resources/static');
 
-// ★文明色は FACE_CIV_COLORS(manual-battle.js)と同一である。
-//   ここを直すときは向こうも直すこと——という状態を作らないため、
-//   OGP の帯以外にこの配列を使わない(盤面の色はJS側が正である)。
-const CIV = ['#2f6fb5', '#b53a3a', '#3a8f57', '#b8952f', '#6b42a8', '#c05a8e'];
+// ★★Batch 39(レビュー B-2): 文明色は battle.css の :root から読む。
+//   38 まではここに同じ7色を書き写しており、「ここを直すときは向こうも直すこと」
+//   という覚えごとがコメントで運用されていた。覚えごとは必ず忘れられる。
+//   ★このスクリプトは Node である。ブラウザと違い CSS を<b>ファイルとして</b>読めるので、
+//     カスタムプロパティを正規表現で拾うだけで正に届く。
+//   ★宣言順がそのまま帯の並びになる(無文明は帯に出さない)。
+const CIV = (() => {
+    const css = fs.readFileSync(path.join(STATIC, 'css/battle.css'), 'utf8');
+    const root = (css.match(/:root\s*\{[^}]*\}/) || [''])[0];
+    return Array.from(root.matchAll(/--civ-(?!none\b)[a-z]+:\s*(#[0-9a-f]{6})/gi))
+        .map((m) => m[1]);
+})();
 
 const ICON_SVG = fs.readFileSync(path.join(STATIC, 'favicon.svg'), 'utf8');
 

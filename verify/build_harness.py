@@ -19,6 +19,8 @@ TEMPLATE = ROOT / "src/main/resources/templates/manual-battle.html"
 OUT = pathlib.Path(__file__).resolve().parent / "harness.html"
 LOBBY_TEMPLATE = ROOT / "src/main/resources/templates/manual-lobby.html"
 LOBBY_OUT = pathlib.Path(__file__).resolve().parent / "harness-lobby.html"
+DECK_TEMPLATE = ROOT / "src/main/resources/templates/manual-deck-maker.html"
+DECK_OUT = pathlib.Path(__file__).resolve().parent / "harness-deckmaker.html"
 
 html = TEMPLATE.read_text(encoding="utf-8")
 
@@ -34,11 +36,11 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=39)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=40)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=31)}"></script>',
+    '<script th:src="@{/js/manual-battle.js(v=32)}"></script>',
     '<script src="/js/manual-battle.js"></script>',
 )
 
@@ -234,3 +236,23 @@ lobby = lobby.replace(
 )
 LOBBY_OUT.write_text(lobby, encoding="utf-8")
 print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")
+
+# ---------------------------------------------------------------------------
+# ★★★Batch 39: デッキメーカー(manual-deck-maker.html)のハーネス。
+#
+# ★この画面には落とすCDNが1つも無い。Bootstrap を読み込まないので代替スタブも要らず、
+#   実ファイルの battle.css をそのまま読ませるだけで実ページとほぼ同じ物になる。
+#   ★<b>スタブが要らないのは、寄せた結果である。</b>38 までは独自パレット・独自トースト・
+#     独自 confirm() を持っていたので、寄せる先が無かった。
+# ★カードデータは fetch する。スタブせず、verify.js のHTTPサーバが実際に JSON を返す
+#   (ロビーの一覧APIと同じ考え方。スタブに置き換えると「形が変わったのに検証は通る」を作る)。
+# ---------------------------------------------------------------------------
+deck = DECK_TEMPLATE.read_text(encoding="utf-8")
+deck = deck.replace(
+    '<link th:href="@{/css/battle.css(v=40)}" rel="stylesheet">',
+    '<link href="/css/battle.css" rel="stylesheet">',
+)
+deck = re.sub(r'\s+th:href="[^"]*"', ' href="#"', deck)
+deck = deck.replace(' th:inline="none"', "")
+DECK_OUT.write_text(deck, encoding="utf-8")
+print(f"wrote {DECK_OUT} ({len(deck)} bytes)")

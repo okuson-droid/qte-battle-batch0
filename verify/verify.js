@@ -40,6 +40,32 @@ const RES = path.join(ROOT, 'src/main/resources');
  */
 const ZONE_RESPONSE = { status: 200, body: { seat: 'A', zone: 'DECK', cards: [] }, delayMs: 0 };
 
+/**
+ * ★★Batch 39: カード定義の口(`/manual/api/card-library`)の応答。
+ *
+ * 盤面の検証では<b>空</b>でよい(テキスト表示はセクション26が applyCardLibrary で
+ * 直接フィクスチャを入れる)。デッキメーカーはこの口だけが情報源なので、
+ * <b>あちらを開く直前に</b>中身を差し替える。差し替えを検証の最後に置いているのは、
+ * 「検証の項目は状態を引き継ぐ」(38 で踏んだ)を踏まえてのことである。
+ */
+const CARD_LIBRARY = { body: { cards: [] } };
+
+/** デッキメーカー用の最小のカード台帳。★文明ごとにリーダー1 + ミニオン1 */
+function deckMakerLibrary() {
+  const civs = ['WATER', 'FIRE', 'EARTH', 'WIND', 'LIGHT', 'DARK'];
+  const cards = [];
+  for (const civ of civs) {
+    cards.push({ id: `QTE-M-${civ}-1`, name: `${civ}のリーダー`, type: 'LEADER',
+      civilization: civ, cost: 0, attack: null, hp: null, text: '【起動：１】試験用。' });
+    cards.push({ id: `QTE-M-${civ}-2`, name: `${civ}のミニオン`, type: 'MINION',
+      civilization: civ, cost: 3, attack: 2, hp: 3, text: '【守護】試験用のミニオンである。' });
+  }
+  // ★ピュア・エレメント(文明なし)は構築対象外である。除外されることも見る
+  cards.push({ id: 'QTE-M-NONE-1', name: 'ピュア・エレメント', type: 'SPELL',
+    civilization: 'NONE', cost: 0, attack: null, hp: null, text: '後攻へ配られる。' });
+  return { meta: { backImageId: 'back' }, cards };
+}
+
 // 1x1 透明 PNG。/cards/*.png はサンドボックスに実物が無いため、これで代替する
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -74,7 +100,7 @@ function startServer() {
     //   セクション26が applyCardLibrary で明示的にフィクスチャを入れて行う)
     if (url === '/manual/api/card-library') {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ cards: [] }));
+      res.end(JSON.stringify(CARD_LIBRARY.body));
       return;
     }
     // ★21b: ロビーは実際に一覧APIを叩く。fetch をスタブせず本物の経路で確かめる
@@ -85,6 +111,7 @@ function startServer() {
     }
     let file;
     if (url === '/harness-lobby.html') file = path.join(__dirname, 'harness-lobby.html');
+    else if (url === '/harness-deckmaker.html') file = path.join(__dirname, 'harness-deckmaker.html');
     else if (url === '/' || url === '/harness.html') file = path.join(__dirname, 'harness.html');
     else if (url.startsWith('/css/')) file = path.join(RES, 'static', url);
     else if (url.startsWith('/js/')) file = path.join(RES, 'static', url);
@@ -410,12 +437,21 @@ async function clearZoom(page) {
 
   // ---- 9-3. リーダーの文明色(★20d) ----
   // ★25b: 塗りは inline background から .mcard-frame + --mc(フェイスと同一パレット)へ移った
+  // ★★Batch 39: 期待値を書かず、<b>battle.css の :root から読んだ値</b>と突き合わせる。
+  //   ここで確かめたいのは「水のタイルに水の色が乗ること」——つまり<b>結線</b>であって、
+  //   色そのものではない。値を書くと、正(:root)を1文字直すたびに検証も直すことになり、
+  //   「正が1箇所」を機械で守っている意味が薄れる。
   const leaderBg = await page.evaluate(() => {
     const el = document.querySelector('#pile-grid .manual-leader-tile');
-    return { frame: el.classList.contains('mcard-frame'), mc: el.style.getPropertyValue('--mc') };
+    return {
+      frame: el.classList.contains('mcard-frame'),
+      mc: el.style.getPropertyValue('--mc'),
+      water: getComputedStyle(document.documentElement).getPropertyValue('--civ-water').trim(),
+    };
   });
-  check('自分のリーダーが文明の色の枠になる(25b: フェイスと同一パレット)',
-    leaderBg.frame && leaderBg.mc.toLowerCase() === '#2f6fb5',
+  check('自分のリーダーが文明の色の枠になる(25b: フェイスと同一パレット / 39: 正は battle.css)',
+    leaderBg.frame && leaderBg.water !== ''
+      && leaderBg.mc.toLowerCase() === leaderBg.water.toLowerCase(),
     JSON.stringify(leaderBg));
   const oppLeaderBg = await page.evaluate(() => {
     const el = document.querySelector('#seat-opponent-top .manual-leader-tile');
@@ -4265,6 +4301,235 @@ async function clearZoom(page) {
       && (await quiet.evaluate(() => !!document.querySelector('.manual-mulligan-backdrop'))),
     JSON.stringify({ nodes: await audioNodes(quiet) }));
   await quiet.close();
+
+  // =========================================================================
+  // ★★★Batch 39: デッキメーカー(裁定60・レビュー B-2 / B-3)
+  //
+  // ★この画面は 38 まで<b>第3のデザイン系統</b>だった(裁定33)。寄せた4点
+  //   (パレット・ブランドマーク・トースト・confirm)に番人を置く。
+  // ★★確認モーダルの検証は<b>盤面と同じ項目立て</b>にしてある(36 の 5-1)。
+  //   あちらとこちらは同じ規約の別実装であり、<b>同じ問いで測っていなければ
+  //   黙って離れていく</b>。ここが 39 の複製を許している唯一の根拠である。
+  // =========================================================================
+  CARD_LIBRARY.body = deckMakerLibrary();
+  const deckPage = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+  const deckErrors = [];
+  deckPage.on('pageerror', (e) => deckErrors.push(String(e)));
+  // ★素の confirm() に張り込む。呼ばれたら記録して false を返す(裁定53 の番人)
+  await deckPage.addInitScript(() => {
+    window.__confirmCalls = [];
+    window.confirm = (msg) => { window.__confirmCalls.push(String(msg)); return false; };
+  });
+  await deckPage.goto(`http://127.0.0.1:${port}/harness-deckmaker.html`);
+  // ★★投げると検証スクリプトごと死ぬ(35 で踏んだ)。待ちと click は必ず包む——
+  //   <b>わざと壊したときに FAIL が並ばず「途中で消える」</b>のでは番人にならない
+  const tryUi = async (fn) => { try { await fn(); return true; } catch (e) { return false; } };
+  await tryUi(() => deckPage.waitForSelector('#pool-grid .tile', { timeout: 5000 }));
+
+  // ---- 39-1. 見た目の系統 ----
+  const deckTheme = await deckPage.evaluate(() => ({
+    body: getComputedStyle(document.body).backgroundColor,
+    text: getComputedStyle(document.body).color,
+    css: Array.from(document.styleSheets).some((s) => (s.href || '').includes('battle.css')),
+  }));
+  check('★★デッキメーカーの背景が盤面・ロビーと同じ黒である(39・裁定60)',
+    deckTheme.body === 'rgb(33, 37, 41)' && deckTheme.text === 'rgb(248, 249, 250)',
+    JSON.stringify(deckTheme));
+  check('★★デッキメーカーは battle.css を読み込んでいる(39・寄せる先そのもの)',
+    deckTheme.css === true);
+
+  // ★38 までの独自パレット。1色でも残っていたら寄せきれていない
+  const deckHtml = fs.readFileSync(path.join(RES, 'templates/manual-deck-maker.html'), 'utf8');
+  const oldPalette = ['#0c0b12', '#181624', '#211e33', '#2a2640', '#3c3656',
+    '#c9a15a', '#8a744a', '#3f9e7a', '#c23c52', '#9d97b8', '#6a6484', '#221f36']
+    .filter((c) => deckHtml.toLowerCase().includes(c));
+  check('★★独自パレットが1色も残っていない(39・裁定60)',
+    oldPalette.length === 0, JSON.stringify(oldPalette));
+  // ★Georgia の TABOO は<b>カードの裏面</b>にだけ在ってよい(battle.css の .mcard-back-mark)
+  check('★Georgia セリフのブランドマークが無い(39・裁定60)',
+    !/Georgia/i.test(deckHtml) && !/class="mark"/.test(deckHtml));
+
+  // ---- 39-2. 文明色の正が1箇所であること(レビュー B-2) ----
+  //
+  // ★★走査の対象は<b>コード</b>である。焼き込んだ画像(favicon.svg・カードのPNG)は
+  //   複製ではなく出力であり、参照にできない。
+  const civHexes = Array.from(battleCss.matchAll(/--civ-[a-z]+:\s*(#[0-9a-f]{6})/gi))
+    .map((m) => m[1].toLowerCase());
+  const codeFiles = [
+    ...fs.readdirSync(path.join(RES, 'static/js')).filter((n) => n.endsWith('.js'))
+      .map((n) => ['js/' + n, fs.readFileSync(path.join(RES, 'static/js', n), 'utf8')]),
+    ...fs.readdirSync(path.join(RES, 'templates')).filter((n) => n.endsWith('.html'))
+      .map((n) => ['templates/' + n, fs.readFileSync(path.join(RES, 'templates', n), 'utf8')]),
+    ...fs.readdirSync(path.join(ROOT, 'tools')).filter((n) => n.endsWith('.js'))
+      .map((n) => ['tools/' + n, fs.readFileSync(path.join(ROOT, 'tools', n), 'utf8')]),
+  ];
+  const civLeaks = codeFiles
+    .filter(([, src]) => civHexes.some((h) => src.toLowerCase().includes(h)))
+    .map(([name]) => name);
+  check('★★★文明色の正は battle.css の :root 1箇所である(39・B-2 / 設計判断28)',
+    civHexes.length === 7 && civLeaks.length === 0,
+    JSON.stringify({ civHexes, civLeaks }));
+  // ★正が1箇所でも、そこから読めていなければ意味が無い。<b>結線</b>のほうを別に測る
+  const deckTileColor = await deckPage.evaluate(() => {
+    const tile = document.querySelector('#pool-grid .tile');
+    return {
+      c: tile.style.getPropertyValue('--c').trim().toLowerCase(),
+      fire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
+    };
+  });
+  check('★★デッキメーカーのタイルの色は battle.css の :root から来ている(39)',
+    deckTileColor.fire !== '' && deckTileColor.c === deckTileColor.fire,
+    JSON.stringify(deckTileColor));
+
+  // ---- 39-3. トースト ----
+  await deckPage.evaluate(() => toast('試験のトースト'));
+  const deckToast = await deckPage.evaluate(() => {
+    const t = document.getElementById('toast');
+    const s = getComputedStyle(t);
+    return { cls: t.className, hidden: t.hidden, bottom: s.bottom, z: s.zIndex, pe: s.pointerEvents };
+  });
+  check('★★トーストは盤面と同じ .manual-toast である(39・裁定60)',
+    deckToast.cls === 'manual-toast' && deckToast.hidden === false
+      && deckToast.bottom === '24px' && deckToast.z === '1058' && deckToast.pe === 'none',
+    JSON.stringify(deckToast));
+
+  // ---- 39-4. 確認モーダル(裁定53・47〜56)----
+  //
+  // ★まずデッキを壊せる状態にする。空のデッキでは確認を出さない(出す理由が無い)
+  await tryUi(() => deckPage.locator('#pool-grid .tile').first()
+    .click({ button: 'right', timeout: 5000 }));
+  const before = await deckPage.evaluate(() => ({ civ: mainCiv, n: deck.counts.size }));
+  check('★デッキメーカーの右クリックでカードが入る(前提)', before.n === 1 && before.civ === '火',
+    JSON.stringify(before));
+
+  const waterBtn = deckPage.locator('.civ-btn', { hasText: '水' });
+  await tryUi(() => waterBtn.click({ timeout: 5000 }));
+  const opened = await deckPage.evaluate(() => ({
+    shown: !document.getElementById('confirm-modal').hidden,
+    focus: document.activeElement ? document.activeElement.id : null,
+    text: document.getElementById('confirm-modal-text').textContent,
+    ok: document.getElementById('confirm-modal-ok').textContent,
+    civ: mainCiv,
+    n: deck.counts.size,
+    raw: window.__confirmCalls.length,
+  }));
+  check('★★破壊的操作で素の confirm() を呼ばない(39・裁定53)', opened.raw === 0);
+  check('★文明の変更は確認モーダルを出す(39)', opened.shown === true);
+  check('★確認を出している間はまだ何も壊れていない(39)',
+    opened.civ === '火' && opened.n === 1, JSON.stringify(opened));
+  check('★確認の初期フォーカスは [キャンセル] である(39・裁定52)',
+    opened.focus === 'confirm-modal-close', String(opened.focus));
+  check('★確認のボタンには動詞が書いてある(39・裁定55)',
+    opened.ok === '文明を変更する', opened.ok);
+  // ★★<b>座標で</b>測る(34 hotfix の一般形: 式ではなく結果を見る)。
+  //   「hidden が外れたか」だけを見る判定は、器(.info-modal)ごと失っても通ってしまう——
+  //   ページの一番下に確認の文字が流れているだけの状態を「開いている」と報告する
+  const confirmBox = await deckPage.evaluate(() => {
+    const overlay = document.getElementById('confirm-modal').getBoundingClientRect();
+    const body = document.querySelector('#confirm-modal .info-modal-body').getBoundingClientRect();
+    return {
+      covers: overlay.width >= innerWidth - 1 && overlay.height >= innerHeight - 1,
+      dx: Math.abs(body.left + body.width / 2 - innerWidth / 2),
+      dy: Math.abs(body.top + body.height / 2 - innerHeight / 2),
+    };
+  });
+  check('★★確認モーダルは画面を覆い、中央に出る(39・器は battle.css)',
+    confirmBox.covers && confirmBox.dx < 4 && confirmBox.dy < 4, JSON.stringify(confirmBox));
+
+  // ★Tab の折り返し。10回押しても裏の盤面へ出ない
+  for (let i = 0; i < 10; i += 1) await deckPage.keyboard.press('Tab');
+  check('★★Tab を繰り返してもフォーカスは確認モーダルの外へ出ない(39・裁定47)',
+    (await deckPage.evaluate(() => document.getElementById('confirm-modal')
+      .contains(document.activeElement))) === true);
+  // ★裏の要素が自分でフォーカスを取りに来る経路(keydown を通らない)にも網を張る
+  await deckPage.evaluate(() => document.getElementById('deck-name').focus());
+  check('★裏の要素へフォーカスが移っても引き戻す(39・裁定47)',
+    (await deckPage.evaluate(() => document.getElementById('confirm-modal')
+      .contains(document.activeElement))) === true);
+
+  // ★確認を出している間に文字を測る。空の <p> は素通りしてしまう(36 の 5-1 と同じ形)
+  const deckContrast = await deckPage.evaluate(() => {
+    const parse = (c) => {
+      const m = (c || '').match(/[\d.]+/g);
+      if (!m) return [0, 0, 0, 0];
+      const v = m.map(Number);
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1];
+    };
+    const bodyBg = parse(getComputedStyle(document.body).backgroundColor);
+    const eff = (el) => {
+      let n = el;
+      while (n && n !== document.documentElement) {
+        const c = parse(getComputedStyle(n).backgroundColor);
+        if (c[3] >= 0.98) return c;
+        n = n.parentElement;
+      }
+      return bodyBg;
+    };
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+    const out = [];
+    // ★カードの面(.tile / .bigcard)は対象外である(32c: フェイスは目視)
+    const targets = ['.brand h1', '.brand .brand-sub', '.brand a', '.civ-btn', '.io-btn',
+      '.detail-empty', '.counter-box', '.counter-box b', '.section-title', '.section-title small',
+      '.tab-btn', '.pool-hint', '.pool-hint b', '.filter-lbl', '.flt-btn', '.flt-util button',
+      '#confirm-modal-title', '#confirm-modal-text', '#confirm-modal-ok', '#confirm-modal-close'];
+    for (const sel of targets) {
+      for (const el of document.querySelectorAll(sel)) {
+        const t = (el.textContent || '').trim();
+        if (!t) continue;
+        const fg = parse(getComputedStyle(el).color);
+        const bg = eff(el);
+        const ratio = (Math.max(L(fg), L(bg)) + 0.05) / (Math.min(L(fg), L(bg)) + 0.05);
+        if (ratio < 4.5) out.push({ sel, text: t.slice(0, 10), ratio: Math.round(ratio * 100) / 100 });
+      }
+    }
+    return out;
+  });
+  check('★デッキメーカーの文字もコントラスト比 4.5:1 以上(39)',
+    deckContrast.length === 0, JSON.stringify(deckContrast));
+
+  // ★Esc は [キャンセル] を click() するだけである(裁定48)。取り消しなので何も起きない
+  await deckPage.keyboard.press('Escape');
+  const afterEsc = await deckPage.evaluate(() => ({
+    shown: !document.getElementById('confirm-modal').hidden,
+    civ: mainCiv,
+    n: deck.counts.size,
+    focus: document.activeElement ? document.activeElement.className : null,
+  }));
+  check('★★Esc で確認モーダルが閉じる(39・裁定48)', afterEsc.shown === false);
+  check('★取り消した確認は何も壊さない(39・裁定54)',
+    afterEsc.civ === '火' && afterEsc.n === 1, JSON.stringify(afterEsc));
+  check('★閉じるとフォーカスは開く前の位置(文明ボタン)へ戻る(39)',
+    (afterEsc.focus || '').includes('civ-btn'), String(afterEsc.focus));
+
+  // ★[実行] でようやく変わる
+  await tryUi(() => waterBtn.click({ timeout: 5000 }));
+  await tryUi(() => deckPage.locator('#confirm-modal-ok').click({ timeout: 5000 }));
+  const afterOk = await deckPage.evaluate(() => ({
+    shown: !document.getElementById('confirm-modal').hidden,
+    civ: mainCiv,
+    n: deck.counts.size,
+  }));
+  check('★確認の [実行] で文明が変わり、デッキが空になる(39)',
+    afterOk.shown === false && afterOk.civ === '水' && afterOk.n === 0,
+    JSON.stringify(afterOk));
+  // ★空のデッキでは問わない。失うものが無いのに確認を出すと、確認そのものが軽くなる
+  await tryUi(() => deckPage.locator('.civ-btn', { hasText: '闇' }).click({ timeout: 5000 }));
+  check('★組みかけが無いときは確認を出さない(39)',
+    (await deckPage.evaluate(() => mainCiv === '闇'
+      && document.getElementById('confirm-modal').hidden)) === true);
+
+  // ★静的な番人。テンプレートに素の呼び出しが残っていないこと(36 の項目20 と同じ形)。
+  //   ★注釈の行は数えない——見たいのは<b>呼び出しが残っているか</b>である
+  const deckLeftoverConfirm = deckHtml.split('\n')
+    .filter((line) => !/^\s*(\/\/|\*|\/\*|<!--|-->)/.test(line))
+    .filter((line) => /(?<![A-Za-z0-9_$])confirm\s*\(/.test(line))
+    .map((line) => line.trim());
+  check('★★manual-deck-maker.html に素の confirm の呼び出しが残っていない(39・裁定53)',
+    deckLeftoverConfirm.length === 0, JSON.stringify(deckLeftoverConfirm));
+
+  check('デッキメーカーでJSエラーが出ない', deckErrors.length === 0, deckErrors.join(' | '));
+  await deckPage.close();
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 

@@ -32,6 +32,8 @@ BUILTINS = {
     'Blob', 'File', 'FileReader', 'URL', 'FormData', 'XMLHttpRequest',
     # ★Batch 29 で追加。クエリ文字列の組み立ては組み込みクラスである
     'URLSearchParams',
+    # ★Batch 39 で追加。文明色を CSS の :root から読むのに使う(組み込み関数である)
+    'getComputedStyle',
     # 外部ライブラリ・Thymeleafが埋め込むグローバル
     'StompJs', 'ROOM_ID', 'PLAYER_ID', 'DEFAULT_LABELS',
 }
