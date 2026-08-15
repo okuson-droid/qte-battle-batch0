@@ -50,7 +50,15 @@ const ZONE_RESPONSE = { status: 200, body: { seat: 'A', zone: 'DECK', cards: [] 
  */
 const CARD_LIBRARY = { body: { cards: [] } };
 
-/** デッキメーカー用の最小のカード台帳。★文明ごとにリーダー1 + ミニオン1 */
+/**
+ * デッキメーカー用の最小のカード台帳。★文明ごとにリーダー1 + 10枚。
+ *
+ * ★★Batch 40: 39 の時点では文明ごとに2枚だったが、マナカーブ・検証一覧・
+ *   デッキ読込を見るには足りない —— <b>コストが1種類しか無いカーブは形を持たず</b>、
+ *   同名4枚の上限がある以上、40枚のデッキには10種類の札が要る。
+ * ★並びは変えていない(リーダー → ミニオン3 → …)。39 の項目は
+ *   「プールの1枚目を右クリックする」形で書かれており、そこが動くと前提が変わる。
+ */
 function deckMakerLibrary() {
   const civs = ['WATER', 'FIRE', 'EARTH', 'WIND', 'LIGHT', 'DARK'];
   const cards = [];
@@ -59,6 +67,17 @@ function deckMakerLibrary() {
       civilization: civ, cost: 0, attack: null, hp: null, text: '【起動：１】試験用。' });
     cards.push({ id: `QTE-M-${civ}-2`, name: `${civ}のミニオン`, type: 'MINION',
       civilization: civ, cost: 3, attack: 2, hp: 3, text: '【守護】試験用のミニオンである。' });
+    cards.push({ id: `QTE-M-${civ}-3`, name: `${civ}のスペル`, type: 'SPELL',
+      civilization: civ, cost: 1, attack: null, hp: null, text: '試験用のスペルである。' });
+    cards.push({ id: `QTE-M-${civ}-4`, name: `${civ}の進化`, type: 'EVOLUTION',
+      civilization: civ, cost: 5, attack: 5, hp: 5, text: '試験用の進化ミニオンである。' });
+    cards.push({ id: `QTE-M-${civ}-5`, name: `${civ}のウェポン`, type: 'WEAPON',
+      civilization: civ, cost: 10, attack: 4, hp: null, text: '試験用のウェポンである。' });
+    // ★40枚のデッキを組むための頭数(同名4枚 × 10種類 = 40)。コストも散らしてある
+    [0, 2, 4, 6, 8, 9].forEach((cost, i) => {
+      cards.push({ id: `QTE-M-${civ}-${6 + i}`, name: `${civ}の兵${i + 1}`, type: 'MINION',
+        civilization: civ, cost, attack: 1, hp: 1, text: '試験用の頭数である。' });
+    });
   }
   // ★ピュア・エレメント(文明なし)は構築対象外である。除外されることも見る
   cards.push({ id: 'QTE-M-NONE-1', name: 'ピュア・エレメント', type: 'SPELL',
@@ -4319,7 +4338,14 @@ async function clearZoom(page) {
   await deckPage.addInitScript(() => {
     window.__confirmCalls = [];
     window.confirm = (msg) => { window.__confirmCalls.push(String(msg)); return false; };
+    // ★★Batch 40: 「書き出したか」を<b>結果で</b>数える。downloadBlob は
+    //   URL.createObjectURL でしか Blob を URL にできない。ボタンを押したかどうかではなく、
+    //   <b>ファイルが作られたかどうか</b>を見る(34 hotfix の一般形)
+    window.__downloads = [];
+    const origCreate = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => { window.__downloads.push(blob.size); return origCreate(blob); };
   });
+  deckPage.on('download', () => { /* 保存先は要らない。作られたことは上の spy が数えている */ });
   await deckPage.goto(`http://127.0.0.1:${port}/harness-deckmaker.html`);
   // ★★投げると検証スクリプトごと死ぬ(35 で踏んだ)。待ちと click は必ず包む——
   //   <b>わざと壊したときに FAIL が並ばず「途中で消える」</b>のでは番人にならない
@@ -4472,7 +4498,11 @@ async function clearZoom(page) {
     const targets = ['.brand h1', '.brand .brand-sub', '.brand a', '.civ-btn', '.io-btn',
       '.detail-empty', '.counter-box', '.counter-box b', '.section-title', '.section-title small',
       '.tab-btn', '.pool-hint', '.pool-hint b', '.filter-lbl', '.flt-btn', '.flt-util button',
-      '#confirm-modal-title', '#confirm-modal-text', '#confirm-modal-ok', '#confirm-modal-close'];
+      '#confirm-modal-title', '#confirm-modal-text', '#confirm-modal-ok', '#confirm-modal-close',
+      // ★Batch 40 で足した文字(32a からの規約: 新しい文字は必ず targets に足す)
+      '.validate-chip', '.validate-chip b', '.curve-n', '.curve-k', '.stat-chip', '.stat-chip b',
+      '#validate-modal-title', '.validate-summary', '.vi-mark', '.vi-label', '.vi-detail',
+      '#validate-modal-save', '#validate-modal-close'];
     for (const sel of targets) {
       for (const el of document.querySelectorAll(sel)) {
         const t = (el.textContent || '').trim();
@@ -4527,6 +4557,244 @@ async function clearZoom(page) {
     .map((line) => line.trim());
   check('★★manual-deck-maker.html に素の confirm の呼び出しが残っていない(39・裁定53)',
     deckLeftoverConfirm.length === 0, JSON.stringify(deckLeftoverConfirm));
+
+  // =========================================================================
+  // ★★★Batch 40: マナカーブ + 検証一覧 + autosave(レビュー B-3・優先順位9)
+  //
+  // ★39 が置いた土台の上に乗っている —— 2つ目のモーダルは同じ modalStack に積まれ、
+  //   同じ規約(裁定47・51・52・53)で測る。
+  // =========================================================================
+
+  // ---- 40-1. マナカーブと統計 ----
+  //
+  // ★入口から作る。JS で deck を直接いじると、右クリック → 集計 → 描画の結線が抜けても通る
+  await tryUi(() => deckPage.locator('.civ-btn', { hasText: '火' }).click({ timeout: 5000 }));
+  const poolTile = (i) => deckPage.locator('#pool-grid .tile').nth(i);
+  for (let i = 0; i < 4; i += 1) {
+    await tryUi(() => poolTile(i).click({ button: 'right', timeout: 5000 }));
+  }
+  for (let i = 0; i < 3; i += 1) {                 // ミニオン(コスト3)を4枚まで
+    await tryUi(() => poolTile(0).click({ button: 'right', timeout: 5000 }));
+  }
+  // ★禁忌にも1枚入れる。コスト3であり、<b>カーブが動いてはいけない</b>
+  await tryUi(() => deckPage.locator('.tab-btn', { hasText: '禁忌用' }).click({ timeout: 5000 }));
+  await tryUi(() => poolTile(0).click({ button: 'right', timeout: 5000 }));
+
+  const curve = await deckPage.evaluate(() => ({
+    keys: Array.from(document.querySelectorAll('#curve .curve-k'), (n) => n.textContent),
+    filterKeys: Array.from(document.querySelectorAll('#row-cost .flt-btn'), (n) => n.textContent),
+    counts: Array.from(document.querySelectorAll('#curve .curve-n'), (n) => Number(n.textContent)),
+    color: document.querySelector('#curve .curve-col').style.getPropertyValue('--curve').trim().toLowerCase(),
+    fire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
+    stats: Array.from(document.querySelectorAll('.stat-chip'), (n) => n.textContent),
+    taboo: document.getElementById('c-taboo').textContent,
+  }));
+  // ★★区切りを2つ持たない。プールを絞る目盛りと、組んだ結果を読む目盛りは同じでなければ
+  //   「6でフィルタした結果」と「カーブの6」が別の物を指す(設計判断28)
+  check('★★★マナカーブの区切りはコストフィルタと同じである(40・設計判断28)',
+    curve.keys.length === 11 && curve.keys.join(',') === curve.filterKeys.join(','),
+    JSON.stringify({ keys: curve.keys, filterKeys: curve.filterKeys }));
+  // ★禁忌のコスト3を入れてある。混ざっていれば 3 の列が 5 になる
+  check('★★マナカーブが数えるのはメインデッキだけである(40・禁忌は支払い方が違う)',
+    curve.counts.length === 11 && curve.counts[1] === 1 && curve.counts[3] === 4
+      && curve.counts[5] === 1 && curve.counts[10] === 1
+      && curve.counts.reduce((a, b) => a + b, 0) === 7 && curve.taboo === '1/8',
+    JSON.stringify({ counts: curve.counts, taboo: curve.taboo }));
+  // ★色は :root から来る(裁定108)。ここでも値は書かず、正から読んだものと突き合わせる
+  check('★★マナカーブの色は battle.css の :root から来ている(40・裁定108)',
+    curve.fire !== '' && curve.color === curve.fire, JSON.stringify(curve));
+  check('★統計はメインデッキの平均コストとタイプ内訳である(40)',
+    curve.stats.join('|') === '平均コスト4.00|ミニオン4|進化1|スペル1|ウェポン1',
+    JSON.stringify(curve.stats));
+
+  // ---- 40-2. autosave(裁定31・119)----
+  const draftKey = 'qte-deckmaker-draft';
+  const stored = await deckPage.evaluate((k) => {
+    const keys = Object.keys(localStorage);
+    return { keys, raw: localStorage.getItem(k) };
+  }, draftKey);
+  // ★部屋に紐づけない(裁定31)。この画面に部屋という概念が無い以上、鍵に部屋IDは入らない
+  check('★★編集内容は localStorage に保存され、鍵は部屋に紐づかない(40・裁定31)',
+    stored.keys.includes(draftKey) && !stored.keys.some((k) => /qte-deckmaker.*(TESTRM|room)/i.test(k))
+      && JSON.parse(stored.raw || '{}').cards.length === 5,
+    JSON.stringify(stored.keys));
+
+  // ★★★これが「タブを閉じたら作業が消える」への番人である。
+  //   ★同時に「復元より先に初期化が走らない」の番人でもある —— ライブラリ読込は
+  //   resetDeck → renderAll → autosave を通るので、順序を誤ると<b>空で上書きしてから</b>
+  //   読むことになり、この項目が落ちる
+  await deckPage.reload();
+  await tryUi(() => deckPage.waitForSelector('#pool-grid .tile', { timeout: 5000 }));
+  const afterReload = await deckPage.evaluate(() => ({
+    civ: mainCiv, n: deck.counts.size, main: document.getElementById('c-main').textContent,
+    taboo: document.getElementById('c-taboo').textContent,
+    name: document.getElementById('deck-name').value,
+  }));
+  check('★★★再読込しても組みかけのデッキが残っている(40・レビュー B-3)',
+    afterReload.civ === '火' && afterReload.n === 5 && afterReload.main === '7/40'
+      && afterReload.taboo === '1/8',
+    JSON.stringify(afterReload));
+
+  // ---- 40-3. 検証一覧(レビュー B-3・裁定47〜56)----
+  const chip = await deckPage.evaluate(() => ({
+    text: document.getElementById('validate-btn').textContent.trim(),
+    cls: document.getElementById('validate-btn').className,
+  }));
+  check('★ヘッダの検証ボタンが未達の件数を出している(40)',
+    chip.text === '検証3 件' && chip.cls.includes('v-bad'), JSON.stringify(chip));
+
+  await tryUi(() => deckPage.locator('#validate-btn').click({ timeout: 5000 }));
+  const vOpen = await deckPage.evaluate(() => ({
+    shown: !document.getElementById('validate-modal').hidden,
+    focus: document.activeElement ? document.activeElement.id : null,
+    items: Array.from(document.querySelectorAll('#validate-modal-list li'),
+      (li) => `${li.className.includes('v-ok') ? 'ok' : 'bad'}:${li.querySelector('.vi-detail').textContent}`),
+    save: document.getElementById('validate-modal-save').textContent,
+  }));
+  check('★★検証一覧は「何が足りないか」を名指しする(40・レビュー B-3)',
+    vOpen.shown === true && vOpen.items.length === 5
+      && vOpen.items[0] === 'bad:未選択'
+      && vOpen.items[1] === 'bad:7 枚 / あと 33 枚'
+      && vOpen.items[2] === 'bad:1 枚 / あと 7 枚'
+      && vOpen.items[3].startsWith('ok:') && vOpen.items[4].startsWith('ok:'),
+    JSON.stringify(vOpen.items));
+  // ★★押させたいボタンに初期フォーカスを載せない(裁定52)。この画面の用件は<b>読むこと</b>である
+  check('★★検証一覧の初期フォーカスは [閉じる] である(40・裁定52)',
+    vOpen.focus === 'validate-modal-close', String(vOpen.focus));
+  check('★ボタンには動詞が書いてある(40・裁定55)',
+    vOpen.save === 'このまま保存する', vOpen.save);
+  for (let i = 0; i < 10; i += 1) await deckPage.keyboard.press('Tab');
+  check('★★Tab を繰り返しても検証一覧の外へ出ない(40・裁定47)',
+    (await deckPage.evaluate(() => document.getElementById('validate-modal')
+      .contains(document.activeElement))) === true);
+  // ★2つ目のモーダルも同じ層に積まれている。同じ Esc・同じ出口(裁定48・51)
+  const vContrast = await deckPage.evaluate(() => {
+    const parse = (c) => {
+      const m = (c || '').match(/[\d.]+/g);
+      if (!m) return [0, 0, 0, 0];
+      const v = m.map(Number);
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1];
+    };
+    const eff = (el) => {
+      let n = el;
+      while (n && n !== document.documentElement) {
+        const c = parse(getComputedStyle(n).backgroundColor);
+        if (c[3] >= 0.98) return c;
+        n = n.parentElement;
+      }
+      return parse(getComputedStyle(document.body).backgroundColor);
+    };
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+    const out = [];
+    for (const el of document.querySelectorAll('#validate-modal *')) {
+      const t = (el.textContent || '').trim();
+      if (!t || el.children.length > 0) continue;
+      const fg = parse(getComputedStyle(el).color);
+      const bg = eff(el);
+      const ratio = (Math.max(L(fg), L(bg)) + 0.05) / (Math.min(L(fg), L(bg)) + 0.05);
+      if (ratio < 4.5) out.push({ t: t.slice(0, 12), ratio: Math.round(ratio * 100) / 100 });
+    }
+    return out;
+  });
+  check('★検証一覧の文字もコントラスト比 4.5:1 以上(40)',
+    vContrast.length === 0, JSON.stringify(vContrast));
+  await deckPage.keyboard.press('Escape');
+  check('★★Esc で検証一覧が閉じる(40・裁定48)',
+    (await deckPage.evaluate(() => document.getElementById('validate-modal').hidden)) === true);
+
+  // ---- 40-4. 書き出しの関門(レビュー B-3: 黙って書き出さない)----
+  await deckPage.evaluate(() => { window.__downloads.length = 0; });
+  await tryUi(() => deckPage.locator('#out-json').click({ timeout: 5000 }));
+  const gate = await deckPage.evaluate(() => ({
+    shown: !document.getElementById('validate-modal').hidden,
+    files: window.__downloads.length,
+  }));
+  check('★★★不正なデッキを黙って書き出さない(40・レビュー B-3)',
+    gate.shown === true && gate.files === 0, JSON.stringify(gate));
+  // ★止めるのではなく、理由を見せてから通す。手動モードは未完成のデッキも試す場所である
+  await tryUi(() => deckPage.locator('#validate-modal-save').click({ timeout: 5000 }));
+  const forced = await deckPage.evaluate(() => ({
+    shown: !document.getElementById('validate-modal').hidden,
+    files: window.__downloads.length,
+  }));
+  check('★★[このまま保存する] は書き出せる(止めるのではなく理由を見せる・40)',
+    forced.shown === false && forced.files === 1, JSON.stringify(forced));
+
+  // ---- 40-5. デッキ読込と [元に戻す](裁定119)----
+  const fireIds = Array.from({ length: 10 }, (unused, i) => `QTE-M-FIRE-${i + 2}`);
+  const otherIds = ['WATER', 'EARTH', 'WIND', 'LIGHT', 'DARK']
+    .flatMap((civ) => [`QTE-M-${civ}-2`, `QTE-M-${civ}-3`]).slice(0, 8);
+  const validDeck = {
+    format: 'taboo-elemental-deck',
+    version: 2,
+    deckName: '完成デッキ',
+    mainCiv: '火',
+    leader: { cardId: 'QTE-M-FIRE-1' },
+    main: fireIds.map((id) => ({ cardId: id, qty: 4 })),
+    taboo: otherIds.map((id) => ({ cardId: id })),
+  };
+  await tryUi(() => deckPage.locator('#in-deck').setInputFiles({
+    name: 'deck.json', mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(validDeck), 'utf8'),
+  }));
+  const loaded = await deckPage.evaluate(() => ({
+    main: document.getElementById('c-main').textContent,
+    taboo: document.getElementById('c-taboo').textContent,
+    chip: document.getElementById('validate-btn').textContent.trim(),
+    cls: document.getElementById('validate-btn').className,
+    undo: !document.getElementById('undo-btn').hidden,
+    raw: window.__confirmCalls.length,
+  }));
+  // ★裁定119: [デッキ読込] に確認は足さない。失われないので問い自体が要らない
+  check('★★[デッキ読込] に確認は足さない(40・裁定119)', loaded.raw === 0);
+  check('★★★組みかけは黙って捨てられない([元に戻す] が現れる・40・裁定119)',
+    loaded.undo === true && loaded.main === '40/40' && loaded.taboo === '8/8',
+    JSON.stringify(loaded));
+  check('★条件を満たしたデッキは検証が OK になる(40)',
+    loaded.chip === '検証OK' && loaded.cls.includes('v-ok'), JSON.stringify(loaded));
+
+  await deckPage.evaluate(() => { window.__downloads.length = 0; });
+  await tryUi(() => deckPage.locator('#out-json').click({ timeout: 5000 }));
+  check('★正しいデッキは検証一覧を出さずに書き出す(40)',
+    (await deckPage.evaluate(() => ({
+      shown: !document.getElementById('validate-modal').hidden,
+      files: window.__downloads.length,
+    }))).files === 1);
+
+  await tryUi(() => deckPage.locator('#undo-btn').click({ timeout: 5000 }));
+  const undone = await deckPage.evaluate(() => ({
+    main: document.getElementById('c-main').textContent,
+    name: document.getElementById('deck-name').value,
+  }));
+  check('★★★[元に戻す] で読込前の組みかけが戻る(40・裁定119 の実体)',
+    undone.main === '7/40', JSON.stringify(undone));
+  // ★★入れ替えである。押し間違えても、もう一度押せば戻る —— だから確認を足していない
+  await tryUi(() => deckPage.locator('#undo-btn').click({ timeout: 5000 }));
+  check('★★[元に戻す] は入れ替えである(もう一度押すと読み込んだほうへ戻る・40)',
+    (await deckPage.evaluate(() => document.getElementById('c-main').textContent)) === '40/40');
+
+  // ---- 40-6. 規定枚数の正はサーバである ----
+  //
+  // ★★同じ規則が Java と JS の両方にあるのは重複ではない(設計判断27: クライアントの
+  //   チェックは操作補助にすぎない)。ただし<b>黙って離れていける</b>ことは複製と同じなので、
+  //   期待値を書かず、<b>Java から読んだ値</b>と突き合わせる(裁定110)
+  const importerJava = fs.readFileSync(
+    path.join(ROOT, 'src/main/java/com/example/qte/manual/ManualDeckImporter.java'), 'utf8');
+  const javaInt = (name) => {
+    const m = importerJava.match(new RegExp(`${name}\\s*=\\s*(\\d+)`));
+    return m ? Number(m[1]) : null;
+  };
+  const jsSizes = await deckPage.evaluate(() => ({
+    main: MAIN_SIZE, taboo: TABOO_SIZE, sameMain: MAX_SAME, sameTaboo: TABOO_SAME,
+  }));
+  const javaSizes = {
+    main: javaInt('MAIN_DECK_SIZE'), taboo: javaInt('TABOO_DECK_SIZE'),
+    sameMain: javaInt('MAIN_NAME_LIMIT'), sameTaboo: javaInt('TABOO_NAME_LIMIT'),
+  };
+  check('★★★デッキの規定枚数と同名上限はサーバと同じ値である(40・裁定110)',
+    javaSizes.main !== null && JSON.stringify(jsSizes) === JSON.stringify(javaSizes),
+    JSON.stringify({ jsSizes, javaSizes }));
 
   check('デッキメーカーでJSエラーが出ない', deckErrors.length === 0, deckErrors.join(' | '));
   await deckPage.close();

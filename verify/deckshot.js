@@ -9,6 +9,7 @@
  *   python3 verify/build_harness.py
  *   PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers OUT=/tmp/deck.png node verify/deckshot.js
  *   CONFIRM=1 を付けると、確認モーダルを開いた状態で撮る。
+ *   ★Batch 40: VALIDATE=1 を付けると、検証一覧のモーダルを開いた状態で撮る。
  */
 const http = require('http');
 const fs = require('fs');
@@ -19,6 +20,7 @@ const ROOT = path.resolve(__dirname, '..');
 const RES = path.join(ROOT, 'src/main/resources');
 const OUT = process.env.OUT || '/tmp/deckmaker.png';
 const WITH_CONFIRM = process.env.CONFIRM === '1';
+const WITH_VALIDATE = process.env.VALIDATE === '1';
 
 /** ★カード台帳。verify.js の deckMakerLibrary と同じ形の、目で見るための最小データ */
 function library() {
@@ -67,6 +69,13 @@ function library() {
   await page.locator('#pool-grid .tile').nth(1).click({ button: 'right' });
   if (WITH_CONFIRM) {
     await page.locator('.civ-btn', { hasText: '水' }).click();
+    await page.waitForTimeout(120);
+  } else if (WITH_VALIDATE) {
+    // ★Batch 40: リーダーを1枚入れてから開く。全部が赤い一覧より、
+    //   ✓ と ! が混ざっている状態のほうが読み方を確かめられる
+    await page.locator('.tab-btn', { hasText: 'リーダー' }).click();
+    await page.locator('#pool-grid .tile').first().click({ button: 'right' });
+    await page.locator('#validate-btn').click();
     await page.waitForTimeout(120);
   } else {
     await page.evaluate(() => toast('デッキを保存しました'));

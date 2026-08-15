@@ -319,6 +319,64 @@ input[type=file]{display:none;}
 #confirm-modal .confirm-text{font-size:12.5px;line-height:1.7;margin:0 0 14px;}
 #confirm-modal .confirm-buttons{display:flex;justify-content:flex-end;gap:8px;}
 
+/* ============================================================
+   ★★★Batch 40(レビュー B-3・優先順位9): マナカーブ・検証一覧・autosave
+   ============================================================ */
+
+/* ---------- マナカーブと統計(デッキペインの先頭) ---------- */
+/* ★色は文明色である。値は書かない —— civColor() が battle.css の :root から読み、
+   --curve という1つのカスタムプロパティに立てる(裁定108)。 */
+.deck-stats .curve{
+  display:grid;grid-template-columns:repeat(11,1fr);gap:3px;align-items:end;
+  height:78px;margin-bottom:8px;
+}
+.curve-col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;}
+.curve-n{font-size:9.5px;line-height:1;color:var(--text-dim);font-family:monospace;}
+.curve-col.has .curve-n{color:var(--text);}
+/* ★0枚の列も「軸」として残す。棒が消えると目盛りの位置が動き、
+   隣とくらべる用途に使えなくなる(空のときに何も出ないのは可視化ではない) */
+.curve-bar{
+  width:100%;min-height:2px;border-radius:2px 2px 0 0;
+  background:linear-gradient(180deg,
+    color-mix(in srgb,var(--curve) 85%, #fff 15%),
+    color-mix(in srgb,var(--curve) 70%, #000 25%));
+  transition:height .12s;
+}
+.curve-col:not(.has) .curve-bar{background:var(--line);}
+.curve-k{font-size:9px;line-height:1;color:var(--text-dim);font-family:monospace;}
+.stat-rows{display:flex;flex-wrap:wrap;gap:5px;}
+.stat-chip{
+  background:var(--surface-2);border:1px solid var(--line-soft);border-radius:4px;
+  padding:3px 8px;font-size:10.5px;color:var(--text-dim);
+}
+.stat-chip b{color:var(--text);font-size:12px;margin-left:4px;font-family:monospace;}
+
+/* ---------- 検証(ヘッダのボタンと一覧モーダル) ---------- */
+/* ★色だけで良否を伝えない(レビュー A-1)。文言そのものが「OK」「N 件」であり、
+   一覧の各行にも記号(✓ / !)が付く。色は補助である */
+/* ★状態のクラスに v- を付けるのは、カウンタの .ok / .bad と<b>名前を分けるため</b>である。
+   あちらは同じ値になったかどうか、こちらは検証を通ったかどうかで、意味が違う。
+   同じ名前にすると、片方の色を変えたときにもう片方が黙って動く(裁定32 と同じ話)。 */
+.validate-chip{padding:5px 11px;font-size:11px;}
+.validate-chip b{font-size:12px;margin-left:5px;font-family:monospace;}
+.validate-chip.v-ok b{color:var(--ok);}
+.validate-chip.v-bad b{color:var(--bad);}
+#validate-modal .info-modal-body{max-width:440px;}
+#validate-modal h6{margin:0;font-size:14px;}
+#validate-modal .info-modal-x{padding:1px 7px;font-size:14px;line-height:1.2;}
+.validate-summary{font-size:12.5px;line-height:1.6;margin:0 0 10px;}
+.validate-list{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:6px;}
+.validate-item{
+  display:flex;align-items:baseline;gap:8px;background:var(--surface);
+  border:1px solid var(--line-soft);border-radius:4px;padding:6px 10px;font-size:12px;
+}
+.vi-mark{flex:none;width:14px;text-align:center;font-weight:900;}
+.validate-item.v-ok .vi-mark{color:var(--ok);}
+.validate-item.v-bad .vi-mark{color:var(--bad);}
+.vi-label{flex:none;color:var(--text);}
+.vi-detail{margin-left:auto;text-align:right;color:var(--text-dim);}
+.validate-item.v-bad .vi-detail{color:var(--bad);}
+
 ::-webkit-scrollbar{width:9px;}
 ::-webkit-scrollbar-track{background:var(--surface);}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:5px;}
@@ -338,6 +396,11 @@ input[type=file]{display:none;}
   </div>
   <div class="civ-select" id="civ-select"></div>
   <div class="io-group">
+    <!-- ★★Batch 40(裁定119): [デッキ読込] に確認は足さない。
+         組みかけは autosave で残り、置き換えの直前の状態は退避されるので、
+         <b>失われない</b>。この [元に戻す] がその出口である(退避があるときだけ現れる)。 -->
+    <button class="io-btn" id="undo-btn" hidden
+            title="デッキ読込・文明変更で置き換わる前の状態に戻す(もう一度押すと元に戻る)">元に戻す</button>
     <label class="io-btn" title="保存したデッキ(.json)を読み込んで続きから編集する">デッキ読込<input type="file" id="in-deck" accept=".json"></label>
     <button class="io-btn primary" id="out-json">デッキ保存 (.json)</button>
   </div>
@@ -358,6 +421,20 @@ input[type=file]{display:none;}
         <div class="counter-box">メイン<b id="c-main" class="bad">0/40</b></div>
         <div class="counter-box">禁忌<b id="c-taboo" class="bad">0/8</b></div>
       </div>
+      <!-- ★★Batch 40(レビュー B-3): 「不正なデッキでも黙ってエクスポートできる」への答え。
+           ★カウンタは<b>数</b>しか出さない。足りないものの名前はここから開く一覧が出す。
+           ★常に見えている——保存を押したときにだけ現れる警告は、押すまで気づけない。 -->
+      <button class="io-btn validate-chip v-bad" id="validate-btn"
+              title="デッキの検証結果を一覧で見る">検証<b id="validate-count">-</b></button>
+    </div>
+    <!-- ★★★Batch 40(レビュー B-3): マナカーブ。
+         ★38 までコストは「フィルタ」であって「可視化」ではなかった——
+           プールを絞ることはできても、<b>組んだ結果の形</b>はどこにも出ていなかった。
+         ★対象はメインデッキだけである(3-2 の理由: 禁忌はコストの支払い方が違う)。 -->
+    <div class="deck-section deck-stats">
+      <h4 class="section-title">マナカーブ<small>(メインデッキ)</small></h4>
+      <div class="curve" id="curve"></div>
+      <div class="stat-rows" id="stat-rows"></div>
     </div>
     <div class="deck-section">
       <h4 class="section-title">リーダー<small id="lbl-leader-civ"></small></h4>
@@ -437,6 +514,34 @@ input[type=file]{display:none;}
   </div>
 </div>
 
+<!--
+  ★★★Batch 40(レビュー B-3): 検証一覧。<b>2つ目のモーダル</b>である。
+  ★39 が modalStack を1枚のときから入れておいたのは、この日のためである(裁定47)。
+    器・出口の規約(裁定34・35・51・52)は確認モーダルとまったく同じで、
+    足したのは markup と中身の描画だけである。
+  ★★初期フォーカスは [閉じる] を名指しする。既定(× を除いた最初)だと
+    [保存する] に載るが、<b>この画面の用件は読むことである</b>——
+    盤面の操作説明が × を名指ししているのと同じ理由である(裁定52)。
+  ★出口の id は -close で終わる(裁定34・35)。× と Esc はこれを click() する。
+-->
+<div id="validate-modal" class="info-modal" hidden
+     data-initial-focus="#validate-modal-close">
+  <div class="info-modal-body" role="dialog" aria-modal="true"
+       aria-labelledby="validate-modal-title">
+    <div class="info-modal-head">
+      <h6 id="validate-modal-title">デッキの検証</h6>
+      <button type="button" id="validate-modal-x" class="io-btn info-modal-x"
+              aria-label="閉じる" title="閉じる">&times;</button>
+    </div>
+    <p id="validate-modal-summary" class="validate-summary"></p>
+    <ul id="validate-modal-list" class="validate-list"></ul>
+    <div class="confirm-buttons">
+      <button type="button" id="validate-modal-save" class="io-btn primary">保存する</button>
+      <button type="button" id="validate-modal-close" class="io-btn">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <script th:inline="none">
 /* ============================================================
  * カードデータはサーバの /manual/api/card-library から取得する。
@@ -471,7 +576,14 @@ function civColor(ja){
 const CIVS = ['火','水','土','風','光','闇'];
 const TYPE_LABEL = {LEADER:'リーダー',MINION:'ミニオン',EVOLUTION:'進化ミニオン',SPELL:'スペル',WEAPON:'ウェポン'};
 const TYPE_WEIGHT = {LEADER:0,MINION:1,EVOLUTION:2,SPELL:3,WEAPON:4};
-const MAIN_SIZE = 40, TABOO_SIZE = 8, MAX_SAME = 4;
+/* ★★Batch 40: 規定枚数と同名上限。<b>サーバの ManualDeckImporter と同じ値である</b>。
+   ★同じ規則が2つの層にあるのは重複ではない——サーバ側が正であり(設計判断27:
+     クライアントのチェックは操作補助にすぎない)、こちらは「組んでいる最中に見える」
+     ためだけに在る。ただし<b>黙って離れていける</b>のは複製と同じなので、
+     検証が Java の定数を読んで突き合わせている(裁定110 と同じ形)。
+   ★38 まで禁忌の同名上限は changeCount の中に 1 と直書きされていて、
+     名前が無かった。名前が無い値は突き合わせようがない。 */
+const MAIN_SIZE = 40, TABOO_SIZE = 8, MAX_SAME = 4, TABOO_SAME = 1;
 
 let LIB = null;            // {backImageId, cards:[...]}
 let CARDS = [];            // 表示対象(civ 無 を除く)
@@ -628,6 +740,113 @@ document.getElementById('confirm-modal-ok').addEventListener('click', ()=>{
   if(run) run();
 });
 
+/* ============================================================
+ * 0-3) 保存とやり直し(★★★Batch 40・レビュー B-3 / 裁定119)
+ *
+ * ★★<b>1つの形(スナップショット)で、保存・復元・退避・置き換えのすべてを表す。</b>
+ *   autosave も、[元に戻す] の退避も、文明変更もデッキ読込も、
+ *   すべて「スナップショットを作る」か「スナップショットを当てる」のどちらかである。
+ *   形が1つなので、片方だけが項目を取りこぼすことがない。
+ *
+ * ★★autosave は「今の状態を写す」だけでは<b>裁定119 を満たさない</b>。
+ *   写すだけなら、デッキ読込のあとに写しも読み込んだデッキに変わり、
+ *   組みかけは結局どこにも残らない。だから枠を2つ持つ——
+ *   draft(今)と undo(置き換えられる直前)である。
+ *   ★[元に戻す] は<b>入れ替え</b>である。押し間違えても、もう一度押せば戻る。
+ *     取り消せる操作に確認は要らない(裁定113 と同じ理屈で、問いを増やさない)。
+ *
+ * ★キーは部屋に紐づかない(裁定31)。この画面に部屋という概念がそもそも無い。
+ *   既存のキーは qte-manual-occupant-{roomId} / qte-manual-help-seen / qte-manual-sound。
+ * ★localStorage は例外を投げうる(プライベートモード・容量超過)。
+ *   盤面の 0-1 章と同じく<b>握りつぶす</b>——保存できないことで編集が止まってはいけない。
+ * ============================================================ */
+const DRAFT_KEY = 'qte-deckmaker-draft';
+const UNDO_KEY  = 'qte-deckmaker-undo';
+
+function readStore(key){
+  try{ return localStorage.getItem(key); }catch(e){ return null; }
+}
+function writeStore(key, value){
+  try{ localStorage.setItem(key, value); }catch(e){ /* 保存できなくても編集は続く */ }
+}
+function parseSnapshot(raw){
+  if(!raw) return null;
+  try{
+    const s = JSON.parse(raw);
+    return (s && typeof s==='object' && Array.isArray(s.cards)) ? s : null;
+  }catch(e){ return null; }
+}
+
+function deckNameValue(){ return document.getElementById('deck-name').value; }
+
+/** ★今の編集内容を1つの値にする。ここに項目を足したら applySnapshot にも足す(対で読むこと) */
+function snapshot(){
+  return {
+    version: 1,
+    deckName: deckNameValue(),
+    mainCiv,
+    leaderId: deck.leaderId,
+    cards: Array.from(deck.counts, (e)=>({id:e.at(0), qty:e.at(1)})),
+  };
+}
+
+/**
+ * ★スナップショットを当てる。<b>退避はしない</b>——
+ * 退避するかどうかは呼ぶ側(replaceDeck / undoReplace)の判断である。
+ * ★ライブラリで解決できない ID は黙って落とす。読み込み(importJsonDeck)と同じ寛容さである。
+ */
+function applySnapshot(s){
+  if(CIVS.includes(s.mainCiv)) mainCiv = s.mainCiv;
+  const counts = new Map();
+  (s.cards||[]).forEach((e)=>{
+    if(!e || !byId.has(e.id)) return;
+    counts.set(e.id, Math.max(1, Math.min(MAIN_SIZE, e.qty||1)));
+  });
+  deck = { leaderId: byId.has(s.leaderId)?s.leaderId:null, counts };
+  if(typeof s.deckName==='string') document.getElementById('deck-name').value = s.deckName;
+  selectedId = deck.leaderId;
+  selectCivUiOnly();
+  renderAll(); renderDetail();
+}
+
+/** ★★デッキ全体を置き換える経路はこの1本だけである(設計判断28)。退避もここでしか起きない */
+function replaceDeck(s){ stashUndo(); applySnapshot(s); }
+
+/** ★空のデッキは退避しない。失うものが無いのに [元に戻す] を出すと、あの操作が意味を失う */
+function stashUndo(){
+  if(!deck.leaderId && deck.counts.size===0) return;
+  writeStore(UNDO_KEY, JSON.stringify(snapshot()));
+  refreshUndoButton();
+}
+function undoReplace(){
+  const prev = parseSnapshot(readStore(UNDO_KEY));
+  if(!prev) return;
+  const current = JSON.stringify(snapshot());
+  applySnapshot(prev);
+  writeStore(UNDO_KEY, current);   // ★入れ替える。もう一度押せば今の状態へ戻れる
+  refreshUndoButton();
+  toast('元に戻しました');
+}
+function refreshUndoButton(){
+  document.getElementById('undo-btn').hidden = !readStore(UNDO_KEY);
+}
+
+/**
+ * ★★autosave の発火点は<b>1つ</b>である(renderAll の末尾)。
+ *   デッキを変える経路はすべて renderAll を通るので、新しい経路を足しても保存し忘れない
+ *   (発火点を増やさない・裁定68 と同じ考え方)。
+ * ★★ただし絞り込みや並べ替えでも renderAll は走る。書き込むのは<b>実際に変わったとき</b>
+ *   だけにする——localStorage への書き込みは同期であり、検索窓の1打鍵ごとに走らせない。
+ * ★デッキ名だけは renderAll が読まない唯一の状態なので、入力欄からも呼ぶ。
+ */
+let lastDraftJson = null;
+function syncDraft(){
+  const json = JSON.stringify(snapshot());
+  if(json===lastDraftJson) return;
+  lastDraftJson = json;
+  writeStore(DRAFT_KEY, json);
+}
+
 /* ---------- ライブラリ ---------- */
 /* ★CIV_JA は 0-1 章(文明色)へ移した。表示名と文明コードの対応は1箇所である */
 function loadLibrary(lib){
@@ -671,7 +890,7 @@ function changeCount(id, delta){
   }
   const cur = deck.counts.get(id)||0;
   if(delta>0){
-    const max = (c.civ!==mainCiv) ? 1 : (isUnlimited(c) ? MAIN_SIZE : MAX_SAME);
+    const max = (c.civ!==mainCiv) ? TABOO_SAME : (isUnlimited(c) ? MAIN_SIZE : MAX_SAME);
     if(cur>=max){ toast(c.civ!==mainCiv?'禁忌デッキは同名1枚までです':`同名カードは${max}枚までです`); return; }
     deck.counts.set(id,cur+1);
   }else{
@@ -692,20 +911,18 @@ function changeCount(id, delta){
  */
 function selectCiv(civ, silent){
   if(!silent && (deck.leaderId||deck.counts.size)){
-    askConfirm(`メイン文明を ${civ} に変更する。組みかけのデッキは失われる。`,
+    // ★★Batch 40: 文言を直した。38・39 は「組みかけのデッキは失われる」と書いていたが、
+    //   [元に戻す] が入った今、それは<b>嘘</b>である(36 の 3-3:「確認の本文に嘘を書かない」)。
+    //   ★autosave を入れると、既にある確認の本文のほうが古くなる。直すのは文言である。
+    askConfirm(`メイン文明を ${civ} に変更する。組みかけのデッキは空になる([元に戻す] で戻せる)。`,
       '文明を変更する', ()=>applyCiv(civ));
     return;
   }
   applyCiv(civ);
 }
+/** ★確認を通る道と通らない道で同じ1本である(裁定112)。中身は「置き換え」1つに寄せてある */
 function applyCiv(civ){
-  mainCiv = civ;
-  document.querySelectorAll('.civ-btn').forEach(b=>{
-    b.classList.toggle('active', b.dataset.civ===civ);
-  });
-  document.getElementById('lbl-leader-civ').textContent = `(${civ})`;
-  document.getElementById('lbl-main-civ').textContent = `(${civ}・同名4枚まで)`;
-  resetDeck();
+  replaceDeck({ mainCiv: civ, leaderId: null, cards: [], deckName: deckNameValue() });
 }
 
 /* ---------- タイル描画(共通レンダラ・コンパクト) ---------- */
@@ -820,6 +1037,121 @@ function renderAll(){
   if(q) pool = pool.filter(c=>c.name.includes(q)||(c.text||'').includes(q));
   pool.sort(sortLogic);
   document.getElementById('pool-grid').innerHTML = pool.map(c=>tileHtml(c,'pool')).join('');
+
+  // --- ★★Batch 40: 統計・検証・autosave はすべてここから走る ---
+  renderStats(mainList);
+  renderValidateChip();
+  syncDraft();
+}
+
+/* ============================================================
+ * ★★★Batch 40-1) マナカーブと統計(レビュー B-3)
+ *
+ * ★★<b>コストの区切りはフィルタと同じ COST_KEYS である。</b>
+ *   「フィルタは 0〜9・10+、カーブは 0〜7・8+」のように別々に決めると、
+ *   絞り込んだ結果とカーブの読み方がずれる(設計判断28)。
+ * ★★対象はメインデッキだけである。禁忌はコストの<b>支払い方が違う</b>——
+ *   表向きマナを裏返すか、裏向きマナを墓地へ送る(総合ルール 2-3)。
+ *   同じ横軸に並べると「7コストが3枚ある」が2つの別の意味を持つことになる。
+ * ============================================================ */
+function renderStats(mainList){
+  const counts = new Map(COST_KEYS.map(k=>[k,0]));
+  let cards=0, costSum=0;
+  const byType = {MINION:0, EVOLUTION:0, SPELL:0, WEAPON:0};
+  for(const c of mainList){
+    const q = deck.counts.get(c.id)||0;
+    counts.set(costKey(c.cost), (counts.get(costKey(c.cost))||0)+q);
+    cards += q; costSum += (c.cost||0)*q;
+    if(byType[c.type]!==undefined) byType[c.type] += q;
+  }
+  const max = Math.max(1, ...counts.values());
+  const col = civColor(mainCiv);
+  document.getElementById('curve').innerHTML = COST_KEYS.map(k=>{
+    const n = counts.get(k)||0;
+    const h = n===0 ? 0 : Math.round((n/max)*100);
+    return `<div class="curve-col${n>0?' has':''}" style="--curve:${col}">
+      <span class="curve-n">${n}</span>
+      <div class="curve-bar" style="height:${h}%"></div>
+      <span class="curve-k">${k==='10plus'?'10+':k}</span>
+    </div>`;
+  }).join('');
+  const avg = cards>0 ? (costSum/cards).toFixed(2) : '—';
+  const chips = [
+    {k:'平均コスト', v:avg},
+    {k:'ミニオン', v:byType.MINION},
+    {k:'進化', v:byType.EVOLUTION},
+    {k:'スペル', v:byType.SPELL},
+    {k:'ウェポン', v:byType.WEAPON},
+  ];
+  document.getElementById('stat-rows').innerHTML =
+    chips.map(c=>`<div class="stat-chip">${c.k}<b>${c.v}</b></div>`).join('');
+}
+
+/* ============================================================
+ * ★★★Batch 40-2) 検証一覧(レビュー B-3)
+ *
+ * ★★見るのは<b>盤面に持ち込めるか</b>であって、勝てるかではない。
+ *   項目はサーバ(ManualDeckImporter.validate)と同じ5つに揃えてある。
+ * ★★文明の規則(メインはリーダーと同一文明・禁忌は他文明)は<b>項目に立てない</b>。
+ *   この画面ではメイン/禁忌の区別が「文明が mainCiv と同じか」で決まっており、
+ *   違反という状態が構造上作れない。守られていることを毎回報告する行は、
+ *   読む人の目を滑らせるだけである(本当に見るべき行が埋もれる)。
+ * ★★同名上限は<b>読み込みでだけ壊れる</b>。右クリックの追加は changeCount が止めるが、
+ *   デッキ読込は外から来たファイルであり、UI の制約を1つも通っていない(設計判断27)。
+ *   ——検証一覧が要る理由はここにある。「自分で組んだデッキ」だけを見るなら
+ *   カウンタで足りていた。
+ * ============================================================ */
+function validateDeck(){
+  const t = totals();
+  const overMain=[], overTaboo=[];
+  for(const [id,q] of deck.counts){
+    const c = byId.get(id); if(!c) continue;
+    if(c.civ!==mainCiv){ if(q>TABOO_SAME) overTaboo.push(`${c.name}(${q})`); }
+    else if(!isUnlimited(c) && q>MAX_SAME) overMain.push(`${c.name}(${q})`);
+  }
+  const shortage = (n, size)=> n===size ? 'ちょうど' : (n<size ? `あと ${size-n} 枚` : `${n-size} 枚多い`);
+  return [
+    { ok: t.leader===1, label:'リーダー',
+      detail: t.leader===1 ? byId.get(deck.leaderId).name : '未選択' },
+    { ok: t.main===MAIN_SIZE, label:`メインデッキ ${MAIN_SIZE} 枚`,
+      detail: `${t.main} 枚 / ${shortage(t.main, MAIN_SIZE)}` },
+    { ok: t.taboo===TABOO_SIZE, label:`禁忌デッキ ${TABOO_SIZE} 枚`,
+      detail: `${t.taboo} 枚 / ${shortage(t.taboo, TABOO_SIZE)}` },
+    { ok: overMain.length===0, label:`メインの同名 ${MAX_SAME} 枚まで`,
+      detail: overMain.length===0 ? '超過なし' : overMain.join(' / ') },
+    { ok: overTaboo.length===0, label:`禁忌の同名 ${TABOO_SAME} 枚まで`,
+      detail: overTaboo.length===0 ? '超過なし' : overTaboo.join(' / ') },
+  ];
+}
+function renderValidateChip(){
+  const bad = validateDeck().filter(v=>!v.ok).length;
+  const btn = document.getElementById('validate-btn');
+  btn.classList.toggle('v-ok', bad===0);
+  btn.classList.toggle('v-bad', bad>0);
+  document.getElementById('validate-count').textContent = bad===0 ? 'OK' : `${bad} 件`;
+}
+/**
+ * ★★保存を<b>止めない</b>。手動モードは未実装のカードを場に出して試す場所であり、
+ *   サーバの読み込みも違反を警告に留めている(ManualDeckImporter.validate)。
+ *   止めるのではなく、<b>理由を見せてから通す</b>。
+ * ★だから [このまま保存する] はこのモーダルの中に在る。保存の手前に置くのではなく、
+ *   「何が足りないか」と同じ画面に置くのが、黙って書き出さないことの実体である。
+ */
+function openValidateModal(){
+  const items = validateDeck();
+  const bad = items.filter(v=>!v.ok).length;
+  document.getElementById('validate-modal-summary').textContent = bad===0
+    ? 'このデッキは総合ルールの構築条件を満たしている。'
+    : `構築条件を満たしていない項目が ${bad} 件ある。このまま保存することもできる(盤面は違反を警告として読み込む)。`;
+  document.getElementById('validate-modal-list').innerHTML = items.map(v=>
+    `<li class="validate-item ${v.ok?'v-ok':'v-bad'}">
+       <span class="vi-mark">${v.ok?'✓':'!'}</span>
+       <span class="vi-label">${esc(v.label)}</span>
+       <span class="vi-detail">${esc(v.detail)}</span>
+     </li>`).join('');
+  document.getElementById('validate-modal-save').textContent =
+    bad===0 ? '保存する' : 'このまま保存する';
+  openInfoModal('validate-modal');
 }
 function setCounter(id, n, target){
   const el=document.getElementById(id);
@@ -851,7 +1183,16 @@ document.addEventListener('contextmenu', e=>{
 });
 
 /* ---------- デッキJSON入出力 ---------- */
+/**
+ * ★★Batch 40: 書き出しの前に検証を通す。<b>止めるのではなく、理由を見せる</b>。
+ * ★39 の selectCiv / applyCiv と同じ形である(裁定112)——
+ *   「関門」と「実行する中身」を分け、通る道と通らない道で同じ1本を呼ぶ。
+ */
 function exportJson(){
+  if(validateDeck().some(v=>!v.ok)){ openValidateModal(); return; }
+  writeDeckFile();
+}
+function writeDeckFile(){
   const name = document.getElementById('deck-name').value.trim()||'MyDeck';
   const main=[], taboo=[];
   for(const [id,q] of deck.counts){
@@ -887,11 +1228,17 @@ function importJsonDeck(parsed){
     (parsed.taboo||[]).forEach(e=>{ const c=find(e.name,e.civ); if(c) counts.set(c.id,1); else miss++; });
   }
   if(!civ) throw new Error('リーダーをライブラリで解決できませんでした');
-  mainCiv=civ; selectCivUiOnly();
-  deck={leaderId, counts}; selectedId=leaderId;
-  document.getElementById('deck-name').value = parsed.deckName||'';
-  renderAll(); renderDetail();
-  toast(miss?`読み込みました(解決できないカード ${miss} 件は除外)`:'デッキを読み込みました');
+  // ★★Batch 40(裁定119): 組みかけを黙って捨てない。捨てられる側は replaceDeck が退避する。
+  //   ★確認は足していない——読み込みは意図的な操作であり、<b>失われないなら問う必要が無い</b>。
+  const hadDraft = !!(deck.leaderId || deck.counts.size);
+  replaceDeck({
+    mainCiv: civ, leaderId,
+    cards: Array.from(counts, (e)=>({id:e.at(0), qty:e.at(1)})),
+    deckName: parsed.deckName||'',
+  });
+  const note = hadDraft ? '([元に戻す] で戻せる)' : '';
+  toast(miss?`読み込みました(解決できないカード ${miss} 件は除外)${note}`
+            :`デッキを読み込みました${note}`);
 }
 function selectCivUiOnly(){
   document.querySelectorAll('.civ-btn').forEach(b=>b.classList.toggle('active', b.dataset.civ===mainCiv));
@@ -958,6 +1305,20 @@ function buildStaticUi(){
   document.getElementById('sort-pool').onchange=renderAll;
   document.getElementById('q').oninput=renderAll;
   document.getElementById('out-json').onclick=exportJson;
+  // ★★Batch 40: 検証一覧(2つ目のモーダル)。規約は確認モーダルと同じである(裁定47・51・53)
+  document.getElementById('validate-btn').onclick=openValidateModal;
+  document.getElementById('validate-modal-close').addEventListener('click',
+    ()=>closeInfoModal('validate-modal'));
+  document.getElementById('validate-modal-x').addEventListener('click',
+    ()=>document.getElementById('validate-modal-close').click());
+  document.getElementById('validate-modal-save').addEventListener('click', ()=>{
+    closeInfoModal('validate-modal');   // ★先に閉じる(確認モーダルと同じ順序)
+    writeDeckFile();
+  });
+  document.getElementById('undo-btn').onclick=undoReplace;
+  // ★デッキ名は renderAll が読まない唯一の状態なので、ここからも autosave を呼ぶ。
+  //   ★入力のたびに renderAll を回すことはしない(29: 描画は必要なときだけ)
+  document.getElementById('deck-name').oninput=syncDraft;
   document.getElementById('in-deck').addEventListener('change', async ev=>{
     const f=ev.target.files[0]; ev.target.value=''; if(!f) return;
     try{ importJsonDeck(JSON.parse(await f.text())); }
@@ -983,10 +1344,24 @@ function setCategoryFilters(cat,rowSel,on){
 }
 
 /* ---------- 起動 ---------- */
+/* ★★Batch 40: 保存してあった編集内容は<b>ライブラリより先に読む</b>。
+   loadLibrary は resetDeck を通り、resetDeck は renderAll を通り、renderAll は
+   autosave を書く。あとから読もうとすると、<b>読む前に空で上書きされている</b>。
+   ★★「保存が先か、初期化が先か」は autosave を後付けするときの定番の事故である。 */
+const pendingDraft = parseSnapshot(readStore(DRAFT_KEY));
 buildStaticUi();
+refreshUndoButton();
 fetch(LIBRARY_URL)
   .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-  .then(lib=>{ if(loadLibrary(lib)) selectCiv('火', true); })
+  .then(lib=>{
+    if(!loadLibrary(lib)) return;
+    if(pendingDraft && (pendingDraft.leaderId || (pendingDraft.cards||[]).length>0)){
+      applySnapshot(pendingDraft);   // ★退避しない。捨てているものが無い
+      toast('前回の続きから復元しました');
+      return;
+    }
+    selectCiv(pendingDraft && CIVS.includes(pendingDraft.mainCiv) ? pendingDraft.mainCiv : '火', true);
+  })
   .catch(e=>{
     document.getElementById('pool-grid').innerHTML =
       '<div style="color:var(--text-dim);padding:30px;font-size:13px;">カードデータの取得に失敗しました('+esc(e.message)+')。サーバが起動しているか確認してください。</div>';
