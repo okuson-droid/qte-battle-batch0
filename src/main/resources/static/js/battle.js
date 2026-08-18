@@ -432,6 +432,23 @@ function pickWeapon(side) {
 // 禁忌カード
 // ---------------------------------------------------------------
 
+/**
+ * ★Batch 43: 禁忌の帯の開閉。既定は畳む(1画面レイアウトの前提)。
+ * 支払い中(tabooPay)は render() が強制的に開く —— マナを選ぶ間、
+ * どの禁忌カードを使おうとしているかが見えていないと操作にならない。
+ */
+let tabooOpen = false;
+function toggleTabooRow() {
+    tabooOpen = !tabooOpen;
+    syncTabooRow();
+}
+function syncTabooRow() {
+    if (tabooPay) tabooOpen = true;
+    document.getElementById('taboo-strip').classList.toggle('d-none', !tabooOpen);
+    document.getElementById('btn-taboo-toggle')
+        .classList.toggle('auto-chip-active', tabooOpen);
+}
+
 function onTabooCardClick(index) {
     if (hasPendingChoice()) return;
     if (pending || tabooPay || !latestView || !latestView.myTurn) return;
@@ -908,6 +925,7 @@ function render(view) {
     renderOpponent(view.opponent, view);
     renderSelf(view.you, view);
     renderPendingChoice(view);
+    syncTabooRow();
 
     if (view.status === 'FINISHED') {
         showMessage('対戦終了: ' + view.winnerName + ' の勝利');

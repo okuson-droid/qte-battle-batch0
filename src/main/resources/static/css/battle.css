@@ -1593,3 +1593,84 @@ body.manual-drag-active .manual-band {
 }
 .auto-zoom.d-none { display: none; }
 .auto-zoom-card { width: 232px; aspect-ratio: 5 / 7; }
+
+/* ============================================================
+   ★★Batch 43: 通常モードの1画面レイアウト(.auto-root / .auto-strip / .auto-chip)
+   骨格は手動モードと同じ「中央列(可変)+ 右列(400px固定)」である。
+   ★目標は 1280×800 で縦スクロールなし。verify 43-1 が番人。
+   ============================================================ */
+.auto-root {
+    height: 100vh; box-sizing: border-box;
+    max-width: 1680px; margin: 0 auto; padding: 6px 12px 10px;
+    display: flex; flex-direction: column;
+}
+.auto-header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 6px;
+}
+.auto-header-spacer { flex: 1; }
+.auto-columns { display: flex; gap: 10px; flex: 1 1 0; min-height: 0; }
+.auto-main {
+    flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.auto-side {
+    width: 400px; flex: 0 0 400px;
+    display: flex; flex-direction: column; gap: 8px; min-height: 0;
+}
+/* ★ログは右列の残り高さを全部使う(基底 .log-box の height:130px を上書き) */
+.auto-log { height: auto; flex: 1 1 0; min-height: 0; }
+
+/* ---------- 帯(リーダー + チップ列 + マナ行) ---------- */
+.auto-strip {
+    display: flex; align-items: center; gap: 12px;
+    padding: 6px 10px; border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+}
+.auto-strip-info {
+    flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.auto-chip-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.auto-chip {
+    font-size: 12px; line-height: 1.6; padding: 0 8px; border-radius: 10px;
+    background: rgba(255, 255, 255, 0.07);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #e8e4f2; white-space: nowrap; text-decoration: none;
+}
+.auto-chip b { color: #ffd54f; font-weight: 700; }
+.auto-chip-link { cursor: pointer; color: #9fd8ea; }
+.auto-chip-link:hover { background: rgba(255, 255, 255, 0.14); }
+.auto-chip-plain { background: transparent; border-color: transparent; }
+.auto-chip-taboo { border-color: #a1465e; color: #ff9db8; }
+.auto-chip-taboo.auto-chip-active { background: #a1465e; color: #fff; }
+
+/* ミニオン行。カード(92×129)+ 余白で高さを固定し、行が踊らないようにする */
+.auto-minions { min-height: 134px; align-content: flex-start; }
+
+/* ---------- 手札。重ねて並べる(商業作品の扇の簡易版・設計解説 2-4) ---------- */
+.auto-hand-wrap { position: relative; }
+.auto-hand-wrap .hand-row { flex-wrap: nowrap; min-height: 146px; }
+.auto-hand-wrap .hand-row .auto-card-hand + .auto-card-hand { margin-left: -34px; }
+.auto-hand-wrap .hand-row .auto-card-hand:hover {
+    z-index: 3; transform: translateY(-6px);
+}
+.auto-hand-wrap .hand-row .auto-card-hand.selected-attacker,
+.auto-hand-wrap .hand-row .auto-card-hand.attack-target { z-index: 2; }
+
+/* ---------- 禁忌の帯。開いたとき手札の上に重なる(高さを消費しない) ---------- */
+.auto-taboo-strip {
+    /* ★下方向へ少しはみ出させる。手札の選択リング(box-shadow)は要素の外へ光るため、
+       ぴったり重ねると下端から光だけ漏れる(目視で確認)。背景は完全不透明にする */
+    position: absolute; inset: -2px -4px -10px; z-index: 5;
+    display: flex; flex-direction: column; gap: 4px;
+    background: #1b131d;
+    border: 1px solid #a1465e; border-radius: 8px;
+    padding: 4px 10px 6px;
+}
+.auto-taboo-strip.d-none { display: none; }
+.auto-taboo-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.auto-taboo-strip .hand-row { flex-wrap: nowrap; min-height: 0; flex: 1; }
+.auto-taboo-strip .auto-card-hand { width: 88px; }

@@ -52,7 +52,7 @@ const LIBRARY = { cards: [
   const port = server.address().port;
 
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 1500 } });
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   await page.goto(`http://127.0.0.1:${port}/harness-battle.html`);
   await page.waitForTimeout(300);
 
@@ -108,13 +108,18 @@ const LIBRARY = { cards: [
   await page.evaluate((v) => { latestView = v; render(v); }, view);
   await page.waitForTimeout(200);
 
+  if (process.env.TABOO === '1') {
+    await page.evaluate(() => toggleTabooRow());
+    await page.waitForTimeout(150);
+  }
   if (WITH_ZOOM) {
     const box = await page.locator('#my-hand .auto-card').nth(2).boundingBox();
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: 'right' });
     await page.waitForTimeout(150);
   }
 
-  await page.screenshot({ path: OUT, fullPage: true });
+  // ★43: 1画面レイアウトなので fullPage にしない。見えているものが全てである
+  await page.screenshot({ path: OUT });
   console.log('wrote ' + OUT);
   await browser.close();
   server.close();

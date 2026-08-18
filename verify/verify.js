@@ -4467,10 +4467,9 @@ async function clearZoom(page) {
       text: 'カードを2枚引く', imageId: 'x3' },
   ] };
 
-  // ★通常モードの盤面は縦に長い(実測 約1400px)。実マウスはビューポートの外を
-  //   押せないため、収まる高さで開く。実環境の保証としては「1280幅で崩れない」が本題で、
-  //   高さはスクロールで吸収される(手動モードと違い1画面固定の設計ではない)
-  const autoPage = await browser.newPage({ viewport: { width: 1280, height: 1600 } });
+  // ★★Batch 43 で 1280×800 の1画面に収めた。ビューポートも実寸で開く ——
+  //   これ自体が「収まっていなければ下の実マウス項目が押せず落ちる」という番人を兼ねる
+  const autoPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   const autoErrors = [];
   autoPage.on('pageerror', (e) => autoErrors.push(String(e)));
   await autoPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
@@ -4655,6 +4654,108 @@ async function clearZoom(page) {
   const mulState = await autoPage.evaluate(() =>
     document.querySelector('#my-hand .auto-card').classList.contains('mulligan-selected'));
   check('★マリガンの選択の印が 42 でも生きている', mulState, String(mulState));
+
+  // =========================================================================
+  // ★★Batch 43: 1画面レイアウト
+  // =========================================================================
+
+  // ---- 43-1. ★★★盤面が 1280×800 に収まる(縦スクロールなし) ----
+  // ★空の盤面なら無条件に収まる。両席ミニオン6体・手札8枚・マナ8枚・禁忌2枚という
+  //   「盛った盤面」で測る。ここが崩れたらレイアウトの前提(手動モードと同じ1画面)が崩れている
+  const fullView = autoView({
+    you: autoPlayer({
+      hand: Array.from({ length: 8 }, (_, i) => autoCard('QTE-0001', '手札' + i, { cost: 2 })),
+      minions: Array.from({ length: 6 }, (_, i) => autoMinion('m' + i, 'ミニオン' + i)),
+      manaZone: Array.from({ length: 8 }, () => ({ name: 'm', tapped: false, faceUp: true })),
+      taboo: [autoCard('QTE-0075', '禁忌1', { cost: 1 }), autoCard('QTE-0076', '禁忌2', { cost: 2 })],
+      tabooCount: 2, weaponName: '死神の大鎌', weaponAttack: 3,
+    }),
+    opponent: autoPlayer({
+      displayName: 'あいて',
+      minions: Array.from({ length: 6 }, (_, i) => autoMinion('e' + i, '敵' + i)),
+      manaZone: Array.from({ length: 8 }, () => ({ name: null, tapped: false, faceUp: true })),
+    }),
+    log: Array.from({ length: 30 }, (_, i) => 'ログ行' + i),
+  });
+  await autoDeliver(fullView);
+  const fit = await autoPage.evaluate(() => ({
+    scrollH: document.documentElement.scrollHeight,
+    innerH: window.innerHeight,
+    handBottom: document.getElementById('my-hand').getBoundingClientRect().bottom,
+  }));
+  check('★★★盛った盤面でも 1280×800 の1画面に収まる(43・縦スクロールなし)',
+    fit.scrollH <= fit.innerH + 1 && fit.handBottom <= fit.innerH,
+    JSON.stringify(fit));
+
+  // ---- 43-2. 手札は重ねて並ぶ ----
+  const overlap = await autoPage.evaluate(() => {
+    const cards = document.querySelectorAll('#my-hand .auto-card');
+    const a = cards[0].getBoundingClientRect();
+    const b = cards[1].getBoundingClientRect();
+    return { aRight: a.right, bLeft: b.left, count: cards.length };
+  });
+  check('★手札は重ねて並ぶ(43・8枚でも行に収まる)',
+    overlap.count === 8 && overlap.bLeft < overlap.aRight, JSON.stringify(overlap));
+
+  // ---- 43-3. 禁忌は既定で畳まれ、チップで開閉できる(実マウス) ----
+  const tabooDefault = await autoPage.evaluate(() => ({
+    hidden: document.getElementById('taboo-strip').classList.contains('d-none'),
+    chip: document.getElementById('my-taboo-count').textContent,
+  }));
+  const chipBox = await autoPage.locator('#btn-taboo-toggle').boundingBox();
+  await autoPage.mouse.click(chipBox.x + chipBox.width / 2, chipBox.y + chipBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const tabooOpened = await autoPage.evaluate(() => ({
+    open: !document.getElementById('taboo-strip').classList.contains('d-none'),
+    faces: document.querySelectorAll('#my-taboo .auto-card .mcard').length,
+    active: document.getElementById('btn-taboo-toggle').classList.contains('auto-chip-active'),
+  }));
+  await autoPage.mouse.click(chipBox.x + chipBox.width / 2, chipBox.y + chipBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const tabooReclosed = await autoPage.evaluate(() =>
+    document.getElementById('taboo-strip').classList.contains('d-none'));
+  check('★★禁忌は既定で畳まれ、チップで開閉できる(43・「必要な時に表示」)',
+    tabooDefault.hidden && tabooDefault.chip === '2'
+      && tabooOpened.open && tabooOpened.faces === 2 && tabooOpened.active && tabooReclosed,
+    JSON.stringify({ tabooDefault, tabooOpened, tabooReclosed }));
+
+  // ---- 43-4. ★支払い中は自動で開き、勝手に閉じない ----
+  // 禁忌カードのクリック → tabooPay 開始 → 帯が開いたまま・選択の問いが右列に出る
+  await autoPage.evaluate(() => { toggleTabooRow(); });   // 開く
+  await autoPage.waitForTimeout(30);
+  const tabooCardBox = await autoPage.locator('#my-taboo .auto-card').first().boundingBox();
+  await autoPage.mouse.click(tabooCardBox.x + tabooCardBox.width / 2,
+    tabooCardBox.y + tabooCardBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  // ★★閉じる操作を<b>実際に試みて</b>、閉じないことを測る。「開いている」だけを見ると、
+  //   手で開けた状態が残っているだけでも通ってしまい、ガードを外しても検出できない
+  //   (最初の版はそれで素通りした。番人は壊し方から逆算して書くこと)
+  const chipBox2 = await autoPage.locator('#btn-taboo-toggle').boundingBox();
+  await autoPage.mouse.click(chipBox2.x + chipBox2.width / 2, chipBox2.y + chipBox2.height / 2);
+  await autoPage.waitForTimeout(50);
+  const paying = await autoPage.evaluate(() => ({
+    payActive: !!tabooPay,
+    stripOpen: !document.getElementById('taboo-strip').classList.contains('d-none'),
+    prompt: document.getElementById('selection-prompt').textContent,
+    payable: document.querySelectorAll('#my-mana-row .mana-chip.taboo-payable').length,
+  }));
+  check('★★★支払い中は閉じる操作をしても帯が閉じない・マナが支払い可能に光る(43)',
+    paying.payActive && paying.stripOpen && paying.prompt.includes('禁忌コスト')
+      && paying.payable === 8,
+    JSON.stringify(paying));
+  await autoPage.evaluate(() => { cancelTabooPayment(); toggleTabooRow(); });
+
+  // ---- 43-5. ログは右列の残り高さを使う ----
+  const logShape = await autoPage.evaluate(() => {
+    const log = document.getElementById('log-area');
+    const side = log.parentElement;
+    return {
+      inSide: side.classList.contains('auto-side'),
+      h: log.getBoundingClientRect().height,
+    };
+  });
+  check('★ログは右列にあり、残り高さへ伸びる(43・基底の130pxを上書き)',
+    logShape.inSide && logShape.h > 300, JSON.stringify(logShape));
 
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
   await autoPage.close();
