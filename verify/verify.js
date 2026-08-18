@@ -4465,6 +4465,12 @@ async function clearZoom(page) {
     { id: 'QTE-M-WATER-1', ledgerCardId: 'QTE-0025', name: 'スプラッシュ・ドロー',
       civilization: 'WATER', type: 'SPELL', cost: 2, attack: null, hp: null,
       text: 'カードを2枚引く', imageId: 'x3' },
+    { id: 'QTE-M-DARK-1', ledgerCardId: 'QTE-0086', name: '死神の大鎌',
+      civilization: 'DARK', type: 'WEAPON', cost: 4, attack: 3, hp: null,
+      text: 'このウェポンで攻撃されたミニオンは、戦闘ダメージに関わらず破壊される。', imageId: 'x4' },
+    { id: 'QTE-M-FIRE-3', ledgerCardId: 'QTE-0046', name: 'マグマ・ストレート',
+      civilization: 'FIRE', type: 'SPELL', cost: 1, attack: null, hp: null,
+      text: 'ミニオン1体に2ダメージ。', imageId: 'x5' },
   ] };
 
   // ★★Batch 43 で 1280×800 の1画面に収めた。ビューポートも実寸で開く ——
@@ -4666,12 +4672,25 @@ async function clearZoom(page) {
     you: autoPlayer({
       hand: Array.from({ length: 8 }, (_, i) => autoCard('QTE-0001', '手札' + i, { cost: 2 })),
       minions: Array.from({ length: 6 }, (_, i) => autoMinion('m' + i, 'ミニオン' + i)),
-      manaZone: Array.from({ length: 8 }, () => ({ name: 'm', tapped: false, faceUp: true })),
+      // ★44: 表6(名前・cardId つき)+ タップ1 + 裏1 = 8枚(43-4 の「支払い可能8」は不変)
+      manaZone: [
+        ...Array.from({ length: 6 }, () => ({
+          name: 'マグマ・ストレート', cardId: 'QTE-0046',
+          tapped: false, faceUp: true, temporary: false,
+        })),
+        { name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: true, faceUp: true, temporary: false },
+        { name: '秘密のカード', cardId: 'QTE-0001', tapped: false, faceUp: false, temporary: false },
+      ],
       taboo: [autoCard('QTE-0075', '禁忌1', { cost: 1 }), autoCard('QTE-0076', '禁忌2', { cost: 2 })],
-      tabooCount: 2, weaponName: '死神の大鎌', weaponAttack: 3,
+      tabooCount: 2,
+      trash: [autoCard('QTE-0001', '炎の従者', { cost: 2 }),
+        autoCard('QTE-0025', 'スプラッシュ・ドロー', { type: 'SPELL', civilization: 'WATER' })],
+      trashCount: 2,
+      lost: [autoCard('QTE-0046', 'マグマ・ストレート', { type: 'SPELL' })], lostCount: 1,
+      weaponName: '死神の大鎌', weaponCardId: 'QTE-0086', weaponAttack: 3,
     }),
     opponent: autoPlayer({
-      displayName: 'あいて',
+      displayName: 'あいて', handCount: 5,
       minions: Array.from({ length: 6 }, (_, i) => autoMinion('e' + i, '敵' + i)),
       manaZone: Array.from({ length: 8 }, () => ({ name: null, tapped: false, faceUp: true })),
     }),
@@ -4737,7 +4756,7 @@ async function clearZoom(page) {
     payActive: !!tabooPay,
     stripOpen: !document.getElementById('taboo-strip').classList.contains('d-none'),
     prompt: document.getElementById('selection-prompt').textContent,
-    payable: document.querySelectorAll('#my-mana-row .mana-chip.taboo-payable').length,
+    payable: document.querySelectorAll('#my-mana-row .mana-tile.taboo-payable').length,
   }));
   check('★★★支払い中は閉じる操作をしても帯が閉じない・マナが支払い可能に光る(43)',
     paying.payActive && paying.stripOpen && paying.prompt.includes('禁忌コスト')
@@ -4756,6 +4775,118 @@ async function clearZoom(page) {
   });
   check('★ログは右列にあり、残り高さへ伸びる(43・基底の130pxを上書き)',
     logShape.inSide && logShape.h > 300, JSON.stringify(logShape));
+
+  // =========================================================================
+  // ★★Batch 44: パイル・マナタイル・リーダー合体タイル(案1・マスター承認)
+  // =========================================================================
+  await autoDeliver(fullView);
+
+  // ---- 44-1. 墓地パイルの最上段はビューの末尾(=最新)である(結線) ----
+  const pileState = await autoPage.evaluate(() => {
+    const trashPile = document.querySelectorAll('#my-piles .auto-pile')[1];
+    const lostPile = document.querySelectorAll('#my-piles .auto-pile')[2];
+    return {
+      trashTop: (trashPile.querySelector('.mcard-name') || {}).textContent || '',
+      trashCount: document.getElementById('my-trash-count').textContent,
+      lostTop: (lostPile.querySelector('.mcard-name') || {}).textContent || '',
+      lostCount: document.getElementById('my-lost-count').textContent,
+    };
+  });
+  check('★★★墓地・消滅パイルの最上段がビューの末尾と一致し、枚数バッジが従来のidで生きている(44)',
+    pileState.trashTop === 'スプラッシュ・ドロー' && pileState.trashCount === '2'
+      && pileState.lostTop === 'マグマ・ストレート' && pileState.lostCount === '1',
+    JSON.stringify(pileState));
+
+  // ---- 44-2. ★★★山札パイルは中身を見せない(仕分け D1 の番人) ----
+  const deckPile = await autoPage.evaluate(() => {
+    const pile = document.querySelectorAll('#my-piles .auto-pile')[0];
+    return {
+      faces: pile.querySelectorAll('.mcard').length,
+      names: pile.querySelectorAll('.mcard-name').length,
+      back: !!pile.querySelector('.auto-pile-back'),
+      clickable: pile.classList.contains('auto-pile-clickable'),
+    };
+  });
+  check('★★★山札パイルは裏面だけで、中身を見せる経路が無い(44・仕分けD1)',
+    deckPile.faces === 0 && deckPile.names === 0 && deckPile.back && !deckPile.clickable,
+    JSON.stringify(deckPile));
+
+  // ---- 44-3. マナタイル: 名前・回転・裏面 ----
+  const manaState = await autoPage.evaluate(() => {
+    const tiles = document.querySelectorAll('#my-mana-row .mana-tile');
+    const tapped = tiles[6];
+    const faceDown = tiles[7];
+    return {
+      count: tiles.length,
+      firstName: (tiles[0].querySelector('.mana-tile-name') || {}).textContent || '',
+      tappedRotated: getComputedStyle(tapped).transform !== 'none',
+      faceDownHasName: !!faceDown.querySelector('.mana-tile-name'),
+      oneLine: [...tiles].every(t => t.offsetTop === tiles[0].offsetTop),
+    };
+  });
+  check('★★★マナは名前つきタイルで、タップは回転・裏向きは名前を出さない・1行に収まる(44)',
+    manaState.count === 8 && manaState.firstName === 'マグマ・ストレート'
+      && manaState.tappedRotated && !manaState.faceDownHasName && manaState.oneLine,
+    JSON.stringify(manaState));
+
+  // ---- 44-4. 相手の手札は裏面の列 ----
+  const backsState = await autoPage.evaluate(() => ({
+    backs: document.querySelectorAll('#opp-hand-backs .auto-back').length,
+    handCount: latestView.opponent.handCount,
+  }));
+  check('★相手の手札が裏面の列で見える(44・枚数と一致)',
+    backsState.backs === backsState.handCount && backsState.backs > 0,
+    JSON.stringify(backsState));
+
+  // ---- 44-5. リーダー合体タイル: 効果の先頭が常時見え、ホバーで全文(実マウス) ----
+  const leaderState = await autoPage.evaluate(() => ({
+    ability: document.getElementById('my-leader-ability').textContent,
+    weapon: document.getElementById('my-weapon').textContent,
+  }));
+  const leaderBox = await autoPage.locator('#my-leader').boundingBox();
+  await autoPage.mouse.move(leaderBox.x + leaderBox.width / 2, leaderBox.y + 20);
+  await autoPage.waitForTimeout(500);
+  const hoverState = await autoPage.evaluate(() => ({
+    open: !document.getElementById('auto-hover').classList.contains('d-none'),
+    text: (document.querySelector('#auto-hover-card .mcard-text') || {}).textContent || '',
+  }));
+  await autoPage.mouse.move(10, 400);
+  await autoPage.waitForTimeout(100);
+  const hoverClosed = await autoPage.evaluate(() =>
+    document.getElementById('auto-hover').classList.contains('d-none'));
+  check('★★★リーダーは効果の先頭が常時見え、ホバーで全文プレビューが出て、離れると消える(44・B-1)',
+    leaderState.ability.includes('起動') && leaderState.weapon.includes('死神の大鎌')
+      && hoverState.open && hoverState.text.includes('起動') && hoverClosed,
+    JSON.stringify({ leaderState, hoverState, hoverClosed }));
+
+  // ---- 44-6. ウェポンの右クリック → 効果テキスト(B2 の weaponCardId 結線) ----
+  const weaponLine = await autoPage.locator('#my-leader .auto-leader-weapon').boundingBox();
+  await autoPage.mouse.click(weaponLine.x + weaponLine.width / 2,
+    weaponLine.y + weaponLine.height / 2, { button: 'right' });
+  await autoPage.waitForTimeout(60);
+  const weaponZoom = await autoPage.evaluate(() => {
+    const text = (document.querySelector('#auto-zoom-card .mcard-text') || {}).textContent || '';
+    const name = (document.querySelector('#auto-zoom-card .mcard-name') || {}).textContent || '';
+    closeZoom();
+    return { text, name };
+  });
+  check('★★ウェポンの右クリックで効果テキストが読める(44・B2 の weaponCardId 結線)',
+    weaponZoom.name === '死神の大鎌' && weaponZoom.text.includes('戦闘ダメージに関わらず破壊'),
+    JSON.stringify(weaponZoom));
+
+  // ---- 44-7. 墓地パイルのクリックでフェイス一覧が開く ----
+  const trashPileBox = await autoPage.locator('#my-piles .auto-pile').nth(1).boundingBox();
+  await autoPage.mouse.click(trashPileBox.x + trashPileBox.width / 2,
+    trashPileBox.y + trashPileBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const zoneModal = await autoPage.evaluate(() => {
+    const open = !document.getElementById('info-modal').classList.contains('d-none');
+    const faces = document.querySelectorAll('#info-modal-content .auto-zone-card .mcard').length;
+    hideModal();
+    return { open, faces };
+  });
+  check('★★墓地パイルのクリックで中身がフェイスの一覧で開く(44)',
+    zoneModal.open && zoneModal.faces === 2, JSON.stringify(zoneModal));
 
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
   await autoPage.close();

@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=43)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=44)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -40,26 +40,24 @@
 
             <!-- 相手の帯。★38 までの「文字列の羅列」をチップ列に畳んだ(設計解説 2-2)。
                  数字の span の id は従来のまま(battle.js は置き場所を知らない) -->
+            <!-- ★Batch 44(案1・マスター承認): リーダー合体タイル + パイル + 手札の裏面列。
+                 相手のマナはチップのまま(非対称。手動モードの「相手上段は簡略」と同じ判断) -->
             <div class="auto-strip opponent-side">
-                <div id="opp-leader" class="leader-card rounded text-center">
-                    <div class="small" id="opp-leader-name">?</div>
-                    <div class="fs-4 fw-bold" id="opp-lp">-</div>
+                <div id="opp-leader" class="leader-card auto-leader">
+                    <div class="auto-leader-name" id="opp-leader-name">?</div>
+                    <div class="auto-leader-lp" id="opp-lp">-</div>
+                    <div class="auto-leader-ability" id="opp-leader-ability">&nbsp;</div>
+                    <div class="auto-leader-weapon">⚔ <span id="opp-weapon">なし</span></div>
                 </div>
+                <div id="opp-piles" class="auto-piles"></div>
                 <div class="auto-strip-info">
                     <div class="auto-chip-row">
-                        <span class="auto-chip">手札 <b id="opp-hand-count">-</b></span>
-                        <span class="auto-chip">山 <b id="opp-deck-count">-</b></span>
+                        <span class="auto-chip">手札</span>
+                        <div id="opp-hand-backs" class="auto-backs"></div>
+                        <span class="auto-chip d-none">手札 <b id="opp-hand-count">-</b></span>
                         <span class="auto-chip">MP <b id="opp-mp">-</b></span>
                         <a href="#" class="auto-chip auto-chip-link"
                            onclick="showManaList(false); return false;">マナ <b id="opp-mana-count">-</b></a>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showTrashList(false); return false;">墓地 <b id="opp-trash-count">-</b></a>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showLostList(false); return false;">消滅 <b id="opp-lost-count">-</b></a>
-                        <span class="auto-chip">禁忌 <b id="opp-taboo-count">-</b></span>
-                        <span class="auto-chip">⚔ <span id="opp-weapon">なし</span></span>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showLeaderInfo(false); return false;">リーダー能力</a>
                         <span class="auto-chip auto-chip-plain text-muted" id="opp-deck-name">-</span>
                     </div>
                     <div id="opp-mana-row" class="mana-row"></div>
@@ -71,33 +69,23 @@
 
             <!-- 自分の帯 -->
             <div class="auto-strip my-side">
-                <div id="my-leader" class="leader-card rounded text-center">
-                    <div class="small" id="my-leader-name">?</div>
-                    <div class="fs-4 fw-bold" id="my-lp">-</div>
+                <div id="my-leader" class="leader-card auto-leader">
+                    <div class="auto-leader-name" id="my-leader-name">?</div>
+                    <div class="auto-leader-lp" id="my-lp">-</div>
+                    <div class="auto-leader-ability" id="my-leader-ability">&nbsp;</div>
+                    <div class="auto-leader-weapon">⚔ <span id="my-weapon">なし</span></div>
                 </div>
+                <div id="my-piles" class="auto-piles"></div>
                 <div class="auto-strip-info">
                     <div class="auto-chip-row">
-                        <span class="auto-chip">山 <b id="my-deck-count">-</b></span>
-                        <span class="auto-chip">MP <b id="my-mp">-</b></span>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showManaList(true); return false;">マナ <b id="my-mana-count">-</b></a>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showTrashList(true); return false;">墓地 <b id="my-trash-count">-</b></a>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showLostList(true); return false;">消滅 <b id="my-lost-count">-</b></a>
-                        <span class="auto-chip">⚔ <span id="my-weapon">なし</span></span>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showLeaderInfo(true); return false;">リーダー能力</a>
+                        <span class="auto-chip">MP <b id="my-mp">-</b> / マナ <b id="my-mana-count">-</b></span>
                         <button id="btn-leader-ability" class="btn btn-sm btn-outline-info d-none"
                                 onclick="useLeaderAbility()">リーダー能力を使う</button>
-                        <!-- ★禁忌は既定で畳む(設計解説 2-3)。開閉はこのチップ。支払い中は自動で開く -->
-                        <button type="button" id="btn-taboo-toggle" class="auto-chip auto-chip-link auto-chip-taboo"
-                                onclick="toggleTabooRow()"
-                                title="禁忌デッキを開く(自分のみ閲覧可 / メインフェイズにマナで支払って使用)">
-                            禁忌 <b id="my-taboo-count">0</b></button>
+                        <!-- ★禁忌の開閉はパイル(auto-piles 内)がボタンを兼ねる。チップは退役し、
+                             id はパイル側に移った(battle.js の参照は不変) -->
                         <span class="auto-chip auto-chip-plain text-muted" id="my-deck-name">-</span>
                     </div>
-                    <div id="my-mana-row" class="mana-row"></div>
+                    <div id="my-mana-row" class="mana-row auto-mana-row"></div>
                 </div>
             </div>
 
@@ -162,6 +150,11 @@
     <div id="auto-zoom-card" class="auto-zoom-card"></div>
 </div>
 
+<!-- ★Batch 44: ホバープレビュー(B-1)。クリックを吸わない(pointer-events: none) -->
+<div id="auto-hover" class="auto-hover d-none">
+    <div id="auto-hover-card" class="auto-zoom-card"></div>
+</div>
+
 <!-- 汎用の情報モーダル(墓地・マナ・リーダー能力の一覧表示に使う) -->
 <div id="info-modal" class="info-modal d-none" onclick="hideModal()">
     <div class="info-modal-body" onclick="event.stopPropagation()">
@@ -179,6 +172,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=16)}"></script>
+<script th:src="@{/js/battle.js(v=17)}"></script>
 </body>
 </html>

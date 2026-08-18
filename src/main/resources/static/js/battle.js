@@ -601,16 +601,17 @@ function hideModal() {
     document.getElementById('info-modal').classList.add('d-none');
 }
 
+/** ★44: 名前の文字列 → フェイス一覧に格上げ(showZoneFaces)。旧関数名は互換のため残す */
 function showTrashList(isSelf) {
     if (!latestView || !latestView.you) return;
     const p = isSelf ? latestView.you : latestView.opponent;
-    showModal(`${p.displayName}の墓地(${p.trashCount}枚)`, p.trashCardNames || []);
+    showZoneFaces(`${p.displayName}の墓地(${p.trashCount}枚)`, p.trash || []);
 }
 
 function showLostList(isSelf) {
     if (!latestView || !latestView.you) return;
     const p = isSelf ? latestView.you : latestView.opponent;
-    showModal(`${p.displayName}の消滅ゾーン(${p.lostCount}枚)`, p.lostCardNames || []);
+    showZoneFaces(`${p.displayName}の消滅ゾーン(${p.lostCount}枚)`, p.lost || []);
 }
 
 function showManaList(isSelf) {
@@ -885,6 +886,133 @@ function closeZoom() {
 }
 
 // ---------------------------------------------------------------
+// パイルとゾーン一覧(Batch 44・案1)
+// ---------------------------------------------------------------
+
+/**
+ * パイル1つ(山札・墓地・消滅・禁忌)。
+ * ★枚数バッジが従来のチップの id(opp-deck-count 等)をそのまま引き継ぐ。
+ *   数字を書き込む既存のコードは1行も変えずに、書き込み先だけが移る。
+ * ★山札と禁忌は裏面である。山札の中身を見せる経路は作らない(仕分け D1)。
+ */
+function pileEl(label, opts) {
+    const el = document.createElement('div');
+    el.className = 'auto-pile';
+    if (opts.id) el.id = opts.id;
+    const cardHolder = document.createElement('div');
+    cardHolder.className = 'auto-pile-card';
+    if (opts.top) {
+        cardHolder.appendChild(cardFace(faceDataFromCardView(opts.top), 'micro'));
+        cardHolder.classList.add('auto-pile-stacked');
+        attachZoom(el, () => faceDataFromCardView(opts.top));
+    } else if (opts.back) {
+        cardHolder.classList.add('auto-pile-back', 'auto-pile-stacked');
+        const mark = document.createElement('span');
+        mark.textContent = opts.back;
+        cardHolder.appendChild(mark);
+    } else {
+        cardHolder.classList.add('auto-pile-empty');
+    }
+    el.appendChild(cardHolder);
+    const count = document.createElement('span');
+    count.className = 'auto-pile-count';
+    if (opts.countId) count.id = opts.countId;
+    count.textContent = '-';
+    el.appendChild(count);
+    const lab = document.createElement('div');
+    lab.className = 'auto-pile-label';
+    lab.textContent = label;
+    el.appendChild(lab);
+    if (opts.onClick) {
+        el.classList.add('auto-pile-clickable');
+        el.onclick = opts.onClick;
+    }
+    return el;
+}
+
+/** 両席のパイル列。★描画のたびに作り直す(バッジの id はここで生まれる) */
+function renderPiles(isSelf, p) {
+    const wrap = document.getElementById(isSelf ? 'my-piles' : 'opp-piles');
+    wrap.innerHTML = '';
+    const prefix = isSelf ? 'my' : 'opp';
+    const who = isSelf ? 'あなた' : p.displayName;
+    wrap.appendChild(pileEl('山札', { back: 'QTE', countId: prefix + '-deck-count' }));
+    const trashTop = (p.trash && p.trash.length > 0) ? p.trash[p.trash.length - 1] : null;
+    wrap.appendChild(pileEl('墓地', {
+        top: trashTop, countId: prefix + '-trash-count',
+        onClick: () => showZoneFaces(`${who}の墓地(${p.trashCount}枚)`, p.trash),
+    }));
+    const lostTop = (p.lost && p.lost.length > 0) ? p.lost[p.lost.length - 1] : null;
+    wrap.appendChild(pileEl('消滅', {
+        top: lostTop, countId: prefix + '-lost-count',
+        onClick: () => showZoneFaces(`${who}の消滅ゾーン(${p.lostCount}枚)`, p.lost),
+    }));
+    const tabooOpts = { back: '禁忌', countId: prefix + '-taboo-count' };
+    if (isSelf) {
+        tabooOpts.onClick = toggleTabooRow;
+        tabooOpts.id = 'btn-taboo-toggle';   // ★43 のチップの id を引き継ぐ(syncTabooRow の参照先)
+    }
+    wrap.appendChild(pileEl('禁忌', tabooOpts));
+}
+
+/**
+ * ゾーンの中身をフェイスの一覧で出す(墓地・消滅)。
+ * 33 までの「名前の文字列」を面に格上げした。右クリックで1枚ずつ拡大できる。
+ */
+function showZoneFaces(title, cards) {
+    document.getElementById('info-modal-title').textContent = title;
+    const content = document.getElementById('info-modal-content');
+    content.innerHTML = '';
+    if (!cards || cards.length === 0) {
+        content.textContent = '(なし)';
+    } else {
+        const grid = document.createElement('div');
+        grid.className = 'auto-zone-grid';
+        cards.forEach(card => {
+            const holder = document.createElement('div');
+            holder.className = 'auto-zone-card';
+            holder.appendChild(cardFace(faceDataFromCardView(card), 'mini'));
+            attachZoom(holder, () => faceDataFromCardView(card));
+            grid.appendChild(holder);
+        });
+        content.appendChild(grid);
+    }
+    document.getElementById('info-modal').classList.remove('d-none');
+}
+
+// ---------------------------------------------------------------
+// ホバープレビュー(Batch 44・B-1)。まずはリーダーから
+// ---------------------------------------------------------------
+
+let hoverTimer = null;
+function attachHover(el, dataFn) {
+    el.onmouseenter = () => {
+        clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => {
+            const holder = document.getElementById('auto-hover-card');
+            holder.innerHTML = '';
+            holder.appendChild(cardFace(dataFn(), 'large'));
+            document.getElementById('auto-hover').classList.remove('d-none');
+        }, 350);
+    };
+    el.onmouseleave = () => {
+        clearTimeout(hoverTimer);
+        document.getElementById('auto-hover').classList.add('d-none');
+    };
+}
+
+/** ウェポンの面。効果テキストは card-library から(B2 の weaponCardId 経由・裁定144) */
+function weaponFaceData(p) {
+    const lib = p.weaponCardId ? autoLibrary.get(p.weaponCardId) : null;
+    return {
+        name: p.weaponName, type: 'WEAPON',
+        civilization: lib ? lib.civilization : null,
+        cost: lib ? lib.cost : null, keywords: [],
+        text: lib ? lib.text : '', attack: p.weaponAttack, hp: null,
+    };
+}
+
+// ---------------------------------------------------------------
 // 3) 受信と描画
 // ---------------------------------------------------------------
 
@@ -1077,8 +1205,18 @@ function renderLog(log) {
 }
 
 function renderOpponent(opp, view) {
+    renderPiles(false, opp);   // ★44: 先にパイルを作る(枚数バッジの id はパイルが持つ)
     document.getElementById('opp-leader-name').textContent = opp.leaderName;
     document.getElementById('opp-lp').textContent = opp.lp;
+    document.getElementById('opp-leader-ability').textContent = opp.leaderText || '';
+    // 手札は裏面の列で見せる(枚数の体感化)
+    const backs = document.getElementById('opp-hand-backs');
+    backs.innerHTML = '';
+    for (let i = 0; i < opp.handCount; i++) {
+        const b = document.createElement('div');
+        b.className = 'auto-back';
+        backs.appendChild(b);
+    }
     document.getElementById('opp-hand-count').textContent = opp.handCount;
     document.getElementById('opp-deck-count').textContent = opp.deckCount;
     document.getElementById('opp-mp').textContent = opp.availableMp;
@@ -1109,11 +1247,24 @@ function renderOpponent(opp, view) {
     const leaderEl = document.getElementById('opp-leader');
     // ★Batch 42: 文明色。リーダーの文明はビューに無いので台帳IDから引く(取得前は無文明色)
     leaderEl.style.setProperty('--mc', libCivColor(opp.leaderCardId));
-    attachZoom(leaderEl, () => ({
+    const oppLeaderFace = () => ({
         name: opp.leaderName, type: 'LEADER', keywords: [],
         civilization: (autoLibrary.get(opp.leaderCardId) || {}).civilization,
         text: opp.leaderText, cost: null, attack: null, hp: null,
-    }));
+    });
+    attachZoom(leaderEl, oppLeaderFace);
+    attachHover(leaderEl, oppLeaderFace);   // ★44: ホバープレビュー(B-1)
+    // ★ウェポンの行は右クリックでウェポンの面(効果は library から。B2)
+    const oppWeaponLine = leaderEl.querySelector('.auto-leader-weapon');
+    if (opp.weaponName) {
+        oppWeaponLine.oncontextmenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openZoom(weaponFaceData(opp));
+        };
+    } else {
+        oppWeaponLine.oncontextmenu = null;
+    }
     const leaderAttackable = !pending && selectedAttackerId !== null && canSelectedAttackLeader(view);
     leaderEl.classList.toggle('attackable', leaderAttackable);
     leaderEl.onclick = leaderAttackable ? onOpponentLeaderClick : null;
@@ -1141,8 +1292,10 @@ function canSelectedAttackLeader(view) {
 }
 
 function renderSelf(you, view) {
+    renderPiles(true, you);   // ★44: 先にパイルを作る(バッジと禁忌トグルの id はパイルが持つ)
     document.getElementById('my-leader-name').textContent = you.leaderName;
     document.getElementById('my-lp').textContent = you.lp;
+    document.getElementById('my-leader-ability').textContent = you.leaderText || '';
     document.getElementById('my-deck-count').textContent = you.deckCount;
     document.getElementById('my-mp').textContent = you.availableMp;
     document.getElementById('my-mana-count').textContent = you.totalMana;
@@ -1168,36 +1321,64 @@ function renderSelf(you, view) {
     // 自リーダー: バトルフェイズにウェポンで攻撃できるならクリック可能
     const myLeaderEl = document.getElementById('my-leader');
     myLeaderEl.style.setProperty('--mc', libCivColor(you.leaderCardId));
-    attachZoom(myLeaderEl, () => ({
+    const myLeaderFace = () => ({
         name: you.leaderName, type: 'LEADER', keywords: [],
         civilization: (autoLibrary.get(you.leaderCardId) || {}).civilization,
         text: you.leaderText, cost: null, attack: null, hp: null,
-    }));
+    });
+    attachZoom(myLeaderEl, myLeaderFace);
+    attachHover(myLeaderEl, myLeaderFace);
+    const myWeaponLine = myLeaderEl.querySelector('.auto-leader-weapon');
+    if (you.weaponName) {
+        myWeaponLine.oncontextmenu = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openZoom(weaponFaceData(you));
+        };
+    } else {
+        myWeaponLine.oncontextmenu = null;
+    }
     const leaderReady = !pending && view.myTurn && view.phase === 'BATTLE' && you.leaderCanAttack;
     myLeaderEl.classList.toggle('attackable', leaderReady);
     myLeaderEl.classList.toggle('selected-attacker', selectedAttackerId === 'LEADER');
     myLeaderEl.onclick = leaderReady ? onMyLeaderClick : null;
 
+    // ★44: 自分のマナは名前つきタイル(手動モードの .mana-tile)。タップ=回転・裏向き=裏面。
+    //   文明色は cardId → card-library(裁定144)。選択のクラス名と click は 43 以前から不変
     const manaReq = currentRequirement();
     const manaRow = document.getElementById('my-mana-row');
     manaRow.innerHTML = '';
+    manaRow.classList.remove('auto-mana-overlap');
     you.manaZone.forEach((mana, index) => {
-        const chip = document.createElement('div');
-        chip.className = 'mana-chip' + (mana.tapped ? ' tapped' : '') + (mana.faceUp ? '' : ' face-down');
-        chip.title = mana.name || '(裏向き)';
+        const tile = document.createElement('div');
+        tile.className = 'mana-tile' + (mana.tapped ? ' tapped' : '') + (mana.faceUp ? '' : ' face-down');
+        if (mana.faceUp) {
+            const lib = mana.cardId ? autoLibrary.get(mana.cardId) : null;
+            if (lib) tile.style.setProperty('--mana-civ', civColor(lib.civilization));
+            const nameEl = document.createElement('div');
+            nameEl.className = 'mana-tile-name';
+            nameEl.textContent = mana.name || '';
+            tile.appendChild(nameEl);
+        } else {
+            // ★自分の裏向きマナ: 面は裏だが、持ち主は中身を知ってよい(ビューに届いている)
+            tile.title = mana.name ? `(裏向き)${mana.name}` : '(裏向き)';
+        }
+        if (mana.temporary) tile.classList.add('mana-temporary');
         if (tabooPay) {
             if (!mana.temporary) {
-                chip.classList.add('taboo-payable');
-                chip.onclick = () => pickTabooMana(index);
+                tile.classList.add('taboo-payable');
+                tile.onclick = () => pickTabooMana(index);
             }
-            if (tabooPay.manaIndexes.includes(index)) chip.classList.add('taboo-picked');
+            if (tabooPay.manaIndexes.includes(index)) tile.classList.add('taboo-picked');
         } else if (manaReq && manaReq.kind === 'MANA') {
-            chip.classList.add('mana-selectable');
-            if (pending.current.manaIndexes.includes(index)) chip.classList.add('mana-picked');
-            chip.onclick = () => pickMana(index);
+            tile.classList.add('mana-selectable');
+            if (pending.current.manaIndexes.includes(index)) tile.classList.add('mana-picked');
+            tile.onclick = () => pickMana(index);
         }
-        manaRow.appendChild(chip);
+        manaRow.appendChild(tile);
     });
+    // ★並びきらないときだけ重ねる(手動モードの applyManaOverlap と同じ思想の簡易版)
+    manaRow.classList.toggle('auto-mana-overlap', manaRow.scrollWidth > manaRow.clientWidth);
 
     const req = currentRequirement();
     const row = document.getElementById('my-minions');

@@ -127,6 +127,10 @@ public class GameViewBuilder {
                         .toList(),
                 player.getLostZone().size(),
                 player.getLostZone().stream().map(id -> cards.findById(id).name()).toList(),
+                // ★Batch 44: 消滅の面(最上段の表示・一覧のフェイス化)。消滅は墓地と同じ公開情報である
+                player.getLostZone().stream()
+                        .map(id -> buildCardView(state, player, cards.findById(id), -1))
+                        .toList(),
                 player.getTabooDeck().size(),
                 taboo,
                 player.isManaChargedThisTurn(),
@@ -135,6 +139,9 @@ public class GameViewBuilder {
                 player.getLeader().text(),
                 player.getDeckName(),
                 player.getEquippedWeapon() == null ? null : player.getEquippedWeapon().name(),
+                // ★Batch 44: 効果テキスト・文明はクライアントが card-library から引く(裁定144)。
+                //   ビューにはIDだけを足す。名前で引かせないため(名前はIDと同じ、の原則)
+                player.getEquippedWeapon() == null ? null : player.getEquippedWeapon().id(),
                 player.getEquippedWeapon() == null ? null
                         : stats.effectiveWeaponAttack(state, player),
                 leaderCanAttack,

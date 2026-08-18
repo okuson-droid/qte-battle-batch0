@@ -1674,3 +1674,100 @@ body.manual-drag-active .manual-band {
 }
 .auto-taboo-strip .hand-row { flex-wrap: nowrap; min-height: 0; flex: 1; }
 .auto-taboo-strip .auto-card-hand { width: 88px; }
+
+/* ============================================================
+   ★★Batch 44: 「プレイしている感覚」— パイル・マナタイル・リーダー合体タイル(案1)
+   ============================================================ */
+
+/* ---------- リーダー+ウェポンの合体タイル(.leader-card を拡張) ---------- */
+.auto-leader {
+    width: 168px; height: auto; min-height: 118px; box-sizing: border-box;
+    padding: 7px 9px; text-align: left; justify-content: flex-start;
+}
+.auto-leader-name { font-size: 12px; font-weight: 700; }
+.auto-leader-lp { font-size: 26px; font-weight: 900; line-height: 1.05; }
+/* ★効果の先頭2行を常時出す(「ぱっと分かる」の実体)。全文はホバー / 右クリック */
+.auto-leader-ability {
+    font-size: 9.5px; color: #cfc9e4; line-height: 1.35; overflow: hidden;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.auto-leader-weapon {
+    margin-top: 3px; font-size: 10px; color: #ffd54f;
+    border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 3px;
+}
+
+/* ---------- パイル(山札・墓地・消滅・禁忌) ---------- */
+.auto-piles { display: flex; gap: 12px; align-items: flex-start; flex: 0 0 auto; }
+.auto-pile { position: relative; width: 54px; text-align: center; }
+.auto-pile-clickable { cursor: pointer; }
+.auto-pile-clickable:hover .auto-pile-card { transform: translateY(-2px); }
+.auto-pile-card { position: relative; width: 54px; height: 76px; border-radius: 5px; }
+.auto-pile-card .mcard { position: absolute; inset: 0; width: auto; height: auto; }
+/* ★ずらし影で「束」に見せる。上のカード1枚 + 影2層で、束の中身は描かない */
+.auto-pile-stacked::before, .auto-pile-stacked::after {
+    content: ''; position: absolute; inset: 0; border-radius: 5px;
+    background: #17131f; border: 1px solid #4a4460; z-index: -1;
+}
+.auto-pile-stacked::before { transform: translate(2px, 2px); opacity: 0.7; }
+.auto-pile-stacked::after { transform: translate(4px, 4px); opacity: 0.4; }
+/* 裏面(山札・禁忌)。★山札の中身を見せる経路は作らない(仕分け D1) */
+.auto-pile-back {
+    background: repeating-linear-gradient(135deg, #241d31 0 6px, #1b1526 6px 12px);
+    border: 1px solid #4a4460;
+    display: flex; align-items: center; justify-content: center;
+}
+.auto-pile-back span {
+    font-size: 8px; letter-spacing: 0.2em; color: #6f6786;
+    border: 1px solid #6f6786; padding: 1px 3px;
+}
+.auto-pile-empty { border: 1px dashed #4a4460; opacity: 0.5; }
+.auto-pile-count {
+    position: absolute; top: -7px; right: -7px; z-index: 3;
+    background: var(--accent, #ffc107); background: #ffc107; color: #000;
+    min-width: 20px; height: 20px; line-height: 18px; border-radius: 10px;
+    font-weight: 900; font-size: 11px; border: 1px solid #000; padding: 0 3px;
+}
+.auto-pile-label { font-size: 10px; color: #adb5bd; margin-top: 2px; }
+/* 禁忌パイルが開閉トグルを兼ねる(43 のチップの後継。auto-chip-active も引き継ぐ) */
+#btn-taboo-toggle.auto-chip-active .auto-pile-card { outline: 2px solid #a1465e; }
+#btn-taboo-toggle.auto-chip-active .auto-pile-label { color: #ff9db8; }
+
+/* ---------- 相手の手札(裏面の列) ---------- */
+.auto-backs { display: flex; align-items: center; }
+.auto-back {
+    width: 38px; height: 53px; border-radius: 4px; flex: 0 0 auto;
+    background: repeating-linear-gradient(135deg, #241d31 0 5px, #1b1526 5px 10px);
+    border: 1px solid #4a4460;
+}
+.auto-back + .auto-back { margin-left: -16px; }
+
+/* ---------- 自分のマナ(名前つきタイル)。基底は手動モードの .mana-tile ---------- */
+/* ★nowrap が肝である。折り返しを許すと横に溢れず、重なり判定(scrollWidth 比較)が
+   永久に発火しない —— 2段に折れて縦を70px食う、という形で 43-1 が落ちて発覚した */
+.auto-mana-row { display: flex; flex-wrap: nowrap; align-items: flex-start; min-height: 84px; }
+/* 文明色は --mana-civ(cardId → card-library)。無ければ既定の緑のまま */
+.auto-mana-row .mana-tile {
+    height: 80px;
+    background: color-mix(in srgb, var(--mana-civ, #26a69a) 55%, #17131f);
+    border-color: color-mix(in srgb, var(--mana-civ, #80cbc4) 70%, #fff 10%);
+}
+.auto-mana-row .mana-tile.face-down {
+    background: repeating-linear-gradient(135deg, #241d31 0 6px, #1b1526 6px 12px);
+    border-color: #4a4460;
+}
+.auto-mana-row .mana-tile + .mana-tile { margin-left: 4px; }
+/* ★並びきらないときだけ重ねる(battle.js が付ける)。タップの回転ぶんは余白で吸収 */
+.auto-mana-row.auto-mana-overlap .mana-tile + .mana-tile { margin-left: -26px; }
+.auto-mana-row .mana-tile.tapped { margin-left: 14px; margin-right: 24px; }
+.auto-mana-row .mana-tile.mana-temporary { box-shadow: inset 0 0 0 2px #6edff6; }
+
+/* ---------- ゾーン一覧のフェイス格子(墓地・消滅のモーダル) ---------- */
+.auto-zone-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.auto-zone-card { width: 84px; aspect-ratio: 5 / 7; position: relative; }
+
+/* ---------- ホバープレビュー(B-1)。クリックを吸わない ---------- */
+.auto-hover {
+    position: fixed; right: 424px; top: 64px; z-index: 1400;
+    pointer-events: none; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.6));
+}
+.auto-hover.d-none { display: none; }

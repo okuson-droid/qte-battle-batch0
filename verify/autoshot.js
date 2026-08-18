@@ -27,6 +27,11 @@ const LIBRARY = { cards: [
     text: '【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする', imageId: 'x' },
   { id: 'M4', ledgerCardId: 'QTE-L002', name: '蒼海の賢者', civilization: 'WATER',
     type: 'LEADER', cost: 0, attack: null, hp: null, text: '【起動：1】…', imageId: 'x' },
+  { id: 'M5', ledgerCardId: 'QTE-0086', name: '死神の大鎌', civilization: 'DARK',
+    type: 'WEAPON', cost: 4, attack: 3, hp: null,
+    text: 'このウェポンで攻撃されたミニオンは、戦闘ダメージに関わらず破壊される。', imageId: 'x' },
+  { id: 'M6', ledgerCardId: 'QTE-0046', name: 'マグマ・ストレート', civilization: 'FIRE',
+    type: 'SPELL', cost: 1, attack: null, hp: null, text: 'ミニオン1体に2ダメージ。', imageId: 'x' },
 ] };
 
 (async () => {
@@ -61,9 +66,12 @@ const LIBRARY = { cards: [
     you: autoPlayer({
       lp: 16, availableMp: 4, totalMana: 6,
       manaZone: [
-        { name: 'a', tapped: false, faceUp: true }, { name: 'b', tapped: false, faceUp: true },
-        { name: 'c', tapped: false, faceUp: true }, { name: 'd', tapped: false, faceUp: true },
-        { name: 'e', tapped: true, faceUp: true }, { name: null, tapped: true, faceUp: false },
+        { name: '炎の従者', cardId: 'QTE-0001', tapped: false, faceUp: true },
+        { name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: false, faceUp: true },
+        { name: '守りの岩兵', cardId: 'QTE-0044', tapped: false, faceUp: true },
+        { name: '炎の従者', cardId: 'QTE-0001', tapped: false, faceUp: true },
+        { name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: true, faceUp: true },
+        { name: null, tapped: false, faceUp: false },
       ],
       hand: [
         autoCard('QTE-0001', '炎の従者', { cost: 2, keywords: ['速攻'] }),
@@ -85,6 +93,9 @@ const LIBRARY = { cards: [
         autoMinion('m2', '守りの岩兵', { cardId: 'QTE-0044', keywords: ['守護'], currentHp: 2, maxHp: 5 }),
         autoMinion('m3', '凍った従者', { cardId: 'QTE-0001', frozen: true }),
       ],
+      trash: [autoCard('QTE-0046', 'マグマ・ストレート', { type: 'SPELL', cost: 1 })], trashCount: 3,
+      lost: [], lostCount: 0,
+      weaponCardId: 'QTE-0086',
       taboo: [autoCard('QTE-0075', '禁忌の代償', {
         type: 'SPELL', civilization: 'DARK', cost: 1, attack: null, hp: null,
         text: '自分のマナゾーンの「裏向きのカード」1枚を破壊する。',
