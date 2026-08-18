@@ -14,7 +14,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const {
   baseView, versusView, roomSummary, card, occupant, syncCounts, startState, declaration,
-  rite, dealRite, shuffleRite,
+  rite, dealRite, shuffleRite, autoCard, autoMinion, autoPlayer, autoView,
 } = require('./fixture');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -118,8 +118,10 @@ function startServer() {
     // ★25: カード定義。本物と同じ経路で返す(空でよい。テキスト表示の検証は
     //   セクション26が applyCardLibrary で明示的にフィクスチャを入れて行う)
     if (url === '/manual/api/card-library') {
-      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(CARD_LIBRARY.body));
+      // ★42: status を差し替えられる(既定200)。「取得失敗でも壊れない」を実際の失敗で確かめる
+      const st = CARD_LIBRARY.status || 200;
+      res.writeHead(st, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(st === 200 ? JSON.stringify(CARD_LIBRARY.body) : '{}');
       return;
     }
     // ★21b: ロビーは実際に一覧APIを叩く。fetch をスタブせず本物の経路で確かめる
@@ -130,6 +132,7 @@ function startServer() {
     }
     let file;
     if (url === '/harness-lobby.html') file = path.join(__dirname, 'harness-lobby.html');
+    else if (url === '/harness-battle.html') file = path.join(__dirname, 'harness-battle.html');
     else if (url === '/harness-deckmaker.html') file = path.join(__dirname, 'harness-deckmaker.html');
     else if (url === '/' || url === '/harness.html') file = path.join(__dirname, 'harness.html');
     else if (url.startsWith('/css/')) file = path.join(RES, 'static', url);
@@ -4442,6 +4445,239 @@ async function clearZoom(page) {
     modalClick !== null && modalClick.prevented === false, JSON.stringify(modalClick));
   await page.evaluate(() => closeInfoModal('help-modal'));
   await page.waitForTimeout(60);
+
+  // =========================================================================
+  // ★★★Batch 42: 通常モード(自動モード)の盤面
+  //
+  // ★自動モードはこれまで機械検証の傘の外にいた。カードフェイス化を機に傘へ入れる。
+  // ★★状態のクラス名(playable / can-attack ...)は 42 で変えていないので、
+  //   検証は「状態ロジックが生きているか」と「面が手動モードと同じ正から来ているか」を測る。
+  // ★CARD_LIBRARY はこの節が自分用に差し替える。デッキメーカーの節は
+  //   あちらを開く直前に自分の台帳へ差し替え直すので、ここの変更は漏れない(39 の作法)。
+  // =========================================================================
+  CARD_LIBRARY.status = 200;
+  CARD_LIBRARY.body = { cards: [
+    { id: 'QTE-M-FIRE-1', ledgerCardId: 'QTE-0001', name: '炎の従者', civilization: 'FIRE',
+      type: 'MINION', cost: 2, attack: 2, hp: 3, text: '【速攻】', imageId: 'x1' },
+    { id: 'QTE-M-FIRE-2', ledgerCardId: 'QTE-L001', name: '傷痕の闘帝', civilization: 'FIRE',
+      type: 'LEADER', cost: 0, attack: null, hp: null,
+      text: '【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする', imageId: 'x2' },
+    { id: 'QTE-M-WATER-1', ledgerCardId: 'QTE-0025', name: 'スプラッシュ・ドロー',
+      civilization: 'WATER', type: 'SPELL', cost: 2, attack: null, hp: null,
+      text: 'カードを2枚引く', imageId: 'x3' },
+  ] };
+
+  // ★通常モードの盤面は縦に長い(実測 約1400px)。実マウスはビューポートの外を
+  //   押せないため、収まる高さで開く。実環境の保証としては「1280幅で崩れない」が本題で、
+  //   高さはスクロールで吸収される(手動モードと違い1画面固定の設計ではない)
+  const autoPage = await browser.newPage({ viewport: { width: 1280, height: 1600 } });
+  const autoErrors = [];
+  autoPage.on('pageerror', (e) => autoErrors.push(String(e)));
+  await autoPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await autoPage.waitForTimeout(300);   // card-library の取得を待つ
+
+  const autoDeliver = (v) => autoPage.evaluate((view) => {
+    latestView = view;
+    render(view);
+  }, v);
+
+  // ---- 42-1. 面が .mcard で描かれ、色の正が :root にある ----
+  const handView = autoView({
+    you: autoPlayer({
+      hand: [
+        autoCard('QTE-0001', '炎の従者', { cost: 2, keywords: ['速攻'], text: '' }),
+        autoCard('QTE-0025', 'スプラッシュ・ドロー', {
+          type: 'SPELL', civilization: 'WATER', cost: 2, attack: null, hp: null,
+          text: 'カードを2枚引く',
+        }),
+        autoCard('QTE-0041', '双流の幻術師', {
+          civilization: 'WATER', cost: 5, effectiveCost: 3,
+          text: '場に居るミニオンの数Cost-1。',
+        }),
+      ],
+      minions: [
+        autoMinion('m1', '炎の従者'),
+        autoMinion('m2', '傷ついた従者', { currentHp: 1, maxHp: 3, frozen: true }),
+      ],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e1', '敵ミニオン')] }),
+  });
+  await autoDeliver(handView);
+  const autoFaces = await autoPage.evaluate(() => ({
+    old: document.querySelectorAll('.game-card').length,
+    hand: document.querySelectorAll('#my-hand .auto-card .mcard.mcard-full').length,
+    minions: document.querySelectorAll('#my-minions .auto-card .mcard.mcard-mini').length,
+    handMc: (() => {
+      const el = document.querySelector('#my-hand .auto-card .mcard');
+      return el ? el.style.getPropertyValue('--mc').trim().toLowerCase() : '';
+    })(),
+    civFire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
+  }));
+  check('★★★通常モードの手札・場が .mcard フェイスで描かれる(42・.game-card は0)',
+    autoFaces.old === 0 && autoFaces.hand === 3 && autoFaces.minions === 2,
+    JSON.stringify(autoFaces));
+  check('★★通常モードの文明色も battle.css の :root から来ている(42・裁定60)',
+    autoFaces.civFire !== '' && autoFaces.handMc === autoFaces.civFire,
+    JSON.stringify({ mc: autoFaces.handMc, fire: autoFaces.civFire }));
+
+  // ---- 42-2. ★ミニオンの文明色は card-library から引けている(結線) ----
+  const minionCiv = await autoPage.evaluate(() => {
+    const el = document.querySelector('#my-minions .auto-card .mcard');
+    return {
+      mc: el.style.getPropertyValue('--mc').trim().toLowerCase(),
+      fire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
+    };
+  });
+  check('★★★ミニオンの文明色は card-library の台帳IDから引けている(42・Java変更ゼロの結線)',
+    minionCiv.mc === minionCiv.fire, JSON.stringify(minionCiv));
+
+  // ---- 42-3. 実効コストの印 ----
+  const effCost = await autoPage.evaluate(() => {
+    const faces = document.querySelectorAll('#my-hand .auto-card .mcard');
+    const f = faces[2];
+    return {
+      modified: f.classList.contains('mcard-cost-modified'),
+      gem: f.querySelector('.mcard-cost').textContent,
+      title: f.closest('.auto-card').title,
+    };
+  });
+  check('★実効コストは宝石に実効値が出て印が付く(42・双流の幻術師)',
+    effCost.modified && effCost.gem === '3' && effCost.title.includes('5'),
+    JSON.stringify(effCost));
+
+  // ---- 42-4. バッジと減光 ----
+  const autoStates = await autoPage.evaluate(() => {
+    const cards = document.querySelectorAll('#my-minions .auto-card');
+    const frozen = cards[1];
+    return {
+      badge: frozen.querySelector('.auto-badge') ? frozen.querySelector('.auto-badge').textContent : '',
+      hurt: !!frozen.querySelector('.mcard-hp-hurt'),
+      playableFilter: getComputedStyle(cards[0]).filter,
+    };
+  });
+  check('★凍結はバッジ・被弾はHPの色で出る(42)',
+    autoStates.badge.includes('凍結') && autoStates.hurt, JSON.stringify(autoStates));
+
+  // ---- 42-5. 状態ロジックが生きている(playable → クリックで送信。実マウス) ----
+  const playableInfo = await autoPage.evaluate(() => {
+    window.__sent.length = 0;
+    const el = document.querySelector('#my-hand .auto-card');
+    return { playable: el.classList.contains('playable') };
+  });
+  const handBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(handBox.x + handBox.width / 2, handBox.y + handBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const played = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★手札の playable とクリック送信が 42 でも生きている(状態ロジック無変更の証明)',
+    playableInfo.playable && played && played.destination.endsWith('/play-card')
+      && played.body.handIndex === 0,
+    JSON.stringify({ playableInfo, played }));
+
+  // ---- 42-6. 攻撃の選択(BATTLE フェイズ・実マウス) ----
+  const battleView = autoView({
+    phase: 'BATTLE', phaseDisplay: 'バトル',
+    you: autoPlayer({ minions: [autoMinion('m1', '攻撃役', { canAttackMinion: true, canAttackLeader: true })] }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e1', '防御役')] }),
+  });
+  await autoDeliver(battleView);
+  const atkBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(atkBox.x + atkBox.width / 2, atkBox.y + atkBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const selState = await autoPage.evaluate(() => ({
+    selected: document.querySelector('#my-minions .auto-card').classList.contains('selected-attacker'),
+    target: document.querySelector('#opp-minions .auto-card').classList.contains('attack-target'),
+  }));
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  const defBox = await autoPage.locator('#opp-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(defBox.x + defBox.width / 2, defBox.y + defBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const attacked = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★★攻撃の選択と宣言が 42 でも生きている(can-attack → selected → attack 送信)',
+    selState.selected && selState.target && attacked
+      && attacked.destination.endsWith('/attack')
+      && attacked.body.attackerInstanceId === 'm1' && attacked.body.targetInstanceId === 'e1',
+    JSON.stringify({ selState, attacked }));
+
+  // ---- 42-7. 右クリック = 拡大(実マウス)。テキストが読め、既定メニューは出ない ----
+  await autoDeliver(handView);
+  await autoPage.evaluate(() => {
+    window.__ctxAuto = [];
+    window.addEventListener('contextmenu', (e) => window.__ctxAuto.push(e.defaultPrevented));
+  });
+  const azBox = await autoPage.locator('#my-hand .auto-card').nth(1).boundingBox();
+  await autoPage.mouse.click(azBox.x + azBox.width / 2, azBox.y + azBox.height / 2,
+    { button: 'right' });
+  await autoPage.waitForTimeout(60);
+  const azState = await autoPage.evaluate(() => ({
+    open: !document.getElementById('auto-zoom').classList.contains('d-none'),
+    text: (document.querySelector('#auto-zoom-card .mcard-text') || {}).textContent || '',
+    large: !!document.querySelector('#auto-zoom-card .mcard.mcard-large'),
+    prevented: window.__ctxAuto[window.__ctxAuto.length - 1] === true,
+  }));
+  check('★★★右クリックで拡大が開き、効果テキストが読める(42・手動モードの 22 1-7 と同じ規約)',
+    azState.open && azState.large && azState.text.includes('カードを2枚引く')
+      && azState.prevented,
+    JSON.stringify(azState));
+
+  await autoPage.keyboard.press('Escape');
+  await autoPage.waitForTimeout(50);
+  const azClosed = await autoPage.evaluate(() =>
+    document.getElementById('auto-zoom').classList.contains('d-none'));
+  check('★拡大は Esc で閉じる(42)', azClosed, String(azClosed));
+
+  // ---- 42-8. ミニオンの拡大は card-library のテキストを出す ----
+  const minBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(minBox.x + minBox.width / 2, minBox.y + minBox.height / 2,
+    { button: 'right' });
+  await autoPage.waitForTimeout(60);
+  const minionZoom = await autoPage.evaluate(() => {
+    const text = (document.querySelector('#auto-zoom-card .mcard-text') || {}).textContent || '';
+    document.getElementById('auto-zoom').click();
+    return text;
+  });
+  check('★★ミニオンの拡大に card-library の効果テキストが出る(42)',
+    minionZoom.includes('速攻'), minionZoom);
+
+  // ---- 42-9. リーダーの文明色 ----
+  const leaderMc = await autoPage.evaluate(() => ({
+    mc: document.getElementById('my-leader').style.getPropertyValue('--mc').trim().toLowerCase(),
+    fire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
+  }));
+  check('★リーダータイルが文明色を持つ(42・台帳IDから)',
+    leaderMc.mc === leaderMc.fire, JSON.stringify(leaderMc));
+
+  // ---- 42-10. マリガン選択の印 ----
+  await autoDeliver(autoView({ mulligan: true, myTurn: false,
+    you: autoPlayer({ hand: [autoCard('QTE-0001', '炎の従者')] }) }));
+  const mulBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(mulBox.x + mulBox.width / 2, mulBox.y + mulBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const mulState = await autoPage.evaluate(() =>
+    document.querySelector('#my-hand .auto-card').classList.contains('mulligan-selected'));
+  check('★マリガンの選択の印が 42 でも生きている', mulState, String(mulState));
+
+  check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
+  await autoPage.close();
+
+  // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----
+  CARD_LIBRARY.status = 500;
+  const brokenPage = await browser.newPage({ viewport: { width: 1280, height: 1600 } });
+  const brokenErrors = [];
+  brokenPage.on('pageerror', (e) => brokenErrors.push(String(e)));
+  await brokenPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await brokenPage.waitForTimeout(300);
+  await brokenPage.evaluate((view) => { latestView = view; render(view); }, handView);
+  const degraded = await brokenPage.evaluate(() => ({
+    faces: document.querySelectorAll('#my-hand .auto-card .mcard').length,
+    minionMc: document.querySelector('#my-minions .auto-card .mcard')
+      .style.getPropertyValue('--mc').trim().toLowerCase(),
+    civNone: getComputedStyle(document.documentElement).getPropertyValue('--civ-none').trim().toLowerCase(),
+  }));
+  check('★★★card-library が落ちていても盤面は描け、ミニオンは無文明色に退化する(42)',
+    degraded.faces === 3 && degraded.minionMc === degraded.civNone && brokenErrors.length === 0,
+    JSON.stringify({ degraded, brokenErrors }));
+  await brokenPage.close();
+  CARD_LIBRARY.status = 200;
 
   // =========================================================================
   // ★★★Batch 39: デッキメーカー(裁定60・レビュー B-2 / B-3)

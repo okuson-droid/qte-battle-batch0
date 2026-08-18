@@ -12,6 +12,18 @@
  * 「今の盤面」は常にサーバから届いた最新ビューが正(再描画方式)。
  * 対象の正当性(潜伏・知識フィルタ等)の最終判定はサーバが行い、
  * クライアントの絞り込みはあくまで操作補助である。
+ *
+ * ★★Batch 42: カードの描画を手動モードと同じフェイス(.mcard 系)へ載せ替えた。
+ *   - 見た目の正は battle.css の .mcard-* / --civ-* ただ1つである(裁定60・107・141)。
+ *     DOM の構造とクラス名は手動モードの cardFace と同じにし、コードは複製する(裁定111)。
+ *   - 手札・禁忌は CardView が面に必要な情報を全部持っている。ミニオンとリーダーの
+ *     文明色・効果テキストだけは /manual/api/card-library から起動時1回取得し、
+ *     台帳ID(cardId / leaderCardId = manual-cards.json の ledgerCardId)で引く。
+ *     ★取得前・取得失敗時でも壊れない(25 と同じ性質): 色は無文明色になり、
+ *     拡大のテキストが空になるだけで、対戦は続けられる。
+ *   - ★状態のクラス名(playable / can-attack / attack-target / selected-attacker /
+ *     exhausted など)は 42 以前から<b>変えていない</b>。変えたのは要素の中身だけである。
+ *   - 右クリック = 拡大(手動モードの 22 1-7 と同じ規約)。クリックは従来どおり操作。
  */
 
 let latestView = null;
@@ -66,6 +78,24 @@ client.onConnect = () => {
 
 client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)');
 client.activate();
+// ★Batch 42: カード定義(文明色・効果テキスト)。失敗しても対戦は続けられる
+loadCardLibrary();
+
+// ★拡大の出口は3つ: クリック / 右クリック / Esc。どこを押しても閉じる。
+//   右クリックも preventDefault する(閉じる操作でブラウザのメニューが出ない)
+document.addEventListener('DOMContentLoaded', () => {
+    const overlay = document.getElementById('auto-zoom');
+    overlay.addEventListener('click', closeZoom);
+    overlay.addEventListener('contextmenu', (e) => { e.preventDefault(); closeZoom(); });
+});
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const overlay = document.getElementById('auto-zoom');
+    if (overlay && !overlay.classList.contains('d-none')) {
+        e.preventDefault();
+        closeZoom();
+    }
+});
 
 function setConnectionStatus(text) {
     document.getElementById('connection-status').textContent = text;
@@ -663,6 +693,181 @@ function onOpponentLeaderClick() {
 }
 
 // ---------------------------------------------------------------
+// カードフェイス描画(Batch 42)
+// ---------------------------------------------------------------
+
+const FACE_TYPE_LABELS = {
+    LEADER: 'リーダー', MINION: 'ミニオン', EVOLUTION: '進化ミニオン',
+    SPELL: 'スペル', WEAPON: 'ウェポン',
+};
+
+/** 文明色。★値は書かない。正は battle.css の :root(裁定60)。manual-battle.js と同じ形 */
+const civColorCache = new Map();
+function civColor(civ) {
+    const key = String(civ || 'NONE').toLowerCase();
+    if (civColorCache.has(key)) return civColorCache.get(key);
+    const read = (name) => getComputedStyle(document.documentElement)
+        .getPropertyValue(name).trim();
+    const value = read('--civ-' + key) || read('--civ-none');
+    civColorCache.set(key, value);
+    return value;
+}
+
+/**
+ * カード定義の索引。台帳ID(ledgerCardId)→ {civilization, text, cost}。
+ * ★MinionView は文明とテキストを運ばない(現在値と可否だけを運ぶ)。サーバの
+ *   ビューを太らせる代わりに、既にある口(card-library)から引く —— Java 変更ゼロで済み、
+ *   「サーバの知っているカード」と「画面の知っているカード」の正が1つに保たれる(設計判断28)。
+ */
+const autoLibrary = new Map();
+function loadCardLibrary() {
+    fetch('/manual/api/card-library')
+        .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
+        .then(data => {
+            (data.cards || []).forEach(c => {
+                if (c.ledgerCardId) autoLibrary.set(c.ledgerCardId, c);
+            });
+            if (latestView) render(latestView); // 取得前に描いた分へ色とテキストを行き渡らせる
+        })
+        .catch(() => { /* ★無くても対戦は続けられる(上の javadoc)。壊さない */ });
+}
+
+/** 台帳IDから文明色を引く。未取得・未知IDは無文明色に落ちる */
+function libCivColor(ledgerId) {
+    const entry = autoLibrary.get(ledgerId);
+    return entry ? civColor(entry.civilization) : civColor('NONE');
+}
+
+/** フェイスの本文。キーワードは独立フィールドなので、面の上では【】で先頭に畳む */
+function faceText(keywords, text) {
+    const kw = (keywords && keywords.length) ? keywords.map(k => '【' + k + '】').join('') : '';
+    if (!kw) return text || '';
+    return text ? kw + '\n' + text : kw;
+}
+
+/**
+ * カードの表面。manual-battle.js の cardFace と同じ DOM・同じクラス名を出す(裁定111)。
+ * data = { name, cost, type, civilization, keywords, text, attack, hp }
+ * ★盤面のミニオン面(mini)は「タイル」であり<b>現在値</b>を出す。手動モードの
+ *   .manual-tile が現在値を出すのと同じ意味論で、「フェイスは印刷値」(25)の例外である。
+ */
+function cardFace(data, variant) {
+    const el = document.createElement('div');
+    el.className = 'mcard mcard-' + variant;
+    el.style.setProperty('--mc', data.civilization ? civColor(data.civilization) : civColor('NONE'));
+
+    const inner = document.createElement('div');
+    inner.className = 'mcard-inner';
+
+    const head = document.createElement('div');
+    head.className = 'mcard-head';
+    if (data.type !== 'LEADER' && data.cost !== null && data.cost !== undefined) {
+        const cost = document.createElement('span');
+        cost.className = 'mcard-cost';
+        cost.textContent = data.cost;
+        head.appendChild(cost);
+    }
+    const name = document.createElement('span');
+    name.className = 'mcard-name';
+    name.textContent = data.name || '(不明)';
+    head.appendChild(name);
+    inner.appendChild(head);
+
+    if (variant === 'large' || variant === 'full') {
+        const type = document.createElement('div');
+        type.className = 'mcard-type';
+        type.textContent = FACE_TYPE_LABELS[data.type] || '';
+        inner.appendChild(type);
+        const text = document.createElement('div');
+        text.className = 'mcard-text';
+        text.textContent = faceText(data.keywords, data.text);
+        inner.appendChild(text);
+    } else {
+        const spacer = document.createElement('div');
+        spacer.className = 'mcard-spacer';
+        inner.appendChild(spacer);
+    }
+
+    if (data.type === 'LEADER') {
+        const foot = document.createElement('div');
+        foot.className = 'mcard-foot mcard-foot-leader';
+        foot.textContent = 'LEADER';
+        inner.appendChild(foot);
+    } else if (data.attack !== null && data.attack !== undefined
+            || data.hp !== null && data.hp !== undefined) {
+        const foot = document.createElement('div');
+        foot.className = 'mcard-foot';
+        if (data.attack !== null && data.attack !== undefined) {
+            const atk = document.createElement('span');
+            atk.className = 'mcard-atk';
+            atk.textContent = '⚔' + data.attack;
+            foot.appendChild(atk);
+        }
+        if (data.hp !== null && data.hp !== undefined) {
+            const hp = document.createElement('span');
+            hp.className = 'mcard-hp';
+            if (data.hurt) hp.classList.add('mcard-hp-hurt');
+            hp.textContent = '♥' + data.hp;
+            foot.appendChild(hp);
+        }
+        inner.appendChild(foot);
+    }
+
+    el.appendChild(inner);
+    return el;
+}
+
+/** CardView(手札・禁忌・墓地)→ フェイスのデータ。実効コストは呼び出し側で選ぶ */
+function faceDataFromCardView(card, costOverride) {
+    return {
+        name: card.name, type: card.type, civilization: card.civilization,
+        cost: costOverride !== undefined ? costOverride : card.cost,
+        keywords: card.keywords, text: card.text, attack: card.attack, hp: card.hp,
+    };
+}
+
+/** MinionView → フェイスのデータ。文明とテキストはカード定義から補う */
+function faceDataFromMinion(minion) {
+    const lib = autoLibrary.get(minion.cardId);
+    return {
+        name: minion.name, type: 'MINION',
+        civilization: lib ? lib.civilization : null,
+        cost: lib ? lib.cost : null,
+        keywords: minion.keywords, text: lib ? lib.text : '',
+        attack: minion.attack, hp: minion.currentHp + '/' + minion.maxHp,
+        hurt: minion.currentHp < minion.maxHp,
+    };
+}
+
+// ---------------------------------------------------------------
+// 拡大(Batch 42)。★右クリック = 拡大(手動モードの 22 1-7 と同じ規約)
+// ---------------------------------------------------------------
+
+/**
+ * ★oncontextmenu への<b>代入</b>で付ける(addEventListener にしない)。
+ * リーダータイルなど描画のたびに使い回す静的要素にも付けるため、
+ * addEventListener だと再描画のぶんだけハンドラが積み重なる。代入は何度でも冪等である。
+ */
+function attachZoom(el, dataFn) {
+    el.oncontextmenu = (e) => {
+        e.preventDefault();
+        openZoom(dataFn());
+    };
+}
+
+function openZoom(data) {
+    const overlay = document.getElementById('auto-zoom');
+    const holder = document.getElementById('auto-zoom-card');
+    holder.innerHTML = '';
+    holder.appendChild(cardFace(data, 'large'));
+    overlay.classList.remove('d-none');
+}
+
+function closeZoom() {
+    document.getElementById('auto-zoom').classList.add('d-none');
+}
+
+// ---------------------------------------------------------------
 // 3) 受信と描画
 // ---------------------------------------------------------------
 
@@ -884,6 +1089,13 @@ function renderOpponent(opp, view) {
     });
 
     const leaderEl = document.getElementById('opp-leader');
+    // ★Batch 42: 文明色。リーダーの文明はビューに無いので台帳IDから引く(取得前は無文明色)
+    leaderEl.style.setProperty('--mc', libCivColor(opp.leaderCardId));
+    attachZoom(leaderEl, () => ({
+        name: opp.leaderName, type: 'LEADER', keywords: [],
+        civilization: (autoLibrary.get(opp.leaderCardId) || {}).civilization,
+        text: opp.leaderText, cost: null, attack: null, hp: null,
+    }));
     const leaderAttackable = !pending && selectedAttackerId !== null && canSelectedAttackLeader(view);
     leaderEl.classList.toggle('attackable', leaderAttackable);
     leaderEl.onclick = leaderAttackable ? onOpponentLeaderClick : null;
@@ -937,6 +1149,12 @@ function renderSelf(you, view) {
 
     // 自リーダー: バトルフェイズにウェポンで攻撃できるならクリック可能
     const myLeaderEl = document.getElementById('my-leader');
+    myLeaderEl.style.setProperty('--mc', libCivColor(you.leaderCardId));
+    attachZoom(myLeaderEl, () => ({
+        name: you.leaderName, type: 'LEADER', keywords: [],
+        civilization: (autoLibrary.get(you.leaderCardId) || {}).civilization,
+        text: you.leaderText, cost: null, attack: null, hp: null,
+    }));
     const leaderReady = !pending && view.myTurn && view.phase === 'BATTLE' && you.leaderCanAttack;
     myLeaderEl.classList.toggle('attackable', leaderReady);
     myLeaderEl.classList.toggle('selected-attacker', selectedAttackerId === 'LEADER');
@@ -1016,40 +1234,49 @@ function renderSelf(you, view) {
 
 function createTabooCardEl(card, index, view) {
     const el = document.createElement('div');
-    el.className = 'game-card taboo-card';
+    el.className = 'auto-card auto-card-hand';
     const payable = view.you.manaZone.filter(m => !m.temporary).length;
     if (!pending && !tabooPay && view.myTurn && view.phase === 'MAIN' && payable >= card.cost) {
         el.classList.add('playable');
     }
     if (tabooPay && tabooPay.tabooIndex === index) el.classList.add('selected-attacker');
-    const stats = card.type === 'MINION' ? `⚔${card.attack} ♥${card.hp}` : card.type;
-    el.innerHTML = `
-        <div class="card-name"><span class="card-cost">(${card.cost})</span> ${escapeHtml(card.name)}</div>
-        <div class="kw">${card.keywords.map(escapeHtml).join(' ')}</div>
-        <div class="small">${escapeHtml(card.text || '')}</div>
-        <div class="card-stats"><span>${stats}</span></div>`;
+    el.appendChild(cardFace(faceDataFromCardView(card), 'full'));
+    attachZoom(el, () => faceDataFromCardView(card));
     return el;
 }
 
 function createMinionEl(minion) {
     const el = document.createElement('div');
-    el.className = 'game-card';
+    el.className = 'auto-card auto-card-minion';
     if (minion.tapped) el.classList.add('tapped-minion');
-    const frozenMark = minion.frozen ? '<div class="kw">❄凍結</div>' : '';
-    const tapMark = minion.tapped ? '<div class="kw">⟳タップ</div>' : '';
-    // 起動能力が使えるミニオンは印を出す(クリックで発動。対象選択が要る能力は選択UIへ)
-    const abilityMark = minion.canUseAbility ? '<div class="kw">⚡能力使用可</div>' : '';
-    el.innerHTML = `
-        <div class="card-name">${escapeHtml(minion.name)}</div>
-        <div class="kw">${minion.keywords.map(escapeHtml).join(' ')}</div>
-        ${frozenMark}${tapMark}${abilityMark}
-        <div class="card-stats"><span>⚔${minion.attack}</span><span>♥${minion.currentHp}/${minion.maxHp}</span></div>`;
+    el.appendChild(cardFace(faceDataFromMinion(minion), 'mini'));
+    // ★一時状態は面に混ぜず、バッジで上に重ねる(manual の .manual-tapped-badge と同じ考え方)
+    const badges = document.createElement('div');
+    badges.className = 'auto-badges';
+    const badge = (label) => {
+        const b = document.createElement('span');
+        b.className = 'auto-badge';
+        b.textContent = label;
+        badges.appendChild(b);
+    };
+    if (minion.frozen) badge('❄凍結');
+    if (minion.tapped) badge('⟳');
+    if (minion.canUseAbility) badge('⚡能力');
+    if (badges.childNodes.length > 0) el.appendChild(badges);
+    // ★拡大は「効果テキストを読む」ためのもの。abilityText(起動能力)があれば添える
+    attachZoom(el, () => {
+        const data = faceDataFromMinion(minion);
+        if (minion.abilityText && !(data.text || '').includes(minion.abilityText)) {
+            data.text = (data.text ? data.text + '\n' : '') + minion.abilityText;
+        }
+        return data;
+    });
     return el;
 }
 
 function createHandCardEl(card, index, view) {
     const el = document.createElement('div');
-    el.className = 'game-card';
+    el.className = 'auto-card auto-card-hand';
     if (latestView && latestView.mulligan) {
         el.classList.add('playable');
         if (mulliganPicks.includes(index)) el.classList.add('mulligan-selected');
@@ -1089,17 +1316,25 @@ function createHandCardEl(card, index, view) {
             (view.phase === 'SUB' && card.type === 'SPELL' && affordable));
         if (playable) el.classList.add('playable');
     }
-    // 実効コストが印刷コストと違うときは両方見せる(例: 双流の幻術師)
-    const costText = (card.effectiveCost != null && card.effectiveCost !== card.cost)
-        ? `<s>${card.cost}</s>→${card.effectiveCost}` : `${card.cost}`;
-    const stats = card.type === 'MINION' ? `⚔${card.attack} ♥${card.hp}` : card.type;
-    const ssMark = card.canSpecialSummon ? '<div class="kw">★特殊召喚可</div>' : '';
-    el.innerHTML = `
-        <div class="card-name"><span class="card-cost">(${costText})</span> ${escapeHtml(card.name)}</div>
-        <div class="kw">${card.keywords.map(escapeHtml).join(' ')}</div>
-        ${ssMark}
-        <div class="small">${escapeHtml(card.text || '')}</div>
-        <div class="card-stats"><span>${stats}</span></div>`;
+    // ★実効コストが違うときはコストの宝石に実効値を出し、印で分かるようにする
+    //   (例: 双流の幻術師)。両方の数字は title と拡大で確かめられる
+    const eff = card.effectiveCost != null ? card.effectiveCost : card.cost;
+    const face = cardFace(faceDataFromCardView(card, eff), 'full');
+    if (card.effectiveCost != null && card.effectiveCost !== card.cost) {
+        face.classList.add('mcard-cost-modified');
+        el.title = `印刷コスト${card.cost} → 実効${card.effectiveCost}`;
+    }
+    el.appendChild(face);
+    if (card.canSpecialSummon) {
+        const badges = document.createElement('div');
+        badges.className = 'auto-badges';
+        const b = document.createElement('span');
+        b.className = 'auto-badge';
+        b.textContent = '★特殊召喚可';
+        badges.appendChild(b);
+        el.appendChild(badges);
+    }
+    attachZoom(el, () => faceDataFromCardView(card));
     return el;
 }
 
@@ -1111,8 +1346,5 @@ function showMessage(text) {
     showMessage.timer = setTimeout(() => area.classList.add('d-none'), 4000);
 }
 
-function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[c]);
-}
+// ★Batch 42: escapeHtml は退役した。フェイスは createElement + textContent で組むため、
+//   エスケープという工程そのものが存在しない(忘れようがない)。

@@ -273,3 +273,63 @@ module.exports = {
   baseView, versusView, roomSummary, card, occupant, emptyZones, syncCounts, startState,
   declaration, rite, dealRite, shuffleRite,
 };
+
+// ---------------------------------------------------------------------------
+// ★★Batch 42: 通常モード(自動モード)のビュー。
+//   フィールド名はサーバの record(GameView / PlayerView / CardView / MinionView)に
+//   合わせてある。ここがずれると検証が「動いているつもり」になる(冒頭の注意と同じ)。
+// ---------------------------------------------------------------------------
+
+function autoCard(cardId, name, overrides = {}) {
+  return {
+    cardId, name,
+    type: 'MINION', civilization: 'FIRE',
+    cost: 3, effectiveCost: null, attack: 2, hp: 3,
+    keywords: [], text: '',
+    targets: [], canSpecialSummon: false, specialTargets: [],
+    specialSummonText: null, combinedTotal: 0, enhancedCost: 0, enhancedText: null,
+    ...overrides,
+  };
+}
+
+function autoMinion(instanceId, name, overrides = {}) {
+  return {
+    instanceId, cardId: 'QTE-0001', name,
+    attack: 2, currentHp: 3, maxHp: 3, keywords: [],
+    canAttackMinion: false, canAttackLeader: false,
+    frozen: false, tapped: false, canUseAbility: false, abilityText: null,
+    ...overrides,
+  };
+}
+
+function autoPlayer(overrides = {}) {
+  return {
+    displayName: 'テスト', leaderName: '傷痕の闘帝', leaderCardId: 'QTE-L001',
+    lp: 20, deckCount: 30, handCount: 0, hand: [],
+    availableMp: 5, totalMana: 5, manaZone: [],
+    minions: [], trashCount: 0, trashCardNames: [], trash: [],
+    lostCount: 0, lostCardNames: [], tabooCount: 0, taboo: [],
+    manaCharged: false, cannotUseCards: false, mulliganDone: true,
+    leaderText: '【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする',
+    deckName: 'テストデッキ', weaponName: null, weaponAttack: null,
+    leaderCanAttack: false, leaderFrozen: false,
+    leaderAbility: null, revealedCards: [], pendingChoice: null,
+    ...overrides,
+  };
+}
+
+function autoView(overrides = {}) {
+  return {
+    roomId: 'TESTRM', status: 'PLAYING', turnNumber: 1,
+    phase: 'MAIN', phaseDisplay: 'メイン',
+    myTurn: true, chooseOrder: false, mulligan: false, winnerName: null,
+    you: autoPlayer(), opponent: autoPlayer({ displayName: 'あいて' }),
+    log: [],
+    ...overrides,
+  };
+}
+
+module.exports.autoCard = autoCard;
+module.exports.autoMinion = autoMinion;
+module.exports.autoPlayer = autoPlayer;
+module.exports.autoView = autoView;

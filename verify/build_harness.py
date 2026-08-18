@@ -44,7 +44,7 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=41)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=42)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
@@ -257,10 +257,100 @@ print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")
 # ---------------------------------------------------------------------------
 deck = DECK_TEMPLATE.read_text(encoding="utf-8")
 deck = deck.replace(
-    '<link th:href="@{/css/battle.css(v=41)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=42)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 deck = re.sub(r'\s+th:href="[^"]*"', ' href="#"', deck)
 deck = deck.replace(' th:inline="none"', "")
 DECK_OUT.write_text(deck, encoding="utf-8")
 print(f"wrote {DECK_OUT} ({len(deck)} bytes)")
+
+# ---------------------------------------------------------------------------
+# ★★Batch 42: 通常モード(自動モード)の盤面ハーネス。
+#   自動モードはこれまで機械検証の傘の外にいた(検証があるのは手動モードだけだった)。
+#   カードフェイス化(42)を機に、同じ方式で傘に入れる。
+# ★手動モードのハーネスと同じく、vendor(Bootstrap / StompJs)は落とし、
+#   StompJs は送信捕捉スタブに差し替える。battle.js は接続を前提に書かれているため、
+#   スタブが無いと先頭の new StompJs.Client で即死して全項目が落ちる。
+# ★Bootstrap のユーティリティは使うものだけ代替する(manual の stub と同じ方針)。
+#   ★★特に .d-none は必須である。無いと「隠すべきもの」が全部見え、
+#     拡大オーバーレイが盤面を覆ったまま全クリックを吸う。
+# ---------------------------------------------------------------------------
+BATTLE_TEMPLATE = ROOT / "src/main/resources/templates/battle.html"
+BATTLE_OUT = pathlib.Path(__file__).resolve().parent / "harness-battle.html"
+
+battle = BATTLE_TEMPLATE.read_text(encoding="utf-8")
+battle = battle.replace(
+    '<link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">',
+    "",
+)
+battle = battle.replace(
+    '<script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>',
+    "",
+)
+battle = battle.replace(
+    '<link th:href="@{/css/battle.css(v=42)}" rel="stylesheet">',
+    '<link href="/css/battle.css" rel="stylesheet">',
+)
+battle = battle.replace(
+    '<script th:src="@{/js/battle.js(v=15)}"></script>',
+    '<script src="/js/battle.js"></script>',
+)
+battle = battle.replace("/*[[${roomId}]]*/ ''", "'TESTRM'")
+battle = battle.replace("/*[[${playerId}]]*/ ''", "'P1'")
+battle = battle.replace('th:text="${roomId}">------', ">TESTRM")
+battle = re.sub(r'\s+th:href="[^"]*"', ' href="#"', battle)
+
+battle_stub = """
+<style>
+  /* 実ページの黒背景(31 と同じ理由: 明るい下地で判定した色は実環境の保証にならない) */
+  body { margin: 0; font-family: 'Helvetica Neue', Arial, sans-serif;
+         background: #212529; color: #f8f9fa; }
+  .container-fluid { padding: 8px 16px; }
+  .d-none { display: none !important; }
+  .d-flex { display: flex; }
+  .justify-content-between { justify-content: space-between; }
+  .align-items-center { align-items: center; }
+  .flex-wrap { flex-wrap: wrap; }
+  .gap-2 { gap: 8px; } .gap-3 { gap: 16px; }
+  .mb-1 { margin-bottom: 4px; } .mb-2 { margin-bottom: 8px; }
+  .mt-1 { margin-top: 4px; } .mt-2 { margin-top: 8px; }
+  .ms-2 { margin-left: 8px; } .ms-3 { margin-left: 16px; } .me-2 { margin-right: 8px; }
+  .py-2 { padding-top: 8px; padding-bottom: 8px; }
+  .p-2 { padding: 8px; }
+  .rounded { border-radius: 6px; }
+  .small { font-size: 0.875em; }
+  .fs-4 { font-size: 1.5rem; } .fs-5 { font-size: 1.25rem; }
+  .fw-bold { font-weight: 700; }
+  .text-warning { color: #ffc107; } .text-muted { color: #adb5bd; }
+  .text-center { text-align: center; } .text-start { text-align: left; }
+  .link-info { color: #6edff6; }
+  .w-100 { width: 100%; }
+  .row { display: flex; gap: 8px; }
+  .col-md-8 { flex: 2 1 0; } .col-md-4 { flex: 1 1 0; }
+  .btn { border: 1px solid #6c757d; background: transparent; color: #f8f9fa;
+         padding: 4px 10px; border-radius: 4px; cursor: pointer; }
+  .alert { padding: 8px 12px; border-radius: 6px; background: #2a2f34;
+           border: 1px solid #495057; }
+</style>
+<script>
+  window.__sent = [];
+  window.StompJs = {
+    Client: class {
+      constructor(options) { this.options = options; this.connected = true; }
+      activate() { this.connected = true; }
+      deactivate() { this.connected = false; }
+      subscribe() {}
+      publish(message) {
+        window.__sent.push({
+          destination: message.destination,
+          body: JSON.parse(message.body),
+        });
+      }
+    },
+  };
+</script>
+"""
+battle = battle.replace("</head>", battle_stub + "</head>")
+BATTLE_OUT.write_text(battle, encoding="utf-8")
+print(f"wrote {BATTLE_OUT} ({len(battle)} bytes)")

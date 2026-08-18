@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=41)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=42)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <div class="container-fluid py-2" style="max-width: 1200px">
@@ -125,7 +125,7 @@
                 <div id="my-mana-row" class="mana-row mt-1"></div>
             </div>
         </div>
-        <div class="small text-muted mb-1">手札(クリックで使用)</div>
+        <div class="small text-muted mb-1">手札(クリックで使用 / 右クリックで拡大)</div>
         <div id="my-hand" class="hand-row"></div>
 
         <div class="small text-muted mt-2 mb-1">
@@ -133,6 +133,12 @@
         </div>
         <div id="my-taboo" class="hand-row taboo-row"></div>
     </div>
+</div>
+
+<!-- ★Batch 42: 拡大(右クリック)。カードの効果テキストを読むための面。
+     閉じるのはクリック / 右クリック / Esc のどれでもよい(battle.js) -->
+<div id="auto-zoom" class="auto-zoom d-none">
+    <div id="auto-zoom-card" class="auto-zoom-card"></div>
 </div>
 
 <!-- 汎用の情報モーダル(墓地・マナ・リーダー能力の一覧表示に使う) -->
@@ -152,6 +158,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=14)}"></script>
+<script th:src="@{/js/battle.js(v=15)}"></script>
 </body>
 </html>

@@ -51,37 +51,31 @@
 
 .leader-card {
     width: 110px; height: 80px; padding: 4px;
-    background: #343a40; border: 2px solid #6c757d;
+    /* ★Batch 42: 文明色の面にした。--mc は battle.js が台帳から引いて注入する。
+       層の順は .mcard と同じ「光沢 → 縁ハイライト → 文明色の深み」(裁定141)。
+       ★--mc-gloss を使うため、41 の宣言セレクタ一覧に .leader-card を足してある */
+    --mc: var(--civ-none);
+    background:
+        var(--mc-gloss),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0, rgba(255, 255, 255, 0) 2px),
+        linear-gradient(160deg,
+            color-mix(in srgb, var(--mc) 60%, #14121d) 0%,
+            color-mix(in srgb, var(--mc) 30%, #14121d) 55%,
+            color-mix(in srgb, var(--mc) 18%, #0f0d16) 100%);
+    border: 2px solid color-mix(in srgb, var(--mc) 55%, #000 20%);
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
     display: flex; flex-direction: column; justify-content: center;
 }
-.leader-card.attackable { border-color: #ffc107; cursor: pointer; }
+.leader-card.attackable { border-color: #ffc107; cursor: pointer;
+    box-shadow: 0 0 10px rgba(255, 193, 7, 0.55), 0 1px 3px rgba(0, 0, 0, 0.55); }
 
 .minion-row, .hand-row { display: flex; flex-wrap: wrap; gap: 8px; min-height: 110px; }
 
-.game-card {
-    width: 120px; min-height: 105px; padding: 6px;
-    background: #1a3a5c; border: 2px solid #4a6a8c; border-radius: 6px;
-    font-size: 12px; position: relative;
-}
-.game-card .card-name { font-weight: bold; line-height: 1.2; }
-.game-card .card-stats { position: absolute; bottom: 4px; left: 6px; right: 6px;
-    display: flex; justify-content: space-between; font-weight: bold; }
-.game-card .kw { color: #ffd54f; }
-.game-card .card-cost { color: #7fd4ff; }
-
-.game-card.playable { border-color: #4caf50; cursor: pointer; }
-.game-card.playable:hover { background: #1f4d24; }
-.game-card.can-attack { border-color: #ffc107; cursor: pointer; }
-.game-card.selected-attacker { border-color: #ff5722; box-shadow: 0 0 8px #ff5722; }
-.game-card.attack-target { border-color: #ef5350; cursor: crosshair; }
-.game-card.exhausted { opacity: 0.55; }
-/* 起動能力で自身をタップしたミニオン(a6)。マナのタップと同じ「傾ける」表現で揃えるが、
-   カードは横並びで場所を取るため回転角を浅くし、レイアウトを崩さないようにしている */
-.game-card.tapped-minion {
-    transform: rotate(8deg);
-    opacity: 0.7;
-    border-color: #78909c;
-}
+/* ★Batch 42: .game-card 一式は退役した。通常モードのカードは .auto-card(このファイル末尾)
+   + .mcard フェイスで描く。状態のクラス名(playable / can-attack / attack-target /
+   selected-attacker / exhausted / tapped-minion / mulligan-selected)は 42 以前から
+   変わっておらず、退役したのは<b>見た目の実装</b>だけである。 */
 
 .mana-row { display: flex; gap: 3px; flex-wrap: wrap; }
 .mana-chip {
@@ -206,13 +200,10 @@
 .sound-status { color: #adb5bd; }
 .sound-status.sound-status-warn { color: #ffd166; }
 .sound-note { color: #adb5bd; }
-.game-card.mulligan-selected { border-color: #ab47bc; box-shadow: 0 0 8px #ab47bc; }
 .link-info { text-decoration: none; }
 
 /* Batch 7: 禁忌デッキと禁忌コスト支払い */
 .taboo-row { min-height: 90px; }
-.game-card.taboo-card { background: #3b1f2b; border-color: #a1465e; }
-.game-card.taboo-card.playable { border-color: #ff5c8a; }
 .mana-chip.taboo-payable { cursor: pointer; box-shadow: 0 0 5px #ff5c8a; border-color: #ff5c8a; }
 .mana-chip.taboo-picked { background: #ad1457; }
 
@@ -869,7 +860,8 @@ body.manual-drag-active .manual-band {
    ============================================================================ */
 .mcard, .mcard-inner, .mcard-head, .mcard-foot, .mcard-backface, .mcard-frame,
 .tile, .tile-inner, .t-head, .t-foot,
-.bigcard, .bc-inner, .bc-head, .bc-foot {
+.bigcard, .bc-inner, .bc-head, .bc-foot,
+.leader-card {
     /* 既定の強さ。自分の規則で --mc-sheen を上書きした要素はそちらが勝つ */
     --mc-sheen: 0.14;
     --mc-gloss: linear-gradient(115deg,
@@ -1529,3 +1521,75 @@ body.manual-drag-active .manual-band {
    ★ヘッダは既に12個のコントロールが並ぶ1行である(20b 2-7)。
    既存ボタンより一回り小さくして、行を増やさずに収める。 */
 .manual-copy-btn { font-size: 11px; padding: 1px 6px; line-height: 1.4; }
+
+/* ============================================================
+   ★★Batch 42: 通常モードの盤面(.auto-*)
+   カードの面そのものは手動モードと同じ .mcard-* を使う(裁定141: 面の正はこのファイル1つ)。
+   ここにあるのは<b>入れ物と状態</b>だけである。
+   ★状態のクラス名は 42 以前(.game-card 時代)から変えていない。battle.js の
+     状態ロジックに触れずに見た目だけ載せ替えるためであり、検証もクラス名で書ける。
+   ★状態の印は box-shadow のリング + filter の減光で出す。面の質感(background)には
+     触れない(32c: 質感と状態を同じ手段で描くと、状態のたびに質感が巻き添えになる)。
+   ============================================================ */
+.auto-card {
+    position: relative; width: 104px; aspect-ratio: 5 / 7;
+    flex: 0 0 auto; cursor: pointer;
+}
+.auto-card-minion { width: 92px; }
+
+.auto-card.playable .mcard {
+    box-shadow: 0 0 0 2px #4caf50, 0 0 10px rgba(76, 175, 80, 0.5),
+        0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.auto-card.playable:hover { transform: translateY(-2px); }
+.auto-card.can-attack .mcard {
+    box-shadow: 0 0 0 2px #ffc107, 0 0 10px rgba(255, 193, 7, 0.55),
+        0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.auto-card.can-attack:hover { transform: translateY(-2px); }
+.auto-card.attack-target { cursor: crosshair; }
+.auto-card.attack-target .mcard {
+    box-shadow: 0 0 0 2px #ef5350, 0 0 12px rgba(239, 83, 80, 0.6),
+        0 1px 3px rgba(0, 0, 0, 0.55);
+}
+.auto-card.selected-attacker .mcard {
+    box-shadow: 0 0 0 3px #ff5722, 0 0 14px rgba(255, 87, 34, 0.8),
+        0 1px 3px rgba(0, 0, 0, 0.55);
+}
+/* ★減光は manual の場のタイル(.manual-tile-tapped)と同じ値。「行動できない」の
+   表現を2つのモードで同じ見え方にする */
+.auto-card.exhausted { filter: brightness(0.62); }
+.auto-card.tapped-minion { filter: brightness(0.62); }
+.auto-card.mulligan-selected .mcard {
+    box-shadow: 0 0 0 3px #6edff6, 0 0 12px rgba(110, 223, 246, 0.6),
+        0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+/* 一時状態のバッジ(凍結・タップ・能力・特殊召喚)。面に混ぜず上に重ねる。
+   ★位置は<b>足の上・左寄せ</b>。頭に置くと名前に被る(目視で確認して移した) */
+.auto-badges {
+    position: absolute; bottom: 20px; left: 3px; z-index: 2;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+    pointer-events: none;
+}
+.auto-badge {
+    font-size: 9px; line-height: 1.4; padding: 0 5px; border-radius: 8px;
+    background: rgba(8, 6, 14, 0.78); color: #ffd54f;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    white-space: nowrap;
+}
+
+/* 実効コストが印刷コストと違う手札。コストの宝石を強調色の輪で示す */
+.mcard-cost-modified .mcard-cost { box-shadow: none; outline: 2px solid #6edff6; }
+
+/* ミニオンの現在HPが減っている印(面の中の唯一の「現在値の色」) */
+.mcard-hp-hurt { color: #ff8a80; }
+
+/* ---------- 拡大(右クリック)。出口はクリック / 右クリック / Esc ---------- */
+.auto-zoom {
+    position: fixed; inset: 0; z-index: 1500;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 6, 14, 0.72);
+}
+.auto-zoom.d-none { display: none; }
+.auto-zoom-card { width: 232px; aspect-ratio: 5 / 7; }
