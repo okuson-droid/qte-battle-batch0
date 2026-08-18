@@ -32,7 +32,9 @@ const LIBRARY = { cards: [
     text: 'このウェポンで攻撃されたミニオンは、戦闘ダメージに関わらず破壊される。', imageId: 'x' },
   { id: 'M6', ledgerCardId: 'QTE-0046', name: 'マグマ・ストレート', civilization: 'FIRE',
     type: 'SPELL', cost: 1, attack: null, hp: null, text: 'ミニオン1体に2ダメージ。', imageId: 'x' },
-] };
+],
+// ★45: 実物の裏面(リポジトリの PNG。manual-cards.json の meta と同じ値)
+meta: { backImageId: '75ee790b3cf017dd0fb883630f12fece01545f6d653889f92992d743ce0bf90e' } };
 
 (async () => {
   const server = http.createServer((req, res) => {
@@ -42,7 +44,7 @@ const LIBRARY = { cards: [
       res.end(JSON.stringify(LIBRARY));
       return;
     }
-    const file = url.startsWith('/css/') || url.startsWith('/js/')
+    const file = url.startsWith('/css/') || url.startsWith('/js/') || url.startsWith('/cards/')
       ? path.join(RES, 'static', url)
       : path.join(__dirname, url === '/' ? 'harness-battle.html' : url);
     fs.readFile(file, (e, d) => {
@@ -107,7 +109,9 @@ const LIBRARY = { cards: [
       displayName: 'あいて', leaderName: '蒼海の賢者', leaderCardId: 'QTE-L002',
       lp: 12, handCount: 4,
       manaZone: [
-        { name: null, tapped: false, faceUp: true }, { name: null, tapped: true, faceUp: false },
+        { name: '深海神 プレサージュ', cardId: 'QTE-0020', tapped: false, faceUp: true },
+        { name: 'スプラッシュ・ドロー', cardId: 'QTE-0025', tapped: false, faceUp: true },
+        { name: null, tapped: true, faceUp: false },
       ],
       minions: [
         autoMinion('e1', '敵の従者', { cardId: 'QTE-0001' }),

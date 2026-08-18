@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=44)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=45)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -35,63 +35,41 @@
     </div>
 
     <div class="auto-columns">
-        <!-- 中央列 -->
+        <!-- ★★Batch 45: リーダーとパイルは右列へ(マスター指示)。中央列は盤面だけになり、
+             帯が薄くなったぶんを盤面が使う。ログは畳み、クリックで全文(下の #log-panel)。 -->
         <div class="auto-main">
 
-            <!-- 相手の帯。★38 までの「文字列の羅列」をチップ列に畳んだ(設計解説 2-2)。
-                 数字の span の id は従来のまま(battle.js は置き場所を知らない) -->
-            <!-- ★Batch 44(案1・マスター承認): リーダー合体タイル + パイル + 手札の裏面列。
-                 相手のマナはチップのまま(非対称。手動モードの「相手上段は簡略」と同じ判断) -->
+            <!-- 相手の帯: 手札の裏面列 + マナ(★表向きは名前つきタイル。裏向きは裏面) -->
             <div class="auto-strip opponent-side">
-                <div id="opp-leader" class="leader-card auto-leader">
-                    <div class="auto-leader-name" id="opp-leader-name">?</div>
-                    <div class="auto-leader-lp" id="opp-lp">-</div>
-                    <div class="auto-leader-ability" id="opp-leader-ability">&nbsp;</div>
-                    <div class="auto-leader-weapon">⚔ <span id="opp-weapon">なし</span></div>
-                </div>
-                <div id="opp-piles" class="auto-piles"></div>
                 <div class="auto-strip-info">
                     <div class="auto-chip-row">
                         <span class="auto-chip">手札</span>
                         <div id="opp-hand-backs" class="auto-backs"></div>
                         <span class="auto-chip d-none">手札 <b id="opp-hand-count">-</b></span>
-                        <span class="auto-chip">MP <b id="opp-mp">-</b></span>
-                        <a href="#" class="auto-chip auto-chip-link"
-                           onclick="showManaList(false); return false;">マナ <b id="opp-mana-count">-</b></a>
+                        <span class="auto-chip">MP <b id="opp-mp">-</b> / マナ <b id="opp-mana-count">-</b></span>
                         <span class="auto-chip auto-chip-plain text-muted" id="opp-deck-name">-</span>
                     </div>
-                    <div id="opp-mana-row" class="mana-row"></div>
+                    <div id="opp-mana-row" class="mana-row auto-mana-row"></div>
                 </div>
             </div>
 
             <div id="opp-minions" class="minion-row auto-minions"></div>
             <div id="my-minions" class="minion-row auto-minions"></div>
 
-            <!-- 自分の帯 -->
             <div class="auto-strip my-side">
-                <div id="my-leader" class="leader-card auto-leader">
-                    <div class="auto-leader-name" id="my-leader-name">?</div>
-                    <div class="auto-leader-lp" id="my-lp">-</div>
-                    <div class="auto-leader-ability" id="my-leader-ability">&nbsp;</div>
-                    <div class="auto-leader-weapon">⚔ <span id="my-weapon">なし</span></div>
-                </div>
-                <div id="my-piles" class="auto-piles"></div>
                 <div class="auto-strip-info">
                     <div class="auto-chip-row">
                         <span class="auto-chip">MP <b id="my-mp">-</b> / マナ <b id="my-mana-count">-</b></span>
                         <button id="btn-leader-ability" class="btn btn-sm btn-outline-info d-none"
                                 onclick="useLeaderAbility()">リーダー能力を使う</button>
-                        <!-- ★禁忌の開閉はパイル(auto-piles 内)がボタンを兼ねる。チップは退役し、
-                             id はパイル側に移った(battle.js の参照は不変) -->
                         <span class="auto-chip auto-chip-plain text-muted" id="my-deck-name">-</span>
                     </div>
                     <div id="my-mana-row" class="mana-row auto-mana-row"></div>
                 </div>
             </div>
 
-            <!-- 手札。★禁忌の帯は開いたとき手札の<b>上に重なる</b>(レイアウトの高さを消費しない) -->
             <div class="auto-hand-wrap">
-                <div class="small text-muted mb-1">手札(クリックで使用 / 右クリックで拡大)</div>
+                <div class="small text-muted" style="margin-bottom:4px">手札(クリックで使用 / 右クリックで拡大)</div>
                 <div id="my-hand" class="hand-row"></div>
                 <div id="taboo-strip" class="auto-taboo-strip d-none">
                     <div class="auto-taboo-head">
@@ -104,43 +82,76 @@
             </div>
         </div>
 
-        <!-- 右列(400px)。フェイズ操作・選択の問いかけ・ログ。★手動モードの右列と同じ役割分担 -->
+        <!-- 右列(280px): 上=相手のリーダー+パイル / 中=操作と問いかけとログ / 下=自分のパイル+リーダー -->
         <div class="auto-side">
-            <div id="message-area" class="alert alert-info py-2 d-none"></div>
-            <div id="choose-order-area" class="d-none">
-                <span class="me-2">ダイスに勝ちました。先攻/後攻を選んでください:</span>
-                <button class="btn btn-warning btn-sm" onclick="chooseOrder(true)">先攻をとる</button>
-                <button class="btn btn-outline-warning btn-sm" onclick="chooseOrder(false)">後攻をとる</button>
+            <div id="opp-leader" class="leader-card auto-leader">
+                <div class="auto-leader-name" id="opp-leader-name">?</div>
+                <div class="auto-leader-lp" id="opp-lp">-</div>
+                <div class="auto-leader-ability" id="opp-leader-ability">&nbsp;</div>
+                <div class="auto-leader-weapon">⚔ <span id="opp-weapon">なし</span></div>
             </div>
-            <div id="selection-area" class="alert alert-warning py-2 d-none">
-                <span id="selection-prompt"></span>
-                <button id="btn-skip-target" class="btn btn-sm btn-outline-dark ms-2 d-none"
-                        onclick="skipRequirement()">選ばない</button>
-                <button id="btn-confirm-target" class="btn btn-sm btn-dark ms-2 d-none"
-                        onclick="confirmRequirement()">この内容で確定</button>
-                <button id="btn-open-trash" class="btn btn-sm btn-outline-dark ms-2 d-none"
-                        onclick="openTrashPicker()">墓地を開く</button>
-                <button class="btn btn-sm btn-outline-dark ms-2" onclick="cancelSelection()">キャンセル</button>
+            <div id="opp-piles" class="auto-piles"></div>
+
+            <div class="auto-side-mid">
+                <div id="message-area" class="alert alert-info py-2 d-none"></div>
+                <div id="choose-order-area" class="d-none">
+                    <span class="me-2">ダイスに勝ちました。先攻/後攻を選んでください:</span>
+                    <button class="btn btn-warning btn-sm" onclick="chooseOrder(true)">先攻をとる</button>
+                    <button class="btn btn-outline-warning btn-sm" onclick="chooseOrder(false)">後攻をとる</button>
+                </div>
+                <div id="selection-area" class="alert alert-warning py-2 d-none">
+                    <span id="selection-prompt"></span>
+                    <button id="btn-skip-target" class="btn btn-sm btn-outline-dark ms-2 d-none"
+                            onclick="skipRequirement()">選ばない</button>
+                    <button id="btn-confirm-target" class="btn btn-sm btn-dark ms-2 d-none"
+                            onclick="confirmRequirement()">この内容で確定</button>
+                    <button id="btn-open-trash" class="btn btn-sm btn-outline-dark ms-2 d-none"
+                            onclick="openTrashPicker()">墓地を開く</button>
+                    <button class="btn btn-sm btn-outline-dark ms-2" onclick="cancelSelection()">キャンセル</button>
+                </div>
+                <div id="reveal-area" class="alert alert-warning py-2 d-none">
+                    <div id="reveal-prompt" class="mb-1">選択してください</div>
+                    <div id="reveal-cards" class="d-flex gap-2 flex-wrap"></div>
+                    <button id="btn-confirm-choice" class="btn btn-sm btn-dark mt-2 d-none"
+                            onclick="confirmChoice()">この内容で確定</button>
+                </div>
+                <div id="mulligan-area" class="alert alert-primary py-2 d-none">
+                    <span>マリガン: 引き直したいカードを手札からクリックで選択(<span id="mulligan-count">0</span>枚選択中)</span>
+                    <button class="btn btn-sm btn-warning ms-2" onclick="submitMulligan()">この内容で確定</button>
+                    <button class="btn btn-sm btn-outline-dark ms-2" onclick="keepHand()">引き直さない</button>
+                </div>
+                <div id="turn-controls" class="d-none">
+                    <button id="btn-next-phase" class="btn btn-primary btn-sm" onclick="nextPhase()">次のフェイズへ</button>
+                    <button id="btn-summon-grave" class="btn btn-outline-secondary btn-sm d-none"
+                            onclick="openGraveSummon()">墓地から召喚</button>
+                    <button id="btn-end-turn" class="btn btn-outline-danger btn-sm" onclick="endTurn()">ターン終了</button>
+                </div>
+                <!-- ★ログは畳む(マスター指示)。バー=最新1行。クリックで全文(#log-panel) -->
+                <button type="button" id="log-bar" class="auto-log-bar" onclick="toggleLogPanel()">
+                    <span id="log-bar-last" class="auto-log-last">(ログなし)</span>
+                    <span id="log-bar-count" class="auto-chip">0件</span>
+                </button>
             </div>
-            <div id="reveal-area" class="alert alert-warning py-2 d-none">
-                <div id="reveal-prompt" class="mb-1">選択してください</div>
-                <div id="reveal-cards" class="d-flex gap-2 flex-wrap"></div>
-                <button id="btn-confirm-choice" class="btn btn-sm btn-dark mt-2 d-none"
-                        onclick="confirmChoice()">この内容で確定</button>
+
+            <div id="my-piles" class="auto-piles"></div>
+            <div id="my-leader" class="leader-card auto-leader">
+                <div class="auto-leader-name" id="my-leader-name">?</div>
+                <div class="auto-leader-lp" id="my-lp">-</div>
+                <div class="auto-leader-ability" id="my-leader-ability">&nbsp;</div>
+                <div class="auto-leader-weapon">⚔ <span id="my-weapon">なし</span></div>
             </div>
-            <div id="mulligan-area" class="alert alert-primary py-2 d-none">
-                <span>マリガン: 引き直したいカードを手札からクリックで選択(<span id="mulligan-count">0</span>枚選択中)</span>
-                <button class="btn btn-sm btn-warning ms-2" onclick="submitMulligan()">この内容で確定</button>
-                <button class="btn btn-sm btn-outline-dark ms-2" onclick="keepHand()">引き直さない</button>
-            </div>
-            <div id="turn-controls" class="d-none">
-                <button id="btn-next-phase" class="btn btn-primary btn-sm" onclick="nextPhase()">次のフェイズへ</button>
-                <button id="btn-summon-grave" class="btn btn-outline-secondary btn-sm d-none"
-                        onclick="openGraveSummon()">墓地から召喚</button>
-                <button id="btn-end-turn" class="btn btn-outline-danger btn-sm" onclick="endTurn()">ターン終了</button>
-            </div>
-            <div id="log-area" class="log-box small rounded p-2 auto-log"></div>
         </div>
+    </div>
+</div>
+
+<!-- ★Batch 45: ログの全文パネル(バーのクリックで開閉。Esc / 外側クリックでも閉じる) -->
+<div id="log-panel" class="auto-log-panel d-none">
+    <div class="auto-log-panel-body">
+        <div class="auto-taboo-head">
+            <strong>ログ</strong>
+            <button type="button" class="btn btn-sm btn-outline-light" onclick="toggleLogPanel()">閉じる</button>
+        </div>
+        <div id="log-area" class="log-box small rounded p-2 auto-log"></div>
     </div>
 </div>
 
@@ -172,6 +183,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=17)}"></script>
+<script th:src="@{/js/battle.js(v=18)}"></script>
 </body>
 </html>

@@ -87,6 +87,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const overlay = document.getElementById('auto-zoom');
     overlay.addEventListener('click', closeZoom);
     overlay.addEventListener('contextmenu', (e) => { e.preventDefault(); closeZoom(); });
+    // ★45: ログパネルは外側クリックで閉じる(パネル本体のクリックは閉じない)
+    const logPanel = document.getElementById('log-panel');
+    logPanel.addEventListener('click', (e) => {
+        if (e.target === logPanel) toggleLogPanel();
+    });
 });
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -94,6 +99,12 @@ document.addEventListener('keydown', (e) => {
     if (overlay && !overlay.classList.contains('d-none')) {
         e.preventDefault();
         closeZoom();
+        return;
+    }
+    const logPanel = document.getElementById('log-panel');
+    if (logPanel && !logPanel.classList.contains('d-none')) {
+        e.preventDefault();
+        toggleLogPanel();
     }
 });
 
@@ -738,6 +749,8 @@ function civColor(civ) {
  *   「サーバの知っているカード」と「画面の知っているカード」の正が1つに保たれる(設計判断28)。
  */
 const autoLibrary = new Map();
+/** ★45: 実物のカード裏面の画像ID。card-library の meta.backImageId(手動モードと同じ正) */
+let autoBackImageId = null;
 function loadCardLibrary() {
     fetch('/manual/api/card-library')
         .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
@@ -745,9 +758,26 @@ function loadCardLibrary() {
             (data.cards || []).forEach(c => {
                 if (c.ledgerCardId) autoLibrary.set(c.ledgerCardId, c);
             });
+            if (data.meta && data.meta.backImageId) autoBackImageId = data.meta.backImageId;
             if (latestView) render(latestView); // 取得前に描いた分へ色とテキストを行き渡らせる
         })
         .catch(() => { /* ★無くても対戦は続けられる(上の javadoc)。壊さない */ });
+}
+
+/**
+ * ★45: カードの裏面。実物の裏面画像(手動モード 25b と同じ)を使い、
+ * 画像IDが未取得の間は縞のCSSにフォールバックする(壊さない、の系列)。
+ */
+function fillCardBack(el) {
+    if (autoBackImageId) {
+        const img = document.createElement('img');
+        img.src = `/cards/${autoBackImageId}.png`;
+        img.loading = 'lazy';
+        img.className = 'auto-back-img';
+        el.appendChild(img);
+        return true;
+    }
+    return false;
 }
 
 /** 台帳IDから文明色を引く。未取得・未知IDは無文明色に落ちる */
@@ -907,9 +937,11 @@ function pileEl(label, opts) {
         attachZoom(el, () => faceDataFromCardView(opts.top));
     } else if (opts.back) {
         cardHolder.classList.add('auto-pile-back', 'auto-pile-stacked');
-        const mark = document.createElement('span');
-        mark.textContent = opts.back;
-        cardHolder.appendChild(mark);
+        if (!fillCardBack(cardHolder)) {
+            const mark = document.createElement('span');
+            mark.textContent = opts.back;
+            cardHolder.appendChild(mark);
+        }
     } else {
         cardHolder.classList.add('auto-pile-empty');
     }
@@ -999,6 +1031,30 @@ function attachHover(el, dataFn) {
         clearTimeout(hoverTimer);
         document.getElementById('auto-hover').classList.add('d-none');
     };
+}
+
+/**
+ * マナタイル1枚(両席で共用・45)。表向き=名前と文明色、裏向き=実物の裏面画像。
+ * ★表向きのマナは公開情報であり、相手の表向きにも名前が出る(45・マスター指摘)。
+ *   裏向きの中身はサーバが持ち主にしか送らない(こちらは title にだけ出る)。
+ */
+function buildManaTile(mana) {
+    const tile = document.createElement('div');
+    tile.className = 'mana-tile' + (mana.tapped ? ' tapped' : '') + (mana.faceUp ? '' : ' face-down');
+    if (mana.faceUp) {
+        const lib = mana.cardId ? autoLibrary.get(mana.cardId) : null;
+        if (lib) tile.style.setProperty('--mana-civ', civColor(lib.civilization));
+        const nameEl = document.createElement('div');
+        nameEl.className = 'mana-tile-name';
+        nameEl.textContent = mana.name || '';
+        tile.appendChild(nameEl);
+    } else {
+        fillCardBack(tile);
+        if (mana.name) tile.title = `(裏向き)${mana.name}`;   // 持ち主にだけ届いている
+        else tile.title = '(裏向き)';
+    }
+    if (mana.temporary) tile.classList.add('mana-temporary');
+    return tile;
 }
 
 /** ウェポンの面。効果テキストは card-library から(B2 の weaponCardId 経由・裁定144) */
@@ -1193,15 +1249,27 @@ function renderSelection() {
     document.getElementById('btn-open-trash').classList.toggle('d-none', req.kind !== 'TRASH');
 }
 
+/**
+ * ★45: ログは畳む(マスター指示)。常設はバー(最新1行+件数)だけで、
+ * 全文はバーのクリックで開くパネルにある。どちらも同じ配列から毎回描き直す。
+ */
 function renderLog(log) {
+    const lines = log || [];
+    document.getElementById('log-bar-last').textContent =
+        lines.length > 0 ? lines[lines.length - 1] : '(ログなし)';
+    document.getElementById('log-bar-count').textContent = lines.length + '件';
     const box = document.getElementById('log-area');
     box.innerHTML = '';
-    (log || []).forEach(line => {
+    lines.forEach(line => {
         const div = document.createElement('div');
         div.textContent = line;
         box.appendChild(div);
     });
     box.scrollTop = box.scrollHeight;
+}
+
+function toggleLogPanel() {
+    document.getElementById('log-panel').classList.toggle('d-none');
 }
 
 function renderOpponent(opp, view) {
@@ -1215,6 +1283,7 @@ function renderOpponent(opp, view) {
     for (let i = 0; i < opp.handCount; i++) {
         const b = document.createElement('div');
         b.className = 'auto-back';
+        fillCardBack(b);
         backs.appendChild(b);
     }
     document.getElementById('opp-hand-count').textContent = opp.handCount;
@@ -1234,15 +1303,13 @@ function renderOpponent(opp, view) {
     document.getElementById('opp-taboo-count').textContent = opp.tabooCount;
     document.getElementById('opp-deck-name').textContent = opp.deckName;
 
-    // 相手のマナ行(裏向きは中身が送られてこないためツールチップも伏せる)
+    // ★45: 相手のマナもタイル(マスター指摘: 表向きの中身が分からないのは問題)。
+    //   表向きは名前・文明色つき。裏向きは裏面で、中身はそもそも届いていない
     const oppManaRow = document.getElementById('opp-mana-row');
     oppManaRow.innerHTML = '';
-    opp.manaZone.forEach(mana => {
-        const chip = document.createElement('div');
-        chip.className = 'mana-chip' + (mana.tapped ? ' tapped' : '') + (mana.faceUp ? '' : ' face-down');
-        chip.title = mana.name || '(裏向き)';
-        oppManaRow.appendChild(chip);
-    });
+    oppManaRow.classList.remove('auto-mana-overlap');
+    opp.manaZone.forEach(mana => oppManaRow.appendChild(buildManaTile(mana)));
+    oppManaRow.classList.toggle('auto-mana-overlap', oppManaRow.scrollWidth > oppManaRow.clientWidth);
 
     const leaderEl = document.getElementById('opp-leader');
     // ★Batch 42: 文明色。リーダーの文明はビューに無いので台帳IDから引く(取得前は無文明色)
@@ -1343,27 +1410,13 @@ function renderSelf(you, view) {
     myLeaderEl.classList.toggle('selected-attacker', selectedAttackerId === 'LEADER');
     myLeaderEl.onclick = leaderReady ? onMyLeaderClick : null;
 
-    // ★44: 自分のマナは名前つきタイル(手動モードの .mana-tile)。タップ=回転・裏向き=裏面。
-    //   文明色は cardId → card-library(裁定144)。選択のクラス名と click は 43 以前から不変
+    // ★44→45: マナは名前つきタイル(buildManaTile)。選択のクラス名と click は 43 以前から不変
     const manaReq = currentRequirement();
     const manaRow = document.getElementById('my-mana-row');
     manaRow.innerHTML = '';
     manaRow.classList.remove('auto-mana-overlap');
     you.manaZone.forEach((mana, index) => {
-        const tile = document.createElement('div');
-        tile.className = 'mana-tile' + (mana.tapped ? ' tapped' : '') + (mana.faceUp ? '' : ' face-down');
-        if (mana.faceUp) {
-            const lib = mana.cardId ? autoLibrary.get(mana.cardId) : null;
-            if (lib) tile.style.setProperty('--mana-civ', civColor(lib.civilization));
-            const nameEl = document.createElement('div');
-            nameEl.className = 'mana-tile-name';
-            nameEl.textContent = mana.name || '';
-            tile.appendChild(nameEl);
-        } else {
-            // ★自分の裏向きマナ: 面は裏だが、持ち主は中身を知ってよい(ビューに届いている)
-            tile.title = mana.name ? `(裏向き)${mana.name}` : '(裏向き)';
-        }
-        if (mana.temporary) tile.classList.add('mana-temporary');
+        const tile = buildManaTile(mana);
         if (tabooPay) {
             if (!mana.temporary) {
                 tile.classList.add('taboo-payable');

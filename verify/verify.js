@@ -4471,7 +4471,9 @@ async function clearZoom(page) {
     { id: 'QTE-M-FIRE-3', ledgerCardId: 'QTE-0046', name: 'マグマ・ストレート',
       civilization: 'FIRE', type: 'SPELL', cost: 1, attack: null, hp: null,
       text: 'ミニオン1体に2ダメージ。', imageId: 'x5' },
-  ] };
+  ],
+  // ★45: 実物の裏面画像のID(手動モードと同じ正 = meta.backImageId)
+  meta: { backImageId: 'testback0000' } };
 
   // ★★Batch 43 で 1280×800 の1画面に収めた。ビューポートも実寸で開く ——
   //   これ自体が「収まっていなければ下の実マウス項目が押せず落ちる」という番人を兼ねる
@@ -4692,7 +4694,14 @@ async function clearZoom(page) {
     opponent: autoPlayer({
       displayName: 'あいて', handCount: 5,
       minions: Array.from({ length: 6 }, (_, i) => autoMinion('e' + i, '敵' + i)),
-      manaZone: Array.from({ length: 8 }, () => ({ name: null, tapped: false, faceUp: true })),
+      // ★45: 表向き6(名前あり=サーバの実挙動)+ 裏向き2(中身は届かない)
+      manaZone: [
+        ...Array.from({ length: 6 }, () => ({
+          name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: false, faceUp: true,
+        })),
+        { name: null, cardId: null, tapped: false, faceUp: false },
+        { name: null, cardId: null, tapped: true, faceUp: false },
+      ],
     }),
     log: Array.from({ length: 30 }, (_, i) => 'ログ行' + i),
   });
@@ -4764,17 +4773,85 @@ async function clearZoom(page) {
     JSON.stringify(paying));
   await autoPage.evaluate(() => { cancelTabooPayment(); toggleTabooRow(); });
 
-  // ---- 43-5. ログは右列の残り高さを使う ----
-  const logShape = await autoPage.evaluate(() => {
-    const log = document.getElementById('log-area');
-    const side = log.parentElement;
+  // ---- 45-1. ログは畳まれ、バーのクリックで全文が開き、Esc で閉じる(旧 43-5 の置き換え) ----
+  const logDefault = await autoPage.evaluate(() => ({
+    panelHidden: document.getElementById('log-panel').classList.contains('d-none'),
+    barLast: document.getElementById('log-bar-last').textContent,
+    barCount: document.getElementById('log-bar-count').textContent,
+  }));
+  const logBarBox = await autoPage.locator('#log-bar').boundingBox();
+  await autoPage.mouse.click(logBarBox.x + logBarBox.width / 2, logBarBox.y + logBarBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const logOpened = await autoPage.evaluate(() => ({
+    open: !document.getElementById('log-panel').classList.contains('d-none'),
+    lines: document.querySelectorAll('#log-area div').length,
+  }));
+  await autoPage.keyboard.press('Escape');
+  await autoPage.waitForTimeout(50);
+  const logClosed = await autoPage.evaluate(() =>
+    document.getElementById('log-panel').classList.contains('d-none'));
+  check('★★★ログは既定で畳まれ、バーに最新行と件数、クリックで全文、Escで閉じる(45)',
+    logDefault.panelHidden && logDefault.barLast === 'ログ行29' && logDefault.barCount === '30件'
+      && logOpened.open && logOpened.lines === 30 && logClosed,
+    JSON.stringify({ logDefault, logOpened, logClosed }));
+
+  // ---- 45-2. ★拡大を開いてもターン/フェイズが隠れない(マスター指摘) ----
+  const zBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(zBox.x + zBox.width / 2, zBox.y + zBox.height / 2, { button: 'right' });
+  await autoPage.waitForTimeout(60);
+  const phaseVisible = await autoPage.evaluate(() => {
+    const phase = document.getElementById('phase-indicator');
+    const r = phase.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    const zoomOpen = !document.getElementById('auto-zoom').classList.contains('d-none');
+    closeZoom();
+    return { zoomOpen, covered: !(at === phase || phase.contains(at)), text: phase.textContent };
+  });
+  check('★★★拡大を開いてもターン/フェイズが隠れない(45・マスター指摘)',
+    phaseVisible.zoomOpen && !phaseVisible.covered && phaseVisible.text.includes('ターン'),
+    JSON.stringify(phaseVisible));
+
+  // ---- 45-3. 相手の表向きマナに名前が見える(マスター指摘)。裏向きは見えない ----
+  const oppManaTiles = await autoPage.evaluate(() => {
+    const tiles = document.querySelectorAll('#opp-mana-row .mana-tile');
     return {
-      inSide: side.classList.contains('auto-side'),
-      h: log.getBoundingClientRect().height,
+      count: tiles.length,
+      firstName: (tiles[0].querySelector('.mana-tile-name') || {}).textContent || '',
+      faceDownName: !!tiles[6].querySelector('.mana-tile-name'),
+      faceDownTitle: tiles[6].title,
     };
   });
-  check('★ログは右列にあり、残り高さへ伸びる(43・基底の130pxを上書き)',
-    logShape.inSide && logShape.h > 300, JSON.stringify(logShape));
+  check('★★★相手の表向きマナに名前が見える。裏向きは名も title も出ない(45)',
+    oppManaTiles.count === 8 && oppManaTiles.firstName === 'マグマ・ストレート'
+      && !oppManaTiles.faceDownName && oppManaTiles.faceDownTitle === '(裏向き)',
+    JSON.stringify(oppManaTiles));
+
+  // ---- 45-4. 裏面は実物の裏面画像(meta.backImageId) ----
+  const backImgs = await autoPage.evaluate(() => {
+    const has = (sel) => {
+      const img = document.querySelector(sel + ' img.auto-back-img');
+      return !!(img && img.src.includes('testback0000'));
+    };
+    return {
+      deck: has('#my-piles .auto-pile-back'),
+      handBack: has('#opp-hand-backs .auto-back'),
+      manaBack: has('#my-mana-row .mana-tile.face-down'),
+    };
+  });
+  check('★★裏面(山札・禁忌・相手手札・裏マナ)は実物の裏面画像を使う(45・meta.backImageId)',
+    backImgs.deck && backImgs.handBack && backImgs.manaBack, JSON.stringify(backImgs));
+
+  // ---- 45-5. リーダーとパイルは右列にある(マスター指示の配置) ----
+  const placement = await autoPage.evaluate(() => {
+    const inSide = (id) => !!document.getElementById(id).closest('.auto-side');
+    return {
+      oppLeader: inSide('opp-leader'), myLeader: inSide('my-leader'),
+      oppPiles: inSide('opp-piles'), myPiles: inSide('my-piles'),
+    };
+  });
+  check('★★リーダーと山札・墓地・消滅・禁忌のパイルは右列にある(45)',
+    placement.oppLeader && placement.myLeader && placement.oppPiles && placement.myPiles,
+    JSON.stringify(placement));
 
   // =========================================================================
   // ★★Batch 44: パイル・マナタイル・リーダー合体タイル(案1・マスター承認)

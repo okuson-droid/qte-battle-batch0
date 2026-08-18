@@ -1587,7 +1587,8 @@ body.manual-drag-active .manual-band {
 
 /* ---------- 拡大(右クリック)。出口はクリック / 右クリック / Esc ---------- */
 .auto-zoom {
-    position: fixed; inset: 0; z-index: 1500;
+    /* ★45: ヘッダ(ターン/フェイズ)は覆わない。拡大中も「今どこか」が見える(マスター指摘) */
+    position: fixed; top: 36px; left: 0; right: 0; bottom: 0; z-index: 1500;
     display: flex; align-items: center; justify-content: center;
     background: rgba(8, 6, 14, 0.72);
 }
@@ -1615,9 +1616,12 @@ body.manual-drag-active .manual-band {
     display: flex; flex-direction: column; gap: 6px;
 }
 .auto-side {
-    width: 400px; flex: 0 0 400px;
+    /* ★45: 400 → 280。ログが畳まれ、右列の中身は リーダー(168)+パイル(4×54+余白)になった。
+       浮いた 120px は中央列(盤面)が使う(マスター指示「その分画面を広く使う」) */
+    width: 280px; flex: 0 0 280px;
     display: flex; flex-direction: column; gap: 8px; min-height: 0;
 }
+.auto-side-mid { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 /* ★ログは右列の残り高さを全部使う(基底 .log-box の height:130px を上書き) */
 .auto-log { height: auto; flex: 1 1 0; min-height: 0; }
 
@@ -1767,7 +1771,48 @@ body.manual-drag-active .manual-band {
 
 /* ---------- ホバープレビュー(B-1)。クリックを吸わない ---------- */
 .auto-hover {
-    position: fixed; right: 424px; top: 64px; z-index: 1400;
+    position: fixed; right: 300px; top: 64px; z-index: 1400;
     pointer-events: none; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.6));
 }
 .auto-hover.d-none { display: none; }
+
+/* ============================================================
+   ★★Batch 45: 右列の再編・ログの折りたたみ・実物の裏面画像
+   ============================================================ */
+/* 裏面の実画像(meta.backImageId)。CSS の縞は取得前のフォールバックとして残る */
+.auto-back-img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; border-radius: inherit; display: block;
+}
+.auto-back, .auto-pile-back, .auto-mana-row .mana-tile.face-down { position: relative; overflow: hidden; }
+
+/* ログのバー(常設はこれだけ)。最新1行 + 件数 */
+.auto-log-bar {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 5px 9px; border-radius: 6px; cursor: pointer; text-align: left;
+    background: rgba(0, 0, 0, 0.4); border: 1px solid #495057; color: #e8e4f2;
+    font-size: 12px;
+}
+.auto-log-bar:hover { background: rgba(255, 255, 255, 0.08); }
+.auto-log-last {
+    flex: 1 1 0; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ログの全文パネル(バーのクリックで開閉) */
+.auto-log-panel {
+    position: fixed; inset: 36px 0 0 0; z-index: 1450;
+    display: flex; align-items: flex-start; justify-content: flex-end;
+    background: rgba(8, 6, 14, 0.5); padding: 12px;
+}
+.auto-log-panel.d-none { display: none; }
+.auto-log-panel-body {
+    width: 420px; max-height: calc(100% - 24px);
+    display: flex; flex-direction: column; gap: 6px;
+    background: #1b1526; border: 1px solid #4a4460; border-radius: 10px;
+    padding: 10px 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+}
+.auto-log-panel-body .auto-log { flex: 1 1 0; min-height: 200px; overflow-y: auto; }
+
+/* 右列のパイル列は 280px に4つ収まる */
+.auto-side .auto-piles { justify-content: space-between; padding: 0 2px; }
