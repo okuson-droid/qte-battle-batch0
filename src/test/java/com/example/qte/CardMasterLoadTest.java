@@ -22,9 +22,20 @@ class CardMasterLoadTest {
     @Autowired
     CardMasterRepository repository;
 
+    /**
+     * ★Batch 46a で 72 → 169 に修正した。
+     *
+     * 台帳は Batch 0 の時点で72枚だったが、以後カードが増えても<b>ここが更新されなかった</b>。
+     * つまりこのテストは長いあいだ赤のままで、自動モード側の数少ないテストが
+     * 「落ちているのが当たり前」の状態になっていた。落ちているテストは番人ではない。
+     *
+     * 枚数は意図して人が書いている(裁定110 の例外)。ファイルから読んだ値と突き合わせると
+     * 「ファイルが途中で切れていても通る」ため、<b>この1つだけは人が決めた数を置く</b>。
+     * カードを増やしたらここも直すこと。★46b で 235 になる。
+     */
     @Test
     void 台帳の全カードが読み込まれる() {
-        assertThat(repository.getAllCards()).hasSize(72);
+        assertThat(repository.getAllCards()).hasSize(169);
     }
 
     @Test
