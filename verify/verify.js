@@ -5758,6 +5758,41 @@ async function clearZoom(page) {
   check('デッキメーカーでJSエラーが出ない', deckErrors.length === 0, deckErrors.join(' | '));
   await deckPage.close();
 
+  // ---- 49-1. ★★対象指定のフィルタは Java と battle.js の両方に居る(★Batch 49) ----
+  //
+  // TargetSpec.Filter は<b>名前のままクライアントへ送られる</b>。battle.js は受け取った名前を
+  // switch で分岐し、「その手札を選べるか」を決める。したがって Java にフィルタを1つ足して
+  // JS に足し忘れると、<b>サーバは通すのにクライアントが光らせない</b>(=そのカードを選べない)。
+  // ギガマウス・バイトの WATER_CIVILIZATION で実際にこの穴を通ったので、番人を置く
+  // (裁定130: 同じ規則が2箇所にあるとき、期待値を書かず互いを突き合わせる)。
+  //
+  // ★★JS 側が持つ必要があるのは<b>手札の絞り込みに使われるフィルタ</b>だけである。
+  //   IGNORES_STEALTH は潜伏チェックの上書き指示、HIGHEST_ATTACK_OPPONENT は盤面から計算する
+  //   もので、どちらも手札の要求には現れない。だから突き合わせるのは
+  //   「Java の Filter のうち、Kind.HAND の要求で実際に使われているもの」である。
+  // ★★★<b>空振りを第3の答えとして持つ</b>(裁定186)。抽出の正規表現が壊れて0件になると
+  //   「差分なし」で緑になってしまうので、集合が空でないことを条件に含め、
+  //   さらに<b>このバッチが足した値が照合の対象に入っていること</b>を別項目で測る。
+  const filterJava = fs.readFileSync(
+    path.join(ROOT, 'src/main/java/com/example/qte/effect/TargetSpec.java'), 'utf8');
+  const registryJava = fs.readFileSync(
+    path.join(ROOT, 'src/main/java/com/example/qte/effect/CardEffectRegistry.java'), 'utf8');
+  const battleJsSrc = fs.readFileSync(path.join(RES, 'static/js/battle.js'), 'utf8');
+  const filterBody = filterJava.slice(filterJava.indexOf('enum Filter'));
+  const javaFilters = [...filterBody.matchAll(/^ {8}([A-Z][A-Z_0-9]*),?$/gm)].map((m) => m[1]);
+  const handFilters = javaFilters.filter((f) =>
+    new RegExp(`Kind\\.HAND[^;]*?Filter\\.${f}\\b`, 's').test(registryJava));
+  const jsFilters = [...battleJsSrc.matchAll(/case '([A-Z][A-Z_0-9]*)':/g)].map((m) => m[1]);
+  const missingInJs = handFilters.filter((f) => !jsFilters.includes(f));
+  check('★★対象指定のフィルタは Java と battle.js の両方に居る(49・裁定130)',
+    javaFilters.length > 0 && handFilters.length > 0 && jsFilters.length > 0
+      && missingInJs.length === 0,
+    JSON.stringify({ javaFilters: javaFilters.length, handFilters, missingInJs }));
+  check('★★★49 が足した WATER_CIVILIZATION が両側に居る(49・空振りでないことの証拠)',
+    handFilters.includes('WATER_CIVILIZATION') && jsFilters.includes('WATER_CIVILIZATION'),
+    JSON.stringify({ inHandFilters: handFilters.includes('WATER_CIVILIZATION'),
+      inJs: jsFilters.includes('WATER_CIVILIZATION') }));
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();

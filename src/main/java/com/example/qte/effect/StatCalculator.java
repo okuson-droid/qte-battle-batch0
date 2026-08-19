@@ -49,9 +49,11 @@ public class StatCalculator {
     private static final String WIND_CHANTER_LEADER = "QTE-M-WIND-15";  // 詠唱の風詠士(リーダー)
     private static final String EARTH_BERSERKER = "QTE-M-EARTH-18";     // 大地の狂戦士
     private static final String SHEER_AYAKASHI = "QTE-M-WIND-33";       // 透キ通ル・アヤカシ(★Batch 48)
+    private static final String GIGAMOUSE_BITE = "QTE-M-WATER-38";      // ギガマウス・バイト(★Batch 49)
 
     // 動的な攻撃力・攻撃回数
     private static final String SHADOW_ASSASSIN = "QTE-M-WATER-28";     // 影潜む水刺客(ウェポン)
+    private static final String ARKINTIS = "QTE-M-WATER-39";            // アルキンティス(ウェポン・★Batch 49)
     private static final String KNOWLEDGE_GUARDIAN = "QTE-M-WATER-5";   // 知識の守護者
     private static final String ENDLESS_TITAN = "QTE-M-EARTH-22";       // 無尽蔵の巨神
     private static final String GRAVE_WRAITH_MASS = "QTE-M-DARK-22";    // 墓場の怨念集合体
@@ -75,8 +77,8 @@ public class StatCalculator {
             NIGHTMARE, SWARM_LICH, SEALED_TABOO_DEMON, RAISE_DEAD,
             CHANT_PALADIN, PRECEPT_GUARDIAN, WISDOM_CRYSTAL, CHANT_ORB,
             TWIN_ILLUSIONIST, GALE_KNIGHT, GATHERING_SYLPH, WIND_CHANTER_LEADER,
-            EARTH_BERSERKER, SHEER_AYAKASHI,
-            SHADOW_ASSASSIN, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
+            EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE,
+            SHADOW_ASSASSIN, ARKINTIS, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
             GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
             GALE_RAPIER);
 
@@ -195,6 +197,16 @@ public class StatCalculator {
                 && owner.getCardsUsedThisTurn() == 2) {
             cost -= 1;
         }
+        // ---- 水文明 Ver1.1: 手札の枚数を参照する動的コスト(★Batch 49) ----
+        // ギガマウス・バイト: 「自分の手札の枚数このカードのコスト-1」(印刷コスト15)。
+        // ★数える手札には<b>このカード自身を含む</b>(マスター裁定190)。
+        //   このメソッドが呼ばれるのは支払いの直前であり、カードはまだ手札にある
+        //   (GameService.playSpell は 検証 → payCost → removePlayedAndTargets の順)。
+        //   したがって getHand().size() をそのまま読めば裁定どおりになる。
+        // ★選んだ3体もこの時点ではまだ手札にあるので、選択の有無でコストは動かない
+        if (GIGAMOUSE_BITE.equals(card.id())) {
+            cost -= owner.getHand().size();
+        }
         // ---- 土文明: 自分のマナ枚数を参照する動的コスト(条件を満たすと固定値まで下がる) ----
         // 減算型ではなく固定値セット型。土カードは他文明の軽減対象ではないため競合しない。
         if (EARTH_BERSERKER.equals(card.id()) && owner.getManaZone().size() >= 7) {
@@ -219,6 +231,14 @@ public class StatCalculator {
         if (SHADOW_ASSASSIN.equals(weapon.id())) {
             attack += (int) owner.getMinionZone().stream()
                     .filter(m -> m.hasKeyword(Keyword.STEALTH))
+                    .count();
+        }
+        // アルキンティス(★Batch 49): 「【常在】自分の場の【知識】の枚数Attackを+1する」。
+        // 影潜む水刺客(潜伏を数える)と同じ形で、数える対象だけが【知識】に変わる。
+        // 【常在】は保存しない —— 評価するたびに場を見る(計画 2-1 の (a))
+        if (ARKINTIS.equals(weapon.id())) {
+            attack += (int) owner.getMinionZone().stream()
+                    .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE))
                     .count();
         }
         // 暴風の双剣: このターン中カードを使用するたびに累積した加算(ON_CARD_USEDが積む)。

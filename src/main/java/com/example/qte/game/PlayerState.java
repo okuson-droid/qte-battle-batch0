@@ -179,6 +179,40 @@ public class PlayerState {
     }
 
     /**
+     * ロロイヨ伯爵(★Batch 49)の「ターンに一回」を最後に使ったターン番号。
+     * 【守護】と【潜伏】で<b>独立に持つ</b> —— 裁定156(1) により2つのカウントは別物であり、
+     * 両方を持つミニオン1体が場に出たらそのターンに2枚引く。
+     *
+     * <b>ターン番号で持つ理由は {@link #tryConsumeDestroyHeal(int)} と同じである。</b>
+     * 裁定156(2) により<b>相手のミニオンが場に出ても誘発する</b>ため、
+     * このカウンタは相手のターン中にも消費される。
+     * {@link #startTurnReset()} はターンプレイヤーにしか走らないので、
+     * 真偽値で持つと相手のターンぶんがリセットされない。
+     */
+    private int guardEntryDrawTurn = -1;
+
+    /** 【潜伏】側のカウント。上の【守護】側とは独立である(裁定156(1)) */
+    private int stealthEntryDrawTurn = -1;
+
+    /** このターンの「【守護】のミニオンが場に出たときのドロー」の権利を使う(ロロイヨ伯爵) */
+    public boolean tryConsumeGuardEntryDraw(int currentTurn) {
+        if (guardEntryDrawTurn == currentTurn) {
+            return false;
+        }
+        guardEntryDrawTurn = currentTurn;
+        return true;
+    }
+
+    /** このターンの「【潜伏】のミニオンが場に出たときのドロー」の権利を使う(ロロイヨ伯爵) */
+    public boolean tryConsumeStealthEntryDraw(int currentTurn) {
+        if (stealthEntryDrawTurn == currentTurn) {
+            return false;
+        }
+        stealthEntryDrawTurn = currentTurn;
+        return true;
+    }
+
+    /**
      * このターンの間、装備中ウェポンの攻撃力に加算される値(暴風の双剣)。
      * ウェポンは MinionInstance を持たないため StatModifier を積む先がなく、
      * プレイヤー単位の一時値として保持する。ターン終了時とウェポンが場を離れたときに0に戻す。

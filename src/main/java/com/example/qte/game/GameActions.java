@@ -321,10 +321,16 @@ public class GameActions {
      * 効果によってミニオンを場に「出す」(召喚ではない)。
      * 発注者確認済み裁定により【召喚時】(ON_SUMMON)は発動せず、
      * 登場時(ON_ENTER: 知識など)のみ発動する。ミニオンゾーンが上限なら出せない。
+     *
+     * @return 場に出たミニオン。出せなかった(場が満杯・出すことが禁じられている)なら null。
+     *         ★Batch 49 で void から変更した。ギガマウス・バイトが、出した3体に
+     *         その場で【突進】を与えるために実体を必要とするためである。
+     *         「場の末尾を取る」形にしなかったのは、ON_ENTER の中でさらに別のミニオンが
+     *         場に出ることがあり(黄泉還る水龍)、末尾が別人になりうるからである
      */
-    public void putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId) {
+    public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId) {
         if (owner.isMinionZoneFull() || NO_CHEAT_INTO_FIELD.contains(cardId)) {
-            return;
+            return null;
         }
         GameState state = room.getGameState();
         CardMaster master = cards.findById(cardId);
@@ -336,6 +342,11 @@ public class GameActions {
         // 装備中のウェポンが「自分のミニオンが場に出た」に反応する(禁忌の冥魔剣)。
         // 蘇生・効果による「出す」でも発動するため、ON_ENTER の隣に置く(発注者確認済み)
         effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
+        // 両者のリーダーが「場にミニオンが出た」に反応する(★Batch 49。ロロイヨ伯爵)。
+        // 召喚か効果による「出す」かを問わない(マスター裁定193)ため、ここにも置く。
+        // GameService.summonToField にも同じ発火がある
+        effects.fireAnyMinionEntered(ctx);
+        return minion;
     }
 
     // ---------------------------------------------------------------

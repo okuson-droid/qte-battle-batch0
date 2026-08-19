@@ -57,20 +57,21 @@ class EffectImplementationTest {
      *
      * <p>内訳は {@code python3 tools/report_effects.py} が出す。
      * 47 の時点では 64枚 = 進化18 + 非進化46 だった。
-     * ★<b>48(風文明の8枚)で 56枚 = 進化18 + 非進化38 になった。</b>
-     * 風文明に残っている未実装は進化3枚だけである。
+     * 48(風文明の8枚)で 56枚 = 進化18 + 非進化38 になった。
+     * ★<b>49(水文明の6枚)で 50枚 = 進化18 + 非進化32 になった。</b>
+     * 風文明・水文明に残っている未実装は、どちらも進化3枚だけである。
      */
     @Test
-    void 効果未実装のカードは56枚である() {
+    void 効果未実装のカードは50枚である() {
         long unimplemented = cards.getAllCards().stream().filter(implementation::isUnimplemented).count();
-        assertThat(unimplemented).isEqualTo(56);
+        assertThat(unimplemented).isEqualTo(50);
     }
 
     @Test
-    void 印が付くカードのうち進化ミニオンは18枚で残り38枚がデッキに入る() {
+    void 印が付くカードのうち進化ミニオンは18枚で残り32枚がデッキに入る() {
         var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
         assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(18);
-        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(38);
+        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(32);
     }
 
     /**
@@ -97,6 +98,47 @@ class EffectImplementationTest {
             assertThat(implementation.isUnimplemented(card))
                     .as(card.name() + " は Batch 48 で実装したので印を付けてはいけない")
                     .isFalse();
+        }
+    }
+
+    /**
+     * ★Batch 49 で印が消えた6枚(水文明の非進化)。
+     *
+     * 48 と同じ理由で、枚数だけでなく<b>実物を名指しして測る</b>(裁定181)。
+     */
+    @Test
+    void 水文明のVer11カード6枚には印が付かない() {
+        String[] water49 = {
+            "QTE-M-WATER-29", // ロロイヨ伯爵 … CardEffectRegistry.fireAnyMinionEntered(宣言あり)
+            "QTE-M-WATER-35", // 海獣リューグー … 表(ON_SUMMON)
+            "QTE-M-WATER-36", // 潮獣ビシャカワ … 表(spellEffects)
+            "QTE-M-WATER-37", // 潮獣コアンチ … 表(spellEffects)
+            "QTE-M-WATER-38", // ギガマウス・バイト … 表(spellEffects + targetSpecs) + StatCalculator(コスト)
+            "QTE-M-WATER-39", // アルキンティス … StatCalculator(ウェポンの攻撃力・宣言あり)
+        };
+        for (String cardId : water49) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は Batch 49 で実装したので印を付けてはいけない")
+                    .isFalse();
+        }
+    }
+
+    /**
+     * ★ロロイヨ伯爵とアルキンティスは表に載っていない(ルール側の宣言だけで実装済みと判定される)。
+     *
+     * ストクと同じ形をこのバッチも2枚増やした。将来どちらかを表へ移したときに
+     * 黙って通らないよう、前提として固定しておく。
+     */
+    @Test
+    void ロロイヨとアルキンティスは表ではなく宣言で実装済みと判定される() {
+        for (String cardId : new String[] { "QTE-M-WATER-29", "QTE-M-WATER-39" }) {
+            assertThat(effects.isRegistered(cardId))
+                    .as(cards.findById(cardId).name() + " は CardEffectRegistry の表に載っていない")
+                    .isFalse();
+            assertThat(EffectImplementation.ruleSideCards())
+                    .as("代わりにルール側の宣言に載っている")
+                    .contains(cardId);
         }
     }
 
@@ -197,10 +239,16 @@ class EffectImplementationTest {
                 .contains("QTE-M-EARTH-7");
     }
 
+    /**
+     * ★<b>題材を差し替えた(Batch 49)。</b> 47 はここで《潮獣ビシャカワ》を測っていたが、
+     * 49 で実装したため「印が付く」側の題材にならなくなった。
+     * 実装が進むフェーズでは、<b>この種の試験の題材は必ず陳腐化する</b> ——
+     * 数を減らすときは、名指ししている試験も一緒に読むこと。
+     */
     @Test
     void 効果が未実装のスペルに印が付く() {
         // 46b まではデッキ構築の入口で弾かれていた13枚のうちの1枚(裁定D2 で門を開けた)
-        CardMaster spell = cards.findById("QTE-M-WATER-36"); // 潮獣ビシャカワ
+        CardMaster spell = cards.findById("QTE-M-LIGHT-37"); // 英術・グラーニス
         assertThat(spell.type()).isEqualTo(CardType.SPELL);
         assertThat(effects.isSpellImplemented(spell.id())).isFalse();
         assertThat(implementation.isUnimplemented(spell)).isTrue();

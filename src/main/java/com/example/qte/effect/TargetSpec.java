@@ -112,6 +112,16 @@ public record TargetSpec(List<Requirement> requirements, int combinedTotal) {
         SPELL_CARD,
         /** 光文明のカードである(神の福音) */
         LIGHT_CIVILIZATION,
+        /**
+         * 水文明のカードである(★Batch 49。ギガマウス・バイト)。
+         *
+         * ★{@link #LIGHT_CIVILIZATION} と対になる。文明を引数に取る1つのフィルタに
+         * まとめなかったのは、この列挙体が名前のままクライアントへ送られ、
+         * 向こう側でも同じ名前の分岐になっているためである({@code battle.js})。
+         * 引数を持たせると、送る形と受ける形の両方を作り直すことになる。
+         * ★<b>ここに値を足したら battle.js の2箇所にも足すこと</b>(verify 49-1 が番人)。
+         */
+        WATER_CIVILIZATION,
         /** コストが7以下(聖なる降誕の儀式) */
         COST_7_OR_LESS,
         /**

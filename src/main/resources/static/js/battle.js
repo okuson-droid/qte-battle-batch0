@@ -269,6 +269,8 @@ function matchesFilters(req, card, minion) {
                 ok = card && card.type === 'SPELL'; break;
             case 'LIGHT_CIVILIZATION':
                 ok = card && card.civilization === 'LIGHT'; break;
+            case 'WATER_CIVILIZATION':
+                ok = card && card.civilization === 'WATER'; break;
             case 'COST_7_OR_LESS':
                 ok = (minion || card).cost != null && (minion || card).cost <= 7; break;
             case 'HIGHEST_ATTACK_OPPONENT': {
@@ -1609,6 +1611,7 @@ function createHandCardEl(card, index, view) {
                     case 'COST_3_OR_LESS': return card.cost != null && card.cost <= 3;
                     case 'COST_7_OR_LESS': return card.cost != null && card.cost <= 7;
                     case 'LIGHT_CIVILIZATION': return card.civilization === 'LIGHT';
+                    case 'WATER_CIVILIZATION': return card.civilization === 'WATER';
                     default: return true;
                 }
             });

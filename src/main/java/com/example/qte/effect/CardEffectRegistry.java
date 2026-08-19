@@ -90,6 +90,7 @@ public class CardEffectRegistry {
     private static final String FLAME_FANATIC = "QTE-M-FIRE-4";     // 火炎の狂信者(自傷でAttack+2)
     private static final String FLAME_MIRROR = "QTE-M-FIRE-28";     // 反転の炎鏡(自傷を水増しする)
     private static final String STOK_LEADER = "QTE-M-WIND-29";      // 妖ノ長・ストク(★Batch 48)
+    private static final String LOLOIYO_LEADER = "QTE-M-WATER-29";  // ロロイヨ伯爵(★Batch 49)
 
     /**
      * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
@@ -97,7 +98,7 @@ public class CardEffectRegistry {
      */
     public static final java.util.Set<String> IMPLEMENTED_CARDS =
             java.util.Set.of(ABYSS_DRAGON, HARVEST_LEADER, FLAME_FANATIC, FLAME_MIRROR,
-                    STOK_LEADER);
+                    STOK_LEADER, LOLOIYO_LEADER);
 
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
@@ -114,6 +115,7 @@ public class CardEffectRegistry {
         registerLightCards();
         registerWindCards();
         registerEarthCards();
+        registerWaterVer11Cards();
     }
 
     // ---------------------------------------------------------------
@@ -452,6 +454,57 @@ public class CardEffectRegistry {
                 && owner.getCardsPutToManaThisTurn() == 2) {
             ctx.room().addLog("【豊穣の地霊主】: このターン2回目のマナ配置により1ドロー");
             ctx.actions().drawCards(ctx.room(), owner, 1);
+        }
+    }
+
+    /**
+     * 「場にミニオンが出た」イベントの処理(★Batch 49)。
+     * 発火は {@link TriggerType#ON_ENTER} と同じ2箇所
+     * ({@code GameService.summonToField} / {@code GameActions.putIntoFieldByEffect})であり、
+     * 召喚か効果による「出す」かを問わない(<b>マスター裁定193</b>)。
+     *
+     * <h2>★なぜ TriggerType を足さなかったか</h2>
+     *
+     * `notes/ver11-migration-plan.md` 2-1 は、このイベントを「P2 で足すトリガーの2つ目」と
+     * 見込んでいた。実際に使い手を読んだところ、<b>ロロイヨ伯爵(水)も英皇アントマルエル(光)も
+     * リーダーの【常在】</b>であり、ミニオンやウェポンが反応するものは1枚も無かった。
+     * {@link TriggerType} はカード(ミニオン・ウェポン)の表に載せるための分類であって、
+     * リーダーの常在能力はこれまでも表に載せず、専用の発火口に直接書いてきた
+     * ({@code fireManaPlaced} = 豊穣の地霊主 / {@code fireOwnMinionDestroyed} = 妖ノ長・ストク)。
+     * ここで TriggerType を足すと、<b>誰も登録しない器</b>が1つ増える(裁定178 が戒めた形そのもの)。
+     * 使い手が現れたときに足せばよい。
+     *
+     * <h2>★両者のリーダーを見る</h2>
+     *
+     * テキストが「自分の」と書いていない誘発は両者を見る(裁定156(2))。
+     * したがって<b>相手のミニオンが場に出ても誘発する</b>。
+     * {@code ctx.owner()} は「場に出たミニオンの持ち主」であって「反応する側」ではないため、
+     * ドロー先は必ず watcher 側で指定すること。
+     *
+     * @param ctx ctx.source() に場に出たミニオンが入る
+     */
+    public void fireAnyMinionEntered(EffectContext ctx) {
+        MinionInstance entered = ctx.source();
+        if (entered == null) {
+            return;
+        }
+        int turn = ctx.state().getTurnNumber();
+        for (PlayerState watcher : List.of(ctx.state().getPlayer1(), ctx.state().getPlayer2())) {
+            if (!LOLOIYO_LEADER.equals(watcher.getLeader().id())) {
+                continue;
+            }
+            // ★【守護】と【潜伏】のカウントは独立である(裁定156(1))。
+            // 両方を持つミニオン1体が場に出たら、そのターンに2枚引く。
+            // 判定に hasKeyword を使うのは、効果で付与された【守護】(そよ風の加護など)も
+            // 「【守護】のミニオン」だからである
+            if (entered.hasKeyword(Keyword.GUARD) && watcher.tryConsumeGuardEntryDraw(turn)) {
+                ctx.room().addLog("【ロロイヨ伯爵】: 【守護】のミニオンが場に出たため1ドロー");
+                ctx.actions().drawCards(ctx.room(), watcher, 1);
+            }
+            if (entered.hasKeyword(Keyword.STEALTH) && watcher.tryConsumeStealthEntryDraw(turn)) {
+                ctx.room().addLog("【ロロイヨ伯爵】: 【潜伏】のミニオンが場に出たため1ドロー");
+                ctx.actions().drawCards(ctx.room(), watcher, 1);
+            }
         }
     }
 
@@ -1700,6 +1753,108 @@ public class CardEffectRegistry {
     }
 
     // ---------------------------------------------------------------
+    // ★Batch 49: Ver1.1 で追加された水文明のカード(P2 の2本目)。
+    //
+    // 水文明の新しいテーマは【潜伏】と【知識】を「数える」ことである ——
+    // ロロイヨ伯爵は守護と潜伏の登場をドローに、潮獣ビシャカワは潜伏の数を回復に、
+    // アルキンティスは知識の数をウェポンの攻撃力に変える。
+    // 既存の水(手札の枚数を参照する: 知識の守護者・溢れ出る英知)と違い、
+    // ここで数えるのは<b>盤面に並んだキーワードの数</b>である。
+    //
+    // ★ロロイヨ伯爵(QTE-M-WATER-29)はここに登録を持たない。
+    //   常在の登場誘発は fireAnyMinionEntered に直接書いてある(豊穣の地霊主・ストクと同じ形)。
+    // ★ギガマウス・バイトのコスト軽減とアルキンティスの攻撃力は StatCalculator にある。
+    //   1枚のカードの実装が複数のクラスに分かれるのは想定内である(裁定180)。
+    // ---------------------------------------------------------------
+    private void registerWaterVer11Cards() {
+
+        // ---- 海獣リューグー(QTE-M-WATER-35) ----
+        // 「【知識】【突進】【召喚時】自分の場に【潜伏】を持つミニオンが居るならカードを1枚引く」
+        //
+        // 【知識】の1ドローは fire() が自動処理する(自身が KNOWLEDGE を持つため)。
+        // ここで扱うのは【召喚時】の条件つき1ドローだけである(聖域の案内人と同じ分担)。
+        // 自身は【潜伏】を持たないので、場を素朴に見て自分を数えてしまう心配はない
+        register("QTE-M-WATER-35", TriggerType.ON_SUMMON, ctx -> {
+            boolean hasStealth = ctx.owner().getMinionZone().stream()
+                    .anyMatch(m -> m.hasKeyword(Keyword.STEALTH));
+            if (hasStealth) {
+                ctx.room().addLog("【海獣リューグー】: 自分の場に【潜伏】が居るため1ドロー");
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            }
+        });
+
+        // ---- 潮獣ビシャカワ(QTE-M-WATER-36・スペル) ----
+        // 「自分の【潜伏】の数自分のリーダーのHPを1回復を行う。」
+        //
+        // 数えるのは<b>自分の場</b>の【潜伏】ミニオンである(影潜む水刺客と同じ参照)。
+        // 手札や墓地の潜伏は数えない —— 「自分の」に続く場所の指定が無いキーワードの数え上げは、
+        // 既存カードがすべて場を指している(影潜む水刺客・双流の幻術師)。
+        // 0体なら回復量0であり、スペルとしては空撃ちになる(使用は妨げない)
+        spellEffects.put("QTE-M-WATER-36", ctx -> {
+            int stealth = (int) ctx.owner().getMinionZone().stream()
+                    .filter(m -> m.hasKeyword(Keyword.STEALTH))
+                    .count();
+            if (stealth <= 0) {
+                ctx.room().addLog("【潮獣ビシャカワ】: 自分の場に【潜伏】が居ないため回復しません");
+                return;
+            }
+            ctx.room().addLog("【潮獣ビシャカワ】: 【潜伏】%d体ぶん%d回復".formatted(stealth, stealth));
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), stealth, "QTE-M-WATER-36");
+        });
+
+        // ---- 潮獣コアンチ(QTE-M-WATER-37・スペル) ----
+        // 「自分のリーダーのHPを2回復。カードを1枚引き、カードを1枚捨てる。」
+        //
+        // 捨てる対象は<b>引いた後の手札</b>から選ぶため、使用宣言時に選び終える TargetSpec では
+        // 表現できない。アクア・サーチと同じ a9(割り込み選択)を使う。
+        // 捨てるのは必須なので one(min=1)。山札切れ等で手札が空なら捨てようがない
+        spellEffects.put("QTE-M-WATER-37", ctx -> {
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-M-WATER-37");
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            if (ctx.owner().getHand().isEmpty()) {
+                return;
+            }
+            List<String> handPositions = new ArrayList<>();
+            for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+                handPositions.add(String.valueOf(i));
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.HAND, handPositions, ResumePoint.TIDE_COANCHI_DISCARD,
+                    "【潮獣コアンチ】: 捨てる手札を1枚選んでください"));
+        });
+
+        // ---- ギガマウス・バイト(QTE-M-WATER-38・スペル) ----
+        // 「自分の手札の枚数このカードのコスト-1
+        //   自分の手札から水文明のミニオンを3体場に出す。それは【突進】を得る。」
+        //
+        // ★コスト軽減(印刷15)は StatCalculator.effectiveCost にある。
+        //   数える手札には<b>このカード自身を含む</b>(マスター裁定190)。
+        // ★出す3体はプレイヤーが選ぶ(マスター裁定192)。手札の水ミニオンが3体未満なら
+        //   居るだけ出す(マスター裁定191) —— Requirement.upTo が「あるだけ」を表す既存の形である。
+        // ★効果による「出す」なので【召喚時】は発動せず、登場時(ON_ENTER)のみが発動する。
+        // ★場の空きが足りず出せなかったぶんは手札に戻す(神の福音と同じ扱い)
+        targetSpecs.put("QTE-M-WATER-38", TargetSpec.of(Requirement.upTo(Kind.HAND, Side.SELF, 3,
+                "コストを支払わず場に出す水文明のミニオンを3体まで選んでください",
+                Filter.WATER_CIVILIZATION, Filter.MINION_CARD)));
+        spellEffects.put("QTE-M-WATER-38", ctx -> {
+            int summoned = 0;
+            for (String id : ctx.targets().get(0).handCardIds()) {
+                MinionInstance put = ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+                if (put == null) {
+                    ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
+                    continue;
+                }
+                // 【突進】は「得る」なので恒久の付与である(そのターン限定とは書かれていない)。
+                // 実際に意味を持つのは出したターンだけだが、期限を勝手に足さない
+                put.grantKeyword(Keyword.RUSH);
+                summoned++;
+            }
+            ctx.room().addLog("【ギガマウス・バイト】: 水文明のミニオン%d体が【突進】を得て場に出ました"
+                    .formatted(summoned));
+        });
+    }
+
+    // ---------------------------------------------------------------
     // 登録: 土文明(Batch 13b)
     //
     // 土のテーマは「マナ加速」。山札や手札のカードを表向きでマナに置く効果が多く、
@@ -2060,6 +2215,15 @@ public class CardEffectRegistry {
                     break;
                 }
                 ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+            }
+            // 潮獣コアンチ(QTE-M-WATER-37): 引いた後に捨てる手札を確定させる。★Batch 49。
+            // アクア・サーチと同じ必須ディスカードだが、再開先を分けている(ResumePoint の説明)
+            case TIDE_COANCHI_DISCARD -> {
+                int idx = Integer.parseInt(chosen.get(0));
+                String cardId = ctx.owner().getHand().remove(idx);
+                ctx.owner().getTrash().add(cardId);
+                ctx.room().addLog("【潮獣コアンチ】: 【%s】を捨てました"
+                        .formatted(cards.findById(cardId).name()));
             }
         }
     }

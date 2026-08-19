@@ -812,6 +812,10 @@ public class GameService {
         // ON_ENTER と同じ扱いのため、効果による「出す」を行う
         // GameActions.putIntoFieldByEffect にも同じ発火が置いてある
         effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
+        // 両者のリーダーが「場にミニオンが出た」に反応する(★Batch 49。ロロイヨ伯爵)。
+        // 自分の召喚でも相手の召喚でも誘発するため、反応する側の判定は発火口の中にある。
+        // GameActions.putIntoFieldByEffect にも同じ発火が置いてある(マスター裁定193)
+        effects.fireAnyMinionEntered(ctx);
         return minion;
     }
 
@@ -1439,6 +1443,12 @@ public class GameService {
                 case LIGHT_CIVILIZATION -> {
                     if (master.civilization() != com.example.qte.master.Civilization.LIGHT) {
                         throw new IllegalArgumentException("光文明のカードを選んでください");
+                    }
+                }
+                // ★Batch 49: ギガマウス・バイト(手札から水文明のミニオンを出す)
+                case WATER_CIVILIZATION -> {
+                    if (master.civilization() != com.example.qte.master.Civilization.WATER) {
+                        throw new IllegalArgumentException("水文明のカードを選んでください");
                     }
                 }
                 case COST_7_OR_LESS -> {
