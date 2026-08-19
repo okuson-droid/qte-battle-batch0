@@ -649,7 +649,7 @@ class ManualVersusTest {
             gameService.loadDeck(room, seatId, testDeck("デッキ" + seatId));
         }
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
+        logged(room, startService.begin(room, actor));
 
         // ★7-2「止めないもの」。棄却は apply(盤面を変える操作)だけに掛かっている
         assertThat(operations.note(actor,
@@ -785,6 +785,21 @@ class ManualVersusTest {
 
     // ================= 補助 =================
 
+
+    /**
+     * ★本番と同じく、サービスが返したログイベントを部屋のログへ追記する(46a追補)。
+     *
+     * サービスは自分ではログに書かない —— 追記は呼び出し側
+     * (ManualWsController.direct → ManualOperationService.applyDirect)の仕事である。
+     * テストがこの工程を省くと、部屋のログを検める検証がすべて空振りになる。
+     */
+    private ManualLogEvent logged(ManualRoom room, ManualLogEvent event) {
+        if (event != null) {
+            room.addLog(event);
+        }
+        return event;
+    }
+
     private ManualRoom versusRoom() {
         return new ManualRoom("VSROOM", new ManualRoomOptions(
                 "対戦部屋", ManualRoomType.VERSUS, true, false));
@@ -803,10 +818,10 @@ class ManualVersusTest {
             gameService.loadDeck(room, seatId, testDeck("デッキ" + seatId));
         }
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
-        startService.chooseMethod(room, actor, ManualStartMethod.FIRST);
-        startService.mulligan(room, actor, ManualSeatId.A, List.of());
-        startService.mulligan(room, ManualActor.of(room, b), ManualSeatId.B, List.of());
+        logged(room, startService.begin(room, actor));
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.FIRST));
+        logged(room, startService.mulligan(room, actor, ManualSeatId.A, List.of()));
+        logged(room, startService.mulligan(room, ManualActor.of(room, b), ManualSeatId.B, List.of()));
         return room;
     }
 

@@ -80,7 +80,7 @@ class ManualStartSequenceTest {
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.IDLE);
 
         load(room, ManualSeatId.B);
-        startService.begin(room, ManualActor.of(room, a));
+        logged(room, startService.begin(room, ManualActor.of(room, a)));
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.ORDER_METHOD);
     }
 
@@ -99,7 +99,7 @@ class ManualStartSequenceTest {
         ManualOccupant a = room.join("ひとり", ManualSeatId.A);
         load(room, ManualSeatId.A);
 
-        startService.begin(room, ManualActor.of(room, a));
+        logged(room, startService.begin(room, ManualActor.of(room, a)));
 
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.ORDER_METHOD);
     }
@@ -110,9 +110,9 @@ class ManualStartSequenceTest {
         ManualOccupant a = room.join("ひとり", ManualSeatId.A);
         load(room, ManualSeatId.A);
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
+        logged(room, startService.begin(room, actor));
 
-        startService.chooseMethod(room, actor, ManualStartMethod.FIRST);
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.FIRST));
 
         assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.A);
         assertThat(hand(room, ManualSeatId.A)).hasSize(ManualGameService.FIRST_PLAYER_HAND_SIZE);
@@ -126,9 +126,9 @@ class ManualStartSequenceTest {
         ManualOccupant a = room.join("ひとり", ManualSeatId.A);
         load(room, ManualSeatId.A);
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
+        logged(room, startService.begin(room, actor));
 
-        startService.chooseMethod(room, actor, ManualStartMethod.SECOND);
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.SECOND));
 
         // ★空席Bが先攻になる。一人回しで「相手が先攻」を再現している状態である
         assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.B);
@@ -136,7 +136,7 @@ class ManualStartSequenceTest {
         assertThat(hand(room, ManualSeatId.A)).hasSize(ManualGameService.SECOND_PLAYER_HAND_SIZE);
         assertThat(room.getMulliganPending()).containsExactly(ManualSeatId.A);
 
-        startService.mulligan(room, actor, ManualSeatId.A, List.of());
+        logged(room, startService.mulligan(room, actor, ManualSeatId.A, List.of()));
 
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.PLAYING);
         // 後攻5枚 + ピュア・エレメント1枚
@@ -157,8 +157,8 @@ class ManualStartSequenceTest {
 
         assertThat(startService.subjectSeat(room, actor)).isEqualTo(ManualSeatId.B);
 
-        startService.begin(room, actor);
-        startService.chooseMethod(room, actor, ManualStartMethod.FIRST);
+        logged(room, startService.begin(room, actor));
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.FIRST));
 
         assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.B);
         assertThat(hand(room, ManualSeatId.B)).hasSize(ManualGameService.FIRST_PLAYER_HAND_SIZE);
@@ -187,7 +187,7 @@ class ManualStartSequenceTest {
 
         assertThatThrownBy(() -> startService.begin(room, ManualActor.of(room, b)))
                 .hasMessageContaining("部屋を作った席A");
-        startService.begin(room, ManualActor.of(room, a));
+        logged(room, startService.begin(room, ManualActor.of(room, a)));
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.ORDER_METHOD);
     }
 
@@ -200,7 +200,7 @@ class ManualStartSequenceTest {
         ManualOccupant b = room.join("ばんり", ManualSeatId.B);
         loadBoth(room);
 
-        startService.begin(room, ManualActor.of(room, b));
+        logged(room, startService.begin(room, ManualActor.of(room, b)));
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.ORDER_METHOD);
     }
 
@@ -229,9 +229,9 @@ class ManualStartSequenceTest {
             room.join("ばんり", ManualSeatId.B);
             loadBoth(room);
             ManualActor actor = ManualActor.of(room, a);
-            startService.begin(room, actor);
+            logged(room, startService.begin(room, actor));
 
-            startService.chooseMethod(room, actor, ManualStartMethod.DICE);
+            logged(room, startService.chooseMethod(room, actor, ManualStartMethod.DICE));
 
             assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.ORDER_CHOICE);
             assertThat(room.getOrderChooserSeat()).isNotNull();
@@ -245,9 +245,9 @@ class ManualStartSequenceTest {
         ManualOccupant a = room.join("ひとり", ManualSeatId.A);
         loadBoth(room);
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
+        logged(room, startService.begin(room, actor));
 
-        startService.chooseMethod(room, actor, ManualStartMethod.DICE);
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.DICE));
 
         // ★ソロは同じ人が続けて2回押すだけになるため、選択モーダルを出さない(3-1)
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.MULLIGAN);
@@ -262,8 +262,8 @@ class ManualStartSequenceTest {
         ManualOccupant b = room.join("ばんり", ManualSeatId.B);
         loadBoth(room);
         ManualActor actorA = ManualActor.of(room, a);
-        startService.begin(room, actorA);
-        startService.chooseMethod(room, actorA, ManualStartMethod.DICE);
+        logged(room, startService.begin(room, actorA));
+        logged(room, startService.chooseMethod(room, actorA, ManualStartMethod.DICE));
 
         ManualSeatId winner = room.getOrderChooserSeat();
         ManualOccupant loser = winner == ManualSeatId.A ? b : a;
@@ -280,9 +280,9 @@ class ManualStartSequenceTest {
         room.join("ばんり", ManualSeatId.B);
         loadBoth(room);
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
+        logged(room, startService.begin(room, actor));
 
-        startService.chooseMethod(room, actor, ManualStartMethod.SECOND);
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.SECOND));
 
         assertThat(room.getFirstSeat()).isEqualTo(ManualSeatId.B);
         assertThat(room.secondSeat()).isEqualTo(ManualSeatId.A);
@@ -307,7 +307,7 @@ class ManualStartSequenceTest {
                 hand(room, ManualSeatId.A).get(1).getInstanceId());
         int deckBefore = room.getGameState().seat(ManualSeatId.A).zone(ManualZone.DECK).size();
 
-        startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A, back);
+        logged(room, startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A, back));
 
         assertThat(hand(room, ManualSeatId.A)).hasSize(4);
         assertThat(room.getGameState().seat(ManualSeatId.A).zone(ManualZone.DECK))
@@ -322,7 +322,7 @@ class ManualStartSequenceTest {
         ManualRoom room = toMulligan(ManualSeatId.A);
         ManualOccupant a = seated(room, ManualSeatId.A);
 
-        startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A, List.of());
+        logged(room, startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A, List.of()));
 
         assertThat(room.getMulliganDone()).contains(ManualSeatId.A);
         assertThatThrownBy(() ->
@@ -337,8 +337,8 @@ class ManualStartSequenceTest {
         ManualCardInstance target = hand(room, ManualSeatId.A).get(0);
         String name = target.getFallbackName();
 
-        startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A,
-                List.of(target.getInstanceId()));
+        logged(room, startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A,
+                List.of(target.getInstanceId())));
 
         // ★5-2 のマスク規則: 手札も山札もどちらも非公開ゾーンである。枚数だけを残す
         String text = lastLog(room);
@@ -400,8 +400,8 @@ class ManualStartSequenceTest {
         ManualRoom room = toMulligan(ManualSeatId.A, noPure);
         ManualOccupant a = seated(room, ManualSeatId.A);
         ManualOccupant b = seated(room, ManualSeatId.B);
-        noPure.mulligan(room, ManualActor.of(room, a), ManualSeatId.A, List.of());
-        noPure.mulligan(room, ManualActor.of(room, b), ManualSeatId.B, List.of());
+        logged(room, noPure.mulligan(room, ManualActor.of(room, a), ManualSeatId.A, List.of()));
+        logged(room, noPure.mulligan(room, ManualActor.of(room, b), ManualSeatId.B, List.of()));
 
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.PLAYING);
         assertThat(hand(room, ManualSeatId.B)).hasSize(5);
@@ -521,7 +521,7 @@ class ManualStartSequenceTest {
         assertThat(viewBuilder.build(room, a).start().canBegin()).isTrue();
         assertThat(viewBuilder.build(room, b).start().canBegin()).isFalse();
 
-        startService.begin(room, ManualActor.of(room, a));
+        logged(room, startService.begin(room, ManualActor.of(room, a)));
         ManualGameView forA = viewBuilder.build(room, a);
         ManualGameView forB = viewBuilder.build(room, b);
         assertThat(forA.start().phase()).isEqualTo(ManualStartPhase.ORDER_METHOD);
@@ -539,8 +539,8 @@ class ManualStartSequenceTest {
         ManualRoom room = toMulligan(ManualSeatId.A);
         ManualOccupant a = seated(room, ManualSeatId.A);
         ManualOccupant b = seated(room, ManualSeatId.B);
-        startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A,
-                List.of(hand(room, ManualSeatId.A).get(0).getInstanceId()));
+        logged(room, startService.mulligan(room, ManualActor.of(room, a), ManualSeatId.A,
+                List.of(hand(room, ManualSeatId.A).get(0).getInstanceId())));
 
         ManualGameView forB = viewBuilder.build(room, b);
         assertThat(forB.start().mulliganDone()).containsExactly(ManualSeatId.A);
@@ -577,8 +577,8 @@ class ManualStartSequenceTest {
         room.join("ばんり", ManualSeatId.B);
         loadBoth(room);
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
-        startService.chooseMethod(room, actor, ManualStartMethod.DICE);
+        logged(room, startService.begin(room, actor));
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.DICE));
 
         ManualLogRite rite = lastRite(room);
         assertThat(rite.kind()).isEqualTo(ManualRiteKind.DICE);
@@ -598,8 +598,8 @@ class ManualStartSequenceTest {
         room.setCreatorSeat(ManualSeatId.A);
         loadBoth(room);
         ManualActor actor = ManualActor.of(room, a);
-        startService.begin(room, actor);
-        startService.chooseMethod(room, actor, ManualStartMethod.DICE);
+        logged(room, startService.begin(room, actor));
+        logged(room, startService.chooseMethod(room, actor, ManualStartMethod.DICE));
 
         ManualLogRite rite = lastRite(room);
         // ★主たる儀式は配りである。ダイスは別の欄に載る(画面が推測しなくて済む)
@@ -616,8 +616,8 @@ class ManualStartSequenceTest {
         for (ManualCardInstance card : hand(room, ManualSeatId.A).subList(0, 2)) {
             back.add(card.getInstanceId());
         }
-        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
-                ManualSeatId.A, back);
+        logged(room, startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
+                ManualSeatId.A, back));
 
         ManualLogRite rite = lastRite(room);
         assertThat(rite.kind()).isEqualTo(ManualRiteKind.MULLIGAN);
@@ -627,8 +627,8 @@ class ManualStartSequenceTest {
     @Test
     void ゼロ枚のマリガンでも儀式は作られる() {
         ManualRoom room = toMulligan(ManualSeatId.A);
-        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
-                ManualSeatId.A, List.of());
+        logged(room, startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
+                ManualSeatId.A, List.of()));
         // ★「儀式が無い」と「儀式が空だった」を画面が区別できなくなるので、必ず作る
         assertThat(lastRite(room).dealt())
                 .containsExactly(new ManualRiteDeal(ManualSeatId.A, 0, 0));
@@ -641,7 +641,7 @@ class ManualStartSequenceTest {
         ManualOccupant a = room.join("あかり", ManualSeatId.A);
         room.join("ばんり", ManualSeatId.B);
         loadBoth(room);
-        startService.begin(room, ManualActor.of(room, a));
+        logged(room, startService.begin(room, ManualActor.of(room, a)));
         // ★準備に入っただけの行は構造を持たない。DECLARE と違い型では強制できない(2-4)
         List<ManualLogEntry> log = room.getLog();
         assertThat(log.get(log.size() - 1).event().rite()).isNull();
@@ -663,12 +663,12 @@ class ManualStartSequenceTest {
     void 開始が完了した配信だけがピュアエレメントの席を持つ() {
         ManualRoom room = toMulligan(ManualSeatId.A);
         // ★1席目のマリガンでは開始が完了しない。渡っていないので席も載らない
-        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
-                ManualSeatId.A, List.of());
+        logged(room, startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.A)),
+                ManualSeatId.A, List.of()));
         assertThat(lastRite(room).pureSeat()).isNull();
 
-        startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.B)),
-                ManualSeatId.B, List.of());
+        logged(room, startService.mulligan(room, ManualActor.of(room, seated(room, ManualSeatId.B)),
+                ManualSeatId.B, List.of()));
         // ★★2席目で完了する。設定が有効なときだけ席が載る(演出してよいのは実際に渡ったときだけ)
         ManualLogRite done = lastRite(room);
         assertThat(room.getStartPhase()).isEqualTo(ManualStartPhase.PLAYING);
@@ -703,6 +703,21 @@ class ManualStartSequenceTest {
     }
 
     // ================= 補助 =================
+
+
+    /**
+     * ★本番と同じく、サービスが返したログイベントを部屋のログへ追記する(46a追補)。
+     *
+     * サービスは自分ではログに書かない —— 追記は呼び出し側
+     * (ManualWsController.direct → ManualOperationService.applyDirect)の仕事である。
+     * テストがこの工程を省くと、部屋のログを検める検証がすべて空振りになる。
+     */
+    private ManualLogEvent logged(ManualRoom room, ManualLogEvent event) {
+        if (event != null) {
+            room.addLog(event);
+        }
+        return event;
+    }
 
     /** 直近のログ行が持つ儀式。★無ければテストを落とす(儀式が消えたことに気づくため)。 */
     private ManualLogRite lastRite(ManualRoom room) {
@@ -757,16 +772,16 @@ class ManualStartSequenceTest {
         room.join("ばんり", ManualSeatId.B);
         loadBoth(room);
         ManualActor actor = ManualActor.of(room, a);
-        service.begin(room, actor);
-        service.chooseMethod(room, actor,
-                firstSeat == ManualSeatId.A ? ManualStartMethod.FIRST : ManualStartMethod.SECOND);
+        logged(room, service.begin(room, actor));
+        logged(room, service.chooseMethod(room, actor,
+                firstSeat == ManualSeatId.A ? ManualStartMethod.FIRST : ManualStartMethod.SECOND));
         return room;
     }
 
     private void finishMulligan(ManualRoom room) {
         for (ManualSeatId seatId : ManualSeatId.values()) {
             ManualOccupant occupant = seated(room, seatId);
-            startService.mulligan(room, ManualActor.of(room, occupant), seatId, List.of());
+            logged(room, startService.mulligan(room, ManualActor.of(room, occupant), seatId, List.of()));
         }
     }
 

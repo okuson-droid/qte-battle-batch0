@@ -9,3 +9,7 @@ target/
 # OS固有
 .DS_Store
 Thumbs.db
+
+# ローカルのMavenリポジトリの写し(サンドボックスでの mvn test 用。46a追補)
+m2repo/
+m2repo.zip

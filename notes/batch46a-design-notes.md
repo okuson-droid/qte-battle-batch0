@@ -318,3 +318,71 @@ python3 tools/report_effects.py --summary
 ★**効果未実装カードの「印」と、デッキ検証の緩和は 47 で行う**(マスター裁定)。
 46b の時点では未実装スペルは今までどおり入口で弾かれる —— 印がないまま通すと
 「デッキに入るのに黙って不発」になり、裁定D2 が印を必須とした理由に反する。
+
+---
+
+# 追補(2026-08-19): サンドボックスで mvn test が回るようになった / 初実行が14件を検出した
+
+## 1. 何が変わったか
+
+**サンドボックス内で完全オフラインの `mvn test` が実行可能になった。**
+Maven Central への経路は依然すべて 403 だが(GCS ミラー・maven.google.com・aliyun・
+jitpack も全滅を実測)、マスターのローカル `.m2\repository` を zip(74MB)にして
+デバイス接続フォルダ経由で運び、`mvn -o -Dmaven.repo.local=… test` で回す。
+
+```bash
+# マスター側(PowerShell・依存が変わったときだけ再作成)
+Compress-Archive -Path "$env:USERPROFILE\.m2\repository" -DestinationPath ".\m2repo.zip"
+
+# サンドボックス側
+unzip -q /mnt/user-data/uploads/qte-battle-batch0/m2repo.zip -d /root/m2work
+mvn -o -B "-Dmaven.repo.local=/root/m2work/repository" test
+```
+
+181件が16秒で回る。**「1バッチ = マスターの1往復」の制約(v52 冒頭)は解消した。**
+`m2repo.zip` はコミットしない(.gitignore 追加済み)。
+
+補助として、Maven なしでも動く経路を1つ検証済み: `/opt/gradle-8.14.3/lib` に
+junit-4.13.2 と jackson-databind-2.16.1 が同梱されており、純ロジックのクラスは
+これで直接 JUnit 実行できる(Lombok を使うクラスは注釈の機械展開が要る)。
+m2repo が使える今は出番が無いが、zip が古びたときの代替として記録する。
+
+## 2. 初実行が検出した14件(素の batch45 では15件)
+
+全テストスイートの完全な実行は**今回が史上初**である。マスターの環境に `mvn` CLI が
+無いことも今回判明した —— 過去バッチの「mvn test をお願いする」は実行されていなかった。
+
+| 内訳 | 件数 | 原因 |
+|---|---|---|
+| `CardMasterLoadTest` | 1 | `hasSize(72)` の化石(46a 本体で修正済み。裁定161) |
+| `ManualStartSequenceTest` / `ManualVersusTest` | 13 | ★テストがサービスの戻り値を捨てていた |
+| `ManualOperationTest`(undo/redo) | 1 | 期待する例外型が本番と不一致 |
+
+**13件の構造**: 本番はコントローラ → `ManualOperationService.applyDirect` →
+**戻り値の `ManualLogEvent` を `room.addLog` する**。サービスは自分ではログに書かない。
+テストは `startService.begin(…)` 等を直接呼んで戻り値を捨て、そのあと部屋のログを
+検めていたため、儀式の行がログに存在せず落ちる。Batch 38 の「JUnit +9件」を含む
+これらは、Maven 403 のため書かれてから一度も実行されないまま納品されていた。
+**本番コードに欠陥は無い**(実際に遊べており、verify 518 が画面側を押さえている)。
+
+**修理**: 両テストクラスに `logged(room, event)` 補助(applyDirect の追記工程の写し)を
+足し、サービス呼び出し41箇所を包んだ。被試験コードは1行も変えていない。
+
+**1件の構造**: 「取り消せる操作が無いのに undo」で、テストは `IllegalStateException` を
+期待、本番は `ManualPermissions.require` 経由の `IllegalArgumentException`。
+★マスター裁定: **テストを本番に合わせる**(本番の型はリリース済みで、どちらの型でも
+「操作者にだけエラー通知」という結果は変わらない)。なお redo は `Optional.orElseThrow`
+経由の `IllegalStateException` で **undo と型が非対称**である。現状どおりを期待値として
+記録した。揃える改修は本番を動かすので、必要になったら別途裁定する。
+
+## 3. 結果
+
+```
+Tests run: 181, Failures: 0, Errors: 0, Skipped: 0 — BUILD SUCCESS
+```
+
+このプロジェクトのテストスイートが全緑で完走したのは今回が最初である。
+46b はこの緑を出発点にする。
+
+変更ファイル: テスト3(`ManualStartSequenceTest` / `ManualVersusTest` /
+`ManualOperationTest`)+ `.gitignore` + 本書 + ハンドオフ v52。**本体コードの変更ゼロ。**

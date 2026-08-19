@@ -657,8 +657,13 @@ class ManualOperationTest {
     void 取り消せる操作が無ければ失敗する() {
         ManualRoom room = new ManualRoom("TESTRM");
 
+        // ★型は本番に合わせる(裁定・46a追補)。ManualPermissions.require 経由の
+        //   拒否はすべて IllegalArgumentException であり、操作者への通知という
+        //   結果は型に依らない。本番を動かさないことを優先する。
         assertThatThrownBy(() -> operations.applyDirect(room, r -> operations.undo(r, ACTOR)))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(IllegalArgumentException.class);
+        // ★redo は Optional.orElseThrow 経由で IllegalStateException(undo と型が違うのは
+        //   本番の現状どおり。揃える改修は本番を動かすので、必要なら別途裁定する)
         assertThatThrownBy(() -> operations.applyDirect(room, r -> operations.redo(r, ACTOR)))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(room.getLog()).isEmpty();
