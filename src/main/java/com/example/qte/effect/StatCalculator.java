@@ -48,6 +48,7 @@ public class StatCalculator {
     private static final String GATHERING_SYLPH = "QTE-M-WIND-20";      // 結集する風の精
     private static final String WIND_CHANTER_LEADER = "QTE-M-WIND-15";  // 詠唱の風詠士(リーダー)
     private static final String EARTH_BERSERKER = "QTE-M-EARTH-18";     // 大地の狂戦士
+    private static final String SHEER_AYAKASHI = "QTE-M-WIND-33";       // 透キ通ル・アヤカシ(★Batch 48)
 
     // 動的な攻撃力・攻撃回数
     private static final String SHADOW_ASSASSIN = "QTE-M-WATER-28";     // 影潜む水刺客(ウェポン)
@@ -74,7 +75,8 @@ public class StatCalculator {
             NIGHTMARE, SWARM_LICH, SEALED_TABOO_DEMON, RAISE_DEAD,
             CHANT_PALADIN, PRECEPT_GUARDIAN, WISDOM_CRYSTAL, CHANT_ORB,
             TWIN_ILLUSIONIST, GALE_KNIGHT, GATHERING_SYLPH, WIND_CHANTER_LEADER,
-            EARTH_BERSERKER, SHADOW_ASSASSIN, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
+            EARTH_BERSERKER, SHEER_AYAKASHI,
+            SHADOW_ASSASSIN, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
             GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
             GALE_RAPIER);
 
@@ -177,6 +179,14 @@ public class StatCalculator {
             cost -= owner.getMinionZone().stream()
                     .mapToInt(m -> m.getMaster().cost() == null ? 0 : m.getMaster().cost())
                     .sum();
+        }
+        // 透キ通ル・アヤカシ(★Batch 48): 自分の場にコスト2以上のミニオンが居るときコスト0。
+        // 減算型ではなく固定値セット型である(大地の狂戦士と同じ形)。数えるのは印刷コストであり、
+        // 場のミニオンには動的コストの概念が無い(コストが動くのは手札にある間だけ)。
+        // 「自分の場」なので相手の場は見ない。自身はまだ手札にいるので数えようがない
+        if (SHEER_AYAKASHI.equals(card.id()) && owner.getMinionZone().stream()
+                .anyMatch(m -> m.getMaster().cost() != null && m.getMaster().cost() >= 2)) {
+            cost = 0;
         }
         // 詠唱の風詠士(リーダー): そのターン中3枚目に使うミニオンかスペルのコスト-1。
         // 使用カウンタは自身を含まない(裁定1)ため、「3枚目」はcardsUsedThisTurn==2の瞬間に一致する

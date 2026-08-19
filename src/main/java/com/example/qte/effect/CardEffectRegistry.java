@@ -89,13 +89,15 @@ public class CardEffectRegistry {
     private static final String HARVEST_LEADER = "QTE-M-EARTH-15";  // 豊穣の地霊主(マナ設置2回目でドロー)
     private static final String FLAME_FANATIC = "QTE-M-FIRE-4";     // 火炎の狂信者(自傷でAttack+2)
     private static final String FLAME_MIRROR = "QTE-M-FIRE-28";     // 反転の炎鏡(自傷を水増しする)
+    private static final String STOK_LEADER = "QTE-M-WIND-29";      // 妖ノ長・ストク(★Batch 48)
 
     /**
      * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
      * 趣旨と番人は {@link RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
      */
     public static final java.util.Set<String> IMPLEMENTED_CARDS =
-            java.util.Set.of(ABYSS_DRAGON, HARVEST_LEADER, FLAME_FANATIC, FLAME_MIRROR);
+            java.util.Set.of(ABYSS_DRAGON, HARVEST_LEADER, FLAME_FANATIC, FLAME_MIRROR,
+                    STOK_LEADER);
 
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
@@ -413,6 +415,19 @@ public class CardEffectRegistry {
      * @param destroyedCardId 破壊されたミニオンのカードID(既に場を離れているため実体ではなくIDで渡す)
      */
     public void fireOwnMinionDestroyed(EffectContext ctx, String destroyedCardId) {
+        // 妖ノ長・ストク(★Batch 48): 【常在】ターンに1回、自分のミニオンが破壊されたら2回復。
+        // リーダーの常在能力をカードIDの直書きで判定するのは fireManaPlaced(豊穣の地霊主)と同じ形である。
+        //
+        // ★「ターンに1回」は毎ターンリセットされる(裁定156(3)) —— 自分のターンで1回、
+        // 相手のターンで1回である。相手ターンの戦闘破壊でも回復するため、
+        // ターン内フラグではなくターン番号の刻印で判定する(PlayerState.tryConsumeDestroyHeal)。
+        // このメソッドは「破壊されたミニオンの持ち主」を owner として呼ばれるので、
+        // 相手ターン中の発火もそのまま拾える
+        if (STOK_LEADER.equals(ctx.owner().getLeader().id())
+                && ctx.owner().tryConsumeDestroyHeal(ctx.state().getTurnNumber())) {
+            ctx.room().addLog("【妖ノ長・ストク】: 自分のミニオンが破壊されたため2回復");
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, STOK_LEADER);
+        }
         for (MinionInstance watcher : List.copyOf(ctx.owner().getMinionZone())) {
             BiConsumer<EffectContext, String> effect =
                     ownMinionDestroyedWatchers.get(watcher.getMaster().id());
@@ -1505,6 +1520,183 @@ public class CardEffectRegistry {
         // (a1のON_CARD_USEDイベント。0134と同じ既知の限界を持つ: 装備直後の自分自身の使用でも1回乗る)
         register("QTE-M-WIND-13", TriggerType.ON_CARD_USED, ctx ->
                 ctx.owner().setWeaponAttackBonusThisTurn(ctx.owner().getWeaponAttackBonusThisTurn() + 1));
+
+        registerWindVer11Cards();
+    }
+
+    // ---------------------------------------------------------------
+    // ★Batch 48: Ver1.1 で追加された風文明のカード(P2 の1本目)。
+    //
+    // 風文明の新しいテーマは「自分のミニオンを能動的に失うこと」である ——
+    // ハク霊・コク霊は毎ターン自壊して相方を呼び、2種のオニは自分の場を薙ぎ払って
+    // その数を火力に変え、シュテンはその結果として積み上がった破壊数で降りてくる。
+    // 既存の風(カードの使用回数を数える)とは別系統の資源であり、
+    // 数える対象も「使用したカードの枚数」ではなく「破壊されたミニオンの数」になる。
+    //
+    // ★リーダーのストク(QTE-M-WIND-29)はここに登録を持たない。
+    //   常在の破壊誘発は fireOwnMinionDestroyed に直接書いてある(豊穣の地霊主と同じ形)。
+    // ★透キ通ル・アヤカシのコスト0化は StatCalculator、
+    //   ハク霊・コク霊の「攻撃できない」は RuleGuards にある。
+    //   1枚のカードの実装が複数のクラスに分かれるのは想定内である(裁定180)。
+    // ---------------------------------------------------------------
+    private void registerWindVer11Cards() {
+
+        // ---- 透キ通ル・アヤカシ(QTE-M-WIND-33) ----
+        // 「自分の場にコスト2以上のミニオンが場に居るときこのカードのコストを0にする。
+        //   ターンの終わりこのカードは破壊される【突進】」
+        //
+        // 自壊の予約には既存の destroyAtEndOfTurn を使う。這い寄る生霊は
+        // 「特殊召喚で出したときだけ」立てるが、こちらはカードの性質そのものなので無条件である。
+        // ON_SUMMON ではなく ON_ENTER なのは、蘇生や効果で場に出た場合も同じく
+        // ターンの終わりに消えるべきだからである(テキストが召喚を条件にしていない)
+        register("QTE-M-WIND-33", TriggerType.ON_ENTER, ctx -> {
+            if (ctx.source() == null) {
+                return;
+            }
+            ctx.source().setDestroyAtEndOfTurn(true);
+            ctx.room().addLog("【透キ通ル・アヤカシ】はターンの終わりに破壊されます");
+        });
+
+        // ---- ハク霊(QTE-M-WIND-34) / コク霊(QTE-M-WIND-35) ----
+        // 「【常在】ターンのはじめにこれを破壊する。これは攻撃できない
+        //   【破壊時】(効果)、墓地から『相方』を出す」
+        //
+        // ★「ターンのはじめ」は自分のターンのはじめだけである(マスター裁定183)。
+        //   発火側の非対称は TriggerType.ON_TURN_START に書いた。
+        // ★墓地から出すのは「召喚」ではなく効果による「出す」なので ON_ENTER のみが発動する
+        //   (reviveFromGrave → putIntoFieldByEffect)。相方が墓地に無い・場が満杯なら不発である。
+        // ★2枚が同時に場に居ても無限には増えない。ターン開始の反復は場のコピーを回すため、
+        //   その開始時に出てきたミニオンはその開始時には処理されない(GameService.beginTurn)。
+        register("QTE-M-WIND-34", TriggerType.ON_TURN_START, ctx ->
+                selfDestructAtTurnStart(ctx, "ハク霊"));
+        register("QTE-M-WIND-34", TriggerType.ON_DESTROYED, ctx -> {
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-M-WIND-34");
+            reviveCounterpart(ctx, "QTE-M-WIND-35", "ハク霊", "コク霊");
+        });
+
+        register("QTE-M-WIND-35", TriggerType.ON_TURN_START, ctx ->
+                selfDestructAtTurnStart(ctx, "コク霊"));
+        register("QTE-M-WIND-35", TriggerType.ON_DESTROYED, ctx -> {
+            ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-WIND-35");
+            reviveCounterpart(ctx, "QTE-M-WIND-34", "コク霊", "ハク霊");
+        });
+
+        // ---- 喚ビ集ウ・アヤカシ(QTE-M-WIND-36) ----
+        // 「【召喚時】自分の他のミニオンを1体破壊する。そうしたらカードを2枚引く。」
+        //
+        // 破壊は必須(「〜してもよい」ではない)だが、候補が1体も居ないときは何も起きない。
+        // 使用宣言時の対象指定にすると候補が無いだけで召喚そのものが弾かれてしまうため、
+        // 解決中の問い合わせにしている(ResumePoint.GATHERING_AYAKASHI_SACRIFICE の説明)。
+        // 「そうしたら」なので、破壊が起きなければドローも起きない
+        register("QTE-M-WIND-36", TriggerType.ON_SUMMON, ctx -> {
+            List<String> others = otherOwnMinionIds(ctx);
+            if (others.isEmpty()) {
+                ctx.room().addLog("【喚ビ集ウ・アヤカシ】: 他の自分のミニオンが居ないため、何も起こりませんでした");
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MINION, others, ResumePoint.GATHERING_AYAKASHI_SACRIFICE,
+                    "【喚ビ集ウ・アヤカシ】: 破壊する自分の他のミニオンを1体選んでください"));
+        });
+
+        // ---- 魂喰ラウ・オニ(QTE-M-WIND-37) ----
+        // 「【召喚時】自分の他のミニオンを全て破壊する。こうして破壊した数相手のリーダーに1ダメージ与える。」
+        register("QTE-M-WIND-37", TriggerType.ON_SUMMON, ctx -> {
+            int destroyed = destroyOtherOwnMinions(ctx, "魂喰ラウ・オニ");
+            if (destroyed <= 0) {
+                return;
+            }
+            ctx.room().addLog("【魂喰ラウ・オニ】: %d体を糧に相手のリーダーへ%dダメージ".formatted(destroyed, destroyed));
+            ctx.actions().damageLeader(ctx.room(), ctx.opponent(), destroyed, "QTE-M-WIND-37");
+        });
+
+        // ---- 暴レ狂ウ・オニ(QTE-M-WIND-38) ----
+        // 「【召喚時】自分の他のミニオンを全て破壊する。こうして破壊した数相手のミニオンに1ダメージ。
+        //   その後相手のリーダーに1ダメージ。」
+        //
+        // ★「破壊した数」は相手ミニオン<b>全員が受けるダメージ量</b>である(マスター裁定184)。
+        //   体数ではない。魂喰ラウ・オニがリーダーへ縦に伸ばすのに対し、こちらは横に広げる。
+        // ★リーダーへの1ダメージは「その後」であって破壊数を条件にしていないため、
+        //   1体も破壊しなかった場合でも与える
+        register("QTE-M-WIND-38", TriggerType.ON_SUMMON, ctx -> {
+            int destroyed = destroyOtherOwnMinions(ctx, "暴レ狂ウ・オニ");
+            if (destroyed > 0) {
+                ctx.room().addLog("【暴レ狂ウ・オニ】: 相手のミニオンすべてに%dダメージ".formatted(destroyed));
+                for (MinionInstance target : List.copyOf(ctx.opponent().getMinionZone())) {
+                    ctx.actions().damageMinion(ctx.room(), ctx.opponent(), target, destroyed);
+                }
+            }
+            ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-WIND-38");
+        });
+
+        // ---- 天翔ケル霊鬼・シュテン(QTE-M-WIND-39) ----
+        // 「【特殊召喚】(このターンミニオンが8体以上破壊されていれば自分の手札からコスト1として出せる。)【速攻】」
+        //
+        // ★数えるのは両者の合計であり、破壊された後の行き先も問わない(マスター裁定185)。
+        //   「自分の」と書いていない条件は両者を見る(裁定156(2))。
+        //   カウンタは GameState が持つ(プレイヤー単位ではないため)
+        specialSummons.put("QTE-M-WIND-39", new SpecialSummonSpec(
+                (state, player, handIndex) -> state.getMinionsDestroyedThisTurn() >= 8,
+                1,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                ctx -> {
+                },
+                "このターン、ミニオンが8体以上破壊されている: コスト1で召喚します"));
+    }
+
+    /** ハク霊・コク霊のターン開始時の自壊。破壊時トリガーを正しく通すため破壊処理を経由する */
+    private void selfDestructAtTurnStart(EffectContext ctx, String label) {
+        if (ctx.source() == null) {
+            return;
+        }
+        ctx.room().addLog("【%s】はターンのはじめに破壊されます".formatted(label));
+        ctx.actions().destroyMinion(ctx.room(), ctx.owner(), ctx.source());
+    }
+
+    /** ハク霊・コク霊の【破壊時】に相方を墓地から場へ出す。墓地に無い・場が満杯なら不発 */
+    private void reviveCounterpart(EffectContext ctx, String counterpartId,
+            String selfLabel, String counterpartLabel) {
+        if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), counterpartId)) {
+            ctx.room().addLog("【%s】: 墓地から【%s】が場に出ました".formatted(selfLabel, counterpartLabel));
+        } else {
+            ctx.room().addLog("【%s】: 墓地に【%s】が無いか場が満杯のため、出せませんでした"
+                    .formatted(selfLabel, counterpartLabel));
+        }
+    }
+
+    /** 発生源以外の自分の場のミニオンの instanceId(喚ビ集ウ・アヤカシの候補) */
+    private List<String> otherOwnMinionIds(EffectContext ctx) {
+        List<String> ids = new ArrayList<>();
+        for (MinionInstance m : ctx.owner().getMinionZone()) {
+            if (m != ctx.source()) {
+                ids.add(m.getInstanceId());
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * 自分の他のミニオンを全て破壊し、<b>実際に破壊できた数</b>を返す(2種のオニ)。
+     *
+     * 大天使ミカエル・聖光の守護聖のような破壊の置換が働いた場合、そのミニオンは
+     * 場に残る。数えるのは「破壊した数」なので、場に残ったものは数えない ——
+     * したがって破壊の前後で場に居るかどうかを見る(destroyMinion は成否を返さない)。
+     */
+    private int destroyOtherOwnMinions(EffectContext ctx, String label) {
+        int destroyed = 0;
+        for (MinionInstance m : List.copyOf(ctx.owner().getMinionZone())) {
+            if (m == ctx.source()) {
+                continue;
+            }
+            ctx.actions().destroyMinion(ctx.room(), ctx.owner(), m);
+            if (!ctx.owner().getMinionZone().contains(m)) {
+                destroyed++;
+            }
+        }
+        ctx.room().addLog("【%s】: 自分の他のミニオンを%d体破壊しました".formatted(label, destroyed));
+        return destroyed;
     }
 
     // ---------------------------------------------------------------
@@ -1849,6 +2041,25 @@ public class CardEffectRegistry {
                 ctx.owner().getTrash().add(cardId);
                 ctx.room().addLog("【アクア・サーチ】: 【%s】を捨てました"
                         .formatted(cards.findById(cardId).name()));
+            }
+            // 喚ビ集ウ・アヤカシ(QTE-M-WIND-36): 【召喚時】に破壊する自分のミニオンを確定させる。★Batch 48。
+            // 「そうしたらカードを2枚引く」なので、破壊が実際に起きたときだけ引く。
+            // 選択中に盤面が変わって候補が場から消えている場合(破壊の置換で残った場合も含む)は
+            // 何も起きない ―― 候補は instanceId で保持しているため、照合はここで行う
+            case GATHERING_AYAKASHI_SACRIFICE -> {
+                MinionInstance victim = ctx.owner().getMinionZone().stream()
+                        .filter(m -> m.getInstanceId().equals(chosen.get(0)))
+                        .findFirst().orElse(null);
+                if (victim == null) {
+                    ctx.room().addLog("【喚ビ集ウ・アヤカシ】: 選んだミニオンが場に居ないため、何も起こりませんでした");
+                    break;
+                }
+                ctx.actions().destroyMinion(ctx.room(), ctx.owner(), victim);
+                if (ctx.owner().getMinionZone().contains(victim)) {
+                    ctx.room().addLog("【喚ビ集ウ・アヤカシ】: 破壊されなかったためドローしません");
+                    break;
+                }
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
             }
         }
     }

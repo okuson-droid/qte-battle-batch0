@@ -49,6 +49,8 @@ public class RuleGuards {
     private static final String GENESIS_IRIS = "QTE-M-LIGHT-25";    // 創世神(自身はリーダーを攻撃不可)
     private static final String ABSOLUTE_GAIA = "QTE-M-EARTH-23";   // 不動の絶対神ガイア(自身はリーダーを攻撃不可・土文明)
     private static final String ZODIAC = "QTE-M-LIGHT-8";          // ゾディアック(相手リーダーは攻撃不可)
+    private static final String HAKUREI = "QTE-M-WIND-34";         // ハク霊(自身は攻撃不可・★Batch 48)
+    private static final String KOKUREI = "QTE-M-WIND-35";         // コク霊(自身は攻撃不可・★Batch 48)
     // 破壊・ダメージ・ドローを置換するカード
     private static final String MICHAEL = "QTE-M-LIGHT-7";         // 大天使ミカエル(戦闘では破壊されない)
     private static final String HOLY_PROTECTOR_AURA = "QTE-M-LIGHT-1"; // 聖光の守護聖(相手の効果で破壊されない)
@@ -79,7 +81,7 @@ public class RuleGuards {
     public static final Set<String> IMPLEMENTED_CARDS = Set.of(
             PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC,
             MICHAEL, HOLY_PROTECTOR_AURA, JUSTICE_SHIELD, JUDGEMENT_ANGEL,
-            ORDER_ENFORCER, TEMPLE_KNIGHT);
+            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI);
 
     private final StatCalculator stats;
 
@@ -125,6 +127,15 @@ public class RuleGuards {
         // ---- 光文明: カードによる攻撃の禁止 ----
         if (GLEAM_SHIELD.equals(attacker.getMaster().id())) {
             return "【煌めきの盾】は攻撃できません";
+        }
+        // ---- 風文明(★Batch 48): 自身は攻撃できない ----
+        // ハク霊・コク霊は「ターンのはじめに自壊して相方を呼ぶ」ための器であり、
+        // 壁として立つことはできても殴ることはできない
+        if (HAKUREI.equals(attacker.getMaster().id())) {
+            return "【ハク霊】は攻撃できません";
+        }
+        if (KOKUREI.equals(attacker.getMaster().id())) {
+            return "【コク霊】は攻撃できません";
         }
         if (targetIsLeader && GENESIS_IRIS.equals(attacker.getMaster().id())) {
             return "【創世神 ゾディアックアイリス】はリーダーを攻撃できません";

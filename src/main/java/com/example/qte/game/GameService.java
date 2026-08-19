@@ -233,6 +233,20 @@ public class GameService {
         }
         state.setPhase(TurnPhase.UNTAP);
         player.startTurnReset();
+        // 試合単位のターン内カウンタ(★Batch 48)。プレイヤー単位のものは startTurnReset が戻す
+        state.setMinionsDestroyedThisTurn(0);
+
+        // ターン開始時トリガー(★Batch 48。ハク霊・コク霊の自壊)。
+        // 発火するのはターンプレイヤーの場だけである(TriggerType.ON_TURN_START の説明を参照)。
+        // 反復は場のコピーに対して行う: 自壊した【破壊時】が相方を場に出すため、
+        // 反復中に場が増える。この開始時に出てきたミニオンは、この開始時には処理されない
+        for (MinionInstance minion : List.copyOf(player.getMinionZone())) {
+            effects.fire(TriggerType.ON_TURN_START, minion,
+                    contextOf(room, state, player, minion, null));
+            if (state.getStatus() == GameStatus.FINISHED) {
+                return;
+            }
+        }
 
         state.setPhase(TurnPhase.MANA_CHARGE);
     }

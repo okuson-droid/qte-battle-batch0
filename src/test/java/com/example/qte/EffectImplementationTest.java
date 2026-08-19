@@ -56,19 +56,64 @@ class EffectImplementationTest {
      * ここも1つ減らすこと。減らし忘れたら落ちるので、進捗の記録がテストとして残る。
      *
      * <p>内訳は {@code python3 tools/report_effects.py} が出す。
-     * 47 の時点では 64枚 = 進化18 + 非進化46 である。
+     * 47 の時点では 64枚 = 進化18 + 非進化46 だった。
+     * ★<b>48(風文明の8枚)で 56枚 = 進化18 + 非進化38 になった。</b>
+     * 風文明に残っている未実装は進化3枚だけである。
      */
     @Test
-    void 効果未実装のカードは64枚である() {
+    void 効果未実装のカードは56枚である() {
         long unimplemented = cards.getAllCards().stream().filter(implementation::isUnimplemented).count();
-        assertThat(unimplemented).isEqualTo(64);
+        assertThat(unimplemented).isEqualTo(56);
     }
 
     @Test
-    void 印が付くカードのうち進化ミニオンは18枚で残り46枚がデッキに入る() {
+    void 印が付くカードのうち進化ミニオンは18枚で残り38枚がデッキに入る() {
         var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
         assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(18);
-        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(46);
+        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(38);
+    }
+
+    /**
+     * ★Batch 48 で印が消えた8枚(風文明の非進化)。
+     *
+     * 枚数(上の2件)だけを直すと、<b>数さえ合っていれば通ってしまう</b> ——
+     * 別の文明の実装が偶然8枚進んでも、風の8枚が1枚も動いていなくても同じ数になる。
+     * <b>実物を名指しして測る</b>のはそのためである(裁定181: 比べる相手を間違えた検証は何も見ていない)。
+     */
+    @Test
+    void 風文明のVer11カード8枚には印が付かない() {
+        String[] wind48 = {
+            "QTE-M-WIND-29", // 妖ノ長・ストク … CardEffectRegistry.fireOwnMinionDestroyed(宣言あり)
+            "QTE-M-WIND-33", // 透キ通ル・アヤカシ … StatCalculator(コスト) + 表(ON_ENTER)
+            "QTE-M-WIND-34", // ハク霊 … 表(ON_TURN_START / ON_DESTROYED) + RuleGuards(攻撃不可)
+            "QTE-M-WIND-35", // コク霊 … 同上
+            "QTE-M-WIND-36", // 喚ビ集ウ・アヤカシ … 表(ON_SUMMON)
+            "QTE-M-WIND-37", // 魂喰ラウ・オニ … 表(ON_SUMMON)
+            "QTE-M-WIND-38", // 暴レ狂ウ・オニ … 表(ON_SUMMON)
+            "QTE-M-WIND-39", // 天翔ケル霊鬼・シュテン … 表(特殊召喚)
+        };
+        for (String cardId : wind48) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は Batch 48 で実装したので印を付けてはいけない")
+                    .isFalse();
+        }
+    }
+
+    /**
+     * ★妖ノ長・ストクは表に載っていない(ルール側の宣言だけで実装済みと判定される)。
+     *
+     * 上の試験だけだと、将来ストクを表へ移したときに何も言わずに通ってしまう。
+     * このバッチが「宣言あり」の経路を1枚増やしたこと自体を、前提として固定しておく。
+     */
+    @Test
+    void ストクは表ではなく宣言で実装済みと判定される() {
+        assertThat(effects.isRegistered("QTE-M-WIND-29"))
+                .as("妖ノ長・ストクは CardEffectRegistry の表に載っていない")
+                .isFalse();
+        assertThat(EffectImplementation.ruleSideCards())
+                .as("代わりにルール側の宣言に載っている")
+                .contains("QTE-M-WIND-29");
     }
 
     // ------------------------------------------------------------------

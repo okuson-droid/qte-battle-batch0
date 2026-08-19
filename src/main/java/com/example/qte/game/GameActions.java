@@ -276,6 +276,10 @@ public class GameActions {
         if (wentToTrash) {
             owner.getMinionsDestroyedThisTurn().add(minion.getMaster().id());
         }
+        // 試合単位の破壊数(★Batch 48。天翔ケル霊鬼・シュテンの特殊召喚条件)。
+        // 上の2行と違い、行き先(墓地・消滅・還元)を問わず「破壊された」事実だけを数える
+        GameState state = room.getGameState();
+        state.setMinionsDestroyedThisTurn(state.getMinionsDestroyedThisTurn() + 1);
 
         EffectContext ctx = contextOf(room, owner, minion);
         effects.fire(TriggerType.ON_DESTROYED, minion, ctx);

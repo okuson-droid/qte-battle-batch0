@@ -154,6 +154,31 @@ public class PlayerState {
     }
 
     /**
+     * 「自分のミニオンが破壊されたときの回復」を最後に行ったターン番号(★Batch 48。妖ノ長・ストク)。
+     * 初期値 -1 はどのターンとも一致しない番兵。
+     *
+     * <b>真偽値ではなくターン番号で持つ理由。</b> 裁定156(3) により、この種の「ターンに1回」は
+     * <b>毎ターンリセットされる</b>(自分のターンで1回・相手のターンで1回)。
+     * ところが {@link #startTurnReset()} が走るのはターンプレイヤーだけであり、
+     * 真偽値で持つと相手のターンの開始でリセットされない。
+     * ターン番号を刻んでおけば、リセットという操作そのものが要らなくなる
+     * ({@link #recordManaPlacement(int)} と同じ考え方)。
+     */
+    private int destroyHealTurn = -1;
+
+    /**
+     * このターンの「自分のミニオンが破壊されたときの回復」の権利を使う。
+     * まだ使っていなければ消費して true、このターン既に使っていれば false を返す。
+     */
+    public boolean tryConsumeDestroyHeal(int currentTurn) {
+        if (destroyHealTurn == currentTurn) {
+            return false;
+        }
+        destroyHealTurn = currentTurn;
+        return true;
+    }
+
+    /**
      * このターンの間、装備中ウェポンの攻撃力に加算される値(暴風の双剣)。
      * ウェポンは MinionInstance を持たないため StatModifier を積む先がなく、
      * プレイヤー単位の一時値として保持する。ターン終了時とウェポンが場を離れたときに0に戻す。
