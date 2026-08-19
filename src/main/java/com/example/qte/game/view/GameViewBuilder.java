@@ -38,6 +38,13 @@ public class GameViewBuilder {
     /** 攻撃可否の判定。サーバ側の検証と同じ判定をUI表示にも使う */
     private final RuleGuards guards;
 
+    /**
+     * 「効果が未実装」の印の判定(★Batch 47)。
+     * デッキ構築で弾かなくなったカード(裁定D2)を、盤面で見分けられるようにするために使う。
+     * クライアントに同じ判定を持たせない —— 実装済みかどうかを知っているのはサーバだけである。
+     */
+    private final com.example.qte.effect.EffectImplementation implementation;
+
     /** viewerId のプレイヤーに配信するビューを組み立てる */
     public GameView build(GameRoom room, String viewerId) {
         GameState state = room.getGameState();
@@ -277,7 +284,8 @@ public class GameViewBuilder {
                 special == null ? null : special.description(),
                 spec.combinedTotal(),
                 enhanced == null ? 0 : enhanced.extraCost(),
-                enhanced == null ? null : enhanced.prompt());
+                enhanced == null ? null : enhanced.prompt(),
+                implementation.isUnimplemented(master));
     }
 
     private List<CardView.TargetReqView> toReqViews(TargetSpec spec) {
@@ -336,6 +344,7 @@ public class GameViewBuilder {
                 frozen,
                 minion.isTapped(),
                 canUseAbility,
-                ability == null ? null : ability.description());
+                ability == null ? null : ability.description(),
+                implementation.isUnimplemented(master));
     }
 }

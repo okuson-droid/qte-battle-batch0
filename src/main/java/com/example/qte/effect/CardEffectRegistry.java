@@ -80,6 +80,23 @@ public class CardEffectRegistry {
      */
     private final Map<String, BiPredicate<GameState, PlayerState>> playConditions = new HashMap<>();
 
+    // ---------------------------------------------------------------
+    // ★Batch 47: 表に登録せず、このクラスのコードに直接書かれているカード。
+    // 表に載らないので {@link #isRegistered(String)} では拾えない。
+    // ---------------------------------------------------------------
+
+    private static final String ABYSS_DRAGON = "QTE-M-WATER-20";    // 黄泉還る水龍(墓地から自動で戻る)
+    private static final String HARVEST_LEADER = "QTE-M-EARTH-15";  // 豊穣の地霊主(マナ設置2回目でドロー)
+    private static final String FLAME_FANATIC = "QTE-M-FIRE-4";     // 火炎の狂信者(自傷でAttack+2)
+    private static final String FLAME_MIRROR = "QTE-M-FIRE-28";     // 反転の炎鏡(自傷を水増しする)
+
+    /**
+     * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
+     * 趣旨と番人は {@link RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
+     */
+    public static final java.util.Set<String> IMPLEMENTED_CARDS =
+            java.util.Set.of(ABYSS_DRAGON, HARVEST_LEADER, FLAME_FANATIC, FLAME_MIRROR);
+
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
 
@@ -380,9 +397,9 @@ public class CardEffectRegistry {
      * 場に限定されないゾーン横断トリガー(設計判断15)の初の実装例。
      */
     public void fireManaLeft(EffectContext ctx) {
-        while (ctx.owner().getTrash().contains("QTE-M-WATER-20") && !ctx.owner().isMinionZoneFull()) {
-            ctx.owner().getTrash().remove("QTE-M-WATER-20");
-            ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), "QTE-M-WATER-20");
+        while (ctx.owner().getTrash().contains(ABYSS_DRAGON) && !ctx.owner().isMinionZoneFull()) {
+            ctx.owner().getTrash().remove(ABYSS_DRAGON);
+            ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), ABYSS_DRAGON);
         }
     }
 
@@ -416,7 +433,7 @@ public class CardEffectRegistry {
      */
     public void fireManaPlaced(EffectContext ctx) {
         PlayerState owner = ctx.owner();
-        if ("QTE-M-EARTH-15".equals(owner.getLeader().id())
+        if (HARVEST_LEADER.equals(owner.getLeader().id())
                 && owner.getCardsPutToManaThisTurn() == 2) {
             ctx.room().addLog("【豊穣の地霊主】: このターン2回目のマナ配置により1ドロー");
             ctx.actions().drawCards(ctx.room(), owner, 1);
@@ -713,21 +730,21 @@ public class CardEffectRegistry {
     public void fireLeaderDamaged(EffectContext ctx, String sourceCardId) {
         // 火炎の狂信者: 自分のリーダーがダメージを受けるたび、自身の攻撃力+2(永続・累積)
         ctx.owner().getMinionZone().stream()
-                .filter(m -> "QTE-M-FIRE-4".equals(m.getMaster().id()))
+                .filter(m -> FLAME_FANATIC.equals(m.getMaster().id()))
                 .forEach(m -> m.addModifier(new StatModifier(StatModifier.Stat.ATTACK,
-                        StatModifier.Operation.ADD, 2, StatModifier.Duration.PERMANENT, "QTE-M-FIRE-4")));
+                        StatModifier.Operation.ADD, 2, StatModifier.Duration.PERMANENT, FLAME_FANATIC)));
 
         // 反転の炎鏡: 自分のターン中、このカード以外の「効果で」ダメージを受けたとき
         // 自分のリーダーに1ダメージ、その後1回復。
         // 自己誘発を除外しないと無限ループになるため、発生源が炎鏡自身なら発動しない
         var weapon = ctx.owner().getEquippedWeapon();
-        boolean mirrorEquipped = weapon != null && "QTE-M-FIRE-28".equals(weapon.id());
+        boolean mirrorEquipped = weapon != null && FLAME_MIRROR.equals(weapon.id());
         boolean ownTurn = ctx.owner().getPlayerId().equals(ctx.state().getTurnPlayerId());
-        boolean byOtherCard = sourceCardId != null && !"QTE-M-FIRE-28".equals(sourceCardId);
+        boolean byOtherCard = sourceCardId != null && !FLAME_MIRROR.equals(sourceCardId);
         if (mirrorEquipped && ownTurn && byOtherCard) {
             ctx.room().addLog("【反転の炎鏡】が反応した");
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-28");
-            ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-28");
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, FLAME_MIRROR);
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, FLAME_MIRROR);
         }
     }
 
@@ -1878,9 +1895,30 @@ public class CardEffectRegistry {
         effect.accept(ctx);
     }
 
-    /** スペルがプレイ可能か(効果が登録済みか) */
+    /** スペルの解決時効果が登録済みか */
     public boolean isSpellImplemented(String cardId) {
         return spellEffects.containsKey(cardId);
+    }
+
+    /**
+     * このカードIDが、9つの表のどれかに登録されているか(★Batch 47)。
+     *
+     * <b>実行時の表そのものを見ている</b>ことに意味がある。登録は
+     * {@code registerXxx()} が実行された結果であり、ソースを走査して数える
+     * {@code tools/report_effects.py} と違って、書き方(直接 put か、
+     * {@code register(...)} や {@code watchOwnMinionDestroyed(...)} のような
+     * ヘルパ経由か)に左右されない(裁定170: 測るのはエンジンが実際に持っている値)。
+     */
+    public boolean isRegistered(String cardId) {
+        return spellEffects.containsKey(cardId)
+                || triggers.containsKey(cardId)
+                || targetSpecs.containsKey(cardId)
+                || specialSummons.containsKey(cardId)
+                || leaderAbilities.containsKey(cardId)
+                || minionAbilities.containsKey(cardId)
+                || enhancedCosts.containsKey(cardId)
+                || ownMinionDestroyedWatchers.containsKey(cardId)
+                || playConditions.containsKey(cardId);
     }
 
     /**

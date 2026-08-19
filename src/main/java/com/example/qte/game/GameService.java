@@ -57,6 +57,33 @@ public class GameService {
     /** 【死者蘇生】。生贄の数だけ自身のコストが下がるため、支払い前に選択結果を渡す */
     private static final String SACRIFICE_SPELL_ID = "QTE-M-DARK-12";
 
+    // ---------------------------------------------------------------
+    // ★Batch 47: リーダーの攻撃時に発動するウェポン。
+    // 下の attackWithLeader の switch にリテラルで直接書かれていたものを定数にした。
+    // IMPLEMENTED_CARDS が同じIDを書き写す形になるのを避けるためである(裁定130)。
+    // ---------------------------------------------------------------
+
+    private static final String PEARL_TRIDENT = "QTE-M-WATER-13";  // 真珠の三叉槍
+    private static final String WRAITH_SCYTHE = "QTE-M-DARK-28";   // 死霊の収鎌
+    private static final String REAPER_SCYTHE = "QTE-M-DARK-13";   // 死神の大鎌
+    private static final String FREEZE_ROD = "QTE-M-WATER-14";     // 氷結の杖
+    private static final String EXCALIBUR = "QTE-M-LIGHT-14";      // 聖剣 エクスカリバー
+    private static final String QUAKE_HAMMER = "QTE-M-EARTH-28";   // 地響きの槌
+    private static final String GUARD_STAFF = "QTE-M-WIND-28";     // 風護の杖
+
+    /**
+     * このクラスが挙動を実装しているカード(★Batch 47)。
+     * 趣旨と番人は {@link com.example.qte.effect.RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
+     *
+     * ★{@link #SACRIFICE_SPELL_ID}(死者蘇生)を入れていないのは、ここにあるのが
+     * 「使用宣言のときに生贄の選択を先に受け取る」という<b>手続きの都合</b>であって、
+     * 効果そのものは {@code CardEffectRegistry} に登録されているためである。
+     */
+    public static final java.util.Set<String> IMPLEMENTED_CARDS = java.util.Set.of(
+            PURE_ELEMENT_ID, GRAVE_SUMMONER_LEADER_ID,
+            PEARL_TRIDENT, WRAITH_SCYTHE, REAPER_SCYTHE, FREEZE_ROD,
+            EXCALIBUR, QUAKE_HAMMER, GUARD_STAFF);
+
     private final CardMasterRepository cards;
     private final DeckFactory deckFactory;
     private final GameActions actions;
@@ -884,26 +911,26 @@ public class GameService {
 
         // ウェポンの攻撃時効果。現状2種のためswitchで直書きし、増えたらRegistryへ移す(TODO)
         switch (weapon.id()) {
-            case "QTE-M-WATER-13" -> { // 真珠の三叉槍: 自分のリーダーが攻撃した時、カードを1枚引く
+            case PEARL_TRIDENT -> { // 真珠の三叉槍: 自分のリーダーが攻撃した時、カードを1枚引く
                 actions.drawCards(room, player, 1);
             }
             // 魔剣レーヴァテイン(QTE-M-FIRE-14)・禁忌の冥魔剣(QTE-M-DARK-14)は Ver.0.4 で発火元が
             // 「自分のリーダーの攻撃」から「自分のミニオンの攻撃/登場」へ移ったため、
             // このswitchから外して CardEffectRegistry のトリガー登録に移設した
             // (ON_ALLY_MINION_ATTACK / ON_ALLY_MINION_ENTER)
-            case "QTE-M-DARK-28" -> { // 死霊の収鎌: 自分の墓地からカードを1枚手札に戻す
+            case WRAITH_SCYTHE -> { // 死霊の収鎌: 自分の墓地からカードを1枚手札に戻す
                 // どの1枚かは自動選択(AutoChoice: 最後に墓地へ置かれたカード)
                 String recovered = com.example.qte.effect.AutoChoice.recoverFromTrash(player);
                 if (recovered != null) {
                     actions.returnFromTrashToHand(room, player, recovered);
                 }
             }
-            case "QTE-M-DARK-13" -> { // 死神の大鎌: 攻撃されたミニオンは戦闘ダメージに関わらず破壊される
+            case REAPER_SCYTHE -> { // 死神の大鎌: 攻撃されたミニオンは戦闘ダメージに関わらず破壊される
                 if (!targetIsLeader && opponent.getMinionZone().contains(target)) {
                     actions.destroyMinion(room, opponent, target, DestructionCause.COMBAT);
                 }
             }
-            case "QTE-M-WATER-14" -> { // 氷結の杖: 攻撃されたリーダーまたはミニオンは、次のターン攻撃できない
+            case FREEZE_ROD -> { // 氷結の杖: 攻撃されたリーダーまたはミニオンは、次のターン攻撃できない
                 int nextTurn = state.getTurnNumber() + 1;
                 if (targetIsLeader) {
                     opponent.setLeaderCannotAttackOnTurn(nextTurn);
@@ -913,13 +940,13 @@ public class GameService {
                     room.addLog("【%s】は凍結しました(次のターン攻撃不可)".formatted(target.getMaster().name()));
                 }
             }
-            case "QTE-M-LIGHT-14" -> { // 聖剣エクスカリバー: 自分の【守護】ミニオンすべての体力を2回復
+            case EXCALIBUR -> { // 聖剣エクスカリバー: 自分の【守護】ミニオンすべての体力を2回復
                 player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.GUARD))
                         .forEach(m -> m.heal(2));
                 room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が2回復しました");
             }
-            case "QTE-M-EARTH-28" -> { // 地響きの槌: 攻撃時、相手のミニオン全てに2ダメージ
+            case QUAKE_HAMMER -> { // 地響きの槌: 攻撃時、相手のミニオン全てに2ダメージ
                 List.copyOf(opponent.getMinionZone()).forEach(
                         m -> actions.damageMinion(room, opponent, m, 2));
                 room.addLog("【地響きの槌】: 相手のミニオン全てに2ダメージ");
@@ -931,7 +958,7 @@ public class GameService {
         // 風護の杖(QTE-M-WIND-28): 攻撃時、自分のミニオンを1体選んでそのミニオンの体力+1・守護付与。
         // 既存7件と違い、風文明では割り込み選択(a9)を経由させる方針のため、上のswitchには足さない
         // (0体なら不発・1体なら自動決定・2体以上ならプレイヤーが選ぶ。降臨の伝道師と同じ流儀)
-        if ("QTE-M-WIND-28".equals(weapon.id())) {
+        if (GUARD_STAFF.equals(weapon.id())) {
             resolveGuardStaffAttack(room, player);
         }
     }
@@ -962,7 +989,7 @@ public class GameService {
     /** 風護の杖の効果本体(体力+1・守護付与)。GameServiceに置くのはminionZoneへの直接アクセスのため */
     private void applyGuardStaffBuff(GameRoom room, MinionInstance minion) {
         minion.addModifier(new StatModifier(StatModifier.Stat.HP, StatModifier.Operation.ADD, 1,
-                StatModifier.Duration.PERMANENT, "QTE-M-WIND-28"));
+                StatModifier.Duration.PERMANENT, GUARD_STAFF));
         minion.grantKeyword(Keyword.GUARD);
         room.addLog("【風護の杖】: 【%s】の体力が+1され、【守護】を得ました".formatted(minion.getMaster().name()));
     }

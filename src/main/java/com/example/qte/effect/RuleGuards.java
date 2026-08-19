@@ -1,5 +1,7 @@
 package com.example.qte.effect;
 
+import java.util.Set;
+
 import org.springframework.stereotype.Component;
 
 import com.example.qte.game.DestructionCause;
@@ -58,6 +60,26 @@ public class RuleGuards {
 
     /** 断罪の大天使が置換を始めるドロー枚数(このターンのN枚目以降) */
     private static final int DRAW_REPLACE_FROM = 3;
+
+    /**
+     * このクラスが挙動を実装しているカード(★Batch 47)。
+     *
+     * <b>なぜ宣言が要るのか。</b> 効果の実装には2つの置き場所がある ——
+     * {@link CardEffectRegistry} の表に載るものと、このクラスのように
+     * <b>ルール側の判定点に直接書かれるもの</b>である(裁定164)。
+     * 後者は表に現れないため、Java からは「実装済みかどうか」を判定できない。
+     * 「効果が未実装」の印({@link EffectImplementation})が実装済みの44枚を
+     * 未実装と誤って名指ししないよう、判定点を持つクラスが自分で名乗る。
+     *
+     * <b>★中身は上の定数そのものである。</b> 別の場所にIDを書き写さないこと ——
+     * 書き写した瞬間、判定に使うIDと宣言のIDが食い違いうる2つの正になる。
+     * 宣言し忘れは {@code tools/report_effects.py} が検出する
+     * (コメントを除いたソースに現れるカードIDのうち、登録にも宣言にも無いものがあれば止まる)。
+     */
+    public static final Set<String> IMPLEMENTED_CARDS = Set.of(
+            PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC,
+            MICHAEL, HOLY_PROTECTOR_AURA, JUSTICE_SHIELD, JUDGEMENT_ANGEL,
+            ORDER_ENFORCER, TEMPLE_KNIGHT);
 
     private final StatCalculator stats;
 

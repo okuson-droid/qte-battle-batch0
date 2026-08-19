@@ -1579,6 +1579,11 @@ body.manual-drag-active .manual-band {
     white-space: nowrap;
 }
 
+/* ★Batch 47: 効果が未実装のカード(裁定D2)。他のバッジが「今できること」を伝えるのに対し、
+   これは「書いてあるとおりには動かない」という否の知らせなので、否の色(#ff9b9b)を使う。
+   ★近い色を新しく作らない(裁定32)。使っているのは既存の良否の赤である */
+.auto-badge-unimplemented { color: #ff9b9b; }
+
 /* 実効コストが印刷コストと違う手札。コストの宝石を強調色の輪で示す */
 .mcard-cost-modified .mcard-cost { box-shadow: none; outline: 2px solid #6edff6; }
 

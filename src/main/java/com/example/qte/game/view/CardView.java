@@ -18,6 +18,10 @@ import com.example.qte.master.Keyword;
  * @param combinedTotal     対象要求をまたいだ選択数の合計制約(0なら制約なし。サイクロン・リフレッシュ)
  * @param enhancedCost      追加コストによる強化使用の追加コスト(0なら強化使用なし。回帰の風穴・風弾の跳弾)
  * @param enhancedText      強化使用の確認ダイアログ用の説明文(強化使用がなければnull)
+ * @param effectUnimplemented ★Batch 47。効果の文があるのにエンジンが処理を持っていないカード。
+ *                          使ってもテキストどおりには動かないことを盤面に印として出す。
+ *                          判定の正はサーバ({@link com.example.qte.effect.EffectImplementation})であり、
+ *                          クライアントは同じ判定を持たない
  */
 public record CardView(
         String cardId,
@@ -36,7 +40,8 @@ public record CardView(
         String specialSummonText,
         int combinedTotal,
         int enhancedCost,
-        String enhancedText) {
+        String enhancedText,
+        boolean effectUnimplemented) {
 
     public static List<String> keywordNames(CardMaster master) {
         return master.keywords().stream().map(Keyword::getDisplayName).toList();

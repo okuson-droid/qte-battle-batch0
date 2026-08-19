@@ -288,6 +288,8 @@ function autoCard(cardId, name, overrides = {}) {
     keywords: [], text: '',
     targets: [], canSpecialSummon: false, specialTargets: [],
     specialSummonText: null, combinedTotal: 0, enhancedCost: 0, enhancedText: null,
+    // ★Batch 47: 「効果未実装」の印。判定はサーバが済ませて真偽値だけを送る
+    effectUnimplemented: false,
     ...overrides,
   };
 }
@@ -298,6 +300,7 @@ function autoMinion(instanceId, name, overrides = {}) {
     attack: 2, currentHp: 3, maxHp: 3, keywords: [],
     canAttackMinion: false, canAttackLeader: false,
     frozen: false, tapped: false, canUseAbility: false, abilityText: null,
+    effectUnimplemented: false,
     ...overrides,
   };
 }

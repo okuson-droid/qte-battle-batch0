@@ -1,5 +1,7 @@
 package com.example.qte.effect;
 
+import java.util.Set;
+
 import org.springframework.stereotype.Component;
 
 import com.example.qte.game.GameState;
@@ -24,6 +26,57 @@ import com.example.qte.master.Keyword;
  */
 @Component
 public class StatCalculator {
+
+    // ---------------------------------------------------------------
+    // ★Batch 47: 動的な値としてこのクラスが面倒を見ているカード。
+    // 以前はメソッドの中に文字列リテラルで直接書かれていた。定数にしたのは、
+    // 下の IMPLEMENTED_CARDS が同じIDをもう一度書き写す形になるのを避けるためである
+    // (同じ値を2箇所に置くと、必ず片方だけが直される日が来る。裁定130)。
+    // ---------------------------------------------------------------
+
+    // 動的コスト
+    private static final String NIGHTMARE = "QTE-M-DARK-27";            // 悪夢
+    private static final String SWARM_LICH = "QTE-M-DARK-21";           // 群がる死霊王
+    private static final String SEALED_TABOO_DEMON = "QTE-M-DARK-18";   // 封印されし禁忌魔人
+    private static final String RAISE_DEAD = "QTE-M-DARK-12";           // 死者蘇生
+    private static final String CHANT_PALADIN = "QTE-M-LIGHT-18";       // 唱導の聖騎士
+    private static final String PRECEPT_GUARDIAN = "QTE-M-LIGHT-20";    // 戒律のガーディアン
+    private static final String WISDOM_CRYSTAL = "QTE-M-LIGHT-19";      // 英知の水晶
+    private static final String CHANT_ORB = "QTE-M-LIGHT-28";           // 詠唱の宝珠
+    private static final String TWIN_ILLUSIONIST = "QTE-M-WATER-21";    // 双流の幻術師
+    private static final String GALE_KNIGHT = "QTE-M-WIND-18";          // 詠唱の疾風騎士
+    private static final String GATHERING_SYLPH = "QTE-M-WIND-20";      // 結集する風の精
+    private static final String WIND_CHANTER_LEADER = "QTE-M-WIND-15";  // 詠唱の風詠士(リーダー)
+    private static final String EARTH_BERSERKER = "QTE-M-EARTH-18";     // 大地の狂戦士
+
+    // 動的な攻撃力・攻撃回数
+    private static final String SHADOW_ASSASSIN = "QTE-M-WATER-28";     // 影潜む水刺客(ウェポン)
+    private static final String KNOWLEDGE_GUARDIAN = "QTE-M-WATER-5";   // 知識の守護者
+    private static final String ENDLESS_TITAN = "QTE-M-EARTH-22";       // 無尽蔵の巨神
+    private static final String GRAVE_WRAITH_MASS = "QTE-M-DARK-22";    // 墓場の怨念集合体
+    private static final String OVERFLOWING_WISDOM = "QTE-M-WATER-12";  // 溢れ出る英知(オーラ)
+    private static final String CYCLONE_FENCER = "QTE-M-WIND-5";        // サイクロン・フェンサー
+    private static final String BOULDER_BARRAGE = "QTE-M-EARTH-19";     // 連撃の巨岩
+    private static final String GALE_RAPIER = "QTE-M-WIND-14";          // 疾風のレイピア(ウェポン)
+
+    /**
+     * ★このカードは<b>数えられる対象</b>であって、このクラスが挙動を実装しているカードではない。
+     * 群がる死霊王が「墓地にある《ゾンストライカー》の数」を読むために名前を知っているだけである。
+     * したがって下の {@link #IMPLEMENTED_CARDS} には入れない。
+     */
+    private static final String ZOMB_STRIKER = "QTE-M-DARK-16";
+
+    /**
+     * このクラスが挙動を実装しているカード(★Batch 47)。
+     * 趣旨と番人は {@link RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
+     */
+    public static final Set<String> IMPLEMENTED_CARDS = Set.of(
+            NIGHTMARE, SWARM_LICH, SEALED_TABOO_DEMON, RAISE_DEAD,
+            CHANT_PALADIN, PRECEPT_GUARDIAN, WISDOM_CRYSTAL, CHANT_ORB,
+            TWIN_ILLUSIONIST, GALE_KNIGHT, GATHERING_SYLPH, WIND_CHANTER_LEADER,
+            EARTH_BERSERKER, SHADOW_ASSASSIN, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
+            GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
+            GALE_RAPIER);
 
     /** 墓地のカードの種別(スペルか否か)を判定するために参照する */
     private final CardMasterRepository cards;
@@ -63,23 +116,23 @@ public class StatCalculator {
         }
         // ---- 闇文明: 墓地・禁忌デッキ・生贄を参照する動的コスト ----
         // 悪夢: 墓地にあるスペル以外のカード1枚につきコスト-1
-        if ("QTE-M-DARK-27".equals(card.id())) {
+        if (NIGHTMARE.equals(card.id())) {
             cost -= nonSpellCountInTrash(owner);
         }
         // 群がる死霊王: 墓地にある「ゾンストライカー」の数だけコスト-1
-        if ("QTE-M-DARK-21".equals(card.id())) {
-            cost -= countInTrash(owner, "QTE-M-DARK-16");
+        if (SWARM_LICH.equals(card.id())) {
+            cost -= countInTrash(owner, ZOMB_STRIKER);
         }
         // 封印されし禁忌魔人: 禁忌デッキの残り枚数だけコスト+1(唯一のコスト増加カード)
-        if ("QTE-M-DARK-18".equals(card.id())) {
+        if (SEALED_TABOO_DEMON.equals(card.id())) {
             cost += owner.getTabooDeck().size();
         }
         // 死者蘇生: 使用宣言時に生贄にした自分のミニオンの数だけコスト-1
-        if ("QTE-M-DARK-12".equals(card.id())) {
+        if (RAISE_DEAD.equals(card.id())) {
             cost -= owner.getPendingSacrificeCount();
         }
         // 悪夢: このターン中、ミニオンの召喚コストを-4する(サブフェイズに使用したときのみ付与される)
-        if (card.type() == CardType.MINION && owner.getThisTurnAuras().contains("QTE-M-DARK-27")) {
+        if (card.type() == CardType.MINION && owner.getThisTurnAuras().contains(NIGHTMARE)) {
             cost -= 4;
         }
         // ---- 光文明: 場のミニオンによる常在のコスト軽減(累積する。下限は0) ----
@@ -88,26 +141,26 @@ public class StatCalculator {
         // 戒律のガーディアン(QTE-M-LIGHT-20): 【守護】を持つカードのコスト-1
         for (MinionInstance minion : owner.getMinionZone()) {
             String id = minion.getMaster().id();
-            boolean spellDiscounter = "QTE-M-LIGHT-18".equals(id) || "QTE-M-LIGHT-20".equals(id);
+            boolean spellDiscounter = CHANT_PALADIN.equals(id) || PRECEPT_GUARDIAN.equals(id);
             if (spellDiscounter && card.type() == CardType.SPELL) {
                 cost -= 1;
             }
-            if ("QTE-M-LIGHT-19".equals(id) && card.keywords().contains(Keyword.KNOWLEDGE)) {
+            if (WISDOM_CRYSTAL.equals(id) && card.keywords().contains(Keyword.KNOWLEDGE)) {
                 cost -= 1;
             }
-            if ("QTE-M-LIGHT-20".equals(id) && card.keywords().contains(Keyword.GUARD)) {
+            if (PRECEPT_GUARDIAN.equals(id) && card.keywords().contains(Keyword.GUARD)) {
                 cost -= 1;
             }
         }
         // 詠唱の宝珠: 破壊された後、次に唱えるスペルのコスト-1(ターンをまたいで持続)
         if (card.type() == CardType.SPELL && owner.getPersistentAuras().stream()
-                .anyMatch(aura -> "QTE-M-LIGHT-28".equals(aura.cardId()))) {
+                .anyMatch(aura -> CHANT_ORB.equals(aura.cardId()))) {
             cost -= 1;
         }
         // 双流の幻術師: 場に居るミニオンの数だけコスト-1。
         // Ver.0.4 で参照が「【知識】を持つミニオンの数」から「ミニオンの数」全体に広がった。
         // 側の限定が無いため両者の場を数える(記法規約。従来と同じ)
-        if ("QTE-M-WATER-21".equals(card.id())) {
+        if (TWIN_ILLUSIONIST.equals(card.id())) {
             long minionsOnBoard = java.util.stream.Stream
                     .of(state.getPlayer1(), state.getPlayer2())
                     .mapToLong(p -> p.getMinionZone().size())
@@ -116,25 +169,25 @@ public class StatCalculator {
         }
         // ---- 風文明: ターン内カウンタ・盤面参照による動的コスト ----
         // 詠唱の疾風騎士: 自分がこのターン中にスペルを唱えるたびコスト-1(このターン限定・下限0)
-        if ("QTE-M-WIND-18".equals(card.id())) {
+        if (GALE_KNIGHT.equals(card.id())) {
             cost -= owner.getSpellsCastThisTurn();
         }
         // 結集する風の精: 自分の場にあるミニオンの合計コスト分コスト-1
-        if ("QTE-M-WIND-20".equals(card.id())) {
+        if (GATHERING_SYLPH.equals(card.id())) {
             cost -= owner.getMinionZone().stream()
                     .mapToInt(m -> m.getMaster().cost() == null ? 0 : m.getMaster().cost())
                     .sum();
         }
         // 詠唱の風詠士(リーダー): そのターン中3枚目に使うミニオンかスペルのコスト-1。
         // 使用カウンタは自身を含まない(裁定1)ため、「3枚目」はcardsUsedThisTurn==2の瞬間に一致する
-        if ("QTE-M-WIND-15".equals(owner.getLeader().id())
+        if (WIND_CHANTER_LEADER.equals(owner.getLeader().id())
                 && (card.type() == CardType.MINION || card.type() == CardType.SPELL)
                 && owner.getCardsUsedThisTurn() == 2) {
             cost -= 1;
         }
         // ---- 土文明: 自分のマナ枚数を参照する動的コスト(条件を満たすと固定値まで下がる) ----
         // 減算型ではなく固定値セット型。土カードは他文明の軽減対象ではないため競合しない。
-        if ("QTE-M-EARTH-18".equals(card.id()) && owner.getManaZone().size() >= 7) {
+        if (EARTH_BERSERKER.equals(card.id()) && owner.getManaZone().size() >= 7) {
             cost = 1; // 大地の狂戦士: マナ7枚以上でコスト1
         }
         // 地脈の覚醒(QTE-M-EARTH-27)の「マナ7枚以上でコスト2」は Ver.0.4 で撤廃された。
@@ -153,7 +206,7 @@ public class StatCalculator {
             return 0;
         }
         int attack = weapon.attack();
-        if ("QTE-M-WATER-28".equals(weapon.id())) {
+        if (SHADOW_ASSASSIN.equals(weapon.id())) {
             attack += (int) owner.getMinionZone().stream()
                     .filter(m -> m.hasKeyword(Keyword.STEALTH))
                     .count();
@@ -180,10 +233,10 @@ public class StatCalculator {
     public int maxAttacks(GameState state, PlayerState owner, MinionInstance minion) {
         int max = 1;
         // 印刷された「1ターンに2回攻撃できる」を持つカード(Batch 12b)
-        if ("QTE-M-WIND-5".equals(minion.getMaster().id())) { // サイクロン・フェンサー
+        if (CYCLONE_FENCER.equals(minion.getMaster().id())) { // サイクロン・フェンサー
             max += 1;
         }
-        if ("QTE-M-EARTH-19".equals(minion.getMaster().id())) { // 連撃の巨岩: 1ターンに2回攻撃できる
+        if (BOULDER_BARRAGE.equals(minion.getMaster().id())) { // 連撃の巨岩: 1ターンに2回攻撃できる
             max += 1;
         }
         for (StatModifier m : minion.getModifiers()) {
@@ -200,7 +253,7 @@ public class StatCalculator {
      */
     public int maxLeaderAttacks(GameState state, PlayerState owner) {
         CardMaster weapon = owner.getEquippedWeapon();
-        if (weapon != null && "QTE-M-WIND-14".equals(weapon.id())) { // 疾風のレイピア
+        if (weapon != null && GALE_RAPIER.equals(weapon.id())) { // 疾風のレイピア
             return 2;
         }
         return 1;
@@ -212,11 +265,11 @@ public class StatCalculator {
 
         // ---- 動的SET(カード固有のルール) ----
         // 知識の守護者: 攻撃力は自分の手札の枚数と同じになる(常に連動)
-        if ("QTE-M-WATER-5".equals(cardId)) {
+        if (KNOWLEDGE_GUARDIAN.equals(cardId)) {
             attack = owner.getHand().size();
         }
         // 無尽蔵の巨神: 攻撃力は自分の手札の枚数と同じ(基礎0 + 手札枚数)
-        if ("QTE-M-EARTH-22".equals(cardId)) {
+        if (ENDLESS_TITAN.equals(cardId)) {
             attack = owner.getHand().size();
         }
 
@@ -230,7 +283,7 @@ public class StatCalculator {
         // ---- 動的ADD ----
         // 墓場の怨念集合体: 自分の墓地にあるスペル以外のカード1枚につきAttack+1。
         // SETの後に評価しなければ加算が上書きで消えるため、必ずこの位置に置く
-        if ("QTE-M-DARK-22".equals(cardId)) {
+        if (GRAVE_WRAITH_MASS.equals(cardId)) {
             attack += nonSpellCountInTrash(owner);
         }
 
@@ -240,7 +293,7 @@ public class StatCalculator {
         // 判定を評価側に置いているのは、オーラ適用後に出たミニオンにも同じ基準を効かせるためである
         // (オーラは付与時点のスナップショットではなく、評価のたびに場を見る)
         for (String aura : owner.getThisTurnAuras()) {
-            if ("QTE-M-WATER-12".equals(aura)
+            if (OVERFLOWING_WISDOM.equals(aura)
                     && minion.getMaster().civilization() == Civilization.WATER) {
                 attack += owner.getHand().size();
             }

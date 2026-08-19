@@ -71,6 +71,23 @@ public final class CardTextKeywords {
     private static final Pattern PARAMETER = Pattern.compile("[：:].*$");
 
     /**
+     * キーワード表記の直後に続く丸括弧(注釈)。
+     * 「【威圧】(相手の攻撃対象にならない)」の括弧はキーワードの意味を言い換えているだけで、
+     * そのカード固有の効果ではない。
+     */
+    private static final Pattern TRAILING_NOTE = Pattern.compile("^\\s*[（(][^）)]*[）)]");
+
+    /**
+     * 効果の文が1つも無いことを示すカードデータ側の慣用表現。
+     * Ver1.1 の235枚では「フレア・ポーン」1枚だけが使う。
+     * ★カードIDではなく<b>表記</b>を見ている。同じ書き方のカードが増えても自動的に効く。
+     */
+    private static final Pattern NO_EFFECT = Pattern.compile("効果\\s*なし");
+
+    /** 効果の文が残っているかの判定で、意味を持たないとみなす文字 */
+    private static final Pattern PUNCTUATION = Pattern.compile("[\\s。、,\\.]+");
+
+    /**
      * そのカード自身が持つキーワード能力。
      *
      * @param text カードの効果テキスト。null・空文字は空集合を返す(リーダーや無能力カード)
@@ -111,6 +128,62 @@ public final class CardTextKeywords {
         return TOKEN.matcher(text).results()
                 .map(r -> PARAMETER.matcher(r.group(1).trim()).replaceAll("：n"))
                 .toList();
+    }
+
+    /**
+     * キーワード表記を取り除いてもなお、そのカード固有の効果の文が残るか(★Batch 47)。
+     *
+     * <b>何のための判定か。</b>「効果が未実装」の印({@code CardView.effectUnimplemented})は、
+     * <b>効果の文があるのにエンジンが処理を持っていない</b>カードにだけ付ける。
+     * キーワードしか書かれていないカードは、データが正しければキーワードの仕組みだけで
+     * 正しく動くので、エンジンにカードIDが現れなくても未実装ではない。
+     *
+     * <b>なぜここに置くか。</b> これはテキストの読み方の規則であり、キーワードの語彙を
+     * 知っていないと書けない。抽出規則と同じ場所に置く(裁定158 の延長)。
+     *
+     * <h3>丸括弧の扱い</h3>
+     * キーワード表記の直後の丸括弧は原則として注釈であり、落とす。
+     * <b>ただし【特殊召喚】だけは例外で、括弧の中身が発動条件そのもの</b>であり、
+     * エンジンは {@code specialSummons} への登録を必要とする。
+     * 【進化】も括弧に素材条件を書くが、こちらは {@link Keyword} ではないため
+     * 「キーワード表記の直後」に当たらず、そのまま残る。
+     *
+     * <pre>
+     *   【突進】【威圧】(相手の攻撃対象にならない)      → 文は残らない(印を付けない)
+     *   【特殊召喚】(手札が7枚以上なら…)               → 文が残る(登録が要る)
+     *   【進化】(自分ミニオン1体以上)【常在】…          → 文が残る
+     *   効果なし                                        → 文は残らない
+     * </pre>
+     */
+    public static boolean hasEffectSentence(String text) {
+        if (text == null || text.isBlank()) {
+            return false;
+        }
+        return !PUNCTUATION.matcher(stripKeywordNotation(text)).replaceAll("").isEmpty();
+    }
+
+    /**
+     * キーワード表記(と、その注釈の括弧・「効果なし」の表記)を取り除いた残り。
+     * {@link #hasEffectSentence(String)} のためだけの内部処理である。
+     */
+    private static String stripKeywordNotation(String text) {
+        StringBuilder rest = new StringBuilder();
+        Matcher m = TOKEN.matcher(text);
+        int cursor = 0;
+        while (m.find(cursor)) {
+            rest.append(text, cursor, m.start());
+            cursor = m.end();
+            Keyword keyword = keywordOf(m.group(1).trim());
+            // 【特殊召喚】の括弧は条件そのものなので落とさない(上のjavadoc参照)
+            if (keyword != null && keyword != Keyword.SPECIAL_SUMMON) {
+                Matcher note = TRAILING_NOTE.matcher(text.substring(cursor));
+                if (note.find()) {
+                    cursor += note.end();
+                }
+            }
+        }
+        rest.append(text.substring(cursor));
+        return NO_EFFECT.matcher(rest).replaceAll("");
     }
 
     /** 表示名に一致する {@link Keyword}。キーワードでない語は null を返す(例外にしない) */

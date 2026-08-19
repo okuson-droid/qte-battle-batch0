@@ -6,7 +6,6 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
-import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
@@ -63,7 +62,6 @@ public class DeckValidator {
      */
 
     private final CardMasterRepository cards;
-    private final CardEffectRegistry effects;
 
     /** 検証してリーダーを返す。違反があればIllegalArgumentExceptionを投げる */
     public CardMaster validate(DeckDefinition deck) {
@@ -178,17 +176,29 @@ public class DeckValidator {
     }
 
     /**
-     * 実装済みかの確認。効果が未実装のカードをデッキに入れると
-     * 「使えるのに何も起きない」という気づきにくい不具合になるため、入口で弾く。
+     * 実装済みかの確認。
+     *
+     * <b>★Batch 47: 効果が未実装のスペルを弾くのをやめた。</b>
+     *
+     * <p>Batch 46b までは、効果の登録が無いスペルをここで拒否していた。
+     * 「使えるのに何も起きない」が気づきにくい不具合になるためである。
+     * だがそれは Ver1.1 の全カードでデッキが組めないということでもあり、
+     * 裁定D2 が選んだ道は<b>「入れられるようにして、印を出す」</b>だった。
+     * 気づきにくさの原因は「入れられること」ではなく「黙って不発になること」なので、
+     * 印({@link com.example.qte.effect.EffectImplementation})が出るなら止める理由は無い。</p>
+     *
+     * <p>★<b>進化ミニオンだけは今も {@link #requireDeckable} が弾く</b>(裁定166)。
+     * こちらは効果ではなく<b>場に出す手段そのもの</b>が無く、印を見てもできることが
+     * 1つも無いためである。P3(Batch 54〜55)で解禁する。</p>
+     *
+     * <p>文明の検査は残している。全6文明が実装済みなので現在は誰も弾かないが、
+     * 文明なし(ピュア・エレメント)はデッキに入るカードではないため、ここで止まる。</p>
      */
     private void requireImplemented(CardMaster card) {
         if (!IMPLEMENTED.contains(card.civilization())) {
             throw new IllegalArgumentException(
                     "%s文明はまだ実装されていません: %s"
                             .formatted(card.civilization().getDisplayName(), card.name()));
-        }
-        if (card.type() == CardType.SPELL && !effects.isSpellImplemented(card.id())) {
-            throw new IllegalArgumentException("効果が未実装のスペルです: " + card.name());
         }
     }
 }

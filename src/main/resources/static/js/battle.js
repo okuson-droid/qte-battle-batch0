@@ -1499,8 +1499,48 @@ function createTabooCardEl(card, index, view) {
     }
     if (tabooPay && tabooPay.tabooIndex === index) el.classList.add('selected-attacker');
     el.appendChild(cardFace(faceDataFromCardView(card), 'full'));
+    const badges = newBadgeBox();
+    addUnimplementedBadge(badges, card);
+    attachBadges(el, badges);
     attachZoom(el, () => faceDataFromCardView(card));
     return el;
+}
+
+/**
+ * バッジの入れ物(★Batch 47)。手札・禁忌・場のミニオンで同じ形のバッジを出すため、
+ * 作り方を1箇所にまとめた。
+ * ★面(.mcard-*)には手を入れない —— バッジは面の<b>上に重ねる</b>別要素である(裁定141)。
+ */
+function newBadgeBox() {
+    const box = document.createElement('div');
+    box.className = 'auto-badges';
+    return box;
+}
+
+/** バッジを1枚足す。extraClass は色を変えたいときだけ渡す */
+function addBadge(box, label, extraClass) {
+    const b = document.createElement('span');
+    b.className = extraClass ? 'auto-badge ' + extraClass : 'auto-badge';
+    b.textContent = label;
+    box.appendChild(b);
+}
+
+/** 1枚もバッジが無いときは入れ物ごと出さない(空の箱を DOM に残さない) */
+function attachBadges(el, box) {
+    if (box.childNodes.length > 0) el.appendChild(box);
+}
+
+/**
+ * 「効果未実装」の印(★Batch 47・裁定D2)。
+ *
+ * ★判定はサーバが済ませてある(EffectImplementation)。クライアントは
+ * 届いた真偽値を描くだけで、実装済みかどうかの規則をこちら側に持たない ——
+ * 持った瞬間、同じ規則が Java とブラウザの2箇所に置かれることになる(裁定163)。
+ */
+function addUnimplementedBadge(box, cardOrMinion) {
+    if (cardOrMinion && cardOrMinion.effectUnimplemented) {
+        addBadge(box, '⚠効果未実装', 'auto-badge-unimplemented');
+    }
 }
 
 function createMinionEl(minion) {
@@ -1509,18 +1549,12 @@ function createMinionEl(minion) {
     if (minion.tapped) el.classList.add('tapped-minion');
     el.appendChild(cardFace(faceDataFromMinion(minion), 'mini'));
     // ★一時状態は面に混ぜず、バッジで上に重ねる(manual の .manual-tapped-badge と同じ考え方)
-    const badges = document.createElement('div');
-    badges.className = 'auto-badges';
-    const badge = (label) => {
-        const b = document.createElement('span');
-        b.className = 'auto-badge';
-        b.textContent = label;
-        badges.appendChild(b);
-    };
-    if (minion.frozen) badge('❄凍結');
-    if (minion.tapped) badge('⟳');
-    if (minion.canUseAbility) badge('⚡能力');
-    if (badges.childNodes.length > 0) el.appendChild(badges);
+    const badges = newBadgeBox();
+    if (minion.frozen) addBadge(badges, '❄凍結');
+    if (minion.tapped) addBadge(badges, '⟳');
+    if (minion.canUseAbility) addBadge(badges, '⚡能力');
+    addUnimplementedBadge(badges, minion);
+    attachBadges(el, badges);
     // ★拡大は「効果テキストを読む」ためのもの。abilityText(起動能力)があれば添える
     attachZoom(el, () => {
         const data = faceDataFromMinion(minion);
@@ -1583,15 +1617,10 @@ function createHandCardEl(card, index, view) {
         el.title = `印刷コスト${card.cost} → 実効${card.effectiveCost}`;
     }
     el.appendChild(face);
-    if (card.canSpecialSummon) {
-        const badges = document.createElement('div');
-        badges.className = 'auto-badges';
-        const b = document.createElement('span');
-        b.className = 'auto-badge';
-        b.textContent = '★特殊召喚可';
-        badges.appendChild(b);
-        el.appendChild(badges);
-    }
+    const badges = newBadgeBox();
+    if (card.canSpecialSummon) addBadge(badges, '★特殊召喚可');
+    addUnimplementedBadge(badges, card);
+    attachBadges(el, badges);
     attachZoom(el, () => faceDataFromCardView(card));
     return el;
 }

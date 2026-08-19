@@ -30,12 +30,28 @@ public class GameActions {
     /** 体力の上限。初期値20を超えて回復しない(※仮ルール。発注者確認待ち) */
     public static final int MAX_LP = 20;
 
+    // ---------------------------------------------------------------
+    // ★Batch 47: このクラスが挙動を実装しているカード。
+    // 以前はメソッドの中に文字列リテラルで直接書かれていた(裁定130 と同じ理由で定数化)。
+    // ---------------------------------------------------------------
+
+    private static final String SEALED_TABOO_DEMON = "QTE-M-DARK-18"; // 封印されし禁忌魔人
+    private static final String EARTH_AEGIS = "QTE-M-EARTH-13";       // 大地の守護盾(肩代わり)
+    private static final String CHANT_ORB = "QTE-M-LIGHT-28";         // 詠唱の宝珠(場を離れたとき)
+
+    /**
+     * このクラスが挙動を実装しているカード(★Batch 47)。
+     * 趣旨と番人は {@link com.example.qte.effect.RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
+     */
+    public static final java.util.Set<String> IMPLEMENTED_CARDS =
+            java.util.Set.of(SEALED_TABOO_DEMON, EARTH_AEGIS, CHANT_ORB);
+
     /**
      * 「コストを支払わず場に出せない」カード(封印されし禁忌魔人)。
      * 蘇生・踏み倒し系の効果はここを必ず経由して弾く。
      * カードIDの直書きだが、判定を1か所に閉じ込めることを優先している。
      */
-    private static final java.util.Set<String> NO_CHEAT_INTO_FIELD = java.util.Set.of("QTE-M-DARK-18");
+    private static final java.util.Set<String> NO_CHEAT_INTO_FIELD = java.util.Set.of(SEALED_TABOO_DEMON);
 
     private final CardMasterRepository cards;
 
@@ -489,8 +505,8 @@ public class GameActions {
      * 「ウェポンが場を離れる」2箇所の処理から直接呼ぶ形にしている。
      */
     public void onWeaponLeftPlay(PlayerState owner, CardMaster weapon) {
-        if ("QTE-M-LIGHT-28".equals(weapon.id())) {
-            owner.getPersistentAuras().add(PersistentAura.untilNextSpell("QTE-M-LIGHT-28"));
+        if (CHANT_ORB.equals(weapon.id())) {
+            owner.getPersistentAuras().add(PersistentAura.untilNextSpell(CHANT_ORB));
         }
         // 暴風の双剣がこのターン積み上げた攻撃力の加算は、ウェポンが外れた時点で消える
         owner.setWeaponAttackBonusThisTurn(0);
@@ -705,7 +721,7 @@ public class GameActions {
      */
     public boolean tryInterceptLeaderAttackWithShield(GameRoom room, PlayerState defender) {
         CardMaster weapon = defender.getEquippedWeapon();
-        if (weapon == null || !"QTE-M-EARTH-13".equals(weapon.id())) {
+        if (weapon == null || !EARTH_AEGIS.equals(weapon.id())) {
             return false;
         }
         room.addLog("【大地の守護盾】がリーダーへの攻撃を肩代わりしました");

@@ -299,6 +299,60 @@ class CardTextKeywordsTest {
         assertThat(used).containsExactlyInAnyOrderElementsOf(KNOWN_VOCABULARY);
     }
 
+    // ------------------------------------------------------------------
+    // ★Batch 47: 効果の文が残るか(「効果未実装」の印の前提)
+    // ------------------------------------------------------------------
+
+    /**
+     * ★<b>括弧の扱いが分かれる理由</b>を名指しで測る。
+     *
+     * <p>キーワードの直後の丸括弧は<b>ふつう注釈</b>である ——
+     * 「【威圧】(相手の攻撃対象にならない)」は威圧の意味を言い換えているだけで、
+     * そのカード固有の効果ではない。ここを落とさないと、
+     * バニラに近いカードにまで「効果未実装」の印が付く。
+     *
+     * <p>ただし<b>【特殊召喚】だけは括弧の中身が発動条件そのもの</b>であり、
+     * エンジンは {@code specialSummons} への登録を必要とする。落としてはいけない。
+     * この1つの例外を間違えると、未実装の特殊召喚が黙って不発になる。
+     */
+    @Test
+    void キーワードの注釈の括弧は効果の文として数えない() {
+        // 注釈 = 落とす
+        assertThat(CardTextKeywords.hasEffectSentence("【突進】\n【威圧】(相手の攻撃対象にならない)"))
+                .isFalse();
+        assertThat(CardTextKeywords.hasEffectSentence("【守護】\n【潜伏】(相手のカードや能力の対象にならない)"))
+                .isFalse();
+        // 【特殊召喚】の括弧 = 条件そのもの。落とさない
+        assertThat(CardTextKeywords.hasEffectSentence("【特殊召喚】(自分の手札が7枚以上なら手札を3枚捨てて出せる)"))
+                .isTrue();
+        // 【進化】は Keyword ではないので、そもそも「キーワードの直後」に当たらない
+        assertThat(CardTextKeywords.hasEffectSentence("【進化】(自分ミニオン1体以上)【潜伏】【知識】"))
+                .isTrue();
+    }
+
+    @Test
+    void 効果なしと書かれたカードは効果の文を持たない() {
+        // ★カードIDではなく表記を見ている。同じ書き方のカードが増えても自動的に効く
+        assertThat(CardTextKeywords.hasEffectSentence("効果なし")).isFalse();
+        assertThat(CardTextKeywords.hasEffectSentence("【守護】")).isFalse();
+        assertThat(CardTextKeywords.hasEffectSentence("")).isFalse();
+        assertThat(CardTextKeywords.hasEffectSentence(null)).isFalse();
+        assertThat(CardTextKeywords.hasEffectSentence("【召喚時】カードを1枚引く")).isTrue();
+    }
+
+    /**
+     * Ver1.1 の235枚のうち、効果の文があるのは215枚である(裁定162 の例外。人が決めた数)。
+     * ★この数は {@code tools/report_effects.py} の「うち効果の文がある」と一致する。
+     * ずれたら、規則を触ったのに片方だけ直した合図である。
+     */
+    @Test
+    void 効果の文があるカードは215枚である() {
+        long withSentence = ver11Cards().stream()
+                .filter(c -> CardTextKeywords.hasEffectSentence(c.text()))
+                .count();
+        assertThat(withSentence).isEqualTo(215);
+    }
+
     private static List<String> sorted(Set<Keyword> keywords) {
         return keywords.stream().map(Keyword::getDisplayName).sorted().toList();
     }

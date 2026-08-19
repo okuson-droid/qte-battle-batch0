@@ -4576,6 +4576,98 @@ async function clearZoom(page) {
     JSON.stringify(freshErrors));
   await freshPage.close();
 
+  // ---- 47-1. ★★「効果未実装」の印(裁定D2) ----
+  // ★★46b までは効果が未実装のスペルをデッキ構築の入口で弾いていた。47 で門を開けた代わりに、
+  //   盤面で見分けが付くようにした。★判定はサーバ(EffectImplementation)が済ませてあり、
+  //   クライアントは届いた真偽値を描くだけである —— 同じ規則を Java とブラウザの
+  //   2箇所に置かない(裁定163)。したがってここで測るのは「真偽値が絵になっているか」だけである。
+  // ★印を出す先を .mcard-* の中にしていないことも同時に測る(面には手を入れない。裁定141)。
+  const markPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const markErrors = [];
+  markPage.on('pageerror', (e) => markErrors.push(String(e)));
+  await markPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await markPage.waitForTimeout(300);
+  await markPage.evaluate((view) => { latestView = view; render(view); }, autoView({
+    you: autoPlayer({
+      hand: [
+        // 0: 印つき(効果が未実装のスペル)  1: 印なし  2: 印 + 特殊召喚可(バッジが2枚並ぶ)
+        autoCard('QTE-M-WATER-36', '潮獣ビシャカワ', {
+          type: 'SPELL', civilization: 'WATER', cost: 2, attack: null, hp: null,
+          text: '自分の【潜伏】の数自分のリーダーのHPを1回復を行う。',
+          effectUnimplemented: true,
+        }),
+        autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2, keywords: ['速攻'] }),
+        autoCard('QTE-M-FIRE-35', '砲台鉄機虎', {
+          cost: 4, canSpecialSummon: true, specialSummonText: '進化ミニオンがいるとき0コスト',
+          effectUnimplemented: true,
+        }),
+      ],
+      minions: [
+        autoMinion('u1', '百獣の王 ベヒーモス',
+          { cardId: 'QTE-M-EARTH-7', attack: 10, currentHp: 10, maxHp: 10,
+            effectUnimplemented: true }),
+        autoMinion('u2', '炎の従者'),
+      ],
+    }),
+  }));
+  const marks = await markPage.evaluate(() => {
+    const label = (root) => {
+      const b = root.querySelector('.auto-badge-unimplemented');
+      return b ? { text: b.textContent, color: getComputedStyle(b).color,
+        insideFace: !!b.closest('.mcard') } : null;
+    };
+    const hands = [...document.querySelectorAll('#my-hand .auto-card')];
+    const minions = [...document.querySelectorAll('#my-minions .auto-card')];
+    // ★比べる相手は「印ではないバッジ」でなければならない。手札3枚目の【★特殊召喚可】を使う
+    //   (印そのものを比較対象に選ぶと、色を変えても必ず一致して落ちない。裁定135 と同じ穴)
+    const plain = [...hands[2].querySelectorAll('.auto-badge')]
+      .find(b => !b.classList.contains('auto-badge-unimplemented'));
+    // ★否の色は battle.css が既に持っている(.manual-fx-lp-down = 体力が減る演出)。
+    //   検証に色の値を書き写さず、同じ CSS から読んだ2つを突き合わせる(裁定131)。
+    const probe = document.createElement('span');
+    probe.className = 'manual-fx-lp-down';
+    document.body.appendChild(probe);
+    const negative = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      negative,
+      handMarked: label(hands[0]),
+      handClean: label(hands[1]),
+      handBoth: [...hands[2].querySelectorAll('.auto-badge')].map(b => b.textContent),
+      minionMarked: label(minions[0]),
+      minionClean: label(minions[1]),
+      normalBadgeColor: plain ? getComputedStyle(plain).color : '',
+    };
+  });
+  check('★★効果が未実装のカードは手札の面に印が出る(47・裁定D2)',
+    marks.handMarked !== null && marks.handMarked.text.includes('効果未実装'),
+    JSON.stringify(marks.handMarked));
+  check('★★印は場のミニオンにも出る(47・手札で見た印が場で消えない)',
+    marks.minionMarked !== null && marks.minionMarked.text.includes('効果未実装'),
+    JSON.stringify(marks.minionMarked));
+  check('★実装済みのカードには印が出ない(47・これが出たら嘘をついている)',
+    marks.handClean === null && marks.minionClean === null,
+    JSON.stringify({ hand: marks.handClean, minion: marks.minionClean }));
+  check('★★印は面(.mcard)の外に重ねる(47・フェイスに手を入れない。裁定141)',
+    marks.handMarked !== null && marks.handMarked.insideFace === false
+      && marks.minionMarked !== null && marks.minionMarked.insideFace === false,
+    JSON.stringify({ hand: marks.handMarked, minion: marks.minionMarked }));
+  // ★★他のバッジは「今これができる」を伝える。印だけは「書いてあるとおりには動かない」という
+  //   否の知らせなので、battle.css が既に持っている否の色(.manual-fx-lp-down)と同じ色で出す。
+  //   ★色の値を検証に書き写さない —— 同じ CSS から読んだ2つを比べる(裁定131・裁定32)。
+  check('★印は否の色で、他のバッジとは色が違う(47)',
+    marks.handMarked !== null && marks.normalBadgeColor !== '' && marks.negative !== ''
+      && marks.handMarked.color === marks.negative
+      && marks.handMarked.color !== marks.normalBadgeColor,
+    JSON.stringify({ mark: marks.handMarked && marks.handMarked.color,
+      negative: marks.negative, normal: marks.normalBadgeColor }));
+  check('★特殊召喚可と印は両方出る(47・バッジの入れ物を1つにまとめた)',
+    marks.handBoth.length === 2 && marks.handBoth.some(t => t.includes('特殊召喚'))
+      && marks.handBoth.some(t => t.includes('効果未実装')),
+    JSON.stringify(marks.handBoth));
+  check('印を描いてもJSエラーが出ない(47)', markErrors.length === 0, JSON.stringify(markErrors));
+  await markPage.close();
+
   // ---- 42-3. 実効コストの印 ----
   const effCost = await autoPage.evaluate(() => {
     const faces = document.querySelectorAll('#my-hand .auto-card .mcard');

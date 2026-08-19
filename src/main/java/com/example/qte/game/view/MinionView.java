@@ -12,6 +12,8 @@ import java.util.List;
  * @param tapped          タップ状態か(起動能力を使った後。攻撃できない)
  * @param canUseAbility   今この瞬間、起動能力を発動できるか(能力を持たないミニオンはfalse)
  * @param abilityText     起動能力の説明文(能力を持たないミニオンはnull)
+ * @param effectUnimplemented ★Batch 47。効果の文があるのにエンジンが処理を持っていないカード。
+ *                        手札で見た印が場でも消えないよう、場のタイルにも同じ印を出す
  */
 public record MinionView(
         String instanceId,
@@ -26,5 +28,6 @@ public record MinionView(
         boolean frozen,
         boolean tapped,
         boolean canUseAbility,
-        String abilityText) {
+        String abilityText,
+        boolean effectUnimplemented) {
 }

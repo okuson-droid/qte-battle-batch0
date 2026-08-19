@@ -13,24 +13,38 @@ Ver1.1 対応(P1〜P5)は 163枚の効果を作る長い作業である。途中
   - src/main/java/**.java (登録以外の場所に書かれた挙動)
 であり、途中に人が書いた一覧を挟まない。
 
-【「実装済み」の数え方】
+【「実装済み」の数え方】★Batch 47 で数え方を直した
 2段階で見る。厳しい方から順に、
 
   登録あり  … CardEffectRegistry の9つの表のどれかにカードIDが登録されている
-  参照あり  … 登録は無いが、どこかの Java にカードIDが書かれている
-              (RuleGuards・StatCalculator・GameService のように、表ではなく
-               ルール側に直接書かれた挙動。これも実装ではある)
-  未実装    … カードIDがコードのどこにも現れない
+  宣言あり  … 表ではなくルール側の判定点に直接書かれている(RuleGuards・StatCalculator・
+              GameService・GameActions・PlayerState・CardEffectRegistry の
+              IMPLEMENTED_CARDS が自分で名乗ったもの。裁定164)
+  未実装    … どちらでもない
+
+★46b までは「どこかの Java にIDが書かれていれば実装済み」と数えていた。これは間違いで、
+  DeckFactory(プリセットデッキのIDの羅列)まで実装として数えていた。そのせいで
+  《百獣の王 ベヒーモス》のように<b>プリセットに入っているだけの未実装カード</b>が
+  実装済みに化けていた。46b の裁定175(移行は既存の不整合を掘り出す)の続きである。
+
+★宣言の足し忘れは下の check_declarations() が検出して止まる。
+  「ルール側のファイルにIDが書いてあるのに、どの IMPLEMENTED_CARDS にも載っていない」
+  「IMPLEMENTED_CARDS に載っているのに、そのファイルのどこにも使われていない」の両方を見る。
 
 ★Batch 46b で Java のカードIDが台帳ID(QTE-0001 等)から Ver1.1 のID(QTE-M-<文明>-<番号>)へ
   機械変換された。したがって照合の鍵は ledgerCardId ではなく card['id'] である。
 
 【「効果テキストあり」の数え方】
-テキストから【…】をすべて取り除いて、句読点と空白しか残らないカードは
+テキストから【…】と、その直後の注釈の丸括弧を取り除いて、句読点と空白しか残らないカードは
 「キーワードだけのカード」であり、効果の登録は要らない(データが正しければ動く)。
-★ここで見ているのは「文が残るかどうか」だけである。どの【】がそのカード自身の
-  キーワードかを判定する規則は Java 側(CardTextKeywords)にあり、こちらには書かない
-  —— 同じ規則を2つの言語に置くと、必ず片方だけが直される日が来る(裁定130)。
+
+★★この規則の正は Java の CardTextKeywords.hasEffectSentence である(Batch 47)。
+  盤面に出る「効果未実装」の印はそちらが決めており、ここにあるのは<b>写し</b>である。
+  同じ規則が2つの言語にあるのは裁定163 が戒めた形だが、
+  (a) 印(=遊びに影響する判定)の正は Java ただ1つであり、
+  (b) こちらが左右するのは進捗の数字だけである、
+  という理由で許容している。数字がずれたら、正である Java 側に合わせること。
+  なお【特殊召喚】の括弧は注釈ではなく発動条件そのものなので落とさない(Java と同じ)。
 
 【使い方】
   python3 tools/report_effects.py                       # Markdown を標準出力へ
@@ -104,32 +118,145 @@ def registered_ids():
     ids = set()
     for name in REGISTRY_MAPS:
         ids |= set(re.findall(re.escape(name) + r'\.put\("(QTE-[\w-]+)"', src))
-    # triggers への登録は register(...) ヘルパを通る
-    ids |= set(re.findall(r'\bregister\("(QTE-[\w-]+)",\s*TriggerType\.', src))
+    # 表への登録がヘルパを通るもの。★ヘルパを増やしたらここにも足すこと
+    # (足し忘れると「登録あり」を数え落とし、印が実装済みのカードに付いてしまう)
+    for helper in ['register', 'watchOwnMinionDestroyed']:
+        ids |= set(re.findall(r'\b%s\("(QTE-[\w-]+)"' % helper, src))
     return ids
 
 
-def referenced_ids():
-    """Java のどこかに書かれているカードIDの集合(登録も含む)。"""
+# ルール側の判定点を持つクラス。ここに IMPLEMENTED_CARDS の宣言がある(裁定164)。
+# ★このリストに載っていない .java にカードIDが現れたら、下の check_declarations() が止める。
+RULE_SIDE_FILES = [
+    'com/example/qte/effect/CardEffectRegistry.java',
+    'com/example/qte/effect/RuleGuards.java',
+    'com/example/qte/effect/StatCalculator.java',
+    'com/example/qte/game/GameService.java',
+    'com/example/qte/game/GameActions.java',
+    'com/example/qte/game/PlayerState.java',
+]
+
+# プリセットデッキの中身。カードIDが並ぶが、これは「実装」ではなく「デッキの内容」である。
+# ★実在するIDかの検査は tools/check_all.py 項目3 と DeckValidatorTest が行う。
+DECK_CONTENT_FILES = ['com/example/qte/game/DeckFactory.java']
+
+BLOCK_COMMENT = re.compile(r'/\*.*?\*/', re.S)
+LINE_COMMENT = re.compile(r'//[^\n]*')
+CONSTANT_DECL = re.compile(r'static\s+final\s+String\s+(\w+)\s*=\s*"(QTE-[\w-]+)"')
+IMPLEMENTED_BLOCK = re.compile(r'IMPLEMENTED_CARDS\s*=[^;]*?Set\.of\((.*?)\)\s*;', re.S)
+
+
+def without_comments(src):
+    """コメントを取り除いたソース。
+
+    ★注釈でカード名やIDに触れているだけの行を「実装」と数えないため。
+      46b までの数え方はコメントも拾っており、実装の所在を正しく指していなかった。
+    """
+    return LINE_COMMENT.sub('', BLOCK_COMMENT.sub('', src))
+
+
+def declared_ids():
+    """ルール側の各クラスが IMPLEMENTED_CARDS で名乗ったカードIDの集合。
+
+    宣言は定数名で書かれていることがあるので、同じファイルの定数宣言で解決する。
+    ★ここで「別ファイルの一覧」を作らない —— 読んでいるのは実装のあるファイルそのものである。
+    """
     ids = set()
-    for path in sorted(JAVA.rglob('*.java')):
-        ids |= set(CARD_ID.findall(path.read_text(encoding='utf-8')))
+    for rel in RULE_SIDE_FILES:
+        ids |= declared_in(JAVA / rel)[0]
     return ids
+
+
+def declared_in(path):
+    """(宣言されたID, そのファイルの定数名→ID) を返す。"""
+    src = path.read_text(encoding='utf-8')
+    constants = dict((name, value) for name, value in CONSTANT_DECL.findall(src))
+    block = IMPLEMENTED_BLOCK.search(without_comments(src))
+    if not block:
+        raise SystemExit('NG: %s に IMPLEMENTED_CARDS の宣言が見つからない' % path.name)
+    ids = set()
+    for token in re.split(r'[,\s]+', block.group(1).strip()):
+        if not token:
+            continue
+        if token.startswith('"'):
+            ids.add(token.strip('"'))
+        elif token in constants:
+            ids.add(constants[token])
+        else:
+            raise SystemExit('NG: %s の IMPLEMENTED_CARDS に解決できない要素がある: %s'
+                             % (path.name, token))
+    return ids, constants
+
+
+def check_declarations(registered):
+    """宣言の過不足を両方向から検める(★Batch 47 の番人)。
+
+    1. ルール側のファイルにIDが書いてあるのに、登録にもどの宣言にも無い → 足し忘れ
+    2. 宣言にあるのに、そのファイルの宣言以外の場所で1度も使われていない → 宣言が古い
+    3. ルール側でもデッキ内容でもないファイルにカードIDが書かれている → 置き場所が想定外
+
+    ★1 は<b>全クラスの宣言の和</b>と比べる。1枚のカードの実装が2つのクラスに分かれることが
+      実際にある(風護の杖は GameService が発火し、CardEffectRegistry が選択を解決する)。
+      「どのファイルで名乗るか」ではなく「どこかで名乗っているか」を問うのが正しい。
+    ★2 はファイルごとに見る。宣言したクラスがその実装を捨てたことは、そのクラスでしか分からない。
+    """
+    problems = []
+    known = set(RULE_SIDE_FILES) | set(DECK_CONTENT_FILES)
+    everywhere = declared_ids()
+    for path in sorted(JAVA.rglob('*.java')):
+        rel = path.relative_to(JAVA).as_posix()
+        body = without_comments(path.read_text(encoding='utf-8'))
+        found = set(CARD_ID.findall(body))
+        if not found:
+            continue
+        if rel in DECK_CONTENT_FILES:
+            continue
+        if rel not in known:
+            problems.append('%s にカードIDが書かれている(%d種)。ルール側なら RULE_SIDE_FILES に足し、'
+                            'IMPLEMENTED_CARDS を宣言すること' % (rel, len(found)))
+            continue
+        declared, constants = declared_in(path)
+        # 1. 足し忘れ
+        for card_id in sorted(found - everywhere - registered):
+            problems.append('%s: %s が登録にも、どのクラスの IMPLEMENTED_CARDS にも無い'
+                            % (rel, card_id))
+        # 2. 宣言が古い(宣言の行を取り除いても、なおそのIDが使われているか)
+        outside = IMPLEMENTED_BLOCK.sub('', body)
+        used = set(CARD_ID.findall(outside))
+        for name, value in constants.items():
+            if value in declared and re.search(r'\b%s\b' % name, outside):
+                used.add(value)
+        for card_id in sorted(declared - used):
+            problems.append('%s: %s を IMPLEMENTED_CARDS が名乗っているが、'
+                            'このファイルのどこにも使われていない' % (rel, card_id))
+    if problems:
+        raise SystemExit('NG: 効果の実装の宣言に食い違いがある\n  - ' + '\n  - '.join(problems))
+
+
+# キーワード表記の直後に続く注釈の丸括弧(【威圧】(相手の攻撃対象にならない) など)。
+# ★【特殊召喚】だけは括弧の中身が発動条件そのものなので落とさない(Java と同じ規則)。
+NOTE_KEYWORDS = ['守護', '潜伏', '突進', '速攻', '威圧', '貫通', '知識', '還元']
+TRAILING_NOTE = re.compile(r'【(?:%s)】\s*[（(][^）)]*[）)]' % '|'.join(NOTE_KEYWORDS))
+NO_EFFECT = re.compile(r'効果\s*なし')
 
 
 def has_sentence(text):
-    """【…】を取り除いて文が残るか(= 効果の登録が要りそうか)。"""
+    """【…】と注釈の括弧を取り除いて、文が残るか(= 効果の登録が要りそうか)。
+
+    ★正は Java の CardTextKeywords.hasEffectSentence である(冒頭の注記を参照)。
+    """
     if not text:
         return False
-    return bool(NOISE.sub('', BRACKET.sub('', text)))
+    rest = NO_EFFECT.sub('', BRACKET.sub('', TRAILING_NOTE.sub('', text)))
+    return bool(NOISE.sub('', rest))
 
 
-def classify(card, registered, referenced):
+def classify(card, registered, declared):
     card_id = card['id']
     if card_id in registered:
         return '登録あり'
-    if card_id in referenced:
-        return '参照あり'
+    if card_id in declared:
+        return '宣言あり'
     return '未実装'
 
 
@@ -137,7 +264,8 @@ def main():
     args = sys.argv[1:]
     cards = load_cards()
     registered = registered_ids()
-    referenced = referenced_ids()
+    check_declarations(registered)
+    declared = declared_ids()
 
     rows = []
     for card in cards:
@@ -148,7 +276,7 @@ def main():
             'civ': card['civilization'],
             'new': card.get('ledgerCardId') is None,
             'sentence': has_sentence(card.get('text')),
-            'state': classify(card, registered, referenced),
+            'state': classify(card, registered, declared),
         })
 
     out = []
@@ -163,7 +291,7 @@ def main():
     need = [r for r in rows if r['sentence']]
     kw_only = [r for r in rows if not r['sentence']]
     done = [r for r in need if r['state'] == '登録あり']
-    partial = [r for r in need if r['state'] == '参照あり']
+    partial = [r for r in need if r['state'] == '宣言あり']
     todo = [r for r in need if r['state'] == '未実装']
     w('| 区分 | 枚数 |')
     w('|---|---|')
@@ -171,7 +299,7 @@ def main():
     w('| うちキーワードのみ(効果の登録は不要) | %d |' % len(kw_only))
     w('| うち効果の文がある(登録が要る) | %d |' % len(need))
     w('| ├ 登録あり | %d |' % len(done))
-    w('| ├ 参照あり(表ではなくルール側に実装) | %d |' % len(partial))
+    w('| ├ 宣言あり(表ではなくルール側に実装) | %d |' % len(partial))
     w('| └ **未実装** | **%d** |' % len(todo))
     w('')
     w('新カード(台帳に無い) %d 枚のうち、効果の文があるのは %d 枚。'
@@ -181,7 +309,7 @@ def main():
 
     w('## 文明別(効果の文があるカードのみ)')
     w('')
-    w('| 文明 | 要実装 | 登録あり | 参照あり | 未実装 |')
+    w('| 文明 | 要実装 | 登録あり | 宣言あり | 未実装 |')
     w('|---|---|---|---|---|')
     for civ in CIV_ORDER:
         sub = [r for r in need if r['civ'] == civ]
@@ -189,12 +317,12 @@ def main():
             continue
         c = Counter(r['state'] for r in sub)
         w('| %s | %d | %d | %d | %d |'
-          % (civ, len(sub), c['登録あり'], c['参照あり'], c['未実装']))
+          % (civ, len(sub), c['登録あり'], c['宣言あり'], c['未実装']))
     w('')
 
     w('## 種別別(効果の文があるカードのみ)')
     w('')
-    w('| 種別 | 要実装 | 登録あり | 参照あり | 未実装 |')
+    w('| 種別 | 要実装 | 登録あり | 宣言あり | 未実装 |')
     w('|---|---|---|---|---|')
     for typ in TYPE_ORDER:
         sub = [r for r in need if r['type'] == typ]
@@ -202,7 +330,7 @@ def main():
             continue
         c = Counter(r['state'] for r in sub)
         w('| %s | %d | %d | %d | %d |'
-          % (typ, len(sub), c['登録あり'], c['参照あり'], c['未実装']))
+          % (typ, len(sub), c['登録あり'], c['宣言あり'], c['未実装']))
     w('')
 
     ledger = load_ledger()
@@ -225,7 +353,7 @@ def main():
     w('')
 
     if '--summary' not in args:
-        w('## 未実装の一覧(効果の文があるのに、コードのどこにも現れないカード)')
+        w('## 未実装の一覧(★盤面で「効果未実装」の印が付くカード)')
         w('')
         by_civ = OrderedDict((civ, []) for civ in CIV_ORDER)
         for r in todo:

@@ -38,6 +38,13 @@ public class PlayerState {
     /** 大地の巨頭。常在能力でミニオンゾーンの上限を8体に引き上げる(Ver.0.4) */
     private static final String EARTH_COLOSSUS_LEADER_ID = "QTE-M-EARTH-1";
 
+    /**
+     * このクラスが挙動を実装しているカード(★Batch 47)。
+     * 趣旨と番人は {@link com.example.qte.effect.RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
+     */
+    public static final java.util.Set<String> IMPLEMENTED_CARDS =
+            java.util.Set.of(EARTH_COLOSSUS_LEADER_ID);
+
     private final String playerId;
     private final String displayName;
     private final CardMaster leader;

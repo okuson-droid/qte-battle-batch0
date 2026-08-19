@@ -169,6 +169,46 @@ class DeckValidatorTest {
                 .isEmpty();
     }
 
+    // ------------------------------------------------------------------
+    // ★Batch 47: 効果が未実装のスペルの門を開けた(裁定D2)
+    // ------------------------------------------------------------------
+
+    /**
+     * 46b までは、効果の登録が無いスペルは<b>ここで拒否されていた</b>。
+     * 47 で拒否をやめ、代わりに盤面へ印を出すことにした(裁定D2)。
+     *
+     * <p>★印が出ることは {@link EffectImplementationTest} が測る。
+     * こちらが測るのは「入口が開いたこと」だけである。
+     */
+    @Test
+    void 効果が未実装のスペルもメインデッキに入れられる() {
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-36"); // 潮獣ビシャカワ
+        assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void 効果が未実装のスペルは禁忌デッキにも入れられる() {
+        // ★片方の経路だけ開けて満足しないよう、禁忌側でも測る(進化の試験と同じ形)。
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition base = presetDeck(leader);
+        List<String> taboo = new ArrayList<>(base.taboo());
+        taboo.set(0, "QTE-M-FIRE-37"); // リペア・チューナー(火の未実装スペル)
+        DeckDefinition deck = new DeckDefinition(
+                base.formatVersion(), base.name(), base.leaderCardId(), base.main(), taboo);
+        assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
+    }
+
+    @Test
+    void 文明なしのカードはデッキに入れられない() {
+        // ★スペルの門を開けても、文明の検査は残っている。ピュア・エレメント(文明なし)は
+        // デッキに入るカードではないので、ここで止まる。
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-NONE-01");
+        assertThatThrownBy(() -> validator.validate(deck))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void リーダーはメインデッキに入れられない() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);

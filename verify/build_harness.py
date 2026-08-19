@@ -44,7 +44,7 @@ html = html.replace(
 
 # 実ファイルを相対パスで読ませる
 html = html.replace(
-    '<link th:href="@{/css/battle.css(v=45)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 html = html.replace(
@@ -257,7 +257,7 @@ print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")
 # ---------------------------------------------------------------------------
 deck = DECK_TEMPLATE.read_text(encoding="utf-8")
 deck = deck.replace(
-    '<link th:href="@{/css/battle.css(v=45)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 deck = re.sub(r'\s+th:href="[^"]*"', ' href="#"', deck)
@@ -289,11 +289,11 @@ battle = battle.replace(
     "",
 )
 battle = battle.replace(
-    '<link th:href="@{/css/battle.css(v=45)}" rel="stylesheet">',
+    '<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 battle = battle.replace(
-    '<script th:src="@{/js/battle.js(v=19)}"></script>',
+    '<script th:src="@{/js/battle.js(v=20)}"></script>',
     '<script src="/js/battle.js"></script>',
 )
 battle = battle.replace("/*[[${roomId}]]*/ ''", "'TESTRM'")
