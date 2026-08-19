@@ -294,7 +294,7 @@ function autoCard(cardId, name, overrides = {}) {
 
 function autoMinion(instanceId, name, overrides = {}) {
   return {
-    instanceId, cardId: 'QTE-0001', name,
+    instanceId, cardId: 'QTE-M-FIRE-6', name,
     attack: 2, currentHp: 3, maxHp: 3, keywords: [],
     canAttackMinion: false, canAttackLeader: false,
     frozen: false, tapped: false, canUseAbility: false, abilityText: null,
@@ -304,7 +304,7 @@ function autoMinion(instanceId, name, overrides = {}) {
 
 function autoPlayer(overrides = {}) {
   return {
-    displayName: 'テスト', leaderName: '傷痕の闘帝', leaderCardId: 'QTE-L001',
+    displayName: 'テスト', leaderName: '傷痕の闘帝', leaderCardId: 'QTE-M-FIRE-15',
     lp: 20, deckCount: 30, handCount: 0, hand: [],
     availableMp: 5, totalMana: 5, manaZone: [],
     minions: [], trashCount: 0, trashCardNames: [], trash: [],

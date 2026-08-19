@@ -18,7 +18,8 @@
  *     DOM の構造とクラス名は手動モードの cardFace と同じにし、コードは複製する(裁定111)。
  *   - 手札・禁忌は CardView が面に必要な情報を全部持っている。ミニオンとリーダーの
  *     文明色・効果テキストだけは /manual/api/card-library から起動時1回取得し、
- *     台帳ID(cardId / leaderCardId = manual-cards.json の ledgerCardId)で引く。
+ *     カードID(cardId / leaderCardId)で引く。
+ *     ★46b: サーバのカードIDが台帳ID から QTE-M-* へ移ったので、索引も id に変えた。
  *     ★取得前・取得失敗時でも壊れない(25 と同じ性質): 色は無文明色になり、
  *     拡大のテキストが空になるだけで、対戦は続けられる。
  *   - ★状態のクラス名(playable / can-attack / attack-target / selected-attacker /
@@ -743,10 +744,15 @@ function civColor(civ) {
 }
 
 /**
- * カード定義の索引。台帳ID(ledgerCardId)→ {civilization, text, cost}。
+ * カード定義の索引。カードID(id)→ {civilization, text, cost, ...}。
  * ★MinionView は文明とテキストを運ばない(現在値と可否だけを運ぶ)。サーバの
  *   ビューを太らせる代わりに、既にある口(card-library)から引く —— Java 変更ゼロで済み、
  *   「サーバの知っているカード」と「画面の知っているカード」の正が1つに保たれる(設計判断28)。
+ *
+ * ★★Batch 46b: 索引の鍵を ledgerCardId から id に変えた。
+ *   通常モードのカードマスタが manual-cards.json になり、サーバが送ってくる cardId が
+ *   このファイルの id そのものになったためである。★副産物として、台帳に無かった
+ *   新カード66枚も索引に入る(以前は ledgerCardId が null で入らず、色もテキストも出なかった)。
  */
 const autoLibrary = new Map();
 /** ★45: 実物のカード裏面の画像ID。card-library の meta.backImageId(手動モードと同じ正) */
@@ -756,7 +762,7 @@ function loadCardLibrary() {
         .then(r => (r.ok ? r.json() : Promise.reject(r.status)))
         .then(data => {
             (data.cards || []).forEach(c => {
-                if (c.ledgerCardId) autoLibrary.set(c.ledgerCardId, c);
+                if (c.id) autoLibrary.set(c.id, c);
             });
             if (data.meta && data.meta.backImageId) autoBackImageId = data.meta.backImageId;
             if (latestView) render(latestView); // 取得前に描いた分へ色とテキストを行き渡らせる
@@ -780,9 +786,9 @@ function fillCardBack(el) {
     return false;
 }
 
-/** 台帳IDから文明色を引く。未取得・未知IDは無文明色に落ちる */
-function libCivColor(ledgerId) {
-    const entry = autoLibrary.get(ledgerId);
+/** カードIDから文明色を引く。未取得・未知IDは無文明色に落ちる */
+function libCivColor(cardId) {
+    const entry = autoLibrary.get(cardId);
     return entry ? civColor(entry.civilization) : civColor('NONE');
 }
 
@@ -1219,7 +1225,7 @@ function renderControls(view) {
     controls.classList.toggle('d-none', !(view.status === 'PLAYING' && view.myTurn) || choosing);
     // 墓地からの召喚は【黄泉の召喚主】のサブフェイズ限定(常在能力)
     const graveSummon = view.status === 'PLAYING' && view.myTurn && view.phase === 'SUB'
-        && view.you.leaderCardId === 'QTE-L006';
+        && view.you.leaderCardId === 'QTE-M-DARK-15';
     document.getElementById('btn-summon-grave').classList.toggle('d-none', !graveSummon);
 }
 

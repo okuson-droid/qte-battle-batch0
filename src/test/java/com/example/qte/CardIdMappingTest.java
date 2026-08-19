@@ -14,20 +14,20 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
 import com.example.qte.master.Civilization;
+import com.example.qte.support.LedgerCards;
 import com.example.qte.support.Ver11Cards;
 
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Ver1.1 移行(裁定D1)の<b>前提</b>を機械で確かめる(Batch 46a)。
+ * Ver1.1 移行(裁定D1)の<b>前提</b>を機械で確かめる(Batch 46a / ★46b で読む先を移した)。
  *
- * 46b では、通常モードのカードマスタを {@code qte-cards.json} から
- * {@code manual-cards.json} へ差し替え、Java にベタ書きされた台帳ID約170種を
- * {@code QTE-M-<文明>-<番号>} へ<b>機械的に書き換える</b>。
+ * 46b で、通常モードのカードマスタを {@code qte-cards.json} から
+ * {@code manual-cards.json} へ差し替え、Java にベタ書きされた台帳ID169種を
+ * {@code QTE-M-<文明>-<番号>} へ<b>機械的に書き換えた</b>。
  * その書き換えが成り立つのは、次がすべて真であるときだけである。
  *
  * <ul>
@@ -36,26 +36,44 @@ import tools.jackson.databind.ObjectMapper;
  * <li>Ver1.1 側の型・文明が、エンジンの列挙体で表せる</li>
  * </ul>
  *
- * ★このテストは移行前に置いてある。移行してから「前提が崩れていた」と気づくと、
- * 何がどこまで正しく変換されたのか誰にも分からなくなる。
+ * ★このテストは移行<b>前</b>に置いた。移行してから「前提が崩れていた」と気づくと、
+ * 何がどこまで正しく変換されたのか誰にも分からなくなるからである。
+ * 移行後も残すのは、カード定義ファイルを差し替えたときに同じ前提が崩れるのを検出するためである。
  * 同じ検証は {@code tools/build_id_map.py --check} でも行える(あちらは Maven を要さない)。
+ *
+ * <p>★46b の変更点: 台帳側は本体のリポジトリからは読めなくなったので
+ * {@link LedgerCards} 経由にした。{@code qte-cards.json} を削除するバッチで、
+ * 台帳を見る2件({@code 台帳とVer11のカードが1対1で対応する} と
+ * {@code 台帳に無い新カードは66枚である})も一緒に畳むこと。
  */
 @SpringBootTest
 class CardIdMappingTest {
 
+    /** ★46b: Ver1.1(235枚)を読むリポジトリ。移行が実際に効いていることの確認に使う */
     @Autowired
-    CardMasterRepository ledger;
+    CardMasterRepository cards;
 
     @Autowired
     ObjectMapper objectMapper;
 
     private List<Ver11Cards.Card> ver11;
+    private Set<String> ledgerIds;
 
     private List<Ver11Cards.Card> ver11Cards() {
         if (ver11 == null) {
             ver11 = Ver11Cards.load(objectMapper);
         }
         return ver11;
+    }
+
+    /** 退役した台帳のカードID(169件)。テスト専用の読み口から直に読む */
+    private Set<String> ledgerIds() {
+        if (ledgerIds == null) {
+            ledgerIds = LedgerCards.load(objectMapper).stream()
+                    .map(LedgerCards.Card::id)
+                    .collect(Collectors.toCollection(TreeSet::new));
+        }
+        return ledgerIds;
     }
 
     @Test
@@ -96,21 +114,18 @@ class CardIdMappingTest {
             if (byLedgerId.put(ledgerId, card.id()) != null) {
                 duplicated.add(ledgerId);
             }
-            try {
-                ledger.findById(ledgerId);
-            } catch (IllegalArgumentException e) {
+            if (!ledgerIds().contains(ledgerId)) {
                 notInLedger.add(ledgerId + " (" + card.id() + ")");
             }
         }
         assertThat(duplicated).as("2枚の Ver1.1 カードが同じ台帳カードを指している").isEmpty();
         assertThat(notInLedger).as("台帳に存在しない ledgerCardId").isEmpty();
 
-        Set<String> unreferenced = ledger.getAllCards().stream()
-                .map(CardMaster::id)
+        Set<String> unreferenced = ledgerIds().stream()
                 .filter(id -> !byLedgerId.containsKey(id))
                 .collect(Collectors.toCollection(TreeSet::new));
         assertThat(unreferenced).as("どの Ver1.1 カードからも指されていない台帳カード").isEmpty();
-        assertThat(byLedgerId).hasSize(ledger.getAllCards().size());
+        assertThat(byLedgerId).hasSize(ledgerIds().size());
     }
 
     @Test
@@ -124,15 +139,17 @@ class CardIdMappingTest {
     }
 
     @Test
-    void エンジンの列挙体で表せない語はEVOLUTIONだけである() {
-        // ★46b で CardType に EVOLUTION を足す必要があることの、機械で読める根拠。
-        // ここが増えていたら、移行の前に列挙体を見直すこと。
+    void 種別はすべてエンジンの列挙体で表せる() {
+        // ★46a では「表せないのは EVOLUTION だけ」という形で、46b で列挙体に足す根拠を測っていた。
+        // 46b で CardType に EVOLUTION を足したので、いまは<b>1つも残っていない</b>ことを測る。
+        // ここが増えたら、カードデータが列挙体より先に進んでいる合図である。
         Set<String> known = Arrays.stream(CardType.values()).map(Enum::name)
                 .collect(Collectors.toSet());
         Set<String> unknown = ver11Cards().stream().map(Ver11Cards.Card::type)
                 .filter(t -> !known.contains(t))
                 .collect(Collectors.toCollection(TreeSet::new));
-        assertThat(unknown).containsExactly("EVOLUTION");
+        assertThat(unknown).isEmpty();
+        assertThat(known).contains("EVOLUTION");
     }
 
     @Test

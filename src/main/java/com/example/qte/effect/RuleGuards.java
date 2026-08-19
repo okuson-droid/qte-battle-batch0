@@ -42,19 +42,19 @@ import com.example.qte.master.Keyword;
 public class RuleGuards {
 
     // 攻撃を禁止するカード
-    private static final String PEACE_BARRIER = "QTE-0095";   // 平和の結界(Attack3以上は攻撃不可)
-    private static final String GLEAM_SHIELD = "QTE-0101";    // 煌めきの盾(自身は攻撃不可)
-    private static final String GENESIS_IRIS = "QTE-0107";    // 創世神(自身はリーダーを攻撃不可)
-    private static final String ABSOLUTE_GAIA = "QTE-0150";   // 不動の絶対神ガイア(自身はリーダーを攻撃不可・土文明)
-    private static final String ZODIAC = "QTE-0104";          // ゾディアック(相手リーダーは攻撃不可)
+    private static final String PEACE_BARRIER = "QTE-M-LIGHT-23";   // 平和の結界(Attack3以上は攻撃不可)
+    private static final String GLEAM_SHIELD = "QTE-M-LIGHT-16";    // 煌めきの盾(自身は攻撃不可)
+    private static final String GENESIS_IRIS = "QTE-M-LIGHT-25";    // 創世神(自身はリーダーを攻撃不可)
+    private static final String ABSOLUTE_GAIA = "QTE-M-EARTH-23";   // 不動の絶対神ガイア(自身はリーダーを攻撃不可・土文明)
+    private static final String ZODIAC = "QTE-M-LIGHT-8";          // ゾディアック(相手リーダーは攻撃不可)
     // 破壊・ダメージ・ドローを置換するカード
-    private static final String MICHAEL = "QTE-0004";         // 大天使ミカエル(戦闘では破壊されない)
-    private static final String HOLY_PROTECTOR_AURA = "QTE-L008"; // 聖光の守護聖(相手の効果で破壊されない)
-    private static final String JUSTICE_SHIELD = "QTE-0103";  // 正義の御盾(リーダーへのダメージ-1)
-    private static final String JUDGEMENT_ANGEL = "QTE-0096"; // 断罪の大天使(3枚目以降のドローを置換)
+    private static final String MICHAEL = "QTE-M-LIGHT-7";         // 大天使ミカエル(戦闘では破壊されない)
+    private static final String HOLY_PROTECTOR_AURA = "QTE-M-LIGHT-1"; // 聖光の守護聖(相手の効果で破壊されない)
+    private static final String JUSTICE_SHIELD = "QTE-M-LIGHT-13";  // 正義の御盾(リーダーへのダメージ-1)
+    private static final String JUDGEMENT_ANGEL = "QTE-M-LIGHT-24"; // 断罪の大天使(3枚目以降のドローを置換)
     // 行動そのものを禁止するカード
-    private static final String ORDER_ENFORCER = "QTE-0111";  // 秩序の執行官(相手は特殊召喚不可)
-    private static final String TEMPLE_KNIGHT = "QTE-0098";   // 戒律の聖堂騎士(相手はサブフェイズ不可)
+    private static final String ORDER_ENFORCER = "QTE-M-LIGHT-4";  // 秩序の執行官(相手は特殊召喚不可)
+    private static final String TEMPLE_KNIGHT = "QTE-M-LIGHT-6";   // 戒律の聖堂騎士(相手はサブフェイズ不可)
 
     /** 断罪の大天使が置換を始めるドロー枚数(このターンのN枚目以降) */
     private static final int DRAW_REPLACE_FROM = 3;

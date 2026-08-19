@@ -4455,20 +4455,24 @@ async function clearZoom(page) {
   // ★CARD_LIBRARY はこの節が自分用に差し替える。デッキメーカーの節は
   //   あちらを開く直前に自分の台帳へ差し替え直すので、ここの変更は漏れない(39 の作法)。
   // =========================================================================
+  // ★★Batch 46b: 索引の鍵が ledgerCardId から id に変わった。通常モードのカードマスタが
+  //   manual-cards.json になり、サーバが送る cardId がこのファイルの id そのものになったためである。
+  //   フィクスチャも実物と同じ形にする —— 別名の id を持たせて ledgerCardId で引かせる 45 までの
+  //   形のままだと、鍵が変わったことをこの節が隠してしまう。
   CARD_LIBRARY.status = 200;
   CARD_LIBRARY.body = { cards: [
-    { id: 'QTE-M-FIRE-1', ledgerCardId: 'QTE-0001', name: '炎の従者', civilization: 'FIRE',
+    { id: 'QTE-M-FIRE-6', name: '炎の従者', civilization: 'FIRE',
       type: 'MINION', cost: 2, attack: 2, hp: 3, text: '【速攻】', imageId: 'x1' },
-    { id: 'QTE-M-FIRE-2', ledgerCardId: 'QTE-L001', name: '傷痕の闘帝', civilization: 'FIRE',
+    { id: 'QTE-M-FIRE-15', name: '傷痕の闘帝', civilization: 'FIRE',
       type: 'LEADER', cost: 0, attack: null, hp: null,
       text: '【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする', imageId: 'x2' },
-    { id: 'QTE-M-WATER-1', ledgerCardId: 'QTE-0025', name: 'スプラッシュ・ドロー',
+    { id: 'QTE-M-WATER-9', name: 'スプラッシュ・ドロー',
       civilization: 'WATER', type: 'SPELL', cost: 2, attack: null, hp: null,
       text: 'カードを2枚引く', imageId: 'x3' },
-    { id: 'QTE-M-DARK-1', ledgerCardId: 'QTE-0086', name: '死神の大鎌',
+    { id: 'QTE-M-DARK-13', name: '死神の大鎌',
       civilization: 'DARK', type: 'WEAPON', cost: 4, attack: 3, hp: null,
       text: 'このウェポンで攻撃されたミニオンは、戦闘ダメージに関わらず破壊される。', imageId: 'x4' },
-    { id: 'QTE-M-FIRE-3', ledgerCardId: 'QTE-0046', name: 'マグマ・ストレート',
+    { id: 'QTE-M-FIRE-10', name: 'マグマ・ストレート',
       civilization: 'FIRE', type: 'SPELL', cost: 1, attack: null, hp: null,
       text: 'ミニオン1体に2ダメージ。', imageId: 'x5' },
   ],
@@ -4492,12 +4496,12 @@ async function clearZoom(page) {
   const handView = autoView({
     you: autoPlayer({
       hand: [
-        autoCard('QTE-0001', '炎の従者', { cost: 2, keywords: ['速攻'], text: '' }),
-        autoCard('QTE-0025', 'スプラッシュ・ドロー', {
+        autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2, keywords: ['速攻'], text: '' }),
+        autoCard('QTE-M-WATER-9', 'スプラッシュ・ドロー', {
           type: 'SPELL', civilization: 'WATER', cost: 2, attack: null, hp: null,
           text: 'カードを2枚引く',
         }),
-        autoCard('QTE-0041', '双流の幻術師', {
+        autoCard('QTE-M-WATER-21', '双流の幻術師', {
           civilization: 'WATER', cost: 5, effectiveCost: 3,
           text: '場に居るミニオンの数Cost-1。',
         }),
@@ -4535,8 +4539,42 @@ async function clearZoom(page) {
       fire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
     };
   });
-  check('★★★ミニオンの文明色は card-library の台帳IDから引けている(42・Java変更ゼロの結線)',
+  check('★★★ミニオンの文明色は card-library のカードIDから引けている(42・46b で鍵は id)',
     minionCiv.mc === minionCiv.fire, JSON.stringify(minionCiv));
+
+  // ---- 46b-1. ★★台帳に無かった新カードも索引に入る ----
+  // ★★★これが 46b の実利である。45 までは索引の鍵が ledgerCardId だったため、
+  //   台帳に相手のいない新カード66枚は<b>索引に一切入らなかった</b>(色は無文明色、
+  //   拡大のテキストは空)。鍵を id に変えると、同じ経路でそのまま出るようになる。
+  //   ★索引の鍵を ledgerCardId へ戻すと、この項目だけが落ちる(裁定116 の入口)。
+  CARD_LIBRARY.body.cards.push({
+    id: 'QTE-M-EARTH-33', name: '分那愚利(ブンナグリ)', civilization: 'EARTH',
+    type: 'MINION', cost: 2, attack: 1, hp: 2,
+    text: '【突進】【召喚時】相手ミニオン1体に1ダメージ', imageId: 'x6',
+  });
+  const freshPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const freshErrors = [];
+  freshPage.on('pageerror', (e) => freshErrors.push(String(e)));
+  await freshPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await freshPage.waitForTimeout(300);   // card-library の取得を待つ
+  await freshPage.evaluate((view) => { latestView = view; render(view); }, autoView({
+    you: autoPlayer({ minions: [autoMinion('n1', '分那愚利(ブンナグリ)',
+      { cardId: 'QTE-M-EARTH-33', attack: 1, currentHp: 2, maxHp: 2 })] }),
+  }));
+  const freshMinion = await freshPage.evaluate(() => {
+    const el = document.querySelector('#my-minions .auto-card .mcard');
+    return {
+      mc: el.style.getPropertyValue('--mc').trim().toLowerCase(),
+      earth: getComputedStyle(document.documentElement).getPropertyValue('--civ-earth').trim().toLowerCase(),
+      none: getComputedStyle(document.documentElement).getPropertyValue('--civ-none').trim().toLowerCase(),
+    };
+  });
+  check('★★★台帳に無かった新カードも card-library から引ける(46b・索引の鍵が id になった)',
+    freshMinion.mc === freshMinion.earth && freshMinion.earth !== freshMinion.none,
+    JSON.stringify(freshMinion));
+  check('新カードを描いてもJSエラーが出ない(46b)', freshErrors.length === 0,
+    JSON.stringify(freshErrors));
+  await freshPage.close();
 
   // ---- 42-3. 実効コストの印 ----
   const effCost = await autoPage.evaluate(() => {
@@ -4650,12 +4688,12 @@ async function clearZoom(page) {
     mc: document.getElementById('my-leader').style.getPropertyValue('--mc').trim().toLowerCase(),
     fire: getComputedStyle(document.documentElement).getPropertyValue('--civ-fire').trim().toLowerCase(),
   }));
-  check('★リーダータイルが文明色を持つ(42・台帳IDから)',
+  check('★リーダータイルが文明色を持つ(42・カードIDから)',
     leaderMc.mc === leaderMc.fire, JSON.stringify(leaderMc));
 
   // ---- 42-10. マリガン選択の印 ----
   await autoDeliver(autoView({ mulligan: true, myTurn: false,
-    you: autoPlayer({ hand: [autoCard('QTE-0001', '炎の従者')] }) }));
+    you: autoPlayer({ hand: [autoCard('QTE-M-FIRE-6', '炎の従者')] }) }));
   const mulBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
   await autoPage.mouse.click(mulBox.x + mulBox.width / 2, mulBox.y + mulBox.height / 2);
   await autoPage.waitForTimeout(50);
@@ -4672,24 +4710,24 @@ async function clearZoom(page) {
   //   「盛った盤面」で測る。ここが崩れたらレイアウトの前提(手動モードと同じ1画面)が崩れている
   const fullView = autoView({
     you: autoPlayer({
-      hand: Array.from({ length: 8 }, (_, i) => autoCard('QTE-0001', '手札' + i, { cost: 2 })),
+      hand: Array.from({ length: 8 }, (_, i) => autoCard('QTE-M-FIRE-6', '手札' + i, { cost: 2 })),
       minions: Array.from({ length: 6 }, (_, i) => autoMinion('m' + i, 'ミニオン' + i)),
       // ★44: 表6(名前・cardId つき)+ タップ1 + 裏1 = 8枚(43-4 の「支払い可能8」は不変)
       manaZone: [
         ...Array.from({ length: 6 }, () => ({
-          name: 'マグマ・ストレート', cardId: 'QTE-0046',
+          name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10',
           tapped: false, faceUp: true, temporary: false,
         })),
-        { name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: true, faceUp: true, temporary: false },
-        { name: '秘密のカード', cardId: 'QTE-0001', tapped: false, faceUp: false, temporary: false },
+        { name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10', tapped: true, faceUp: true, temporary: false },
+        { name: '秘密のカード', cardId: 'QTE-M-FIRE-6', tapped: false, faceUp: false, temporary: false },
       ],
-      taboo: [autoCard('QTE-0075', '禁忌1', { cost: 1 }), autoCard('QTE-0076', '禁忌2', { cost: 2 })],
+      taboo: [autoCard('QTE-M-DARK-10', '禁忌1', { cost: 1 }), autoCard('QTE-M-DARK-2', '禁忌2', { cost: 2 })],
       tabooCount: 2,
-      trash: [autoCard('QTE-0001', '炎の従者', { cost: 2 }),
-        autoCard('QTE-0025', 'スプラッシュ・ドロー', { type: 'SPELL', civilization: 'WATER' })],
+      trash: [autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2 }),
+        autoCard('QTE-M-WATER-9', 'スプラッシュ・ドロー', { type: 'SPELL', civilization: 'WATER' })],
       trashCount: 2,
-      lost: [autoCard('QTE-0046', 'マグマ・ストレート', { type: 'SPELL' })], lostCount: 1,
-      weaponName: '死神の大鎌', weaponCardId: 'QTE-0086', weaponAttack: 3,
+      lost: [autoCard('QTE-M-FIRE-10', 'マグマ・ストレート', { type: 'SPELL' })], lostCount: 1,
+      weaponName: '死神の大鎌', weaponCardId: 'QTE-M-DARK-13', weaponAttack: 3,
     }),
     opponent: autoPlayer({
       displayName: 'あいて', handCount: 5,
@@ -4697,7 +4735,7 @@ async function clearZoom(page) {
       // ★45: 表向き6(名前あり=サーバの実挙動)+ 裏向き2(中身は届かない)
       manaZone: [
         ...Array.from({ length: 6 }, () => ({
-          name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: false, faceUp: true,
+          name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10', tapped: false, faceUp: true,
         })),
         { name: null, cardId: null, tapped: false, faceUp: false },
         { name: null, cardId: null, tapped: true, faceUp: false },

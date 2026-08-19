@@ -51,12 +51,16 @@ public class DeckValidator {
         return java.util.Collections.unmodifiableSet(IMPLEMENTED);
     }
 
-    /**
-     * 同名4枚制限をカードテキストで上書きしているカード(ゾンストライカー)。
-     * 「このカードは4枚以上入れられる」という例外はカード側の性質だが、
-     * 判定はデッキ検証でしか行えないため、ここにIDを持つ。
+    /*
+     * ★Batch 46b: 同名無制限(UNLIMITED_COPIES)の例外表を撤廃した。
+     *
+     * 「このカードは4枚以上入れられる」というテキストを持つカードは、Ver1.1 の235枚に
+     * 1枚も存在しない(Batch 30 で確認し、46b の移行後も 0 枚である)。
+     * 該当が無い例外表は、次に読む人に「そういう仕組みがある」と誤解させるだけで、
+     * しかも表に載ったIDが今も正しいかを誰も確かめられない。
+     * 必要になったら、そのカードが来たときに作り直すほうが安全である(裁定「同名無制限を
+     * コードに書かない」の実行)。
      */
-    private static final Set<String> UNLIMITED_COPIES = Set.of("QTE-0012");
 
     private final CardMasterRepository cards;
     private final CardEffectRegistry effects;
@@ -96,14 +100,12 @@ public class DeckValidator {
             if (entry.count() <= 0) {
                 throw new IllegalArgumentException("枚数が不正です: " + card.name());
             }
-            if (card.type() == CardType.LEADER) {
-                throw new IllegalArgumentException("リーダーはメインデッキに入れられません: " + card.name());
-            }
+            requireDeckable(card, "メインデッキ");
             if (card.civilization() != leader.civilization()) {
                 throw new IllegalArgumentException(
                         "メインデッキはリーダーと同じ文明のカードのみです: " + card.name());
             }
-            if (entry.count() > MAX_SAME_NAME && !UNLIMITED_COPIES.contains(entry.cardId())) {
+            if (entry.count() > MAX_SAME_NAME) {
                 throw new IllegalArgumentException(
                         "同名カードは%d枚までです: %s".formatted(MAX_SAME_NAME, card.name()));
             }
@@ -132,14 +134,35 @@ public class DeckValidator {
             if (!seen.add(cardId)) {
                 throw new IllegalArgumentException("禁忌デッキは同名カード1枚までです: " + card.name());
             }
-            if (card.type() == CardType.LEADER) {
-                throw new IllegalArgumentException("リーダーは禁忌デッキに入れられません: " + card.name());
-            }
+            requireDeckable(card, "禁忌デッキ");
             if (card.civilization() == leader.civilization()) {
                 throw new IllegalArgumentException(
                         "禁忌デッキはリーダーと異なる文明のカードのみです: " + card.name());
             }
             requireImplemented(card);
+        }
+    }
+
+    /**
+     * デッキに入れてよい種別かの確認(★Batch 46b)。
+     *
+     * <ul>
+     * <li><b>リーダー</b>はデッキの外にある1枚であり、山札にも禁忌にも入らない(総合ルール1章)。</li>
+     * <li><b>進化ミニオン</b>は<b>場に出す手段そのものがエンジンに無い</b>ため弾く(裁定166)。
+     *     素材の指定・下に置く構造・場を離れるときの同伴(裁定154)はどれも未実装で、
+     *     実装は P3(Batch 54〜55)である。効果未実装のミニオンは「出せるが何も起きない」で
+     *     済むが、進化は入れると手札で<b>完全な死に札</b>になる —— 裁定D2 の
+     *     「印つきで入れられる」の趣旨から外れるので、印(Batch 47)を待たずにここで止める。</li>
+     * </ul>
+     */
+    private void requireDeckable(CardMaster card, String where) {
+        if (card.type() == CardType.LEADER) {
+            throw new IllegalArgumentException("リーダーは%sに入れられません: %s".formatted(where, card.name()));
+        }
+        if (card.type() == CardType.EVOLUTION) {
+            throw new IllegalArgumentException(
+                    "進化ミニオンはまだ通常モードで出せないため%sに入れられません: %s"
+                            .formatted(where, card.name()));
         }
     }
 

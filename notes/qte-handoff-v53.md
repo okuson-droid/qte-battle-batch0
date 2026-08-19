@@ -1,18 +1,15 @@
 # QTE 対戦アプリ — 引き継ぎ書
 
-最終更新: 2026-08-18(**Batch 46a(Ver1.1 移行の土台: キーワード抽出層・JUnit・レポートツール)を
-実装・納品**。**★既存の挙動は1行も変えていない。**版数据え置き(css v=45 / battle.js v=18)。
-verify **518/518**。設計解説は `notes/batch46a-design-notes.md`。
+最終更新: 2026-08-19(**Batch 46b(Ver1.1 カードマスタの移行)を実装・納品**。
+**★★通常モードのカードの正が `manual-cards.json`(235枚)になった。台帳 `qte-cards.json` は退役。**
+版数 **battle.js v=18 → v=19**(css v=45 据え置き)。JUnit **193件全緑** / verify **520/520**。
+設計解説は `notes/batch46b-design-notes.md`。
 
-**★★ここから系統が変わった。**42〜45 は「見た目・操作」だったが、46 以降は
-**ルールの正しさ(Ver1.1 追随)**である。全体計画は **`notes/ver11-migration-plan.md`** が正で、
-Phase 0 の裁定(152〜157)はすべて確定済み。
+**★★46 以降は「ルールの正しさ(Ver1.1 追随)」の系統である。**全体計画は
+**`notes/ver11-migration-plan.md`** が正で、Phase 0 の裁定(152〜157)はすべて確定済み。
 
-**★★★46a追補(2026-08-19)で状況が根本から変わった: サンドボックス内で
-`mvn test` が回るようになった(m2repo.zip 方式。3章「サンドボックスの制約」参照)。**
-「1バッチ = マスターの1往復」の制約は解消。初の全件実行が14件の失敗を検出し、
-テスト側を修理して **181件全緑**(詳細は `notes/batch46a-design-notes.md` 追補)。
-46 を 46a / 46b に割った判断(裁定160)自体は正しかったのでそのまま残す。
+**★★★サンドボックス内で `mvn test` が回る**(m2repo.zip 方式。3章「サンドボックスの制約」)。
+「1バッチ = マスターの1往復」の制約は 46a追補で解消済み。
 
 **★★手動モードの開発は一時停止中(マスター指示)。主戦場は通常モード(自動モード)。**
 
@@ -21,7 +18,8 @@ Phase 0 の裁定(152〜157)はすべて確定済み。
 | 系統 | 前提ドキュメント |
 |---|---|
 | **★★Ver1.1 全対応の計画(46〜57 の正)** | **`notes/ver11-migration-plan.md`** |
-| **Batch 46a(移行の土台・完了)** | **`notes/batch46a-design-notes.md`** |
+| **Batch 46b(カードマスタの移行・完了)** | **`notes/batch46b-design-notes.md`** |
+| Batch 46a(移行の土台・完了) | `notes/batch46a-design-notes.md` |
 | 今後の優先順位(商業水準レビュー) | `notes/commercial-quality-review-2026-08-11.md` |
 | Batch 45 / 44 / 43 / 42(通常モードの盤面) | 各 design-notes |
 | デッキメーカーの仕様の正 | `notes/deckmaker-v2-design-notes.md` + 24 / 39 / 40 |
@@ -37,43 +35,52 @@ Phase 0 の裁定(152〜157)はすべて確定済み。
 4. ソースコード取得: `git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git`
    (codeload の zip URL は 403 で落ちることがある)
 5. **「反映済み」を信じず、直近バッチの変更箇所を実際に読んで照合する。**
-   ★46a の照合は下の「46a の確認項目」で行い、**verify 518/518** を確認する。
+   ★46b の照合は下の「46b の確認項目」で行い、**箱内 `mvn -o test` で 193件全緑** と
+   **verify 520/520** を確認する。
 
-## ★カードデータの正(★★46a 時点。46b で変わる)
+## ★カードデータの正(★★46b で確定した形)
 
-- **テキスト・数値とも Ver1.1(`manual-cards.json` = DeckMaker Verβ 由来)が正。全235枚。**
-- **手動モードとデッキメーカーは既に Ver1.1 で動いている。**
-- **★通常モードはまだ台帳 `qte-cards.json`(169枚・Ver0.4)で動いている。**
-  差し替えるのが **46b** である。
-- **★台帳と Ver1.1 は `ledgerCardId` で1対1に対応する**(169組・重複なし・欠けなし)。
-  新カードは66枚(うち**進化18枚**)。`CardIdMappingTest` と
-  `tools/build_id_map.py --check` が番人。
-- `unlimitedCopies` を持つカードは全カード中 **0枚**(Batch 30)。
+- **テキスト・数値とも Ver1.1(`manual-cards.json`)が正。全235枚。**
+- **★★通常モード・手動モード・デッキメーカーの3つとも同じファイルを読む**(裁定D1 の案B)。
+  **カードIDは `QTE-M-<文明>-<番号>` に統一された。**
+- **★台帳 `qte-cards.json`(169枚・Ver0.4)は退役した。**ファイルは残っているが、
+  **本体はもう読まない。**読んでいるのはテストの `support/LedgerCards` だけである
+  (抽出規則の番人。下の「Ver1.1 移行」節)。
+- **★キーワードはテキストから作る。**`CardTextKeywords.extract(text)` が唯一の出どころ(裁定158)。
+  `manual-cards.json` に `keywords` フィールドは無い。
+- **★`ledgerCardId` / `imageId` / `unlimitedCopies` は `CardMaster` に載せていない。**
+  画像は画面が `/manual/api/card-library` から引く。
+- 内訳: リーダー18 / ミニオン119 / **進化18** / スペル61 / ウェポン19。6文明×39 + 文明なし1。
+- **★進化18枚はデッキ構築で弾かれる**(裁定166)。P3(54〜55)で解禁する。
+- **★未実装カードの扱い(46b 時点)**: 進化18は弾く / スペル13は弾かれる /
+  **リーダー6・ミニオン25・ウェポン1 の32枚は入れられる**(効果は不発)。47 で印を付ける。
+- 効果の実装状況: **登録あり112 / 参照あり44 / 未実装63**(`tools/report_effects.py --summary`)。
 
-## 46a の確認項目(★これを照合する)
+## 46b の確認項目(★これを照合する)
 
-- **新規3ファイル**
-  - `src/main/java/com/example/qte/master/CardTextKeywords.java`
-    (`extract` / `vocabulary` の2メソッド。**static のみ・状態なし**)
-  - `src/test/java/com/example/qte/CardTextKeywordsTest.java`(**@Test 11件**)
-  - `src/test/java/com/example/qte/CardIdMappingTest.java`(**@Test 9件**)
-  - `src/test/java/com/example/qte/support/Ver11Cards.java`(テスト用の読み口。★46b で退役)
-- **修正1ファイル**: `src/test/java/com/example/qte/CardMasterLoadTest.java` の
-  `hasSize(72)` → **`hasSize(169)`**(★何十バッチも赤だった。裁定161)
-- **新規ツール2本**: `tools/build_id_map.py` / `tools/report_effects.py`
-- **★Java の本体(main)に触れたのは新規1ファイルのみ。** 既存の main は1行も変えていない。
-- **★静的ファイル(js / css / html)は1つも変えていない。版数据え置き。**
-- **verify 518/518**(45 から動かない)。
-- **★46a追補分(2026-08-19)**: テスト3ファイル修正
-  (`ManualStartSequenceTest` / `ManualVersusTest` に `logged(room, event)` 補助 +
-  呼び出し41箇所を包む / `ManualOperationTest` の undo・redo の期待型)、
-  `.gitignore` に `m2repo/` `m2repo.zip`。★照合の決め手は
-  **箱内 `mvn -o test` で 181件全緑**が出ること(下の5章の手順)。
+- **`CardType` に `EVOLUTION` がある**(`LEADER, MINION, EVOLUTION, SPELL, WEAPON`)
+- **`CardMasterRepository` の `RESOURCE` が `cards/manual-cards.json`**
+  - DTO に `keywords` フィールドが**無い**(`CardTextKeywords.extract(text)` を呼ぶ)
+  - DTO に `ledgerCardId` / `imageId` が**無い**
+- **Java・JS に台帳ID(`QTE-0000` / `QTE-L000` / `QTE-X000`)が1つも残っていない**
+  → `python3 tools/build_id_map.py --check` が「**ベタ書きされた台帳ID: 0 種**」と言う
+  ★例外: `ManualCardMasterLoadTest` の `ledgerCardId()` の期待値 `QTE-X001` は**正しい**
+  (手動モードのカードが持つ台帳IDそのもの。機械変換の誤爆を戻した箇所)
+- **`battle.js`**: `if (c.id) autoLibrary.set(c.id, c);` / **版数 v=19**
+  (`battle.html` と `verify/build_harness.py` の両方)
+- **`DeckValidator`**: `UNLIMITED_COPIES` が**無い** / `requireDeckable` が `EVOLUTION` を弾く
+- **`DeckFactory`**: `DARK_STARTER` のゾンストライカーが **4枚** / `validate()` に例外が無い
+- **新規テスト2ファイル**: `DeckValidatorTest`(**@Test 8件**)/ `support/LedgerCards.java`
+- **JUnit 193件全緑**(46a の181 + 12)/ **verify 520/520**(518 + 46b の2項目)
+- **ツール2本を新IDへ**: `tools/check_all.py`(正規表現 `[\w-]`・カードマスタ235枚と照合・
+  走査は `src/main/java` のみ)/ `tools/report_effects.py`(鍵が `id`)
 
-## 24〜45 の確認項目
+## 24〜46a の確認項目
 
-★詳細は **v51** にある(24〜36 は v43、37〜38 は v44、39 は v45)。要点のみ:
+★詳細は **v52**(46a)と **v51**(24〜45)にある。要点のみ:
 
+- **46a**: `CardTextKeywords`(抽出層)/ `CardTextKeywordsTest` / `CardIdMappingTest` /
+  `tools/build_id_map.py` / `tools/report_effects.py` / `.gitignore` に `m2repo*`。
 - **41**: vendor 自前配信・`cdn.jsdelivr.net` 0件・`--mc-gloss` はセレクタ一覧で宣言。verify 488。
 - **42**: 通常モードの盤面フェイス化・右クリック拡大。css v=42 / battle.js v=15。verify 502。
 - **43**: `.auto-root` の中央+右列・1280×800 に収める。css v=43 / js v=16。verify 507。
@@ -87,7 +94,7 @@ Phase 0 の裁定(152〜157)はすべて確定済み。
 **152〜157(Phase 0・Ver1.1 移行)は `notes/ver11-migration-plan.md` 1章が全文の正。**
 要点だけ:
 
-- **152. 【賢魂：n】= ミニオンをスペルとしても使える**(コスト n。ミニオンとして召喚した場合は発動しない)
+- **152. 【賢魂：n】= ミニオンをスペルとしても使える**(コスト n。ミニオン召喚時は発動しない)
 - **153. 【起動：n】= 自分のメインフェイズ中・ターン1回・n マナ支払い**
 - **154. 【進化】の召喚素材は進化ミニオンの下に置かれ、場を離れるとき一緒に移動する**
 - **155. 英知の継承者の【守護】【知識】消失は Ver1.1 の意図どおり**
@@ -97,45 +104,57 @@ Phase 0 の裁定(152〜157)はすべて確定済み。
 **★2026-08-18 確定(Batch 46a):**
 
 - **158. ★★★キーワードの正はテキストであり、抽出規則は1箇所(`CardTextKeywords`)である。**
-  抽出結果をどこかの表に焼き付けないこと —— 焼き付けた瞬間に
-  「テキスト」と「表」という2つの正ができる(設計判断28)。
-- **159. ★★参照と条件付きの付与はキーワードではない。**
-  「相手の【守護】**を持つ**ミニオンを破壊」「10以下なら【速攻】**を得る**」
-  「3枚以上使用しているなら【潜伏】。」——素朴に `【】` を拾うと**22枚が狂う**。
-  規則は「直後が `を持/を与/を付/付与/を行/を得/を失`」と
-  「直前が `なら/たら/とき/時/場合`」の2つだけで、これで9枚まで落ちる。
-  ★残る9枚は**すべて Ver1.1 の実変更**であり、1枚ずつ本文を読んで確認済み。
-- **160. ★★★答え合わせの相手が生きているうちに規則を固める。**
-  46 を 46a / 46b に割った理由がこれである。46b で台帳が退役すると、
-  「テキストから読んだキーワード」を人手の `keywords` と突き合わせることは**二度とできない**。
-  移行と規則を同じバッチに入れると、おかしくなったとき原因が2系統に散る。
-- **161. ★落ちているテストは番人ではない。** `CardMasterLoadTest` が `hasSize(72)` のまま
-  何十バッチも赤だった。「どうせ赤」と見なされた瞬間、本物の異常も同じ扱いになる。
-- **162. ★枚数の検証だけは人が決めた数を置く(裁定110 の例外)。**
-  ファイルから読んだ値と突き合わせる形にすると、**ファイルが途中で切れていても通る**。
-- **163. ★★同じ規則を2つの言語に置かない(裁定130 の延長)。**
-  `tools/report_effects.py` は「`【】` を取り除いて文が残るか」までしか判定しない。
-  どの `【】` がそのカード自身のものかという難しい判定は **Java にしか無い**。
+  抽出結果をどこかの表に焼き付けないこと(設計判断28)。
+- **159. ★★参照と条件付きの付与はキーワードではない。**素朴に `【】` を拾うと**22枚が狂う**。
+- **160. ★★★答え合わせの相手が生きているうちに規則を固める。**(46 を 46a / 46b に割った理由)
+  ★**46b でこの前提は緩んだ** —— 台帳はファイルとして残るので、テスト専用の読み口
+  (`support/LedgerCards`)経由で169枚照合を続けている(裁定169)。
+- **161. ★落ちているテストは番人ではない。**(`hasSize(72)` の化石)
+- **162. ★枚数の検証だけは人が決めた数を置く**(裁定110 の例外)。★46b で 169 → **235**。
+- **163. ★★同じ規則を2つの言語に置かない**(裁定130 の延長)。
 - **164. ★★実装の数え方は「登録あり / 参照あり / 未実装」の3段である。**
-  `RuleGuards` `StatCalculator` `GameService` にはルール側へ直接書かれた挙動が
-  **44枚分**ある。「登録の表に無い = 未実装」と数えると、実装済みの44枚を作り直す羽目になる。
-- **165. ★ツールは測れることしか言わない。** 本文の差分は「字面が違う」までしか機械では出せない
-  (121枚)。遊びに効く変更が何枚か(86枚)は人が読んで決めた数であり、別物として書く。
+  `RuleGuards` `StatCalculator` `GameService` にルール側へ直接書かれた挙動が **44枚分**ある。
+  ★**Java からは「参照あり」を判定できない。**47 の「印」の設計で効いてくる。
+- **165. ★ツールは測れることしか言わない。**
 - **166. ★進化18枚は P3 まではデッキに入れられない(マスター裁定)。**
-  効果未実装は「出せるが何も起きない」で済むが、**進化は場に出す手段そのものが無い**ので、
-  入れると手札で完全な死に札になる。裁定D2 の「印つきで入れられる」の趣旨から外れる。
+- **167. ★★★一度も実行されていないテストは検証ではない。**(46a追補・14件検出)
+- **168. ★例外型の期待は本番に合わせる**(undo=`IllegalArgumentException` / redo=`IllegalStateException`)。
 
-**★2026-08-19 確定(46a追補):**
+**★2026-08-19 確定(Batch 46b):**
 
-- **167. ★★★一度も実行されていないテストは検証ではない。** 全件実行の初回が
-  14件を検出した。13件は同一原因 —— サービスは自分でログに書かず、追記は呼び出し側
-  (`applyDirect`)の仕事なのに、**テストが戻り値を捨てて**部屋のログを検めていた。
-  修理は `logged(room, event)` 補助で本番と同じ経路を踏ませる。被試験コードは不変。
-  ★裁定161(落ちているテストは番人ではない)の対偶である —— **走らないテストも番人ではない。**
-- **168. ★例外型の期待は本番に合わせる(マスター裁定)。** undo は
-  `IllegalArgumentException`(`ManualPermissions.require` 経由)、redo は
-  `IllegalStateException`(`orElseThrow`)で**非対称のまま**が現状の正。
-  どちらでも「操作者にだけ通知」に落ちるため実害は無い。揃えるなら別途裁定。
+- **169. ★★退役した正は「凍結した過去の断面」として番人に使える(マスター裁定)。**
+  台帳 `qte-cards.json` はもう何の正でもないが、テスト専用の読み口
+  (`support/LedgerCards`)から読めば、抽出規則を触ったときに169枚の解釈が
+  黙って変わっていないかを検出できる。**2つ目の正ではない** —— 誰も書き換えず、
+  誰も参照しない、比較のためだけの断面である。
+  ★`qte-cards.json` を削除するバッチで、`LedgerCards` と台帳を見る3件のテストを**一緒に**消すこと。
+- **170. ★★測る位置は「規則の出力」ではなく「エンジンが実際に持っている値」である。**
+  46a は `CardTextKeywords.extract()` を直接叩いて比べていた(本体がまだ台帳を読んでいたので
+  それしかできなかった)。46b からはリポジトリの値を測る。
+  **規則が正しくても、配線を間違えれば挙動は変わる。**
+- **171. ★★★機械変換は「その文字列が何を指しているか」を知らない。**
+  台帳ID169種の一括 sed が1件誤爆した —— `ManualCardMasterLoadTest` の
+  `assertThat(card.ledgerCardId()).isEqualTo("QTE-X001")` は
+  **台帳IDそのものを測っている行**であり、書き換えると意味が反転する。
+  **一括置換をかけたら、必ず差分を1ファイルずつ読むこと。**
+- **172. ★★退役させる例外は、例外に載っていたカードそのもので測る。**
+  「同名5枚は弾かれる」だけでは、例外表(ゾンストライカー)を復活させても落ちない
+  —— 測っていたのが水のデッキの先頭カードだったからである(裁定135 と同じ形の穴。
+  壊し方を試して見つけた)。**闇のプリセットでゾンストライカーを5枚にする試験**を足した。
+- **173. ★★正規表現の `\w` はハイフンを含まない。**
+  カードIDが `QTE-M-DARK-16` になった瞬間、`QTE-[\w]+` は `QTE-M` までしか拾わず、
+  `tools/check_all.py` のプリセット検査が**「1件も検出できません」**になった。
+  ★**「0件でした」と言うツールは、仕事をしていないのか本当に0件なのかを自分では区別できない。**
+  IDの形を変えたら、IDを読むツールを全部通し、**数字が想定どおりか**を見ること。
+- **174. ★本番は実在するIDしか名指ししてはならないが、テストは偽のIDを書く。**
+  カードID実在チェックの走査を `src/main/java` に絞った。テストまで見ると、
+  否定の試験を書くたびに例外の一覧が要る = 2つ目の正ができる。
+  テストの偽IDは実行時に `findById` が落として教えてくれる。
+- **175. ★移行は既存の不整合を掘り出す。**
+  例外表を撤廃したら、闇のプリセットがゾンストライカーを**5枚**入れていて通らなくなった。
+  Ver1.1 の本文から「4枚以上入れられる」が消えていたのだから、これは**データ側の変更に
+  コードが追いついていなかった**ということである。移行バッチでは、
+  こうした「壊れて初めて見える依存」が必ず出ると思っておくこと。
 
 ★136〜151(Batch 41〜45)の全文は **v51**、59〜135 は v44・v45 にある。46 系に効くものだけ再掲:
 
@@ -152,34 +171,28 @@ Phase 0 の裁定(152〜157)はすべて確定済み。
 
 ---
 
-## 1. 次の作業(★Batch 46b)
+## 1. 次の作業(★Batch 47)
 
-**★★次は 46b で確定している**(`notes/ver11-migration-plan.md` P1 + 46a 設計解説 6章)。
+`notes/ver11-migration-plan.md` の **P1 後半**である。
 
-1. `CardType` に **`EVOLUTION`** を足す
-2. `CardMasterRepository` が **`cards/manual-cards.json`** を読む(235枚)
-   - `keywords` はファイルに無いので **`CardTextKeywords.extract(text)`** で作る
-   - `ledgerCardId` は `CardMaster` に持たせない(退役するIDを新しい正に持ち込まない)
-3. Java の台帳ID **169種**を機械変換(`python3 tools/build_id_map.py --sed`)
-   - `CardEffectRegistry` 124 / `DeckFactory` 151 / `StatCalculator` 23 / `RuleGuards` 11 /
-     `GameService` 12 / `ResumePoint` 8 / `GameActions` 3 / `DeckValidator` 1 /
-     `PlayerState` 1 / `AutoChoice` 1
-4. `battle.js` の `autoLibrary` の索引を `ledgerCardId` → `id` に変える(★新カード66枚も
-   索引に入る)。**版数を上げること**
-5. `DeckValidator` の `UNLIMITED_COPIES`(`QTE-0012`)を**撤廃**(該当0枚)
-6. **進化18枚はデッキ構築で弾く**(裁定166)
-7. `qte-cards.json` は**読まなくなるだけ。削除しない**(1バッチ分の戻り道を残す)
-8. `CardMasterLoadTest` を 235 枚基準へ
+1. **★「効果未実装」の印**(ビュー + デッキ検証の緩和)。裁定D2 の本体。
+   - 現在デッキに入れられて不発なのは **32枚**(リーダー6・ミニオン25・ウェポン1)。
+     加えて**未実装スペル13枚**は今も入口で弾かれている。**印を付けたうえで**門を開ける。
+   - ★設計の勘所: 「登録あり / 参照あり / 未実装」の3段(裁定164)を**どこが持つか**。
+     Java からは「参照あり」を判定できないので、素朴に `CardEffectRegistry` の表だけを見ると
+     **実装済みの44枚を未実装と誤判定する。**
+2. **【常在】フレーム**(`PersistentAura` の拡張)。Ver1.1 に20箇所、リーダー6枚の主メカニズム。
+3. **不足している `TriggerType`**。
 
-### その先(計画の P1 後半以降)
+### その先
 
 | フェーズ | バッチ | 内容 |
 |---|---|---|
-| P1 後半 | **47** | 【常在】フレーム・不足 TriggerType・**「効果未実装」の印**(ビュー + デッキ検証の緩和) |
 | P2 効果 | 48〜53 | 非進化145枚を文明別6バッチ。作り直しは新旧併記 |
-| P3 進化 | 54〜55 | 進化エンジン(裁定154・157)+ 18枚 + UI |
+| P3 進化 | 54〜55 | 進化エンジン(裁定154・157)+ 18枚 + UI + **デッキ構築の解禁** |
 | P4 賢魂 | 56 | 裁定152 の実装(アクション種別 + 手札UIの2導線 + 7枚) |
-| P5 仕上げ | 57 | プリセットの Ver1.1 版 / デッキメーカー JSON の受け入れ / E2E |
+| P5 仕上げ | 57 | プリセットの Ver1.1 版 / デッキメーカー JSON の受け入れ / E2E /
+  **`qte-cards.json` の削除**(`LedgerCards` と台帳照合3件も同時に消す)/ `qte-project-reference` 更新 |
 
 ### 保留中
 
@@ -193,7 +206,7 @@ Phase 0 の裁定(152〜157)はすべて確定済み。
 17a〜20c / 21a〜21c / 22 / 23 / 24 / 25 / 26 / 27 / 28 / 29 / 30 / 31 /
 32設計 / 32a / 32b / 32c / 33 / 34 / 35 / 36 / 37 / 38 / 39 / 40 / 41 /
 42(通常モードのフェイス化)/ 43(1画面レイアウト)/ 44(情報表示)/ 45(右列の再編)/
-**46a(Ver1.1 移行の土台)**
+46a(Ver1.1 移行の土台)/ **46b(Ver1.1 カードマスタの移行)**
 
 ---
 
@@ -212,21 +225,17 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 
 - **★★★Maven Central へは到達できない(403。GCS ミラー・maven.google.com・
   aliyun・jitpack も全滅を実測)が、`mvn test` は回る(46a追補)。**
-  マスターの `.m2\repository` の zip(`m2repo.zip`・74MB)を接続フォルダから取り込み:
+  マスターの `.m2\repository` の zip(`m2repo.zip`・約74MB)を接続フォルダから取り込み:
   `unzip -q /mnt/user-data/uploads/qte-battle-batch0/m2repo.zip -d /root/m2work` →
   **`mvn -o -B "-Dmaven.repo.local=/root/m2work/repository" test`**(完全オフライン)。
+  ★`device_stage_files` は非同期である。74MB の転送は**数十秒かかる**ので、
+  `unzip` の前にファイルの出現を待つこと。
   ★依存を pom に足したら zip の再作成をマスターに依頼すること(手順は 46a 設計解説追補)。
   ★`m2repo.zip` はコミットしない(.gitignore 済み)。
-  ★予備: `/opt/gradle-8.14.3/lib` に junit-4.13.2 と jackson-databind-2.16.1 が同梱
-  されており、純ロジックは Maven なしでも直接 JUnit 実行できる。
-- **★★マスターの環境に `mvn` CLI は無い**(46a追補で判明。Eclipse の m2e のみ)。
+  ★予備: `/opt/gradle-8.14.3/lib` に junit-4.13.2 と jackson-databind-2.16.1 が同梱。
+- **★★マスターの環境に `mvn` CLI は無い**(Eclipse の m2e のみ)。
   マスターへのテスト依頼は「Eclipse で Run As → JUnit Test」と書くこと。
-  ★過去バッチの「mvn test をお願いする」は実行されていなかった —— 
-  **箱内の `mvn -o test` が今後の一次の答え合わせである。**
-- **★★Java を実行できない中で規則を裏取りする手** —— **Java のソースから
-  `Pattern.compile("…")` の文字列そのものを取り出して Python で回す**。
-  手で写した規則ではなく、実際にコンパイルされる式を実データに当てられる(46a で実施)。
-  ★Java 文字列リテラルの `\\` は正規表現の `\` 一文字なので、読むときに戻すこと。
+  **箱内の `mvn -o test` が一次の答え合わせである。**
 - **★★実サーバを起動できない。Thymeleaf の解決は確認できない。**
   テンプレートを変えたら**マスターに実サーバでの確認を必ず依頼すること**。
 - **★★codeload の zip URL は 403 で落ちることがある。git clone は通る。**
@@ -239,24 +248,39 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 ### ★★Ver1.1 移行(Batch 46 系)
 
 - **★★★キーワードの正はテキスト。抽出は `CardTextKeywords` 1箇所**(裁定158)。
-  **抽出結果を表に焼き付けないこと。**
+  **抽出結果を表に焼き付けないこと。**リポジトリは `extract(text)` を呼ぶだけである。
 - **★★参照(`を持`…)と条件付き付与(`なら`…)はキーワードではない**(裁定159)。
   規則を触るときは `CardTextKeywordsTest` の**台帳169枚との突き合わせ**を先に見ること。
-  ★**46b で台帳が退役するとこの突き合わせはできなくなる。** 規則は 46a で凍結してある。
+- **★★台帳照合はまだ生きている**(裁定169)。読み口は `src/test/java/.../support/LedgerCards.java`。
+  ★`qte-cards.json` を消すときは、このクラスと台帳を見る3件のテストを**一緒に**消すこと。
 - **★★台帳との差分9枚は `VER11_KEYWORD_CHANGES` に理由つきで持っている。**
-  この9枚は 46b で**挙動が変わる**カードである。
+  この9枚は 46b で**挙動が変わった**カードである(例: 知識の守り手に【突進】が付いた)。
 - **★★実データが1枚も通らない枝が1つある**(CONDITION の読点許容)。
   番人は単体テストの1行だけである(裁定135 の形。46a 設計解説 4-4)。
-- **★語彙は15種で固定**(`KNOWN_VOCABULARY`)。カードデータを差し替えて
-  新しい `【】` が増えたら、テストが落ちて気づく。
+- **★語彙は15種で固定**(`KNOWN_VOCABULARY`)。新しい `【】` が増えたらテストが落ちる。
 - **★★対応表の出どころは `ledgerCardId` 1つ。** 別ファイルに保存しないこと。
-  検証は `tools/build_id_map.py --check`(Maven 不要)と `CardIdMappingTest` の2本立て。
 - **★★実装の数え方は3段(登録あり / 参照あり / 未実装)**(裁定164)。
   `tools/report_effects.py` は**知らない登録先(`xxx.put("QTE-`)を見つけたら止まる**。
   `CardEffectRegistry` に表を足したら `REGISTRY_MAPS` にも足すこと。
-- **★リーダーのコストが null(台帳)から 0(Ver1.1)に変わる。** 現在見ている場所は無い。
-- **★進化18枚はデッキ構築で弾く**(裁定166)。P3 で解禁する。
+- **★リーダーのコストは 0 である**(台帳は null だった)。見ている場所はまだ無い。
+- **★進化18枚はデッキ構築で弾く**(裁定166)。`DeckValidator.requireDeckable`。P3 で解禁。
 - **★★手動モードへの影響はゼロに保つ**(`manual-cards.json` は読むだけ・書き換えない)。
+- **★★カードIDの形を変えたら、IDを読むツールを全部通す**(裁定173)。
+  `check_all.py` / `report_effects.py` / `build_id_map.py` / `verify/*.js` のフィクスチャ。
+  **「0件でした」は仕事をしていない合図かもしれない。**
+- **★★一括 sed をかけたら差分を1ファイルずつ読む**(裁定171)。1件誤爆した実績あり。
+
+### デッキ構築(Batch 46b で変わった)
+
+- **★★★デッキ構築の規則の正はサーバ(通常モード = `DeckValidator` / 手動モード =
+  `ManualDeckImporter.validate`)**(設計判断27)。デッキメーカーの検証一覧は**操作補助**であり、
+  止める権限を持たない(裁定128)。
+- **★同名4枚に例外は無い**(46b で `UNLIMITED_COPIES` を撤廃)。
+  Ver1.1 のゾンストライカーの本文から「4枚以上入れられる」が消えたためである。
+  ★`DeckFactory.validate()` にも同じ例外があった。**同じ規則を2箇所に置かない**(裁定130)。
+- **★進化ミニオンはメインにも禁忌にも入れられない**(`requireDeckable`)。
+- **★効果未実装のスペルは今も入口で弾かれる**(`requireImplemented`)。47 で印つきに緩和する。
+- **★リーダー選択は18人**(46b で12人から増えた)。うち6人は起動能力が未実装である。
 
 ### デッキメーカー(Batch 39・40)
 
@@ -338,17 +362,14 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 
 - **★★★フェイス(`.mcard-*`)に transform / filter を足さない。** 擬似要素も足さない。
 - **★★★カスタムプロパティの中の `var()` は「宣言した要素」で解決される**(裁定140)。
-  形を共有しつつ場所ごとに値を変えたいなら、**使う要素すべてを宣言側のセレクタ一覧に入れる**。
   ★`--mc-gloss` を `:root` へ移すと不具合が再発する。検証が番人。
 - **★フェイスはコントラストの機械判定の対象外。そのぶん目視が必須。**
 
 ### 外部依存・右クリック(Batch 41)
 
-- **★★外部ライブラリは `static/vendor/` から配る。CDN を参照しない**(裁定136)。
-  名前に版を入れる(137)。
+- **★★外部ライブラリは `static/vendor/` から配る。CDN を参照しない**(裁定136)。名前に版を入れる(137)。
 - **★★`stomp.js` が読めないと盤面が一生来ない。**「動かない」報告はまずここを疑う。
 - **★★右クリックの受け皿を `document` に1本持っている**(138・139)。
-  新しい右クリック操作は要素側で `preventDefault()` すること。
   **★奪ってはいけない場所(入力欄 / `#log-box` / 開いているモーダル)を増やしたら、
   受け皿の除外リストと検証の両方に足す。**
 
@@ -373,17 +394,16 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 - **★★`TaskScheduler` 型のBeanを増やさない。★★無言の `location.reload()` を書かない。**
 - **★★部屋はメモリ上にしか無い。接続の寿命がゲームの寿命。**
 - **★静的ファイルの版数は3系統**(`manual-battle.js` / `battle.js` / `battle.css`)。
-  現在 **js v=33 / battle.js v=18 / css v=45**。
+  現在 **js v=33 / battle.js v=19 / css v=45**。
   ★★**4つ目の系統を増やさない**(74)。**★★`battle.css` の版数は3テンプレートで揃える。機械判定あり。**
   ★★版数を上げたら `verify/build_harness.py` の置換文字列も同時に直す。
+  **★片方だけ直すと、ハーネスが js を読み込まなくなり、検証スクリプトごと例外で死ぬ**
+  (FAIL としては出ない。46b で実測)。
 
-### カードデータ・デッキ(Batch 24・40)
+### カードデータ・デッキ(Batch 24・40・46b)
 
-- **★★`manual-cards.json` が手動モードとデッキメーカーの正**(★46b から通常モードも)。
+- **★★`manual-cards.json` が全モード共通の正**(46b から通常モードも)。
 - **★★デッキの標準形式は JSON。** 判別はサーバが先頭バイト(`PK`)で行う。
-- **★★★デッキ構築の規則の正はサーバ(`ManualDeckImporter.validate`)**(設計判断27)。
-  デッキメーカーの検証一覧は**操作補助**であり、止める権限を持たない(128)。
-- **★同名無制限はコードに書かない**(現在0枚)。
 - **★★Thymeleafテンプレートのインライン式に注意。**
   ★デッキメーカーの `<script>` は `th:inline="none"` を保つ。
   **角括弧の開きを2つ連ねる書き方をこのファイルに書かない。**
@@ -402,6 +422,9 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 - **★★公開範囲・押せるか、の判定を2箇所に書かない。**
 - **★★操作の型は `ManualOperationService.apply` が握る。リセットは絶対に止めない。**
 - **★MPを直接増減する操作を作らない。カードIDをJavaにリテラルで書かない。**
+- **★★手動モードは別の `ManualCardType` を持つ**(EVOLUTION 込み)。
+  46b で通常モードの `CardType` にも EVOLUTION が入ったが、**型は共有しない**
+  —— 片方の都合がもう片方の制約にならないようにするためである。
 
 ### UI の落とし穴(要点)
 
@@ -414,7 +437,6 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 - **★★レイアウト計算で `getBoundingClientRect().top` を素で使わない。**
 - **★★★描画の席と送信の席を混ぜない。**
 - **★★クリック規約: 左=見る / 右=動かす。** 新しい `contextmenu` には必ず `preventDefault()`。
-  ★この規約は業界慣習と逆であり、34 で `title` にも書いてある。
   ★デッキメーカーも同じ規約(左=詳細 / 右=追加・削除)。
   ★**通常モードでも「右クリック=拡大」**(裁定142)。
 - **★★対戦部屋では非公開ゾーンが `zones` にキーごと現れない。`zoneCount` を使う。**
@@ -426,7 +448,9 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
 - **★★通常モードは 1280×800 の1画面に収める**(裁定146)。verify 43-1 が番人。
 - **★★リーダーとパイルは右列・盤面は中央**(裁定150)。オーバーレイはヘッダを覆わない。
 - **★★裏面の見た目の正は card-library の `meta.backImageId` 1つ**(裁定151)。
-- **★検証ハーネス: `python3 verify/build_harness.py && node verify/verify.js`(518項目)。**
+- **★★card-library の索引の鍵は `id` である**(46b。以前は `ledgerCardId` だった)。
+  ★verify のフィクスチャ(`CARD_LIBRARY.body.cards`)も実物と同じ形にしてある。
+- **★検証ハーネス: `python3 verify/build_harness.py && node verify/verify.js`(520項目)。**
 
 ### その他
 
@@ -434,7 +458,6 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
   `ManualCleanupScheduler` と `ManualViewBuilder` の2箇所。片方だけ変えない。
   **★localStorage の鍵は5つ**: `qte-manual-occupant-{roomId}` / `qte-manual-help-seen` /
   `qte-manual-sound` / `qte-deckmaker-draft` / `qte-deckmaker-undo`。
-  ★部屋に紐づくのは occupantId だけ(裁定31)。
 - 無人部屋は5分で自動削除。ゲームの正式名称は「クイン・タブーエレメント」。
 - `tools/check_structure.py` は `List.<String>of()` を誤検出(一時変数に受けて回避)。
 - `tools/check_records.py` の既知の誤検出3件(GameActions:775 / GameService:1144 /
@@ -450,8 +473,8 @@ grep 優先でファイルを渡り歩き、全体読み込みは避ける。
   ★★デッキメーカーのハーネスにはスタブが1行も無い(104)。
 - **★★判定を入れたら、判定が落ちることを1回確かめる**(裁定116)。
   ★36 で12通り、37 で12通り、38 で13通り、39 で16通り、40 で24通り、
-  ★**46a では10通り**を確認した。
-  ★★**46a では「壊しても落ちない枝」を1件見つけた**(裁定135 と同じ形。設計解説 4-4)。
+  46a で10通り、★**46b では11通り**を確認した。
+  ★★**46b では「壊しても落ちない判定」を1件見つけて塞いだ**(裁定172。設計解説 8-5)。
 - **★★「クラスが付いたか」を見る検証は、演出の検証にならない。測るのは結果の座標。**
 - **★★`waitForFunction` や `locator.click()` が投げると検証スクリプトごと死ぬ**(`tryUi` で FAIL に)。
 - **★★機械で測れないものを機械で測ろうとしない。測れる決めごとのほうを測る。**
@@ -483,18 +506,20 @@ python3 tools/check_all.py .
 python3 tools/check_records.py src/main/java     # ★既知の誤検出あり
 python3 tools/check_undeclared.py src/main/resources/static/js/*.js
 node --check src/main/resources/static/js/manual-battle.js
+node --check src/main/resources/static/js/battle.js
 NODE_PATH=/home/claude/.npm-global/lib/node_modules \
 PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
   python3 verify/build_harness.py && node verify/verify.js
 javac -proc:none -d /tmp/jc $(find src/main/java src/test/java -name '*.java') 2>&1 \
   | grep error: | grep -viE "cannot find symbol|package .* does not exist"
+mvn -o -B "-Dmaven.repo.local=/root/m2work/repository" test
 ```
 
 ★**Ver1.1 移行のバッチ(46 系)では、加えて**:
 
 ```bash
-python3 tools/build_id_map.py --check
-python3 tools/report_effects.py --summary
+python3 tools/build_id_map.py --check      # 「ベタ書きされた台帳ID: 0 種」であること
+python3 tools/report_effects.py --summary  # 登録112 / 参照44 / 未実装63(47 以降で動く)
 ```
 
 ★フェイス・演出・デッキメーカーに触れたバッチの目視コマンドは v51 の4章にある。
@@ -504,31 +529,31 @@ python3 tools/report_effects.py --summary
 ## 5. チャット開始テンプレート
 
 ```
-QTE Battle の開発を継続する。Batch 46b(Ver1.1 カードマスタの移行)を行う。
+QTE Battle の開発を継続する。Batch 47(効果未実装の印・【常在】フレーム)を行う。
 
 1. プロジェクトナレッジ内の `qte-project-reference.md` を読む。
 2. プロジェクトナレッジ内の `notes/ver11-migration-plan.md` を読む(46〜57 の正)。
-3. プロジェクトナレッジ内の `claude/qte-handoff-v52.md` を読む。
-   3章「既知の落とし穴」の「Ver1.1 移行」節と「カードデータの正」は必読。
-4. `notes/batch46a-design-notes.md` を読む(46b の手順が 6章にある)。
+3. プロジェクトナレッジ内の `claude/qte-handoff-v53.md` を読む。
+   3章「既知の落とし穴」の「Ver1.1 移行」「デッキ構築」節と「カードデータの正」は必読。
+4. `notes/batch46b-design-notes.md` を読む(47 の手順が 10章にある)。
 5. git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
-6. ★接続フォルダの m2repo.zip を device_stage_files で取り込み、
+6. ★接続フォルダの m2repo.zip を device_stage_files で取り込み(転送は非同期なので
+   ファイルの出現を待つ)、
    unzip -q /mnt/user-data/uploads/qte-battle-batch0/m2repo.zip -d /root/m2work →
    mvn -o -B "-Dmaven.repo.local=/root/m2work/repository" test を実行する。
-   ★181件全緑が出発点である。緑でなければ止めて報告する。
-7. 46a の反映を「46a の確認項目」で照合し、verify 518/518 を確認する。
+   ★193件全緑が出発点である。緑でなければ止めて報告する。
+7. 46b の反映を「46b の確認項目」で照合し、verify 520/520 を確認する。
    反映されていなければ止めて報告する。
 
-46b でやること(46a 設計解説 6章):
-- CardType に EVOLUTION を足す
-- CardMasterRepository が manual-cards.json を読む(keywords は CardTextKeywords で作る)
-- 台帳ID 169種を tools/build_id_map.py --sed で機械変換
-- battle.js の autoLibrary の索引を id に変える(版数を上げる)
-- DeckValidator の UNLIMITED_COPIES 撤廃・進化はデッキ構築で弾く
-- テストを235枚基準へ
+47 でやること(46b 設計解説 10章):
+- 「効果未実装」の印(ビュー + デッキ検証の緩和)。裁定D2 の本体
+  ★「登録あり / 参照あり / 未実装」の3段(裁定164)をどこが持つかの設計が要る。
+   Java からは「参照あり」を判定できないので、素朴に作ると実装済み44枚を誤判定する
+- 【常在】フレーム(PersistentAura の拡張)。Ver1.1 に20箇所・リーダー6枚の主メカニズム
+- 不足している TriggerType
 
 制約:
-- ★テストは箱内で回す(46a追補・上の手順6)。納品前に mvn -o test の全緑を確認する。
+- ★テストは箱内で回す。納品前に mvn -o test の全緑を確認する。
   Maven Central へ直接は届かない(403)ので、pom に依存を足すバッチでは
   m2repo.zip の再作成をこちらに依頼すること(手順は 46a 設計解説の追補)。
   ★マスターの環境に mvn CLI は無い。手元確認の依頼は「Eclipse で Run As → JUnit Test」と書く。
@@ -545,27 +570,32 @@ QTE Battle の開発を継続する。Batch 46b(Ver1.1 カードマスタの移�
 
 ---
 
-## 6. 46a 完了時点の積み残し
+## 6. 46b 完了時点の積み残し
 
-### マスターにお願いすること(★46a 分)
+### マスターにお願いすること(★46b 分)
 
 - **★★Eclipse で refresh(F5)→ プロジェクト右クリック → Run As → JUnit Test。**
-  期待: **全181件が緑**(46a の新テスト20件 + 追補で修理した14件を含む)。
-  ★箱内の `mvn -o test` では全緑を確認済み。手元での再確認は「環境差が無いこと」の確認である。
+  期待: **全193件が緑**(46a の181 + 46b の12)。
+- **★★実機確認をお願いしたい(今回はテンプレートと静的ファイルを変えている)。**
+  - `battle.html` の版数を **v=19** に上げた。通常モードの盤面が今までどおり描けること
+    (**Ctrl+F5** 推奨。キャッシュが効くと古い `battle.js` が読まれる)。
+  - 盤面の右クリック拡大でテキストが出ること(card-library の結線)。
+  - `/cards` が235枚を表示し、種別に `EVOLUTION` が混ざること(meta description を1つ直した)。
+  - **リーダー選択が12人 → 18人**に増えること(`/`)。
+  - **プリセットデッキ(特に闇)で1試合。**闇はゾンストライカーが5枚→4枚になった唯一のデッキ。
 - 問題なければ **自分で git commit / push**。
-- **★実機確認は不要**(画面・静的ファイルに一切触れていない)。
 - ツールを一度動かしてみてほしい(Maven 不要):
   `python3 tools/build_id_map.py --check` / `python3 tools/report_effects.py --summary`
 
 ### 継続中の積み残し
 
 - **35〜45 の実機確認が未報告のまま**(11バッチ分。★確認が形骸化している。
-  次にブラウザを開くときにまとめて1回で流すことを推奨)。
-- ~~Maven Central の許可リスト追加~~ → **m2repo.zip 方式で解決**(46a追補)。
-  ★依存を pom に足すバッチでは zip の再作成をマスターに依頼すること。
+  46b の実機確認と一緒に1回で流すことを推奨)。
+- `qte-cards.json` の削除(P5)。消すときは `support/LedgerCards` と台帳照合3件も同時に。
+- 新カード66枚のテキストの目視校正(46a からの持ち越し)。
+- `qte-project-reference.md` の1章が古い(2026-07-21)。P5 で更新。
 - 部屋の永続化(保留)/ タブレット(優先順位11)/ 名前付きスロット(見送り中)。
 - 手動モード関連の積み残し(スロット・fx の残り等)は**一時停止中**。再開時は v47 の6章。
 - ハーネスが `static/vendor/` を読んでいない(意図的。41 設計解説 1-6)。
 - `notes/batch32c-design-notes.md` 2-1 の誤りは 41 設計解説 3章が訂正(原文は残置)。
 - 通常モードの `.log-box` の高さが手動モードの定義に引きずられる(42 設計解説5章。実害小)。
-- テキスト66枚の目視校正 / `qte-project-reference.md` の1章が古い。

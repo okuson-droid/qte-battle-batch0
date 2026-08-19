@@ -18,33 +18,33 @@ package com.example.qte.effect;
  */
 public enum ResumePoint {
 
-    /** 降臨の伝道師(QTE-0112): 公開した束から場に出す【守護】ミニオンを選ぶ */
+    /** 降臨の伝道師(QTE-M-LIGHT-22): 公開した束から場に出す【守護】ミニオンを選ぶ */
     MISSIONARY_SUMMON,
 
-    /** 選択の追い風(QTE-0126): 引いた後の任意ディスカード。Batch 12b で解決処理を実装する */
+    /** 選択の追い風(QTE-M-WIND-25): 引いた後の任意ディスカード。Batch 12b で解決処理を実装する */
     TAILWIND_DISCARD,
 
-    /** 風のマナ変換(QTE-0127): 手札から裏向きマナへ置く1枚を選ぶ。Batch 12b */
+    /** 風のマナ変換(QTE-M-WIND-23): 手札から裏向きマナへ置く1枚を選ぶ。Batch 12b */
     MANA_CONVERT_PUT,
 
-    /** 回帰の風穴(QTE-0116): 再詠唱時の2体目を選ぶ。Batch 12b */
+    /** 回帰の風穴(QTE-M-WIND-26): 再詠唱時の2体目を選ぶ。Batch 12b */
     WINDHOLE_SECOND,
 
-    /** 風護の杖(QTE-0123): リーダーの攻撃時に強化する自分のミニオンを選ぶ。Batch 12b */
+    /** 風護の杖(QTE-M-WIND-28): リーダーの攻撃時に強化する自分のミニオンを選ぶ。Batch 12b */
     GUARD_STAFF_TARGET,
 
-    /** 詠唱の疾風騎士(QTE-0114): ターンエンド時に墓地から回収するスペルを選ぶ。Batch 12b */
+    /** 詠唱の疾風騎士(QTE-M-WIND-18): ターンエンド時に墓地から回収するスペルを選ぶ。Batch 12b */
     GALE_KNIGHT_RECOVER,
 
     /**
-     * 地砕きの突撃兵(QTE-0155): 攻撃時に手札へ戻す自分のマナを選ぶ。Batch 13c。
+     * 地砕きの突撃兵(QTE-M-EARTH-17): 攻撃時に手札へ戻す自分のマナを選ぶ。Batch 13c。
      * ミニオンの攻撃時(ON_ATTACK)から発生する初めての割り込みである
      * (それまでの攻撃時の割り込みは風護の杖=ウェポンのみだった)。
      */
     EARTHBREAKER_MANA_RETURN,
 
     /**
-     * アクア・サーチ(QTE-0028): 2枚引いた後に捨てる手札を1枚選ぶ。Batch 15b(Ver.0.4)。
+     * アクア・サーチ(QTE-M-WATER-25): 2枚引いた後に捨てる手札を1枚選ぶ。Batch 15b(Ver.0.4)。
      * 選択の追い風(TAILWIND_DISCARD)と形は同じだが、あちらが「捨ててもよい」の任意
      * (min=0)であるのに対し、こちらは捨てることが必須(min=1)である点が異なる。
      */

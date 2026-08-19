@@ -5,7 +5,6 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -19,12 +18,38 @@ import lombok.Getter;
 
 /**
  * カードマスタの読み込みと検索。
- * DBではなく classpath 上の JSON(台帳 qte-cards.json)を起動時に一度だけ読み込む。
+ * DBではなく classpath 上の JSON を起動時に一度だけ読み込む。
  * JPAの Repository と役割は同じ「データの出口」だが、対象が不変マスタなので
  * 実体は単なる Map の表引きである(batch0-design-notes.md 3章参照)。
+ *
+ * <h2>★Batch 46b: 読むファイルが変わった</h2>
+ *
+ * 台帳 {@code qte-cards.json}(169枚・Ver0.4)から
+ * <b>{@code manual-cards.json}(235枚・Ver1.1)</b>へ差し替えた(裁定D1 の案B)。
+ * これで手動モード・デッキメーカー・通常モードの<b>カードの正が1つになった</b>
+ * (設計判断28)。デッキメーカーで組んだ JSON がそのまま通常モードで使える。
+ *
+ * <p><b>keywords はファイルに無い。</b> Ver1.1 の定義は {@code keywords} フィールドを持たない
+ * (Batch 24 hotfix2 で廃止した。<b>テキストが正</b>である)。そのため
+ * {@link CardTextKeywords#extract(String)} でテキストから読む。抽出規則は Batch 46a で
+ * 台帳169枚と突き合わせて凍結してあり、規則を触るときは {@code CardTextKeywordsTest} を先に見ること
+ * (裁定158)。★ここで読んだ結果をどこかの表に焼き付けないこと —— 焼き付けた瞬間に
+ * 「テキスト」と「表」という2つの正ができる。
+ *
+ * <p><b>{@code ledgerCardId} は {@link CardMaster} に持たせない。</b>
+ * 退役するIDを新しい正に持ち込むと、いつまでも2つのIDが並走する。
+ * 台帳との対応が要るのは移行作業と、それを検める試験だけであり、
+ * どちらもファイルを直に読めばよい({@code tools/build_id_map.py} / {@code CardIdMappingTest})。
+ *
+ * <p><b>{@code qte-cards.json} は削除していない。</b> 46b では<b>読まなくなるだけ</b>である。
+ * 1バッチ分の戻り道を残すのと、抽出規則の番人({@code CardTextKeywordsTest} の169枚照合)が
+ * まだあのファイルを必要としているためである。
  */
 @Repository
 public class CardMasterRepository {
+
+    /** ★Batch 46b で {@code cards/qte-cards.json} から差し替えた */
+    private static final String RESOURCE = "cards/manual-cards.json";
 
     private final Map<String, CardMaster> cardsById;
 
@@ -41,7 +66,7 @@ public class CardMasterRepository {
     }
 
     private CardFile load(ObjectMapper objectMapper) {
-        try (InputStream in = new ClassPathResource("cards/qte-cards.json").getInputStream()) {
+        try (InputStream in = new ClassPathResource(RESOURCE).getInputStream()) {
             return objectMapper.readValue(in, CardFile.class);
         } catch (IOException e) {
             throw new UncheckedIOException("カードマスタの読み込みに失敗しました", e);
@@ -62,13 +87,20 @@ public class CardMasterRepository {
                 .toList();
     }
 
-    // ---- 以下、台帳JSONの形をそのまま受けるためのDTO ----
+    // ---- 以下、カード定義JSONの形をそのまま受けるためのDTO ----
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record CardFile(List<CardJson> cards) {
     }
 
-    /** 台帳のカード1件。confirmationPending 等の実装に不要な項目は ignoreUnknown で無視する。 */
+    /**
+     * カード定義1件。
+     *
+     * ★{@code imageId} / {@code ledgerCardId} / {@code unlimitedCopies} は
+     * {@code ignoreUnknown} で読み飛ばす。エンジンが使わない項目を record に足すと、
+     * 「使えるから使ってしまう」経路が開く。画像は画面側が
+     * {@code /manual/api/card-library} から引く(裁定144 と同じ形)。
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record CardJson(
             String id,
@@ -78,15 +110,12 @@ public class CardMasterRepository {
             Integer cost,
             Integer attack,
             Integer hp,
-            List<String> keywords,
             String text) {
 
         CardMaster toMaster() {
-            Set<Keyword> keywordSet = keywords.stream()
-                    .map(Keyword::fromDisplayName)
-                    .collect(Collectors.toUnmodifiableSet());
             return new CardMaster(id, name, CardType.valueOf(type),
-                    Civilization.valueOf(civilization), cost, attack, hp, keywordSet, text);
+                    Civilization.valueOf(civilization), cost, attack, hp,
+                    CardTextKeywords.extract(text), text);
         }
     }
 }

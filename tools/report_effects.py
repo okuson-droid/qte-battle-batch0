@@ -22,6 +22,9 @@ Ver1.1 対応(P1〜P5)は 163枚の効果を作る長い作業である。途中
                ルール側に直接書かれた挙動。これも実装ではある)
   未実装    … カードIDがコードのどこにも現れない
 
+★Batch 46b で Java のカードIDが台帳ID(QTE-0001 等)から Ver1.1 のID(QTE-M-<文明>-<番号>)へ
+  機械変換された。したがって照合の鍵は ledgerCardId ではなく card['id'] である。
+
 【「効果テキストあり」の数え方】
 テキストから【…】をすべて取り除いて、句読点と空白しか残らないカードは
 「キーワードだけのカード」であり、効果の登録は要らない(データが正しければ動く)。
@@ -46,7 +49,8 @@ CARDS = ROOT / 'src/main/resources/cards'
 JAVA = ROOT / 'src/main/java'
 REGISTRY = JAVA / 'com/example/qte/effect/CardEffectRegistry.java'
 
-LEDGER_ID = re.compile(r'QTE-(?:\d{4}|L\d{3}|X\d{3})')
+# ★46b: Java に書かれるのは Ver1.1 のカードID である(台帳IDは1つも残っていない)
+CARD_ID = re.compile(r'QTE-M-[A-Z]+-\d+')
 BRACKET = re.compile(r'【[^】]*】')
 NOISE = re.compile(r'[\s。、,\.]+')
 
@@ -109,7 +113,7 @@ def referenced_ids():
     """Java のどこかに書かれているカードIDの集合(登録も含む)。"""
     ids = set()
     for path in sorted(JAVA.rglob('*.java')):
-        ids |= set(LEDGER_ID.findall(path.read_text(encoding='utf-8')))
+        ids |= set(CARD_ID.findall(path.read_text(encoding='utf-8')))
     return ids
 
 
@@ -121,10 +125,10 @@ def has_sentence(text):
 
 
 def classify(card, registered, referenced):
-    ledger_id = card.get('ledgerCardId')
-    if ledger_id and ledger_id in registered:
+    card_id = card['id']
+    if card_id in registered:
         return '登録あり'
-    if ledger_id and ledger_id in referenced:
+    if card_id in referenced:
         return '参照あり'
     return '未実装'
 
@@ -205,7 +209,7 @@ def main():
     changed = [c for c in cards
                if c.get('ledgerCardId')
                and normalized(c['text']) != normalized(ledger[c['ledgerCardId']]['text'])]
-    changed_impl = [c for c in changed if c['ledgerCardId'] in registered]
+    changed_impl = [c for c in changed if c['id'] in registered]
     w('## 本文が台帳と異なるカード(作り直しの候補)')
     w('')
     w('| 区分 | 枚数 |')

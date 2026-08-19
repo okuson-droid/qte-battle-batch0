@@ -18,19 +18,19 @@ const OUT = process.env.OUT || '/tmp/autoboard.png';
 const WITH_ZOOM = process.env.ZOOM === '1';
 
 const LIBRARY = { cards: [
-  { id: 'M1', ledgerCardId: 'QTE-0001', name: '炎の従者', civilization: 'FIRE',
+  { id: 'M1', ledgerCardId: 'QTE-M-FIRE-6', name: '炎の従者', civilization: 'FIRE',
     type: 'MINION', cost: 2, attack: 2, hp: 3, text: '【速攻】', imageId: 'x' },
-  { id: 'M2', ledgerCardId: 'QTE-0044', name: '守りの岩兵', civilization: 'EARTH',
+  { id: 'M2', ledgerCardId: 'QTE-M-FIRE-16', name: '守りの岩兵', civilization: 'EARTH',
     type: 'MINION', cost: 3, attack: 1, hp: 5, text: '【守護】', imageId: 'x' },
-  { id: 'M3', ledgerCardId: 'QTE-L001', name: '傷痕の闘帝', civilization: 'FIRE',
+  { id: 'M3', ledgerCardId: 'QTE-M-FIRE-15', name: '傷痕の闘帝', civilization: 'FIRE',
     type: 'LEADER', cost: 0, attack: null, hp: null,
     text: '【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする', imageId: 'x' },
-  { id: 'M4', ledgerCardId: 'QTE-L002', name: '蒼海の賢者', civilization: 'WATER',
+  { id: 'M4', ledgerCardId: 'QTE-M-WATER-1', name: '蒼海の賢者', civilization: 'WATER',
     type: 'LEADER', cost: 0, attack: null, hp: null, text: '【起動：1】…', imageId: 'x' },
-  { id: 'M5', ledgerCardId: 'QTE-0086', name: '死神の大鎌', civilization: 'DARK',
+  { id: 'M5', ledgerCardId: 'QTE-M-DARK-13', name: '死神の大鎌', civilization: 'DARK',
     type: 'WEAPON', cost: 4, attack: 3, hp: null,
     text: 'このウェポンで攻撃されたミニオンは、戦闘ダメージに関わらず破壊される。', imageId: 'x' },
-  { id: 'M6', ledgerCardId: 'QTE-0046', name: 'マグマ・ストレート', civilization: 'FIRE',
+  { id: 'M6', ledgerCardId: 'QTE-M-FIRE-10', name: 'マグマ・ストレート', civilization: 'FIRE',
     type: 'SPELL', cost: 1, attack: null, hp: null, text: 'ミニオン1体に2ダメージ。', imageId: 'x' },
 ],
 // ★45: 実物の裏面(リポジトリの PNG。manual-cards.json の meta と同じ値)
@@ -68,37 +68,37 @@ meta: { backImageId: '75ee790b3cf017dd0fb883630f12fece01545f6d653889f92992d743ce
     you: autoPlayer({
       lp: 16, availableMp: 4, totalMana: 6,
       manaZone: [
-        { name: '炎の従者', cardId: 'QTE-0001', tapped: false, faceUp: true },
-        { name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: false, faceUp: true },
-        { name: '守りの岩兵', cardId: 'QTE-0044', tapped: false, faceUp: true },
-        { name: '炎の従者', cardId: 'QTE-0001', tapped: false, faceUp: true },
-        { name: 'マグマ・ストレート', cardId: 'QTE-0046', tapped: true, faceUp: true },
+        { name: '炎の従者', cardId: 'QTE-M-FIRE-6', tapped: false, faceUp: true },
+        { name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10', tapped: false, faceUp: true },
+        { name: '守りの岩兵', cardId: 'QTE-M-FIRE-16', tapped: false, faceUp: true },
+        { name: '炎の従者', cardId: 'QTE-M-FIRE-6', tapped: false, faceUp: true },
+        { name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10', tapped: true, faceUp: true },
         { name: null, tapped: false, faceUp: false },
       ],
       hand: [
-        autoCard('QTE-0001', '炎の従者', { cost: 2, keywords: ['速攻'] }),
-        autoCard('QTE-0025', 'スプラッシュ・ドロー', {
+        autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2, keywords: ['速攻'] }),
+        autoCard('QTE-M-WATER-9', 'スプラッシュ・ドロー', {
           type: 'SPELL', civilization: 'WATER', cost: 2, attack: null, hp: null,
           text: 'カードを2枚引く',
         }),
-        autoCard('QTE-0041', '双流の幻術師', {
+        autoCard('QTE-M-WATER-21', '双流の幻術師', {
           civilization: 'WATER', cost: 5, effectiveCost: 3, attack: 2, hp: 3,
           keywords: ['知識'], text: '場に居るミニオンの数Cost-1。【召喚時】ミニオンを3体選び持ち主の手札に戻す',
         }),
-        autoCard('QTE-0138', '創世神 ガイア', {
+        autoCard('QTE-M-EARTH-8', '創世神 ガイア', {
           civilization: 'EARTH', cost: 10, attack: 10, hp: 10, canSpecialSummon: true,
           text: '【召喚時】このミニオン以外の、お互いの場のミニオンをすべて破壊。',
         }),
       ],
       minions: [
-        autoMinion('m1', '炎の従者', { cardId: 'QTE-0001' }),
-        autoMinion('m2', '守りの岩兵', { cardId: 'QTE-0044', keywords: ['守護'], currentHp: 2, maxHp: 5 }),
-        autoMinion('m3', '凍った従者', { cardId: 'QTE-0001', frozen: true }),
+        autoMinion('m1', '炎の従者', { cardId: 'QTE-M-FIRE-6' }),
+        autoMinion('m2', '守りの岩兵', { cardId: 'QTE-M-FIRE-16', keywords: ['守護'], currentHp: 2, maxHp: 5 }),
+        autoMinion('m3', '凍った従者', { cardId: 'QTE-M-FIRE-6', frozen: true }),
       ],
-      trash: [autoCard('QTE-0046', 'マグマ・ストレート', { type: 'SPELL', cost: 1 })], trashCount: 3,
+      trash: [autoCard('QTE-M-FIRE-10', 'マグマ・ストレート', { type: 'SPELL', cost: 1 })], trashCount: 3,
       lost: [], lostCount: 0,
-      weaponCardId: 'QTE-0086',
-      taboo: [autoCard('QTE-0075', '禁忌の代償', {
+      weaponCardId: 'QTE-M-DARK-13',
+      taboo: [autoCard('QTE-M-DARK-10', '禁忌の代償', {
         type: 'SPELL', civilization: 'DARK', cost: 1, attack: null, hp: null,
         text: '自分のマナゾーンの「裏向きのカード」1枚を破壊する。',
       })],
@@ -106,16 +106,16 @@ meta: { backImageId: '75ee790b3cf017dd0fb883630f12fece01545f6d653889f92992d743ce
       weaponName: '死神の大鎌', weaponAttack: 3,
     }),
     opponent: autoPlayer({
-      displayName: 'あいて', leaderName: '蒼海の賢者', leaderCardId: 'QTE-L002',
+      displayName: 'あいて', leaderName: '蒼海の賢者', leaderCardId: 'QTE-M-WATER-1',
       lp: 12, handCount: 4,
       manaZone: [
-        { name: '深海神 プレサージュ', cardId: 'QTE-0020', tapped: false, faceUp: true },
-        { name: 'スプラッシュ・ドロー', cardId: 'QTE-0025', tapped: false, faceUp: true },
+        { name: '深海神 プレサージュ', cardId: 'QTE-M-WATER-24', tapped: false, faceUp: true },
+        { name: 'スプラッシュ・ドロー', cardId: 'QTE-M-WATER-9', tapped: false, faceUp: true },
         { name: null, tapped: true, faceUp: false },
       ],
       minions: [
-        autoMinion('e1', '敵の従者', { cardId: 'QTE-0001' }),
-        autoMinion('e2', 'タップ中の敵', { cardId: 'QTE-0044', tapped: true }),
+        autoMinion('e1', '敵の従者', { cardId: 'QTE-M-FIRE-6' }),
+        autoMinion('e2', 'タップ中の敵', { cardId: 'QTE-M-FIRE-16', tapped: true }),
       ],
     }),
     log: ['あなた: 炎の従者を召喚', 'あいて: スペルを使用', 'ターン4 開始'],

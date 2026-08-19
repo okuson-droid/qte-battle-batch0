@@ -35,7 +35,7 @@ public class GameActions {
      * 蘇生・踏み倒し系の効果はここを必ず経由して弾く。
      * カードIDの直書きだが、判定を1か所に閉じ込めることを優先している。
      */
-    private static final java.util.Set<String> NO_CHEAT_INTO_FIELD = java.util.Set.of("QTE-0083");
+    private static final java.util.Set<String> NO_CHEAT_INTO_FIELD = java.util.Set.of("QTE-M-DARK-18");
 
     private final CardMasterRepository cards;
 
@@ -483,14 +483,14 @@ public class GameActions {
     // ---------------------------------------------------------------
 
     /**
-     * 詠唱の宝珠(QTE-0106): ウェポンが場を離れたとき、次に唱えるスペルのコスト-1を付与する。
+     * 詠唱の宝珠(QTE-M-LIGHT-28): ウェポンが場を離れたとき、次に唱えるスペルのコスト-1を付与する。
      * 破壊(destroyOwnWeapon)・新しいウェポンへの付け替え(GameService.equipWeapon)の
      * どちらの経路でも発動する(発注者確認済み)。ウェポンには破壊トリガーの仕組みがまだ無いため、
      * 「ウェポンが場を離れる」2箇所の処理から直接呼ぶ形にしている。
      */
     public void onWeaponLeftPlay(PlayerState owner, CardMaster weapon) {
-        if ("QTE-0106".equals(weapon.id())) {
-            owner.getPersistentAuras().add(PersistentAura.untilNextSpell("QTE-0106"));
+        if ("QTE-M-LIGHT-28".equals(weapon.id())) {
+            owner.getPersistentAuras().add(PersistentAura.untilNextSpell("QTE-M-LIGHT-28"));
         }
         // 暴風の双剣がこのターン積み上げた攻撃力の加算は、ウェポンが外れた時点で消える
         owner.setWeaponAttackBonusThisTurn(0);
@@ -691,7 +691,7 @@ public class GameActions {
     }
 
     /**
-     * 大地の守護盾(QTE-0146)による、リーダーへの攻撃の肩代わり(置換効果)。
+     * 大地の守護盾(QTE-M-EARTH-13)による、リーダーへの攻撃の肩代わり(置換効果)。
      *
      * defender が大地の守護盾を装備している場合、リーダーへの攻撃ダメージの代わりに
      * このウェポンを破壊し、ダメージそのものを無効化する。ダメージが発生しないため、
@@ -705,7 +705,7 @@ public class GameActions {
      */
     public boolean tryInterceptLeaderAttackWithShield(GameRoom room, PlayerState defender) {
         CardMaster weapon = defender.getEquippedWeapon();
-        if (weapon == null || !"QTE-0146".equals(weapon.id())) {
+        if (weapon == null || !"QTE-M-EARTH-13".equals(weapon.id())) {
             return false;
         }
         room.addLog("【大地の守護盾】がリーダーへの攻撃を肩代わりしました");

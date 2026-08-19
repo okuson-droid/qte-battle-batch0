@@ -15,32 +15,50 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.Keyword;
+import com.example.qte.support.LedgerCards;
 import com.example.qte.support.Ver11Cards;
 
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * キーワード抽出層({@link CardTextKeywords})の検証(Batch 46a)。
+ * キーワード抽出層({@link CardTextKeywords})の検証(Batch 46a / ★46b で照合の向きを変えた)。
  *
  * このテストが Ver1.1 移行の土台である。移行後は
  * {@code manual-cards.json} のテキストだけがキーワードの出どころになるため、
  * <b>「テキストから読んだ結果」が「人手で付けた台帳の keywords」と一致すること</b>を
  * 実データ169枚で確かめておかないと、移行の瞬間に全カードの挙動が静かに変わる。
  *
- * ★期待値を書き並べていない(裁定110)。突き合わせているのは
+ * <p>★期待値を書き並べていない(裁定110)。突き合わせているのは
  * <b>台帳 {@code qte-cards.json} から読んだ値</b>と<b>Ver1.1 のテキストから読んだ値</b>であり、
  * どちらもファイルから来る。テストが持っているのは、両者が食い違う9枚の表だけである。
+ *
+ * <h2>★Batch 46b で変えたこと(マスター裁定: 照合は残す)</h2>
+ *
+ * 46b で {@link CardMasterRepository} が読むファイルが Ver1.1 に変わったため、
+ * <b>台帳は本体からは読めなくなった</b>。照合はテスト専用の読み口
+ * {@link LedgerCards} 経由で続ける —— 素朴な規則では22枚が狂うのだから(裁定159)、
+ * 169枚の回帰検出を無料で残せるうちは残す。
+ *
+ * <p>同時に、照合の<b>右辺を「規則の出力」から「リポジトリが実際に持っている値」へ移した</b>。
+ * 46a の時点では本体がまだ台帳を読んでいたので規則を直接叩くしかなかったが、
+ * 今はエンジンが持つ値そのものを測れる。<b>規則が正しくても配線を間違えれば挙動は変わる</b>ので、
+ * 測るべきは配線の先である。
+ *
+ * <p>★{@code qte-cards.json} を削除するバッチで、{@link LedgerCards} と
+ * 台帳照合の2件を一緒に消すこと。
  */
 @SpringBootTest
 class CardTextKeywordsTest {
 
+    /** ★46b: これは Ver1.1(235枚)を読むリポジトリである。台帳ではない */
     @Autowired
-    CardMasterRepository ledger;
+    CardMasterRepository cards;
 
     @Autowired
     ObjectMapper objectMapper;
 
     private List<Ver11Cards.Card> ver11;
+    private Map<String, Set<Keyword>> ledgerKeywords;
 
     /** Ver1.1 のカード定義。Jackson の設定は Spring から借りるので、読み込みは初回参照時に行う */
     private List<Ver11Cards.Card> ver11Cards() {
@@ -48,6 +66,20 @@ class CardTextKeywordsTest {
             ver11 = Ver11Cards.load(objectMapper);
         }
         return ver11;
+    }
+
+    /** 台帳ID → 人手で付けたキーワード(退役した台帳ファイルから直に読む) */
+    private Map<String, Set<Keyword>> ledgerKeywords() {
+        if (ledgerKeywords == null) {
+            Map<String, Set<Keyword>> map = new LinkedHashMap<>();
+            for (LedgerCards.Card card : LedgerCards.load(objectMapper)) {
+                map.put(card.id(), card.keywords().stream()
+                        .map(Keyword::fromDisplayName)
+                        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
+            }
+            ledgerKeywords = map;
+        }
+        return ledgerKeywords;
     }
 
     // ------------------------------------------------------------------
@@ -171,6 +203,8 @@ class CardTextKeywordsTest {
 
     @Test
     void 台帳と対応づく169枚のうち食い違うのは既知の9枚だけである() {
+        // ★46b: 左辺は「リポジトリが実際に持っている値」である(規則の出力ではない)。
+        // 規則が正しくても、リポジトリの配線を間違えれば挙動は変わる。測るのは配線の先。
         Map<String, String> unexpected = new LinkedHashMap<>();
         int compared = 0;
         for (Ver11Cards.Card card : ver11Cards()) {
@@ -178,17 +212,33 @@ class CardTextKeywordsTest {
                 continue; // 新カード66枚。台帳に相手がいないので突き合わせられない
             }
             compared++;
-            Set<Keyword> fromText = CardTextKeywords.extract(card.text());
+            Set<Keyword> inEngine = cards.findById(card.id()).keywords();
             Set<Keyword> expected = VER11_KEYWORD_CHANGES.containsKey(card.id())
                     ? VER11_KEYWORD_CHANGES.get(card.id())
-                    : ledger.findById(card.ledgerCardId()).keywords();
-            if (!fromText.equals(expected)) {
+                    : ledgerKeywords().get(card.ledgerCardId());
+            if (!inEngine.equals(expected)) {
                 unexpected.put(card.id() + " " + card.name(),
-                        "期待 " + sorted(expected) + " / 抽出 " + sorted(fromText));
+                        "期待 " + sorted(expected) + " / エンジン " + sorted(inEngine));
             }
         }
         assertThat(compared).isEqualTo(169);
         assertThat(unexpected).as("台帳と食い違うのは表に書いた9枚だけのはず").isEmpty();
+    }
+
+    @Test
+    void リポジトリのキーワードは全235枚が抽出規則の出力そのものである() {
+        // ★裁定158 の番人: 抽出結果を表に焼き付けていないこと。
+        // どこかに人手の表を挟んだ瞬間、テキストと表という2つの正ができる。
+        Map<String, String> mismatched = new LinkedHashMap<>();
+        for (Ver11Cards.Card card : ver11Cards()) {
+            Set<Keyword> inEngine = cards.findById(card.id()).keywords();
+            Set<Keyword> fromText = CardTextKeywords.extract(card.text());
+            if (!inEngine.equals(fromText)) {
+                mismatched.put(card.id() + " " + card.name(),
+                        "エンジン " + sorted(inEngine) + " / 抽出 " + sorted(fromText));
+            }
+        }
+        assertThat(mismatched).as("リポジトリがテキスト以外からキーワードを作っている").isEmpty();
     }
 
     @Test
@@ -203,7 +253,7 @@ class CardTextKeywordsTest {
             assertThat(card.ledgerCardId()).as("差分表のカードに台帳の対応が無い: " + id).isNotNull();
             assertThat(VER11_KEYWORD_CHANGES.get(id))
                     .as("差分表の " + id + " は台帳と同じ内容になっている(表から消すこと)")
-                    .isNotEqualTo(ledger.findById(card.ledgerCardId()).keywords());
+                    .isNotEqualTo(ledgerKeywords().get(card.ledgerCardId()));
         }
     }
 

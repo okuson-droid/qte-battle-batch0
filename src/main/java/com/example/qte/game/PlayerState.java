@@ -36,7 +36,7 @@ public class PlayerState {
     public static final int MAX_MINION_ZONE_LIMIT = 8;
 
     /** 大地の巨頭。常在能力でミニオンゾーンの上限を8体に引き上げる(Ver.0.4) */
-    private static final String EARTH_COLOSSUS_LEADER_ID = "QTE-L011";
+    private static final String EARTH_COLOSSUS_LEADER_ID = "QTE-M-EARTH-1";
 
     private final String playerId;
     private final String displayName;

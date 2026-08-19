@@ -3,7 +3,7 @@
 納品前の機械チェック(引き継ぎ書3章)のうち、項目 1・3・5・6 をまとめて実行する。
 
   1. package 宣言とディレクトリの一致
-  3. コード中のカードIDが台帳に実在するか
+  3. コード中のカードIDがカードマスタに実在するか
   5. メソッド参照の解決(actions. effects. stats. guards. の呼び出し先が存在するか)
   6. デッキプリセットの合計枚数と同名制限
 """
@@ -15,7 +15,8 @@ from pathlib import Path
 
 ROOT = Path(sys.argv[1] if len(sys.argv) > 1 else '.')
 JAVA = ROOT / 'src/main/java'
-CARDS = ROOT / 'src/main/resources/cards/qte-cards.json'
+# ★Batch 46b: カードマスタの正が台帳 qte-cards.json から manual-cards.json へ移った
+CARDS = ROOT / 'src/main/resources/cards/manual-cards.json'
 
 failures = []
 
@@ -64,23 +65,28 @@ if bad:
 # 3. コード中のカードIDが台帳に実在するか
 # ---------------------------------------------------------------
 print()
-print('=== 3. コード中のカードIDが台帳に実在するか ===')
-ledger = json.loads(CARDS.read_text(encoding='utf-8'))
-known = {c['id'] for c in ledger['cards']}
-print(f'  台帳のカード数: {len(known)}')
+print('=== 3. コード中のカードIDがカードマスタに実在するか ===')
+master = json.loads(CARDS.read_text(encoding='utf-8'))
+known = {c['id'] for c in master['cards']}
+print(f'  カードマスタの枚数: {len(known)}')
 bad = 0
 seen_ids = set()
-for f in sorted(ROOT.rglob('*.java')):
+# ★Batch 46b: 走査の範囲を src/main/java に絞った。
+# テストは「存在しないカードID」をわざと書く(退役した台帳IDで引けないこと・
+# 未知IDが弾かれることの確認)。テストまで見ると、そうした否定の試験を書くたびに
+# 例外の一覧が要る = 2つ目の正ができる。★本番は実在するIDしか名指ししてはならず、
+# テストの偽IDは実行時に findById が落として教えてくれる。守るべき線はそこである。
+for f in sorted(JAVA.rglob('*.java')):
     src = f.read_text(encoding='utf-8')
-    for m in re.finditer(r'"(QTE-[\w]+)"', src):
+    for m in re.finditer(r'"(QTE-[\w-]+)"', src):
         cid = m.group(1)
         seen_ids.add(cid)
         if cid not in known:
             lineno = src.count('\n', 0, m.start()) + 1
-            print(f'  ★ 台帳に無いカードID: {cid}  {f.name}:{lineno}')
+            print(f'  ★ カードマスタに無いカードID: {cid}  {f.name}:{lineno}')
             bad += 1
 print(f'  コード中で参照されているカードID: {len(seen_ids)} 種')
-print(f'  → 台帳に無いID {bad} 件')
+print(f'  → カードマスタに無いID {bad} 件')
 if bad:
     failures.append('カードID')
 
@@ -124,11 +130,14 @@ if bad:
 print()
 print('=== 6. デッキプリセットの合計枚数と同名制限 ===')
 deck_src = (JAVA / 'com/example/qte/game/DeckFactory.java').read_text(encoding='utf-8')
-UNLIMITED = {'QTE-0012'}  # ゾンストライカー(テキストで4枚制限を上書き)
+# ★Batch 46b: 同名4枚の例外を撤廃した。Ver1.1 の本文から
+# 「このカードは4枚以上入れられる」が消えており、該当は235枚中0枚である。
+# 例外の集合そのものを空にしておくと、復活したときにここが落ちる。
+UNLIMITED = set()
 bad = 0
 # DeckFactory はプリセットを静的マップで持つ。XXX.put("QTE-xxxx", n) を定数名ごとに集計する
 presets = {}
-for m in re.finditer(r'(\w+)\.put\(\s*"(QTE-[\w]+)"\s*,\s*(\d+)\s*\)', deck_src):
+for m in re.finditer(r'(\w+)\.put\(\s*"(QTE-[\w-]+)"\s*,\s*(\d+)\s*\)', deck_src):
     presets.setdefault(m.group(1), Counter())[m.group(2)] += int(m.group(3))
 if not presets:
     print('  ★ プリセットを1件も検出できませんでした(DeckFactoryの書式が変わった可能性)')

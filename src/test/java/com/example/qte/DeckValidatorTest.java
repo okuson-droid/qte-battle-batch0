@@ -1,0 +1,217 @@
+package com.example.qte;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import com.example.qte.deck.DeckDefinition;
+import com.example.qte.deck.DeckValidator;
+import com.example.qte.game.DeckFactory;
+import com.example.qte.master.CardMaster;
+import com.example.qte.master.CardMasterRepository;
+import com.example.qte.master.CardType;
+import com.example.qte.master.Civilization;
+
+/**
+ * デッキ構築の検証({@link DeckValidator})の試験(Batch 46b で新設)。
+ *
+ * <h2>なぜ 46b でこれを書くのか</h2>
+ *
+ * 46b は台帳ID169種を機械変換した。<b>変換が1件でもずれていれば、
+ * そのカードは「存在しないカードID」になる</b>。コンパイルは通ってしまうので、
+ * 気づくのは対戦を始めたときである。
+ *
+ * <p>プリセットデッキ6本(各40枚 + 禁忌8枚)を検証層に通すと、
+ * {@link DeckFactory} に書かれた <b>151行ぶんのID</b>が実在し、文明が揃い、
+ * スペルの効果が登録済みであることまでまとめて確かめられる。
+ * 変換の答え合わせとしては、これがいちばん実物に近い。
+ *
+ * <p>合わせて、46b で入れた2つの決めごとも測る。
+ * <ul>
+ * <li><b>進化ミニオンはデッキに入れられない</b>(裁定166。P3 まで場に出す手段が無い)</li>
+ * <li><b>同名5枚は必ず弾かれる</b>(★UNLIMITED_COPIES の例外表を撤廃したので、抜け道は無い)</li>
+ * </ul>
+ */
+@SpringBootTest
+class DeckValidatorTest {
+
+    @Autowired
+    DeckValidator validator;
+
+    @Autowired
+    DeckFactory deckFactory;
+
+    @Autowired
+    CardMasterRepository cards;
+
+    // ------------------------------------------------------------------
+    // 機械変換の答え合わせ
+    // ------------------------------------------------------------------
+
+    @Test
+    void 全6文明のプリセットデッキが検証を通る() {
+        // ★台帳ID169種の機械変換(46b)の実地確認。1件でもずれていれば
+        // 「存在しないカードがあります」で落ちる。
+        for (Civilization civ : DeckValidator.implementedCivilizations()) {
+            CardMaster leader = firstLeaderOf(civ);
+            assertThatCode(() -> validator.validate(presetDeck(leader)))
+                    .as(civ.getDisplayName() + "文明のプリセットデッキ")
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    @Test
+    void 選択できるリーダーはすべて実在して検証を通る() {
+        // ロビーのリーダー選択に出る全リーダー(★46b で12枚から18枚に増えた)。
+        List<CardMaster> leaders = DeckValidator.implementedCivilizations().stream()
+                .flatMap(civ -> cards.findByCivilization(civ).stream())
+                .filter(c -> c.type() == CardType.LEADER)
+                .toList();
+        assertThat(leaders).hasSize(18);
+        for (CardMaster leader : leaders) {
+            assertThatCode(() -> validator.validate(presetDeck(leader)))
+                    .as(leader.name() + " のプリセットデッキ")
+                    .doesNotThrowAnyException();
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 進化ミニオン(裁定166)
+    // ------------------------------------------------------------------
+
+    @Test
+    void 進化ミニオンはメインデッキに入れられない() {
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-30"); // 海淵獣シラーカ
+        assertThatThrownBy(() -> validator.validate(deck))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("進化ミニオン")
+                .hasMessageContaining("海淵獣シラーカ");
+    }
+
+    @Test
+    void 進化ミニオンは禁忌デッキにも入れられない() {
+        // ★禁忌は「リーダーと異なる文明」なので、水リーダーには火の進化を入れて試す。
+        // 片方の経路だけ塞いで安心する、という取りこぼしを防ぐ。
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition base = presetDeck(leader);
+        List<String> taboo = new ArrayList<>(base.taboo());
+        taboo.set(0, "QTE-M-FIRE-30"); // 不敗鉄人闘太
+        DeckDefinition deck = new DeckDefinition(
+                base.formatVersion(), base.name(), base.leaderCardId(), base.main(), taboo);
+        assertThatThrownBy(() -> validator.validate(deck))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("進化ミニオン");
+    }
+
+    // ------------------------------------------------------------------
+    // 同名上限(UNLIMITED_COPIES 撤廃の確認)
+    // ------------------------------------------------------------------
+
+    @Test
+    void 同名5枚は例外なく弾かれる() {
+        // ★46b で「4枚以上入れられる」の例外表を撤廃した。該当カードは 0 枚なので、
+        // いまや抜け道は無い。表を復活させるとこのテストが落ちる。
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition base = presetDeck(leader);
+        List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
+        main.set(0, new DeckDefinition.Entry(main.get(0).cardId(), 5));
+        DeckDefinition deck = new DeckDefinition(
+                base.formatVersion(), base.name(), base.leaderCardId(), main, base.taboo());
+        assertThatThrownBy(() -> validator.validate(deck))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("同名カードは4枚まで");
+    }
+
+    /**
+     * ★★これが例外表撤廃の本当の番人である。
+     *
+     * 「同名5枚は弾かれる」だけでは足りない —— <b>例外表を復活させても落ちない</b>。
+     * 例外に載っていたのはゾンストライカー1枚なので、<b>そのカードで測らなければ
+     * 測ったことにならない</b>(裁定135 と同じ形の穴。壊し方を試して見つけた)。
+     */
+    @Test
+    void ゾンストライカーも5枚は入れられない() {
+        CardMaster leader = firstLeaderOf(Civilization.DARK);
+        DeckDefinition base = presetDeck(leader);
+        List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
+        int at = -1;
+        for (int i = 0; i < main.size(); i++) {
+            if ("QTE-M-DARK-16".equals(main.get(i).cardId())) {
+                at = i;
+            }
+        }
+        assertThat(at).as("闇のプリセットにゾンストライカーがいる").isNotNegative();
+        main.set(at, new DeckDefinition.Entry("QTE-M-DARK-16", 5));
+        DeckDefinition deck = new DeckDefinition(
+                base.formatVersion(), base.name(), base.leaderCardId(), main, base.taboo());
+        assertThatThrownBy(() -> validator.validate(deck))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("同名カードは4枚まで")
+                .hasMessageContaining("ゾンストライカー");
+    }
+
+    @Test
+    void 同名上限を上書きするテキストを持つカードは1枚も無い() {
+        // ★例外表を撤廃してよい根拠そのものを、カードデータから測る(裁定110)。
+        // Ver1.1 でこの一文を持つカードが復活したら、ここが落ちて例外の設計に戻る合図になる。
+        assertThat(cards.getAllCards())
+                .filteredOn(c -> c.text() != null && c.text().contains("枚以上入れられる"))
+                .isEmpty();
+    }
+
+    @Test
+    void リーダーはメインデッキに入れられない() {
+        CardMaster leader = firstLeaderOf(Civilization.WATER);
+        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-15"); // 流転の智者
+        assertThatThrownBy(() -> validator.validate(deck))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("リーダーはメインデッキに入れられません");
+    }
+
+    // ------------------------------------------------------------------
+    // 組み立ての補助
+    // ------------------------------------------------------------------
+
+    private CardMaster firstLeaderOf(Civilization civilization) {
+        return cards.findByCivilization(civilization).stream()
+                .filter(c -> c.type() == CardType.LEADER)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        civilization + " のリーダーが見つからない"));
+    }
+
+    /** プリセット(DeckFactory)から、検証層に渡せる形のデッキファイルを組み立てる */
+    private DeckDefinition presetDeck(CardMaster leader) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        deckFactory.createMainDeck(leader).forEach(id -> counts.merge(id, 1, Integer::sum));
+        List<DeckDefinition.Entry> main = counts.entrySet().stream()
+                .map(e -> new DeckDefinition.Entry(e.getKey(), e.getValue()))
+                .toList();
+        return new DeckDefinition(DeckDefinition.CURRENT_FORMAT_VERSION, "テスト",
+                leader.id(), main, deckFactory.createTabooDeck(leader));
+    }
+
+    /** メインデッキの1枚だけを差し替える(合計40枚を保つ) */
+    private DeckDefinition replaceOneMainCard(DeckDefinition base, String cardId) {
+        List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
+        DeckDefinition.Entry head = main.get(0);
+        if (head.count() == 1) {
+            main.remove(0);
+        } else {
+            main.set(0, new DeckDefinition.Entry(head.cardId(), head.count() - 1));
+        }
+        main.add(new DeckDefinition.Entry(cardId, 1));
+        return new DeckDefinition(base.formatVersion(), base.name(), base.leaderCardId(),
+                main, base.taboo());
+    }
+}
