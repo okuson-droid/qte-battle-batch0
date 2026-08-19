@@ -4668,6 +4668,68 @@ async function clearZoom(page) {
   check('印を描いてもJSエラーが出ない(47)', markErrors.length === 0, JSON.stringify(markErrors));
   await markPage.close();
 
+  // ---- 48-1. ★★フェイスの本文にキーワードが二重に出ない(48-hotfix) ----
+  // ★★これは 46b の取りこぼしである。Ver0.4 の台帳では keywords が独立フィールドで、
+  //   text は効果の文だけを持っていた。faceText はそれを前提に「keywords を【】にして
+  //   テキストの前へ畳む」処理を持っている。46b で正が manual-cards.json に移り、
+  //   キーワードのフィールドが廃止されてテキストが唯一の出どころになった(裁定158)ので、
+  //   畳む相手とテキストが同じものになり、235枚中125枚で印刷キーワードが2回出ていた。
+  // ★畳む処理そのものは要る —— ビューの keywords は「印刷 + 効果で付与されたもの」であり、
+  //   そよ風の加護でもらった【守護】はテキストのどこにも書いていない。
+  //   したがって測るのは「印刷ぶんは1回・付与ぶんは出る」の両方である。
+  // ★★期待値を書かず、card-library(=クライアントが実際に読む正)から取った本文と
+  //   突き合わせる(裁定131)。「守護」「突進」という語をこの検証に書き写さない。
+  // ★★本文は<b>実物のカードマスタから読む</b>。ハーネスの card-library は手書きの
+  //   フィクスチャなので、そこに本文を書き写すと「書き写した文字列と自分を比べる」
+  //   だけの検証になってしまう(裁定181 の穴)。実ファイルを読んで流し込む。
+  const REAL_CARDS = JSON.parse(
+    fs.readFileSync(path.join(RES, 'cards/manual-cards.json'), 'utf-8')).cards;
+  // 疾風の先陣(QTE-M-WIND-16)は本文が「【守護】【突進】」だけのカード。
+  // 印刷キーワードが本文に全部現れる、いちばん素朴な形である
+  const faceCard = REAL_CARDS.find((c) => c.id === 'QTE-M-WIND-16');
+  const facePrinted = [...(faceCard.text || '').matchAll(/【([^】]+)】/g)].map((m) => m[1]);
+  CARD_LIBRARY.body.cards.push(faceCard);
+  const facePage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const faceErrors = [];
+  facePage.on('pageerror', (e) => faceErrors.push(String(e)));
+  await facePage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await facePage.waitForTimeout(400);
+  const faceSource = { text: faceCard.text, printed: facePrinted };
+  // 付与キーワード役は「本文に現れていない語」でなければ意味がない。
+  // ★候補も決め打ちせず、本文に無いものを Keyword の表示名から選ぶ
+  const GRANTED = ['知識', '威圧', '速攻'].find(k => !faceSource.text.includes(`【${k}】`));
+  await facePage.evaluate((view) => { latestView = view; render(view); }, autoView({
+    you: autoPlayer({
+      hand: [
+        // 0: 印刷キーワードだけ  1: 印刷 + 効果で付与された1つ
+        autoCard('QTE-M-WIND-16', '疾風の先陣', {
+          civilization: 'WIND', cost: 1, attack: 1, hp: 1,
+          keywords: faceSource.printed, text: faceSource.text,
+        }),
+        autoCard('QTE-M-WIND-16', '疾風の先陣', {
+          civilization: 'WIND', cost: 1, attack: 1, hp: 1,
+          keywords: [...faceSource.printed, GRANTED], text: faceSource.text,
+        }),
+      ],
+    }),
+  }));
+  const faceTexts = await facePage.evaluate(() =>
+    [...document.querySelectorAll('#my-hand .auto-card .mcard-text')].map((e) => e.textContent));
+  const countOf = (haystack, needle) => haystack.split(needle).length - 1;
+  check('★★★印刷キーワードは面に1回しか出ない(48-hotfix・46b の取りこぼし)',
+    faceTexts[0] === faceSource.text
+      && faceSource.printed.every((k) => countOf(faceTexts[0], `【${k}】`) === 1),
+    JSON.stringify({ face: faceTexts[0], source: faceSource.text }));
+  check('★★効果で付与されたキーワードは面の先頭に出る(48-hotfix・畳む処理を消していない)',
+    faceTexts[1] === `【${GRANTED}】\n${faceSource.text}`,
+    JSON.stringify({ face: faceTexts[1], granted: GRANTED }));
+  check('★★通常モードの面の本文はデッキメーカーと同じ(48-hotfix・正は card-library の text)',
+    faceTexts[0] === faceSource.text,
+    JSON.stringify({ auto: faceTexts[0], library: faceSource.text }));
+  check('面を描いてもJSエラーが出ない(48-hotfix)', faceErrors.length === 0,
+    JSON.stringify(faceErrors));
+  await facePage.close();
+
   // ---- 42-3. 実効コストの印 ----
   const effCost = await autoPage.evaluate(() => {
     const faces = document.querySelectorAll('#my-hand .auto-card .mcard');

@@ -792,11 +792,32 @@ function libCivColor(cardId) {
     return entry ? civColor(entry.civilization) : civColor('NONE');
 }
 
-/** フェイスの本文。キーワードは独立フィールドなので、面の上では【】で先頭に畳む */
+/**
+ * フェイスの本文。★Batch 48-hotfix で「テキストに既に出ているキーワードは畳まない」に変えた。
+ *
+ * <b>なぜ畳む処理があるのか。</b> ビューの keywords は「印刷 + 効果で付与されたもの」である
+ * (GameViewBuilder が master.keywords と minion.grantedKeywords を合成している)。
+ * そよ風の加護で【守護】をもらったミニオンは、カードのテキストには何も書いていないのに
+ * 守護を持つ —— これを面に出すために、キーワードを【】にして先頭へ足していた。
+ *
+ * <b>なぜ二重になったのか。</b> この処理は Ver0.4 の台帳を前提に書かれていた。
+ * あの頃は keywords が独立フィールドで、text は<b>効果の文だけ</b>を持っていた。
+ * ところが Batch 46b で正が manual-cards.json に移り、キーワードのフィールドは廃止されて
+ * <b>テキストがキーワードの唯一の出どころ</b>になった(裁定158)。
+ * 畳む相手とテキストが同じものになったので、印刷キーワードが2回出る。
+ * 該当は235枚中125枚だった。
+ *
+ * <b>直し方。</b> 全部やめるのでは付与ぶんが見えなくなる。
+ * <b>テキストに現れていないキーワードだけを畳む</b> —— こうすると、
+ * 印刷キーワードは常にテキスト側の1回だけになり、効果で得たものだけが先頭に並ぶ。
+ * ★判定はテキストとの突き合わせであり、印刷キーワードの一覧をここに持たない(裁定131)。
+ */
 function faceText(keywords, text) {
-    const kw = (keywords && keywords.length) ? keywords.map(k => '【' + k + '】').join('') : '';
-    if (!kw) return text || '';
-    return text ? kw + '\n' + text : kw;
+    const body = text || '';
+    const granted = (keywords || []).filter(k => !body.includes('【' + k + '】'));
+    const kw = granted.map(k => '【' + k + '】').join('');
+    if (!kw) return body;
+    return body ? kw + '\n' + body : kw;
 }
 
 /**
