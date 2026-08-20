@@ -55,6 +55,20 @@ let choicePicks = [];
  */
 let tabooPay = null;
 
+/**
+ * ★Batch 52: 進化召喚の素材選択(裁定154)。
+ *
+ * 通常の対象選択(pending)とは別の段である —— 素材は「効果の対象」ではなく
+ * <b>召喚の一部</b>であり、コストを払う前に決まっていなければならない。
+ * 順序は<b>素材 → 対象 → 送信</b>で、素材が決まった時点で beginSelection に渡す。
+ *
+ * ★<b>素材にできるかの判定はこちらに無い。</b>サーバが候補の instanceId を
+ * card.evolutionMaterialIds に載せて送ってくるので、この画面はその一覧に
+ * 入っているかどうかしか見ない(裁定163: 同じ規則を2つの言語に置かない)。
+ * { action, handIndex, specs, extra, card, picked: [instanceId...] }
+ */
+let evolution = null;
+
 // ---------------------------------------------------------------
 // 1) 接続
 // ---------------------------------------------------------------
@@ -148,6 +162,11 @@ function onHandCardClick(index) {
         return;
     }
     if (!latestView.myTurn) return;
+    // ★Batch 52: 進化素材の選択中は場だけを触らせる(手札は次の段で使う)
+    if (evolution) {
+        showMessage('先に進化素材を選んでください(やめるならキャンセル)');
+        return;
+    }
     // 対象選択中の手札クリックは「対象として選ぶ」操作になる
     if (pending) {
         pickHandCard(index);
@@ -177,7 +196,55 @@ function onHandCardClick(index) {
         // コストに影響するモード選択のため、対象選択より前に確定させる
         enhanced = confirm(card.enhancedText + `\n\nOK = 追加コスト+${card.enhancedCost}を払う / キャンセル = 通常使用`);
     }
-    beginSelection(action, index, specs, enhanced ? { enhanced: true } : { enhanced: false });
+    const extra = enhanced ? { enhanced: true } : { enhanced: false };
+    // ★Batch 52: 進化ミニオンは、対象選択より先に素材を決める
+    if (card.type === 'EVOLUTION') {
+        beginEvolutionSelection(action, index, specs, extra, card);
+        return;
+    }
+    beginSelection(action, index, specs, extra);
+}
+
+/**
+ * ★Batch 52: 進化素材の選択を始める。
+ * 候補が足りなければ始めずに理由を出す —— サーバも同じ理由で弾く(マスター裁定 D3)。
+ */
+function beginEvolutionSelection(action, handIndex, specs, extra, card) {
+    const candidates = card.evolutionMaterialIds || [];
+    if (candidates.length < card.evolutionMin) {
+        showMessage('進化素材が足りません(必要: ' + card.evolutionText + ')');
+        return;
+    }
+    evolution = { action, handIndex, specs, extra, card, picked: [] };
+    render(latestView);
+}
+
+/** 素材を1体選ぶ/外す。上限に達したら自動で次の段へ進む */
+function pickEvolutionMaterial(instanceId) {
+    if (!(evolution.card.evolutionMaterialIds || []).includes(instanceId)) {
+        showMessage('このミニオンは素材にできません(条件: ' + evolution.card.evolutionText + ')');
+        return;
+    }
+    const at = evolution.picked.indexOf(instanceId);
+    if (at >= 0) {
+        evolution.picked.splice(at, 1);
+        render(latestView);
+        return;
+    }
+    evolution.picked.push(instanceId);
+    if (evolution.picked.length >= evolution.card.evolutionMax) {
+        confirmEvolutionSelection();
+        return;
+    }
+    render(latestView);
+}
+
+/** 今選んでいる素材で確定し、対象選択(あれば)へ進む */
+function confirmEvolutionSelection() {
+    if (!evolution || evolution.picked.length < evolution.card.evolutionMin) return;
+    const { action, handIndex, specs, extra, picked } = evolution;
+    evolution = null;
+    beginSelection(action, handIndex, specs, Object.assign({}, extra, { materialIds: picked }));
 }
 
 /** 対象選択を開始する。要求がなければ即送信 */
@@ -280,6 +347,8 @@ function matchesFilters(req, card, minion) {
             }
             case 'IGNORES_STEALTH':
                 ok = true; break; // 絞り込みではなく潜伏チェックの上書き指示。pickMinion側で見る
+            case 'EVOLUTION_MINION':
+                ok = !!minion && minion.evolution; break; // ★Batch 52(機神兵長茶爺)
         }
         if (!ok) {
             showMessage('このカードは選べません(条件: ' + (req.filters || []).join(', ') + ')');
@@ -336,6 +405,10 @@ function skipRequirement() {
 
 /** 「好きな数だけ」の要求を、今選んでいる分で確定する */
 function confirmRequirement() {
+    if (evolution) {
+        confirmEvolutionSelection();
+        return;
+    }
     const req = currentRequirement();
     if (!req || !req.upTo) return;
     commitRequirement();
@@ -344,6 +417,7 @@ function confirmRequirement() {
 function cancelSelection() {
     pending = null;
     tabooPay = null;
+    evolution = null;
     hideModal();
     render(latestView);
 }
@@ -655,6 +729,11 @@ function showLeaderInfo(isSelf) {
 // ---------------------------------------------------------------
 
 function onMyMinionClick(instanceId) {
+    // ★Batch 52: 進化素材の選択中は、自分の場のクリックが素材の指定になる
+    if (evolution) {
+        pickEvolutionMaterial(instanceId);
+        return;
+    }
     if (hasPendingChoice()) {
         // 割り込み選択中で、ミニオンを選ばせる問い合わせなら選択として扱う
         pickChoiceCandidateByMinion(instanceId);
@@ -786,6 +865,12 @@ function fillCardBack(el) {
         return true;
     }
     return false;
+}
+
+/** カードIDから名前を引く。未取得・未知IDはIDをそのまま出す(壊さない、の系列) */
+function libName(cardId) {
+    const entry = autoLibrary.get(cardId);
+    return entry && entry.name ? entry.name : cardId;
 }
 
 /** カードIDから文明色を引く。未取得・未知IDは無文明色に落ちる */
@@ -1264,6 +1349,24 @@ function renderSelection() {
         skipBtn.classList.add('d-none');
         return;
     }
+    if (evolution) {
+        // ★Batch 52: 進化素材の選択(対象選択の手前の段)
+        const card = evolution.card;
+        area.classList.remove('d-none');
+        const range = card.evolutionMin === card.evolutionMax
+            ? String(card.evolutionMax) : card.evolutionMin + '〜' + card.evolutionMax;
+        document.getElementById('selection-prompt').textContent =
+            `【${card.name}】の進化素材を選んでください(${evolution.picked.length}/${range}) `
+            + card.evolutionText;
+        skipBtn.classList.add('d-none');
+        // ★数が決まっているカードは上限で自動確定するので、確定ボタンは
+        //   「1体以上」のように幅のあるカードでしか要らない
+        document.getElementById('btn-confirm-target').classList.toggle('d-none',
+            card.evolutionMin === card.evolutionMax
+                || evolution.picked.length < card.evolutionMin);
+        document.getElementById('btn-open-trash').classList.add('d-none');
+        return;
+    }
     const req = currentRequirement();
     area.classList.toggle('d-none', !req);
     if (!req) return;
@@ -1467,7 +1570,18 @@ function renderSelf(you, view) {
     row.innerHTML = '';
     you.minions.forEach(minion => {
         const el = createMinionEl(minion);
-        if (req && req.kind === 'MINION' && req.side !== 'OPPONENT') {
+        if (evolution) {
+            // ★Batch 52: 素材にできる候補だけを光らせる(判定はサーバが送った一覧のみ)
+            if ((evolution.card.evolutionMaterialIds || []).includes(minion.instanceId)) {
+                el.classList.add('attack-target');
+                el.onclick = () => onMyMinionClick(minion.instanceId);
+            } else {
+                el.classList.add('exhausted');
+            }
+            if (evolution.picked.includes(minion.instanceId)) {
+                el.classList.add('selected-attacker');
+            }
+        } else if (req && req.kind === 'MINION' && req.side !== 'OPPONENT') {
             el.classList.add('attack-target');
             el.onclick = () => onMyMinionClick(minion.instanceId);
         } else if (!pending) {
@@ -1576,6 +1690,9 @@ function createMinionEl(minion) {
     if (minion.frozen) addBadge(badges, '❄凍結');
     if (minion.tapped) addBadge(badges, '⟳');
     if (minion.canUseAbility) addBadge(badges, '⚡能力');
+    // ★Batch 52: 進化の下にある枚数。中身は右クリックの拡大で読める(裁定142)
+    const underCount = (minion.underCardIds || []).length;
+    if (underCount > 0) addBadge(badges, '下' + underCount);
     addUnimplementedBadge(badges, minion);
     attachBadges(el, badges);
     // ★拡大は「効果テキストを読む」ためのもの。abilityText(起動能力)があれば添える
@@ -1583,6 +1700,11 @@ function createMinionEl(minion) {
         const data = faceDataFromMinion(minion);
         if (minion.abilityText && !(data.text || '').includes(minion.abilityText)) {
             data.text = (data.text ? data.text + '\n' : '') + minion.abilityText;
+        }
+        // ★Batch 52: 下にあるカードは相手のものも公開情報である(素材は場に出ていた)
+        if (underCount > 0) {
+            data.text = (data.text ? data.text + '\n' : '')
+                + '下: ' + minion.underCardIds.map(libName).join(' / ');
         }
         return data;
     });
@@ -1621,7 +1743,7 @@ function createHandCardEl(card, index, view) {
             el.classList.add('selected-attacker');
         }
         if (index === pending.handIndex) el.classList.add('exhausted');
-    } else if (!pending) {
+    } else if (!pending && !evolution) {
         const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
         const affordable = cost <= view.you.availableMp;
         // ミニオン・スペル・ウェポンはメインフェイズにプレイ可能(ウェポンの光り漏れバグを修正)

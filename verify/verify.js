@@ -5157,6 +5157,120 @@ async function clearZoom(page) {
   check('★★墓地パイルのクリックで中身がフェイスの一覧で開く(44)',
     zoneModal.open && zoneModal.faces === 2, JSON.stringify(zoneModal));
 
+  // ---- 52-1〜52-3. ★進化召喚の UI(★Batch 52) ----
+  //
+  // ★<b>クライアントは素材条件を1つも知らない。</b> 18枚の条件は文明・キーワード・体力・
+  //   進化かどうかの組み合わせで10種類以上あり、TargetSpec.Filter に足すと battle.js にも
+  //   同じ数だけ case が要る(裁定195)。52 はそうせず、<b>サーバが候補の instanceId を
+  //   絞り込んで送る</b>形にした(裁定163: 同じ規則を2つの言語に置かない)。
+  //   だからここで測るのは「送られた一覧のとおりに光るか」であって、条件の中身ではない。
+  const evoView = autoView({
+    you: autoPlayer({
+      availableMp: 9,
+      hand: [
+        autoCard('QTE-M-WATER-30', '海淵獣シラーカ', {
+          type: 'EVOLUTION', civilization: 'WATER', cost: 3, attack: 2, hp: 2,
+          text: '【進化】（水文明の潜伏を持たないミニオン1体）【潜伏】【知識】',
+          evolutionMaterialIds: ['m1'], evolutionMin: 1, evolutionMax: 1,
+          evolutionText: '水文明の【潜伏】を持たないミニオン1体',
+        }),
+      ],
+      minions: [
+        autoMinion('m1', 'アクア・ジェリー', { cardId: 'QTE-M-WATER-2' }),
+        autoMinion('m2', '海獣タウギーナ', { cardId: 'QTE-M-WATER-33', keywords: ['潜伏'] }),
+      ],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e1', '敵ミニオン')] }),
+  });
+  await autoDeliver(evoView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  const evoHandBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(evoHandBox.x + evoHandBox.width / 2,
+    evoHandBox.y + evoHandBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const evoPick = await autoPage.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#my-minions .auto-card')];
+    return {
+      prompt: document.getElementById('selection-prompt').textContent,
+      areaOpen: !document.getElementById('selection-area').classList.contains('d-none'),
+      candidate: tiles[0].classList.contains('attack-target'),
+      notCandidate: tiles[1].classList.contains('attack-target'),
+      sentSoFar: window.__sent.length,
+    };
+  });
+  check('★★★進化召喚はサーバが送った候補だけを素材として光らせる(52・裁定163)',
+    evoPick.areaOpen && evoPick.candidate && !evoPick.notCandidate && evoPick.sentSoFar === 0
+      && evoPick.prompt.includes('進化素材'),
+    JSON.stringify(evoPick));
+
+  // ★候補を1体選ぶと(このカードは素材ちょうど1体なので)そのまま送信される
+  const evoMatBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(evoMatBox.x + evoMatBox.width / 2,
+    evoMatBox.y + evoMatBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const evoSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★選んだ素材が play-card の materialIds に載って送られる(52)',
+    !!evoSent && evoSent.destination.endsWith('/play-card') && evoSent.body.handIndex === 0
+      && JSON.stringify(evoSent.body.materialIds) === JSON.stringify(['m1']),
+    JSON.stringify(evoSent));
+
+  // ★<b>候補でないミニオンは選べない</b>。上の項目だけだと「どれを押しても送る」実装でも通る
+  //   (裁定181: 比べる相手を間違えた検証は何も見ていない)
+  await autoDeliver(evoView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await autoPage.mouse.click(evoHandBox.x + evoHandBox.width / 2,
+    evoHandBox.y + evoHandBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const evoBadBox = await autoPage.locator('#my-minions .auto-card').nth(1).boundingBox();
+  await autoPage.mouse.click(evoBadBox.x + evoBadBox.width / 2,
+    evoBadBox.y + evoBadBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const evoRejected = await autoPage.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#my-minions .auto-card')];
+    return {
+      sent: window.__sent.length,
+      stillSelecting: !document.getElementById('selection-area').classList.contains('d-none'),
+      // ★候補でないタイルは押せる見た目にすらならない(クリックの受け口を持たない)
+      dimmed: tiles[1].classList.contains('exhausted'),
+      picked: tiles[1].classList.contains('selected-attacker'),
+    };
+  });
+  check('★★候補でないミニオンは素材に選べない(52・そうでない側)',
+    evoRejected.sent === 0 && evoRejected.stillSelecting
+      && evoRejected.dimmed && !evoRejected.picked,
+    JSON.stringify(evoRejected));
+  await autoPage.evaluate(() => cancelSelection());
+
+  // ---- 52-3. 進化ミニオンの束は枚数バッジと拡大で読める ----
+  const evoStackView = autoView({
+    you: autoPlayer({
+      minions: [
+        autoMinion('s1', '不敗鉄人闘太', {
+          cardId: 'QTE-M-FIRE-30', attack: 4, currentHp: 4, maxHp: 4,
+          // ★この節の card-library に載っているカードを使う —— 名前が引けることまで測るため
+          evolution: true, underCardIds: ['QTE-M-FIRE-6', 'QTE-M-WATER-9'],
+        }),
+      ],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(evoStackView);
+  const stackBadge = await autoPage.evaluate(() =>
+    [...document.querySelectorAll('#my-minions .auto-badge')].map((b) => b.textContent));
+  const stackTileBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(stackTileBox.x + stackTileBox.width / 2,
+    stackTileBox.y + stackTileBox.height / 2, { button: 'right' });
+  await autoPage.waitForTimeout(60);
+  const stackZoom = await autoPage.evaluate(() => {
+    const text = document.getElementById('auto-zoom-card').textContent || '';
+    closeZoom();
+    return text;
+  });
+  check('★★進化ミニオンは束の枚数がバッジに出て、拡大で中身が読める(52・裁定142)',
+    stackBadge.some((t) => t === '下2') && stackZoom.includes('下:')
+      && stackZoom.includes('炎の従者') && stackZoom.includes('スプラッシュ・ドロー'),
+    JSON.stringify({ stackBadge, stackZoom }));
+
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
   await autoPage.close();
 

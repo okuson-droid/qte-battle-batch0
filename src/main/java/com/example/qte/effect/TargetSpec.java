@@ -133,6 +133,15 @@ public record TargetSpec(List<Requirement> requirements, int combinedTotal) {
          * 【潜伏】による相手からの対象化禁止を無視する(ホーリー・シグナル)。
          * 通常「相手の効果の対象にならない」潜伏の原則に対する初のテキスト上書き例。
          */
-        IGNORES_STEALTH
+        IGNORES_STEALTH,
+        /**
+         * 進化ミニオンである(★Batch 52。《機神兵長茶爺》の【起動：1】)。
+         *
+         * 場のミニオンにのみ意味を持つ。判定は「そのミニオンの種別が EVOLUTION か」だけで、
+         * 進化スタックの中身を見ない —— 束が空の進化ミニオンは構造的に存在しない
+         * (素材は最低1体を要求する)。
+         * ★<b>ここに値を足したら battle.js の2箇所にも足すこと</b>(verify 49-1 が番人)。
+         */
+        EVOLUTION_MINION
     }
 }

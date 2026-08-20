@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "name": "進化確認用(Batch52)",
+  "leaderCardId": "QTE-M-FIRE-29",
+  "main": [
+    {
+      "cardId": "QTE-M-FIRE-30",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-31",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-32",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-33",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-2",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-16",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-34",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-35",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-10",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-FIRE-36",
+      "count": 4
+    }
+  ],
+  "taboo": [
+    "QTE-M-DARK-31",
+    "QTE-M-EARTH-36",
+    "QTE-M-EARTH-2",
+    "QTE-M-WATER-9",
+    "QTE-M-DARK-6",
+    "QTE-M-LIGHT-2",
+    "QTE-M-WIND-2",
+    "QTE-M-WATER-2"
+  ]
+}

@@ -290,6 +290,9 @@ function autoCard(cardId, name, overrides = {}) {
     specialSummonText: null, combinedTotal: 0, enhancedCost: 0, enhancedText: null,
     // ★Batch 47: 「効果未実装」の印。判定はサーバが済ませて真偽値だけを送る
     effectUnimplemented: false,
+    // ★Batch 52: 進化の素材条件。候補の instanceId はサーバが絞り込んで送る ——
+    //   クライアントは素材条件を1つも知らない(裁定163)
+    evolutionMaterialIds: [], evolutionMin: 0, evolutionMax: 0, evolutionText: null,
     ...overrides,
   };
 }
@@ -301,6 +304,8 @@ function autoMinion(instanceId, name, overrides = {}) {
     canAttackMinion: false, canAttackLeader: false,
     frozen: false, tapped: false, canUseAbility: false, abilityText: null,
     effectUnimplemented: false,
+    // ★Batch 52: 進化ミニオンか / 下に置かれているカード(裁定154)
+    evolution: false, underCardIds: [],
     ...overrides,
   };
 }

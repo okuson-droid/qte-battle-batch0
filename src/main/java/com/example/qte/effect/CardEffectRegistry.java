@@ -80,6 +80,16 @@ public class CardEffectRegistry {
      */
     private final Map<String, BiPredicate<GameState, PlayerState>> playConditions = new HashMap<>();
 
+    /**
+     * 進化ミニオンの召喚素材の仕様(★Batch 52。裁定154)。
+     *
+     * ★<b>この表だけは {@link #isRegistered(String)} が見ない。</b>
+     * 素材条件は「そのカードの効果」ではなく<b>場に出す手段</b>だからである。
+     * 数えてしまうと、素材条件を書いただけで効果が未実装の進化から印が消える
+     * (詳細は {@link EvolutionSpec} の javadoc)。
+     */
+    private final Map<String, EvolutionSpec> evolutions = new HashMap<>();
+
     // ---------------------------------------------------------------
     // ★Batch 47: 表に登録せず、このクラスのコードに直接書かれているカード。
     // 表に載らないので {@link #isRegistered(String)} では拾えない。
@@ -105,13 +115,32 @@ public class CardEffectRegistry {
     private static final int IRON_WOLF_LP_THRESHOLD = 10;
 
     /**
+     * 海淵獣シラーカ(★Batch 52)。効果の文が<b>進化の素材条件だけ</b>のカードである。
+     * 素材条件は {@link #evolutions} にあるが、あの表は {@link #isRegistered(String)} が
+     * 数えないため、ここで名乗らないと実装済みなのに印が付く(裁定176)。
+     */
+    private static final String SHIRAKA = "QTE-M-WATER-30";
+
+    /**
+     * 不敗鉄人闘太(★Batch 52)。【常在】の中身が
+     * 「下にあるミニオン1枚につき Attack と HP が +2」であり、
+     * その値は {@link EvolutionSpec#statPerUnderCard()} が運んでいる。
+     * 表への登録ではないので、シラーカと同じくここで名乗る。
+     */
+    private static final String TOUTA = "QTE-M-FIRE-30";
+
+    /** 不敗鉄人闘太が下にあるカード1枚につき得る Attack・HP */
+    private static final int TOUTA_STAT_PER_UNDER_CARD = 2;
+
+    /**
      * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
      * 趣旨と番人は {@link RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
      */
     public static final java.util.Set<String> IMPLEMENTED_CARDS =
             java.util.Set.of(ABYSS_DRAGON, HARVEST_LEADER, FLAME_FANATIC, FLAME_MIRROR,
                     STOK_LEADER, LOLOIYO_LEADER,
-                    GRAVE_DANCER_LEADER, COMEBACK_KEEPER, ANTOMARUEL_LEADER);
+                    GRAVE_DANCER_LEADER, COMEBACK_KEEPER, ANTOMARUEL_LEADER,
+                    SHIRAKA, TOUTA);
 
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
@@ -133,6 +162,8 @@ public class CardEffectRegistry {
         registerLightVer11Cards();
         registerFireVer11Cards();
         registerEarthVer11Cards();
+        registerEvolutionMaterials();
+        registerEvolutionCards();
     }
 
     // ---------------------------------------------------------------
@@ -1679,6 +1710,8 @@ public class CardEffectRegistry {
             List<String> toDeck = new ArrayList<>(ctx.targets().get(0).handCardIds());
             for (ResolvedTargets.TargetedMinion t : ctx.targets().get(1).minions()) {
                 t.owner().getMinionZone().remove(t.minion());
+                // ★Batch 52: 進化の下にあったカードも一緒に山札へ戻る(裁定154)
+                toDeck.addAll(ctx.actions().underCardsForDeck(ctx.room(), t.owner(), t.minion()));
                 if (t.minion().isFromTaboo()) {
                     t.owner().getLostZone().add(t.minion().getMaster().id());
                     ctx.room().addLog("【%s】は禁忌カードのため消滅しました".formatted(t.minion().getMaster().name()));
@@ -3021,6 +3054,207 @@ public class CardEffectRegistry {
         if (condition != null && !condition.test(state, player)) {
             throw new IllegalStateException("このカードを使用する条件を満たしていません");
         }
+    }
+
+    /**
+     * 進化18枚の召喚素材の条件(★Batch 52。裁定154・157)。
+     *
+     * <h2>★18枚すべてをこのバッチで登録する</h2>
+     *
+     * 効果を実装するのは Batch 52・53 に分かれるが、<b>素材条件だけは18枚まとめて書く</b>。
+     * 素材条件が無い進化はデッキに入れても手札で完全な死に札になり、それは
+     * 裁定166 が進化をデッキ構築で弾いていた理由そのものだからである。
+     * 条件を全部書いておけば、デッキ構築の解禁を「一部だけ」にしなくて済む ——
+     * 効果が未実装のものは<b>出せるが効果が起きない</b>という、裁定D2 の普通の姿になる。
+     *
+     * <h2>★素材は常に自分の場である(マスター裁定 A2)</h2>
+     *
+     * 本文が「自分の」と書いていないものが6枚あるが、素材は自分の進化ミニオンの下に
+     * 置かれるものなので、相手の場から取れると事実上の最強除去になる。
+     *
+     * <h2>★「ミニオン」は進化ミニオンも含む(裁定211 の適用)</h2>
+     *
+     * 「水文明のミニオン1体」のような書き方に「進化ではない」という限定は無い。
+     * 《追撃鉄人連太》がわざわざ「自分の進化ミニオン1体」と書いているのは、
+     * <b>進化に限定するため</b>であって、他のカードが進化を除外する根拠にはならない。
+     * 限定の有無をそのまま写す(裁定211)。
+     *
+     * <h2>「体力」は現在HPで見る</h2>
+     *
+     * 既存の {@link TargetSpec.Filter#HP_5_OR_LESS} が現在HPを見ているのに揃える。
+     * ダメージを受けて体力が落ちたミニオンは、その落ちた値で判定される。
+     */
+    private void registerEvolutionMaterials() {
+        // ---- 水文明 ----
+        registerEvolution(SHIRAKA, EvolutionSpec.exactly(1,
+                "水文明の【潜伏】を持たないミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.WATER
+                        && !m.hasKeyword(Keyword.STEALTH)));
+        registerEvolution("QTE-M-WATER-31", EvolutionSpec.exactly(1,
+                "水文明の【潜伏】を持つミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.WATER
+                        && m.hasKeyword(Keyword.STEALTH)));
+        registerEvolution("QTE-M-WATER-32", EvolutionSpec.exactly(1,
+                "水文明ではないミニオン1体",
+                m -> m.getMaster().civilization() != Civilization.WATER));
+
+        // ---- 火文明 ----
+        // ★「自分ミニオン1体以上」だけが数に上限を持たない。素材を増やすほど大きくなる
+        registerEvolution(TOUTA, EvolutionSpec.atLeast(1, TOUTA_STAT_PER_UNDER_CARD,
+                "自分のミニオン1体以上", m -> true));
+        registerEvolution("QTE-M-FIRE-31", EvolutionSpec.exactly(1,
+                "自分の進化ミニオン1体", MinionInstance::isEvolution));
+        registerEvolution("QTE-M-FIRE-32", EvolutionSpec.exactly(1,
+                "ミニオン1体", m -> true));
+
+        // ---- 闇文明 ----
+        registerEvolution("QTE-M-DARK-30", EvolutionSpec.exactly(1,
+                "闇文明の体力4以上のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.DARK && m.getCurrentHp() >= 4));
+        registerEvolution("QTE-M-DARK-31", EvolutionSpec.exactly(1,
+                "ミニオン1体", m -> true));
+        // ★18枚で唯一、素材を2体要求する。引き継ぎは全素材分を合算する(マスター裁定 B1)
+        registerEvolution("QTE-M-DARK-32", EvolutionSpec.exactly(2,
+                "闇文明のミニオン2体",
+                m -> m.getMaster().civilization() == Civilization.DARK));
+
+        // ---- 光文明 ----
+        registerEvolution("QTE-M-LIGHT-30", EvolutionSpec.exactly(1,
+                "【守護】を持つ体力2以上のミニオン1体",
+                m -> m.hasKeyword(Keyword.GUARD) && m.getCurrentHp() >= 2));
+        registerEvolution("QTE-M-LIGHT-31", EvolutionSpec.exactly(1,
+                "光文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.LIGHT));
+        registerEvolution("QTE-M-LIGHT-32", EvolutionSpec.exactly(1,
+                "自分の【守護】を持つ光文明のミニオン1体",
+                m -> m.hasKeyword(Keyword.GUARD)
+                        && m.getMaster().civilization() == Civilization.LIGHT));
+
+        // ---- 風文明 ----
+        registerEvolution("QTE-M-WIND-30", EvolutionSpec.exactly(1,
+                "風文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.WIND));
+        registerEvolution("QTE-M-WIND-31", EvolutionSpec.exactly(1,
+                "風文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.WIND));
+        registerEvolution("QTE-M-WIND-32", EvolutionSpec.exactly(1,
+                "風文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.WIND));
+
+        // ---- 土文明 ----
+        registerEvolution("QTE-M-EARTH-30", EvolutionSpec.exactly(1,
+                "土文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.EARTH));
+        registerEvolution("QTE-M-EARTH-31", EvolutionSpec.exactly(1,
+                "土文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.EARTH));
+        registerEvolution("QTE-M-EARTH-32", EvolutionSpec.exactly(1,
+                "土文明のミニオン1体",
+                m -> m.getMaster().civilization() == Civilization.EARTH));
+    }
+
+    /**
+     * Batch 52 が効果まで実装する進化ミニオンと、進化スタックを操作するリーダー。
+     *
+     * ★<b>《海淵獣シラーカ》と《不敗鉄人闘太》はここに現れない。</b>
+     * 前者は効果の文が素材条件だけ、後者は【常在】の中身が
+     * {@link EvolutionSpec#statPerUnderCard()} に載っているためである。
+     * どちらも {@link #IMPLEMENTED_CARDS} で名乗っている(裁定176)。
+     *
+     * ★《追撃鉄人連太》(2回攻撃)と《サービスブレイク・メリィナ》(コスト軽減・味方強化)は
+     * {@link StatCalculator} にある。数値の評価はあちらの担当である。
+     */
+    private void registerEvolutionCards() {
+
+        // ---- 飛翔鉄人走太(QTE-M-FIRE-32) ----
+        // 「【進化】(ミニオン1体)【特殊召喚】(場にミニオンが3体以上いる時
+        //   このカードは手札から場に0コストとして出せる)」
+        //
+        // ★<b>特殊召喚でも素材は要る</b>(マスター裁定 D1)。特殊召喚が代替しているのは
+        //   コストだけであり、進化であることを止めるものではない。
+        // ★「場に」に「自分の」が付いていないので両者の場を数える(記法規約。裁定156(2))
+        specialSummons.put("QTE-M-FIRE-32", SpecialSummonSpec.of(
+                (state, player, handIndex) -> countMinionsOnAnyField(state) >= 3,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                "場にミニオンが3体以上います: 0コストで進化召喚します"));
+
+        // ---- 裏雷怒乗込(QTE-M-EARTH-31) ----
+        // 「【進化】(土文明のミニオン1体)【守護】攻撃時カードを1枚引く。」
+        //
+        // ★【守護】はテキストから抽出される(裁定158)。登録が要るのは攻撃時だけである。
+        // ★攻撃時の効果が割り込みを出さないので、Batch 51 が作った戦闘の保留には掛からない
+        register("QTE-M-EARTH-31", TriggerType.ON_ATTACK, ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            ctx.room().addLog("【裏雷怒乗込】: 攻撃時に1枚ドロー");
+        });
+
+        // ---- 武羅須斗最終(QTE-M-EARTH-32) ----
+        // 「【進化】(土文明のミニオン1体)【特殊召喚】(自分のマナが7枚以上のとき
+        //   このカードを手札からコスト1として場に出せる。)【守護】【還元】」
+        //
+        // ★「マナが7枚以上」はマナゾーンの枚数である(裁定201 と同じ読み)。
+        //   タップ・向きは問わない。支払う1マナは mpCost で表す
+        specialSummons.put("QTE-M-EARTH-32", new SpecialSummonSpec(
+                (state, player, handIndex) -> player.getManaZone().size() >= 7,
+                1,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                ctx -> {
+                },
+                "自分のマナが7枚以上あります: コスト1で進化召喚します"));
+
+        // ---- 機神兵長茶爺(QTE-M-FIRE-29・リーダー) ----
+        // 「【起動：1】場の進化ミニオン1枚の下に手札からミニオンを選び入れる。
+        //   そうしたらカードを1枚引く。」
+        //
+        // ★<b>進化スタックそのものを要求する唯一の非進化カード</b>であり、
+        //   裁定215 が「P3 送り」と名指ししたカードである。
+        // ★「場の」に「自分の」が付いていないが、<b>自分の場に限る</b>(マスター裁定)。
+        //   進化スタックを厚くするのは自分の盤面への行為であり、
+        //   相手の進化を育てる読みは採らない ——「自分の」の省略はここでも自明とみなす
+        //   (進化素材が常に自分の場である、と同じ判断。マスター裁定 A2)。
+        // ★「そうしたら」なので、下に入れられたときだけ引く。
+        //   進化ミニオンが自分の場に1体も居なければ起動能力そのものが使えない(condition)
+        leaderAbilities.put("QTE-M-FIRE-29", new LeaderAbilitySpec(
+                1,
+                TargetSpec.of(
+                        Requirement.filtered(Kind.HAND, Side.SELF, 1, false,
+                                "進化ミニオンの下に入れるミニオンを選んでください",
+                                TargetSpec.Filter.MINION_CARD),
+                        Requirement.filtered(Kind.MINION, Side.SELF, 1, false,
+                                "カードを下に入れる進化ミニオンを選んでください",
+                                TargetSpec.Filter.EVOLUTION_MINION)),
+                ctx -> {
+                    String cardId = ctx.targets().get(0).handCardIds().get(0);
+                    ResolvedTargets.TargetedMinion target = ctx.targets().get(1).minions().get(0);
+                    // 手札から抜いたカードは、束の中では「入れた側の出自」を持たない ——
+                    // 手札のカードは禁忌デッキ由来ではないので false で足りる
+                    target.minion().putUnder(new com.example.qte.game.StackedCard(cardId, false));
+                    ctx.room().addLog("【機神兵長茶爺】: 【%s】を【%s】の下に入れました"
+                            .formatted(cards.findById(cardId).name(),
+                                    target.minion().getMaster().name()));
+                    ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+                },
+                (state, player) -> player.getMinionZone().stream().anyMatch(MinionInstance::isEvolution),
+                "1マナ: 自分の進化ミニオン1枚の下に手札のミニオンを入れ、1枚引く"));
+    }
+
+    /** 両者の場に居るミニオンの合計(★Batch 52。飛翔鉄人走太の特殊召喚条件) */
+    private int countMinionsOnAnyField(GameState state) {
+        return state.getPlayer1().getMinionZone().size() + state.getPlayer2().getMinionZone().size();
+    }
+
+    /** 進化の素材条件の登録(★Batch 52)。★この表は {@link #isRegistered(String)} が見ない */
+    private void registerEvolution(String cardId, EvolutionSpec spec) {
+        evolutions.put(cardId, spec);
+    }
+
+    /** 進化ミニオンの素材条件。進化ミニオンでないカード、未登録のカードは null */
+    public EvolutionSpec evolutionOf(String cardId) {
+        return evolutions.get(cardId);
     }
 
     /** 「自分のミニオンが破壊された」監視効果の登録 */

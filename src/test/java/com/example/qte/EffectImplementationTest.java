@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectImplementation;
+import com.example.qte.effect.StatCalculator;
 import com.example.qte.game.DeckFactory;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardTextKeywords;
@@ -62,23 +63,26 @@ class EffectImplementationTest {
      * 48(風文明の8枚)で 56枚 = 進化18 + 非進化38 になった。
      * 49(水文明の6枚)で 50枚 = 進化18 + 非進化32 になった。
      * 50(闇6枚 + 光6枚)で 38枚 = 進化18 + 非進化20 になった。
-     * ★<b>51(火7枚 + 土8枚)で 23枚 = 進化18 + 非進化5 になった。P2 はこれで終わりである。</b>
-     * 残る非進化5枚は、すべて<b>進化か賢魂を待っている</b>もので、後続のフェーズが引き取る ——
-     * 【賢魂】が3枚(闇の《グレイヴガールズファン》《スタンディングテント》・
-     * 土の《勝阿外》。P4)、進化に関わるものが2枚
-     * (光の《英術・スケアロック》・火の《機神兵長茶爺》。P3)である。
+     * 51(火7枚 + 土8枚)で 23枚 = 進化18 + 非進化5 になった(P2 の終わり)。
+     * ★<b>52(進化エンジン + 進化6枚 + 機神兵長茶爺)で 15枚 = 進化11 + 非進化4 になった。</b>
+     * 内訳は Batch 53 が引き取る8枚(進化7 + 《英術・スケアロック》)と、
+     * P4 が引き取る7枚(【賢魂】を持つ進化4枚 + 非進化3枚)である。
+     *
+     * <p>★<b>進化の素材条件は18枚すべて登録されているが、印はそれでは消えない。</b>
+     * 素材条件は「効果」ではなく<b>場に出す手段</b>だからである
+     * ({@code CardEffectRegistry.evolutions} は {@code isRegistered} が見ない)。
      */
     @Test
-    void 効果未実装のカードは23枚である() {
+    void 効果未実装のカードは15枚である() {
         long unimplemented = cards.getAllCards().stream().filter(implementation::isUnimplemented).count();
-        assertThat(unimplemented).isEqualTo(23);
+        assertThat(unimplemented).isEqualTo(15);
     }
 
     @Test
-    void 印が付くカードのうち進化ミニオンは18枚で残り5枚がデッキに入る() {
+    void 印が付くカードのうち進化ミニオンは11枚で残り4枚がデッキに入る() {
         var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
-        assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(18);
-        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(5);
+        assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(11);
+        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(4);
     }
 
     /**
@@ -222,23 +226,85 @@ class EffectImplementationTest {
     }
 
     /**
-     * ★Batch 51 が「後続のフェーズ送り」にした2枚には、今も印が付いていなければならない。
+     * ★Batch 52 で印が消えた8枚。
      *
-     * 枚数だけを直すと、送ったはずのカードがいつのまにか実装済みに見えていても気づけない。
-     * ★《勝阿外》は【常在】だけなら 51 で書けたが、【賢魂：2】と1枚のカードであり、
-     *   常在だけを実装すると印が消えて<b>賢魂も実装済みに見える</b>(裁定165)。
-     *   そのため丸ごと P4 へ送った —— その判断がここで固定される。
+     * 48〜51 と同じ理由で、枚数だけでなく<b>実物を名指しして測る</b>(裁定181)。
+     * ★このバッチは<b>実装の置き場所が4通りに散っている</b> ——
+     * 表(特殊召喚・トリガー・リーダー能力)、{@link StatCalculator} の宣言、
+     * そして<b>進化の素材条件だけで完結する2枚の宣言</b>である。
+     * 置き場所が違っても「どこかで名乗っていれば実装済み」であることを、ここで押さえる(裁定180)。
      */
     @Test
-    void Batch51が後続に送った2枚には今も印が付く() {
-        String[] deferred = {
-            "QTE-M-FIRE-29",  // 機神兵長茶爺 … 進化スタックの下に手札を入れる(P3)
-            "QTE-M-EARTH-36", // 勝阿外 … 【賢魂：2】を持つ(P4)
+    void Batch52で実装した8枚には印が付かない() {
+        String[] batch52 = {
+            "QTE-M-WATER-30", // 海淵獣シラーカ … 効果の文が素材条件だけ(CardEffectRegistry の宣言)
+            "QTE-M-FIRE-30",  // 不敗鉄人闘太 … 【常在】の値が EvolutionSpec にある(同上)
+            "QTE-M-FIRE-31",  // 追撃鉄人連太 … StatCalculator(2回攻撃)
+            "QTE-M-FIRE-32",  // 飛翔鉄人走太 … 表(特殊召喚)
+            "QTE-M-DARK-32",  // サービスブレイク・メリィナ … StatCalculator(コスト・味方強化)
+            "QTE-M-EARTH-31", // 裏雷怒乗込 … 表(ON_ATTACK)
+            "QTE-M-EARTH-32", // 武羅須斗最終 … 表(特殊召喚)
+            "QTE-M-FIRE-29",  // 機神兵長茶爺 … 表(リーダー起動能力)。51 が P3 へ送ったカード
         };
-        for (String cardId : deferred) {
+        for (String cardId : batch52) {
             CardMaster card = cards.findById(cardId);
             assertThat(implementation.isUnimplemented(card))
-                    .as(card.name() + " は Batch 51 の範囲外なので印が付いたままでなければならない")
+                    .as(card.name() + " は Batch 52 で実装したので印を付けてはいけない")
+                    .isFalse();
+        }
+    }
+
+    /**
+     * ★Batch 52 が「【賢魂】待ち」として P4 へ送った7枚には、今も印が付いていなければならない。
+     *
+     * <b>これは任意の標本ではなくスコープの決定の記録である</b>(裁定219)。
+     * ★とくに進化4枚は、<b>進化部分だけなら 52 で書けた</b> ——
+     * それでも丸ごと送ったのは、進化だけを実装すると印が消えて
+     * <b>【賢魂】も実装済みに見える</b>からである(裁定165: 部分実装は印で表せない)。
+     * マスター裁定 E2 が案(b) を選んだ、その判断がここで固定される。
+     */
+    @Test
+    void Batch52が賢魂待ちとしてP4へ送った7枚には今も印が付く() {
+        String[] deferredToP4 = {
+            "QTE-M-LIGHT-32", // 英霊・タイガラム … 進化 +【賢魂：3】
+            "QTE-M-WIND-30",  // 黒ノ霊導者 … 進化 +【賢魂：1】
+            "QTE-M-WIND-31",  // 白ノ霊知者 … 進化 +【賢魂：2】
+            "QTE-M-EARTH-30", // 愚乱怒土地 … 進化 +【賢魂：3】
+            "QTE-M-DARK-37",  // グレイヴガールズファン …【賢魂】
+            "QTE-M-DARK-38",  // スタンディングテント …【賢魂】
+            "QTE-M-EARTH-36", // 勝阿外 …【賢魂：2】(51 が送ったカード)
+        };
+        for (String cardId : deferredToP4) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は【賢魂】待ちなので印が付いたままでなければならない")
+                    .isTrue();
+        }
+    }
+
+    /**
+     * ★Batch 52 が Batch 53 へ送った8枚にも、今も印が付いていなければならない。
+     *
+     * P3 を2つに割った境目そのものであり、53 がこの試験を空にするのが目的である(裁定219)。
+     * ★<b>この8枚も「出す」ことはできる</b> —— 素材条件は18枚すべて登録してあるので、
+     * デッキに入れて場に出せる。印が言っているのは「効果が起きない」ことだけである。
+     */
+    @Test
+    void Batch52がBatch53へ送った8枚には今も印が付く() {
+        String[] deferredTo53 = {
+            "QTE-M-WATER-31", // 海淵獣ラカブ
+            "QTE-M-WATER-32", // 海淵獣ゾクシム
+            "QTE-M-DARK-30",  // リボーンライヴ・ノア
+            "QTE-M-DARK-31",  // サモナーポップ・エンラ
+            "QTE-M-LIGHT-30", // 英霊・ニュウキロ
+            "QTE-M-LIGHT-31", // 英霊・コレキ
+            "QTE-M-WIND-32",  // 灰ノ霊呼者
+            "QTE-M-LIGHT-39", // 英術・スケアロック(スペル。51 が P3 へ送ったカード)
+        };
+        for (String cardId : deferredTo53) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は Batch 53 の範囲なので印が付いたままでなければならない")
                     .isTrue();
         }
     }

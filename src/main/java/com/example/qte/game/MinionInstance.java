@@ -72,6 +72,38 @@ public class MinionInstance {
     /** ステータス修正のスタック(設計判断12) */
     private final List<StatModifier> modifiers = new ArrayList<>();
 
+    /**
+     * 進化の下に置かれているカードの束(★Batch 52。裁定154)。下から順に並ぶ。
+     *
+     * <b>場を離れるときは進化ミニオンと一緒に移動する。</b>破壊されたのではなく
+     * 同伴しただけなので、束のカードの【破壊時】は発動しない(マスター裁定 C1) ——
+     * 束が {@link MinionInstance} ではなく {@link StackedCard} であることで、
+     * これは<b>条件分岐ではなく構造として</b>守られている。
+     */
+    private final List<StackedCard> under = new ArrayList<>();
+
+    /**
+     * 下にあるカード1枚につき Attack と HP に足す量(★Batch 52。《不敗鉄人闘太》の【常在】)。
+     *
+     * <b>保存された修正ではなく、規則そのものを持っている。</b> 値は
+     * {@link com.example.qte.effect.EvolutionSpec} が持ち、場に出るときに1度だけ写す。
+     * 実際の加算は<b>読むたびに束を数えて</b>行うので、【起動：1】で束が増えれば
+     * 即座に反映され、束が変わらないのに古い値が残ることも起きない
+     * (【常在】は保存しない、の原則)。
+     *
+     * <p>★<b>加算する場所は Attack と HP で違う。</b>
+     * HP は {@link #getMaxHp()}(このクラスが唯一の出どころ)、
+     * Attack は {@link com.example.qte.effect.StatCalculator#effectiveAttack}
+     * (ゲームロジックが必ず通る出どころ)である。同じ規則を2箇所に書かないため、
+     * <b>それぞれ1回だけ</b>足している。この非対称は Batch 12 からのもので、52 は増やしていない。
+     *
+     * <p>★<b>進化を重ねても引き継がない。</b>これは「他のカードによって付与された効果」ではなく
+     * このカード自身のテキストなので、裁定157(2) の対象外である
+     * ({@link #inheritGrantsFrom} が写さないことで守っている)。
+     */
+    @lombok.Setter
+    private int statPerUnderCard = 0;
+
     public MinionInstance(CardMaster master, int enteredTurn) {
         this(master, enteredTurn, false);
     }
@@ -105,6 +137,7 @@ public class MinionInstance {
                 hp += m.value();
             }
         }
+        hp += statPerUnderCard * under.size();
         return Math.max(0, hp);
     }
 
@@ -169,6 +202,46 @@ public class MinionInstance {
     public void expireThisTurnModifiers() {
         modifiers.removeIf(m -> m.duration() == StatModifier.Duration.THIS_TURN);
         grantedKeywordsThisTurn.clear();
+    }
+
+    /** 進化ミニオンか(★Batch 52)。召喚酔いの免除・素材条件の判定に使う */
+    public boolean isEvolution() {
+        return master.type() == com.example.qte.master.CardType.EVOLUTION;
+    }
+
+    /** 束に1枚加える(進化の素材・《機神兵長茶爺》の【起動：1】)。下から順に積む */
+    public void putUnder(StackedCard card) {
+        under.add(card);
+    }
+
+    /**
+     * 素材から<b>他のカードによって付与されていた効果だけ</b>を受け継ぐ(裁定157(2))。
+     *
+     * <ul>
+     * <li><b>写すもの</b>: {@link StatModifier} のスタックと付与キーワード。
+     *     期限が「このターンの間」のものも写す(マスター裁定 B4) ——
+     *     裁定157(2) が言う「他のカードによって付与された効果」であることは、
+     *     期限の有無で変わらない。写したあとは既存の
+     *     {@link #expireThisTurnModifiers()} がターン終了時に落とす。</li>
+     * <li><b>写さないもの</b>: ダメージ・タップ状態・このターンの攻撃回数
+     *     (マスター裁定 B2・B3・B5)、および {@link #statPerUnderCard}。</li>
+     * </ul>
+     *
+     * <p>★<b>【常在】による修正が写らないのは、そもそも保存されていないからである</b>
+     * (裁定157(3))。「自分のミニオンすべて Attack+1」のような効果は
+     * {@link com.example.qte.effect.StatCalculator} が評価のたびに場を見て算出しており、
+     * {@link #modifiers} には1つも積まれない。したがって
+     * <b>ここで「常在由来のものを除く」処理を書く必要がない</b> ——
+     * 裁定157 が要求した「個別付与と常在計算の2系統」は、Batch 12 の設計判断12 の時点で
+     * 既に分かれていた。
+     *
+     * <p>★素材が2体以上のときは、この呼び出しを素材の数だけ繰り返す
+     * (=全素材分を合算する。マスター裁定 B1)。
+     */
+    public void inheritGrantsFrom(MinionInstance material) {
+        modifiers.addAll(material.modifiers);
+        grantedKeywords.addAll(material.grantedKeywords);
+        grantedKeywordsThisTurn.addAll(material.grantedKeywordsThisTurn);
     }
 
     public void countAttack() {

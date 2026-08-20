@@ -119,6 +119,9 @@ public class GameActions {
      */
     public void bounceToHand(GameRoom room, PlayerState owner, MinionInstance minion) {
         owner.getMinionZone().remove(minion);
+        // ★Batch 52: 進化の素材は進化ミニオンと一緒に移動する(裁定154)。
+        // 本体が消滅しても、束のカードは<b>それぞれ自分の出自に従う</b>(マスター裁定 C3)
+        dispatchUnderCards(room, owner, minion, UnderDestination.HAND);
         if (minion.isFromTaboo()) {
             owner.getLostZone().add(minion.getMaster().id());
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(minion.getMaster().name()));
@@ -126,6 +129,90 @@ public class GameActions {
         }
         owner.getHand().add(minion.getMaster().id());
         room.addLog("【%s】が手札に戻りました".formatted(minion.getMaster().name()));
+    }
+
+    /**
+     * 進化ミニオンを山札へ戻すときに、下にあったカードのうち一緒に戻すものを返す
+     * (★Batch 52。裁定154。《サイクロン・リフレッシュ》が唯一の使い手)。
+     *
+     * 山札へ戻す経路だけは、戻すカードをいったん集めてから
+     * {@link #returnToDeckAndShuffle} に渡す形になっているため、
+     * {@code dispatchUnderCards} と違って<b>行き先へ入れるところまではやらない</b>。
+     * 禁忌由来のカードの消滅だけはここで済ませる(戻す一覧に混ぜてはいけない)。
+     */
+    public java.util.List<String> underCardsForDeck(GameRoom room, PlayerState owner,
+            MinionInstance minion) {
+        java.util.List<String> toDeck = new java.util.ArrayList<>();
+        for (StackedCard stacked : minion.getUnder()) {
+            CardMaster card = cards.findById(stacked.cardId());
+            if (stacked.fromTaboo()) {
+                owner.getLostZone().add(card.id());
+                room.addLog("【%s】の下にあった【%s】は禁忌カードのため消滅しました"
+                        .formatted(minion.getMaster().name(), card.name()));
+            } else {
+                toDeck.add(card.id());
+            }
+        }
+        if (!minion.getUnder().isEmpty()) {
+            room.addLog("【%s】の下にあった%d枚も一緒に移動しました"
+                    .formatted(minion.getMaster().name(), minion.getUnder().size()));
+        }
+        return toDeck;
+    }
+
+    /** 進化の下にあったカードの行き先(★Batch 52。裁定154) */
+    private enum UnderDestination {
+        /** 墓地(【還元】と禁忌の判断は {@link GameActions#sendToTrashOrRestore} に任せる) */
+        TRASH,
+        /** 持ち主の手札 */
+        HAND,
+        /** 裏向きでマナゾーンへ */
+        MANA_FACE_DOWN
+    }
+
+    /**
+     * 進化ミニオンが場を離れるとき、下にあったカードを一緒に運ぶ(★Batch 52。裁定154)。
+     *
+     * <h2>これは破壊ではない(マスター裁定 C1)</h2>
+     *
+     * 束のカードの【破壊時】は発動しない。素材は破壊されたのではなく<b>同伴しただけ</b>である。
+     * ★束が {@link MinionInstance} ではなく {@link StackedCard} なので、
+     * 発火させようとしても引く相手が居ない —— <b>条件分岐ではなく構造で守られている。</b>
+     * 破壊数のカウンタ({@code minionsDestroyedThisTurn} の2種)にも数えない。
+     *
+     * <h2>行き先は1枚ずつ自分の出自に従う(マスター裁定 C3)</h2>
+     *
+     * 禁忌由来のカードだけが消滅ゾーンへ行く。進化ミニオン本体が禁忌由来でも、
+     * 通常デッキ由来の素材は墓地(手札・マナ)へ行く。
+     *
+     * ★<b>呼ぶのは場から取り除いた直後である。</b>本体の行き先を決めるより先に呼ぶと、
+     * 【還元】でマナが増えたぶんだけマナ上限の判定がずれる。
+     */
+    private void dispatchUnderCards(GameRoom room, PlayerState owner, MinionInstance minion,
+            UnderDestination destination) {
+        if (minion.getUnder().isEmpty()) {
+            return;
+        }
+        for (StackedCard stacked : minion.getUnder()) {
+            CardMaster card = cards.findById(stacked.cardId());
+            if (stacked.fromTaboo()) {
+                owner.getLostZone().add(card.id());
+                room.addLog("【%s】の下にあった【%s】は禁忌カードのため消滅しました"
+                        .formatted(minion.getMaster().name(), card.name()));
+                continue;
+            }
+            switch (destination) {
+                case TRASH -> sendToTrashOrRestore(room, owner, card, false);
+                case HAND -> owner.getHand().add(card.id());
+                case MANA_FACE_DOWN -> {
+                    ManaCard mana = new ManaCard(card.id(), false);
+                    mana.turnFaceDown();
+                    owner.getManaZone().add(mana);
+                }
+            }
+        }
+        room.addLog("【%s】の下にあった%d枚も一緒に移動しました"
+                .formatted(minion.getMaster().name(), minion.getUnder().size()));
     }
 
     /**
@@ -276,6 +363,9 @@ public class GameActions {
             DestructionCause cause) {
         owner.getMinionZone().remove(minion);
         room.addLog("【%s】が破壊されました".formatted(minion.getMaster().name()));
+        // ★Batch 52: 進化の素材は一緒に墓地へ行く(裁定154)。★素材は破壊されていないので
+        // 【破壊時】は発動せず、下の破壊数のカウンタ2種にも数えない(マスター裁定 C1)
+        dispatchUnderCards(room, owner, minion, UnderDestination.TRASH);
         boolean wentToTrash = sendToTrashOrRestore(room, owner, minion.getMaster(), minion.isFromTaboo());
 
         owner.setOwnMinionDestroyedThisTurn(true);
@@ -872,12 +962,20 @@ public class GameActions {
         if (!owner.getMinionZone().contains(minion)) {
             return false; // 連鎖する効果で既に場を離れている
         }
-        if (!minion.isFromTaboo() && owner.getManaZone().size() >= PlayerState.MAX_MANA) {
-            room.addLog("マナが15枚のため、【%s】をマナに置けませんでした"
-                    .formatted(minion.getMaster().name()));
+        // ★Batch 52: 進化ミニオンは下にあるカードも一緒にマナへ行く(裁定154・マスター裁定 C2)。
+        // ★マナ上限の判定は<b>束を含めた全枚数</b>で行い、全部置けないなら1枚も動かさない ——
+        //   本体だけマナに入って束が宙に浮く、という状態を作らないためである。
+        //   禁忌由来のカードはマナに行かず消滅するので、枚数の勘定から外す
+        int needed = (minion.isFromTaboo() ? 0 : 1)
+                + (int) minion.getUnder().stream().filter(s -> !s.fromTaboo()).count();
+        if (owner.getManaZone().size() + needed > PlayerState.MAX_MANA) {
+            room.addLog("マナが%d枚のため、【%s】を%sマナに置けませんでした"
+                    .formatted(owner.getManaZone().size(), minion.getMaster().name(),
+                            minion.getUnder().isEmpty() ? "" : "下のカードごと"));
             return false;
         }
         owner.getMinionZone().remove(minion);
+        dispatchUnderCards(room, owner, minion, UnderDestination.MANA_FACE_DOWN);
         if (minion.isFromTaboo()) {
             owner.getLostZone().add(minion.getMaster().id());
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(minion.getMaster().name()));

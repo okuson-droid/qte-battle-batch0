@@ -60,7 +60,8 @@ public class GameWsController {
     @MessageMapping("/room/{roomId}/play-card")
     public void playCard(@DestinationVariable String roomId, PlayCardRequest request) {
         execute(roomId, request.playerId(), room -> gameService.playCard(
-                room, request.playerId(), request.handIndex(), request.targets(), request.enhanced()));
+                room, request.playerId(), request.handIndex(), request.targets(), request.enhanced(),
+                request.materialIds()));
     }
 
     /** 禁忌カードの使用(メインフェイズのみ・マナで直接コストを支払う) */
@@ -68,14 +69,15 @@ public class GameWsController {
     public void playTaboo(@DestinationVariable String roomId, TabooRequest request) {
         execute(roomId, request.playerId(), room -> gameService.playTabooCard(
                 room, request.playerId(), request.tabooIndex(),
-                request.manaIndexes(), request.targets()));
+                request.manaIndexes(), request.targets(), request.materialIds()));
     }
 
     /** 【特殊召喚】(条件・代替コストによる代替召喚) */
     @MessageMapping("/room/{roomId}/special-summon")
     public void specialSummon(@DestinationVariable String roomId, PlayCardRequest request) {
         execute(roomId, request.playerId(), room -> gameService.specialSummon(
-                room, request.playerId(), request.handIndex(), request.targets()));
+                room, request.playerId(), request.handIndex(), request.targets(),
+                request.materialIds()));
     }
 
     /** 攻撃(targetInstanceIdがnullならリーダー攻撃) */
@@ -190,8 +192,16 @@ public class GameWsController {
     public record TrashActionRequest(String playerId, int trashIndex) {
     }
 
+    /**
+     * @param materialIds ★Batch 52。進化召喚の素材にする自分の場のミニオンの instanceId。
+     *                    進化ミニオン以外では空(または未送信)である
+     */
     public record PlayCardRequest(String playerId, int handIndex,
-            List<TargetChoice> targets, boolean enhanced) {
+            List<TargetChoice> targets, boolean enhanced, List<String> materialIds) {
+
+        public List<String> materialIds() {
+            return materialIds == null ? List.of() : materialIds;
+        }
     }
 
     public record LeaderAbilityRequest(String playerId, List<TargetChoice> targets) {
@@ -201,7 +211,11 @@ public class GameWsController {
     }
 
     public record TabooRequest(String playerId, int tabooIndex,
-            List<Integer> manaIndexes, List<TargetChoice> targets) {
+            List<Integer> manaIndexes, List<TargetChoice> targets, List<String> materialIds) {
+
+        public List<String> materialIds() {
+            return materialIds == null ? List.of() : materialIds;
+        }
     }
 
     public record AttackRequest(String playerId, String attackerInstanceId, String targetInstanceId) {

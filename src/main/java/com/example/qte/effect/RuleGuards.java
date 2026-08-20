@@ -118,7 +118,11 @@ public class RuleGuards {
             return "このミニオンは凍結していて攻撃できません";
         }
         if (attacker.getEnteredTurn() == state.getTurnNumber()) {
-            boolean allowed = attacker.hasKeyword(Keyword.HASTE)
+            // ★Batch 52: 進化ミニオンは出したターンからリーダーにもミニオンにも攻撃できる
+            // (裁定157(1))。カード固有の性質ではなく<b>種別の規則</b>なので、
+            // IMPLEMENTED_CARDS には現れない —— 名乗るべきカードが1枚も無い。
+            boolean allowed = attacker.isEvolution()
+                    || attacker.hasKeyword(Keyword.HASTE)
                     || (attacker.hasKeyword(Keyword.RUSH) && !targetIsLeader);
             if (!allowed) {
                 return targetIsLeader

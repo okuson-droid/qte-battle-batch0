@@ -85,32 +85,37 @@ class DeckValidatorTest {
     }
 
     // ------------------------------------------------------------------
-    // 進化ミニオン(裁定166)
+    // 進化ミニオン(★Batch 52 で解禁。裁定166 → マスター裁定 E1)
     // ------------------------------------------------------------------
 
+    /**
+     * ★46b〜51 のあいだ、進化ミニオンはデッキ構築で弾かれていた(裁定166)。
+     * 理由は「場に出す手段そのものがエンジンに無い」ことであり、入れると手札で
+     * 完全な死に札になるからだった。Batch 52 が進化エンジンを作り、
+     * 18枚すべての素材条件を登録したので、その理由は消えた。
+     */
     @Test
-    void 進化ミニオンはメインデッキに入れられない() {
+    void 進化ミニオンはメインデッキに入れられる() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);
         DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-30"); // 海淵獣シラーカ
-        assertThatThrownBy(() -> validator.validate(deck))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("進化ミニオン")
-                .hasMessageContaining("海淵獣シラーカ");
+        assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
     }
 
+    /**
+     * ★禁忌デッキにも入れられる(マスター裁定 E1)。使い方は通常と同じで、
+     * コストの支払い方だけが禁忌の作法になる。
+     * 禁忌は「リーダーと異なる文明」なので、水リーダーには火の進化を入れて試す ——
+     * 片方の経路だけ確かめて安心する、という取りこぼしを防ぐ。
+     */
     @Test
-    void 進化ミニオンは禁忌デッキにも入れられない() {
-        // ★禁忌は「リーダーと異なる文明」なので、水リーダーには火の進化を入れて試す。
-        // 片方の経路だけ塞いで安心する、という取りこぼしを防ぐ。
+    void 進化ミニオンは禁忌デッキにも入れられる() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);
         DeckDefinition base = presetDeck(leader);
         List<String> taboo = new ArrayList<>(base.taboo());
         taboo.set(0, "QTE-M-FIRE-30"); // 不敗鉄人闘太
         DeckDefinition deck = new DeckDefinition(
                 base.formatVersion(), base.name(), base.leaderCardId(), base.main(), taboo);
-        assertThatThrownBy(() -> validator.validate(deck))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("進化ミニオン");
+        assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
     }
 
     // ------------------------------------------------------------------

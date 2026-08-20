@@ -22,6 +22,16 @@ import com.example.qte.master.Keyword;
  *                          使ってもテキストどおりには動かないことを盤面に印として出す。
  *                          判定の正はサーバ({@link com.example.qte.effect.EffectImplementation})であり、
  *                          クライアントは同じ判定を持たない
+ * @param evolutionMaterialIds ★Batch 52。今この瞬間、このカードの進化素材にできる
+ *                          自分の場のミニオンの instanceId(進化ミニオン以外は空)。
+ *                          ★<b>素材条件の判定をクライアントに持たせない</b>ための形である ——
+ *                          18枚の条件は文明・キーワード・体力・進化かどうかの組み合わせで
+ *                          10種類以上あり、{@link com.example.qte.effect.TargetSpec.Filter} に
+ *                          足すと {@code battle.js} にも同じ数だけ {@code case} が要る(裁定195)。
+ *                          サーバが候補そのものを送れば、規則は1箇所にしか存在しない(裁定163)
+ * @param evolutionMin      必要な素材の最小数(進化ミニオン以外は0)
+ * @param evolutionMax      素材の最大数。「1体以上」のカードは今の場のミニオン数まで
+ * @param evolutionText     素材条件の説明(進化ミニオン以外はnull)
  */
 public record CardView(
         String cardId,
@@ -41,7 +51,11 @@ public record CardView(
         int combinedTotal,
         int enhancedCost,
         String enhancedText,
-        boolean effectUnimplemented) {
+        boolean effectUnimplemented,
+        List<String> evolutionMaterialIds,
+        int evolutionMin,
+        int evolutionMax,
+        String evolutionText) {
 
     public static List<String> keywordNames(CardMaster master) {
         return master.keywords().stream().map(Keyword::getDisplayName).toList();

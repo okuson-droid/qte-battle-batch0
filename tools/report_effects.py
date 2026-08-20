@@ -125,6 +125,24 @@ def registered_ids():
     return ids
 
 
+def evolution_only_ids():
+    """進化の素材条件としてだけ現れるカードID(★Batch 52)。
+
+    ★<b>素材条件は「効果」ではなく「場に出す手段」である。</b>
+      Batch 52 は進化18枚すべての素材条件を登録した(デッキ構築を解禁するため)が、
+      効果まで実装したのはそのうち一部である。素材条件の登録を「実装あり」と数えると、
+      効果が未実装の進化から<b>盤面の印が消えてしまう</b> ——
+      だから Java の CardEffectRegistry.isRegistered() もこの表を見ない。
+
+    ★その結果、CardEffectRegistry に現れるのに登録にも宣言にも無いIDが出る。
+      下の check_declarations() の「足し忘れ」検査からは、この集合を外す。
+      <b>外して安全なのは、印が付く側に倒れるからである</b> ——
+      見落としがあっても「実装済みなのに印が付く」であって、その逆ではない。
+    """
+    src = REGISTRY.read_text(encoding='utf-8')
+    return set(re.findall(r'\bregisterEvolution\("(QTE-[\w-]+)"', src))
+
+
 # ルール側の判定点を持つクラス。ここに IMPLEMENTED_CARDS の宣言がある(裁定164)。
 # ★このリストに載っていない .java にカードIDが現れたら、下の check_declarations() が止める。
 RULE_SIDE_FILES = [
@@ -203,6 +221,7 @@ def check_declarations(registered):
     problems = []
     known = set(RULE_SIDE_FILES) | set(DECK_CONTENT_FILES)
     everywhere = declared_ids()
+    evolution_only = evolution_only_ids()  # ★Batch 52: 素材条件は効果の実装ではない
     for path in sorted(JAVA.rglob('*.java')):
         rel = path.relative_to(JAVA).as_posix()
         body = without_comments(path.read_text(encoding='utf-8'))
@@ -217,7 +236,7 @@ def check_declarations(registered):
             continue
         declared, constants = declared_in(path)
         # 1. 足し忘れ
-        for card_id in sorted(found - everywhere - registered):
+        for card_id in sorted(found - everywhere - registered - evolution_only):
             problems.append('%s: %s が登録にも、どのクラスの IMPLEMENTED_CARDS にも無い'
                             % (rel, card_id))
         # 2. 宣言が古い(宣言の行を取り除いても、なおそのIDが使われているか)

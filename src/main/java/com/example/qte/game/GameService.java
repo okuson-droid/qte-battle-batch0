@@ -12,6 +12,7 @@ import java.util.Set;
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
 import com.example.qte.effect.EnhancedCostSpec;
+import com.example.qte.effect.EvolutionSpec;
 import com.example.qte.effect.LeaderAbilitySpec;
 import com.example.qte.effect.MinionAbilitySpec;
 import com.example.qte.effect.PendingChoice;
@@ -414,8 +415,14 @@ public class GameService {
      * 対象指定を要するカードは、選択済みの対象(choices)を添えて呼び出される。
      * ウェポンとピュア・エレメントはBatch 4で対応する。
      */
+    /** 進化以外のカードの使用(素材の指定を伴わない従来の入口) */
     public void playCard(GameRoom room, String playerId, int handIndex,
             List<TargetChoice> choices, boolean enhanced) {
+        playCard(room, playerId, handIndex, choices, enhanced, List.of());
+    }
+
+    public void playCard(GameRoom room, String playerId, int handIndex,
+            List<TargetChoice> choices, boolean enhanced, List<String> materialIds) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -437,6 +444,7 @@ public class GameService {
 
         switch (master.type()) {
             case MINION -> playMinion(room, state, player, handIndex, master, choices);
+            case EVOLUTION -> playEvolution(room, state, player, handIndex, master, choices, materialIds);
             case SPELL -> playSpell(room, state, player, handIndex, master, choices, enhanced);
             case WEAPON -> playWeapon(room, state, player, handIndex, master);
             default -> throw new IllegalStateException("このカードはプレイできません");
@@ -467,6 +475,76 @@ public class GameService {
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
 
         summonToField(room, state, player, master, resolved, false);
+    }
+
+    /**
+     * 進化召喚(★Batch 52。裁定154・157)。
+     *
+     * <b>これは召喚である</b>(マスター裁定 A1)。メインフェイズにコストを支払って手札から出し、
+     * 【召喚時】(ON_SUMMON)も登場時(ON_ENTER)も発動する。通常召喚と違うのは
+     * <b>自分の場のミニオンを素材として下に置く</b>ことだけである。
+     *
+     * <p>★<b>場の上限を見ていない。</b>素材を最低1体は消費するので、
+     * 進化召喚で場のミニオンが増えることは構造的に起こらない。
+     *
+     * <p>★順序は通常召喚と同じく<b>検証 → 支払い → 手札除去 → 場に出す</b>である。
+     * 素材を場から外すのは {@code summonToField} の中、
+     * <b>「場に出られる」ことが確定した後</b>である。
+     */
+    private void playEvolution(GameRoom room, GameState state, PlayerState player,
+            int handIndex, CardMaster master, List<TargetChoice> choices,
+            List<String> materialIds) {
+        requirePhase(state, TurnPhase.MAIN);
+        List<MinionInstance> materials = resolveMaterials(player, master, materialIds);
+        ValidatedTargets validated = validateTargets(state, player, handIndex,
+                effects.targetSpecOf(master.id()), choices);
+        payCost(player, stats.effectiveCost(state, player, master));
+        ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
+        summonToField(room, state, player, master, resolved, false, materials);
+    }
+
+    /**
+     * 進化素材の検証(★Batch 52)。状態は1つも変えない。
+     *
+     * <ul>
+     * <li>素材は<b>自分の場のミニオン</b>に限る(マスター裁定 A2)。</li>
+     * <li>同じミニオンを2回選べない。</li>
+     * <li>数は {@link EvolutionSpec#minMaterials()} 以上
+     *     {@link EvolutionSpec#maxMaterials()} 以下。</li>
+     * <li>条件を満たす素材が場に居なければ、そもそも使用できない(マスター裁定 D3)。</li>
+     * </ul>
+     *
+     * ★クライアントは {@code CardView.evolutionMaterialIds} が届けた候補からしか選ばないが、
+     * <b>ここは届いた値を信用しない</b>。判定に使う述語は候補を作ったのと同じ
+     * {@link EvolutionSpec#material()} であり、規則は1箇所にしかない(裁定163)。
+     */
+    private List<MinionInstance> resolveMaterials(PlayerState player, CardMaster master,
+            List<String> materialIds) {
+        EvolutionSpec spec = effects.evolutionOf(master.id());
+        if (spec == null) {
+            throw new IllegalStateException("この進化ミニオンの召喚条件は未実装です");
+        }
+        List<String> ids = materialIds == null ? List.of() : materialIds;
+        if (ids.size() < spec.minMaterials() || ids.size() > spec.maxMaterials()) {
+            throw new IllegalArgumentException("進化素材は%sを選んでください: %s"
+                    .formatted(spec.minMaterials() == spec.maxMaterials()
+                            ? "%d体".formatted(spec.minMaterials())
+                            : "%d体以上".formatted(spec.minMaterials()),
+                            spec.description()));
+        }
+        List<MinionInstance> materials = new java.util.ArrayList<>();
+        for (String instanceId : ids) {
+            MinionInstance material = findMinion(player, instanceId);
+            if (materials.contains(material)) {
+                throw new IllegalArgumentException("同じミニオンを2回素材にはできません");
+            }
+            if (!spec.material().test(material)) {
+                throw new IllegalArgumentException("進化素材にできません(条件: %s)"
+                        .formatted(spec.description()));
+            }
+            materials.add(material);
+        }
+        return materials;
     }
 
     private void playSpell(GameRoom room, GameState state, PlayerState player,
@@ -607,8 +685,14 @@ public class GameService {
      * @param tabooIndex  禁忌デッキ内の位置
      * @param manaIndexes 禁忌コストの支払いに充てるマナゾーンの位置(コストと同数)
      */
+    /** 進化以外の禁忌カードの使用(素材の指定を伴わない従来の入口) */
     public void playTabooCard(GameRoom room, String playerId, int tabooIndex,
             List<Integer> manaIndexes, List<TargetChoice> choices) {
+        playTabooCard(room, playerId, tabooIndex, manaIndexes, choices, List.of());
+    }
+
+    public void playTabooCard(GameRoom room, String playerId, int tabooIndex,
+            List<Integer> manaIndexes, List<TargetChoice> choices, List<String> materialIds) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -622,6 +706,7 @@ public class GameService {
         }
         CardMaster master = cards.findById(player.getTabooDeck().get(tabooIndex));
 
+        // ★進化は素材を必ず1体消費するので、場が満杯でも枠は空く
         if (master.type() == CardType.MINION && player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
@@ -638,6 +723,10 @@ public class GameService {
 
         // 検証(状態を変えない)→ 支払い → ゾーンからの除去 → 解決、の順序は通常プレイと同じ。
         // 禁忌カード自身は手札にないため、対象検証の自己除外インデックスは-1を渡す
+        // ★Batch 52: 禁忌デッキに入れた進化ミニオンも、出し方は通常と同じである
+        //   (マスター裁定 E1)。素材は自分の場から取り、コストの支払い方だけが禁忌の作法になる
+        List<MinionInstance> materials = master.type() == CardType.EVOLUTION
+                ? resolveMaterials(player, master, materialIds) : List.of();
         ValidatedTargets validated = validateTargets(state, player, -1,
                 effects.targetSpecOf(master.id()), choices);
         validateTabooCost(player, master.cost(), manaIndexes);
@@ -650,6 +739,7 @@ public class GameService {
 
         switch (master.type()) {
             case MINION -> summonToField(room, state, player, master, resolved, true);
+            case EVOLUTION -> summonToField(room, state, player, master, resolved, true, materials);
             case SPELL -> {
                 // 禁忌由来のスペルは pendingSpellDisposition による行き先置換(a5)を受けない。
                 // 総合ルール3-6により、禁忌カードは使用され終わると消滅ゾーンへ行くことが
@@ -719,7 +809,13 @@ public class GameService {
      * 【特殊召喚】: カード記載の条件・代替コストによる代替召喚(キーワード定義)。
      * 召喚として扱われるため、着地後はON_SUMMON/ON_ENTERの両方が発動する。
      */
+    /** 進化以外の特殊召喚(素材の指定を伴わない従来の入口) */
     public void specialSummon(GameRoom room, String playerId, int handIndex, List<TargetChoice> choices) {
+        specialSummon(room, playerId, handIndex, choices, List.of());
+    }
+
+    public void specialSummon(GameRoom room, String playerId, int handIndex,
+            List<TargetChoice> choices, List<String> materialIds) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -745,9 +841,14 @@ public class GameService {
         // それ以外のカードのみ事前に上限チェックする
         boolean costFreesZone = spec.targets().requirements().stream()
                 .anyMatch(r -> r.kind() == TargetSpec.Kind.MINION && r.side() == TargetSpec.Side.SELF);
-        if (player.isMinionZoneFull() && !costFreesZone) {
+        // ★Batch 52: 進化は素材を必ず1体は消費するので、場が満杯でも枠は空く(マスター裁定 D1)
+        boolean evolution = master.type() == CardType.EVOLUTION;
+        if (player.isMinionZoneFull() && !costFreesZone && !evolution) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
+        // ★特殊召喚が代替しているのはコストだけであり、素材は通常の進化召喚と同じく要る
+        List<MinionInstance> materials = evolution
+                ? resolveMaterials(player, master, materialIds) : List.of();
 
         ValidatedTargets validated = validateTargets(state, player, handIndex, spec.targets(), choices);
         payCost(player, spec.mpCost()); // 多くは0だが、極炎竜ヴォルカニクスのようにMPを要するものもある
@@ -756,7 +857,7 @@ public class GameService {
         // 代替コストの支払い(手札を山札の下へ・ミニオンを手札に戻す等)
         spec.costEffect().accept(contextOf(room, state, player, null, resolved));
 
-        MinionInstance summoned = summonToField(room, state, player, master, resolved, false);
+        MinionInstance summoned = summonToField(room, state, player, master, resolved, false, materials);
         // 特殊召喚で出したときのみ発生する追加効果(背水の炎壁・這い寄る生霊の自壊予約)。
         // 通常の【召喚時】とは別枠であり、出したミニオン自身をsourceとして渡す
         spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
@@ -813,10 +914,23 @@ public class GameService {
         afterCardUsed(room, state, player, false);
     }
 
-    /** 召喚の共通着地処理。ON_SUMMONとON_ENTERの両方が発動する(発注者確認済み裁定)。
-     *  効果による「出す」(黄泉還る水龍など)を実装するときはON_ENTERのみを発火する */
+    /** 素材を取らない召喚(通常のミニオン・蘇生・禁忌)。進化以外はすべてこちらを通る */
     private MinionInstance summonToField(GameRoom room, GameState state, PlayerState player,
             CardMaster master, ResolvedTargets resolved, boolean fromTaboo) {
+        return summonToField(room, state, player, master, resolved, fromTaboo, List.of());
+    }
+
+    /** 召喚の共通着地処理。ON_SUMMONとON_ENTERの両方が発動する(発注者確認済み裁定)。
+     *  効果による「出す」(黄泉還る水龍など)を実装するときはON_ENTERのみを発火する。
+     *
+     *  <p>★Batch 52: {@code materials} が空でなければ進化召喚である(裁定154)。
+     *  素材を場から取り除いて束にし、付与されていた効果だけを新しい面へ移す(裁定157)。
+     *  ★<b>素材を外すのは「場に出る」ことが確定した後である</b> ——
+     *  光霊・モアニールの置換で場に出られなかった場合、素材は場に残る
+     *  (下に置かれるのは「場に出る」ことの一部であり、出ないなら下にも置かれない)。 */
+    private MinionInstance summonToField(GameRoom room, GameState state, PlayerState player,
+            CardMaster master, ResolvedTargets resolved, boolean fromTaboo,
+            List<MinionInstance> materials) {
         // 【光霊・モアニール】(★Batch 50): 自分のマナよりコストの大きいミニオンは、
         // 場に出る代わりに山札の下へ置かれる。コストは既に支払われており、
         // カードも手札(または禁忌デッキ)から取り除かれた後である —— 置換されるのは
@@ -835,6 +949,24 @@ public class GameService {
             return null;
         }
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
+        // ★Batch 52: 進化の素材を下に置き、付与されていた効果だけを引き継ぐ
+        for (MinionInstance material : materials) {
+            player.getMinionZone().remove(material);
+            // 素材が進化ミニオンなら、その下の束もそのまま引き継ぐ(マスター裁定 A3)。
+            // 束は下から順なので、先に古い束を積んでから素材自身を載せる
+            for (StackedCard stacked : material.getUnder()) {
+                minion.putUnder(stacked);
+            }
+            minion.putUnder(new StackedCard(material.getMaster().id(), material.isFromTaboo()));
+            minion.inheritGrantsFrom(material);
+        }
+        if (!materials.isEmpty()) {
+            EvolutionSpec spec = effects.evolutionOf(master.id());
+            minion.setStatPerUnderCard(spec == null ? 0 : spec.statPerUnderCard());
+            room.addLog("%sが【%s】へ進化しました(素材%d体・下に%d枚)"
+                    .formatted(player.getDisplayName(), master.name(),
+                            materials.size(), minion.getUnder().size()));
+        }
         player.getMinionZone().add(minion);
         room.addLog("%sが【%s】を召喚しました".formatted(player.getDisplayName(), master.name()));
 
@@ -1604,6 +1736,12 @@ public class GameService {
                 case IGNORES_STEALTH -> {
                     // 判定そのものはvalidateTargetsのMINION分岐で行う。ここではフィルタとして
                     // 素通りさせるだけ(絞り込み条件ではなく、潜伏チェックの上書き指示のため)
+                }
+                // ★Batch 52: 機神兵長茶爺(場の進化ミニオンの下に手札を入れる)
+                case EVOLUTION_MINION -> {
+                    if (master.type() != CardType.EVOLUTION) {
+                        throw new IllegalArgumentException("進化ミニオンを選んでください");
+                    }
                 }
             }
         }

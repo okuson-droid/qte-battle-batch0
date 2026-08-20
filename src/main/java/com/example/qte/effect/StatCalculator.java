@@ -63,6 +63,15 @@ public class StatCalculator {
     private static final String BOULDER_BARRAGE = "QTE-M-EARTH-19";     // 連撃の巨岩
     private static final String GALE_RAPIER = "QTE-M-WIND-14";          // 疾風のレイピア(ウェポン)
     private static final String DREAMY = "QTE-M-DARK-39";               // 1stL「NEMれぬ夜のドリーミー」(★Batch 50)
+    private static final String RENTA = "QTE-M-FIRE-31";                // 追撃鉄人連太(★Batch 52)
+    private static final String MERINA = "QTE-M-DARK-32";               // サービスブレイク・メリィナ(★Batch 52)
+
+    /**
+     * サービスブレイク・メリィナのコストの下限。
+     * 本文は「このカードのコストは2以下にならない」なので、下限は<b>3</b>である
+     * (「0にはならない」を下限1と読んでいる【剛火の将】と同じ writing である)。
+     */
+    private static final int MERINA_MIN_COST = 3;
 
     /**
      * ★このカードは<b>数えられる対象</b>であって、このクラスが挙動を実装しているカードではない。
@@ -82,7 +91,7 @@ public class StatCalculator {
             EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE, TENGSUN,
             SHADOW_ASSASSIN, ARKINTIS, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
             GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
-            GALE_RAPIER, DREAMY);
+            GALE_RAPIER, DREAMY, RENTA, MERINA);
 
     /** 墓地のカードの種別(スペルか否か)を判定するために参照する */
     private final CardMasterRepository cards;
@@ -136,6 +145,19 @@ public class StatCalculator {
         // 死者蘇生: 使用宣言時に生贄にした自分のミニオンの数だけコスト-1
         if (RAISE_DEAD.equals(card.id())) {
             cost -= owner.getPendingSacrificeCount();
+        }
+        // ★Batch 52: サービスブレイク・メリィナ(進化)
+        // 「このカードのコストは自分の場に居るミニオンの数-1される。このカードのコストは2以下にならない。」
+        // ★<b>減る量は「自分の場に居るミニオンの数」そのもの</b>である(マスター裁定)。
+        //   末尾の「-1」は《悪夢》の「1枚につきコスト-1」と同じ<b>軽減の書き方</b>であって、
+        //   数から1を引くという意味ではない。
+        // ★下限は 3 である —— 本文は「2以下にならない」と書いており、2 を含む。
+        //   一般の下限(0)とこのカードの下限は別の規則なので、下の Math.max(0, cost) に任せず
+        //   ここで直接当てる。
+        // ★「場に居るミニオンの数」は<b>進化召喚で素材を外す前</b>の数である。
+        //   コストの評価は手札にある間に行われ、素材はまだ場に居る(裁定190 と同じ形)
+        if (MERINA.equals(card.id())) {
+            cost = Math.max(MERINA_MIN_COST, cost - owner.getMinionZone().size());
         }
         // 悪夢: このターン中、ミニオンの召喚コストを-4する(サブフェイズに使用したときのみ付与される)
         if (card.type() == CardType.MINION && owner.getThisTurnAuras().contains(NIGHTMARE)) {
@@ -283,6 +305,11 @@ public class StatCalculator {
         if (BOULDER_BARRAGE.equals(minion.getMaster().id())) { // 連撃の巨岩: 1ターンに2回攻撃できる
             max += 1;
         }
+        // ★Batch 52: 追撃鉄人連太(進化)「【常在】このカードは2回攻撃できる」。
+        // 進化ミニオンであること自体は攻撃回数に関係しない —— サイクロン・フェンサーと同じ形である
+        if (RENTA.equals(minion.getMaster().id())) {
+            max += 1;
+        }
         for (StatModifier m : minion.getModifiers()) {
             if (m.stat() == StatModifier.Stat.EXTRA_ATTACKS) {
                 max += m.value();
@@ -340,6 +367,18 @@ public class StatCalculator {
         // ★自身の【召喚時】(他のミニオンを全て破壊する)で増えた分もここに含まれる
         if (DREAMY.equals(cardId)) {
             attack += state.getMinionsDestroyedThisTurn();
+        }
+        // ★Batch 52: 不敗鉄人闘太(進化)「【常在】このカードのAttackとHPは下にあるミニオン1枚につき+2」。
+        // ★カードIDで分岐していないのは、加算量を {@link EvolutionSpec} が運んでいるためである
+        //   (場に出るときに1度だけ写す)。読むたびに束を数えるので【常在】として正しく振る舞う。
+        // ★HP 側は MinionInstance.getMaxHp にある(あちらが HP の唯一の出どころ)
+        attack += minion.getStatPerUnderCard() * minion.getUnder().size();
+        // ★Batch 52: サービスブレイク・メリィナ(進化)「【常在】自分の他のミニオンのAttack+1」。
+        // 「他の」なので自分自身には乗らない。複数体並べば累積する(常在の既定の扱い)
+        for (MinionInstance other : owner.getMinionZone()) {
+            if (MERINA.equals(other.getMaster().id()) && other != minion) {
+                attack += 1;
+            }
         }
 
         // ---- 動的ADD(オーラ) ----

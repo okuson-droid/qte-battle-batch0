@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.LeaderAbilitySpec;
+import com.example.qte.effect.EvolutionSpec;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.SpecialSummonSpec;
 import com.example.qte.effect.StatCalculator;
@@ -265,6 +266,9 @@ public class GameViewBuilder {
         SpecialSummonSpec special = handIndex < 0 ? null : effects.specialSummonOf(master.id());
         boolean canSpecial = special != null
                 && special.condition().test(state, player, handIndex);
+        // ★Batch 52: 進化ミニオンの素材条件。手札以外(禁忌デッキ)のカードにも添える ——
+        // 禁忌からの進化召喚も出し方は同じである(マスター裁定 E1)
+        EvolutionSpec evolution = effects.evolutionOf(master.id());
         TargetSpec spec = effects.targetSpecOf(master.id());
         com.example.qte.effect.EnhancedCostSpec enhanced = effects.enhancedCostOf(master.id());
         return new CardView(
@@ -285,7 +289,38 @@ public class GameViewBuilder {
                 spec.combinedTotal(),
                 enhanced == null ? 0 : enhanced.extraCost(),
                 enhanced == null ? null : enhanced.prompt(),
-                implementation.isUnimplemented(master));
+                implementation.isUnimplemented(master),
+                evolutionMaterialIds(player, evolution),
+                evolution == null ? 0 : evolution.minMaterials(),
+                evolutionMax(player, evolution),
+                evolution == null ? null : evolution.description());
+    }
+
+    /**
+     * 今この瞬間、この進化ミニオンの素材にできる自分の場のミニオン(★Batch 52)。
+     *
+     * ★<b>絞り込みそのものをサーバが行い、結果だけを送る。</b>
+     * クライアントは条件を1つも知らないので、素材条件を増やしても
+     * {@code battle.js} を直す必要がない(裁定163・195 の回避)。
+     * 検証は {@code GameService.resolveMaterials} が<b>同じ述語で</b>やり直す ——
+     * 届いた値を信用しないのは他の対象選択と同じである。
+     */
+    private List<String> evolutionMaterialIds(PlayerState player, EvolutionSpec evolution) {
+        if (evolution == null) {
+            return List.of();
+        }
+        return player.getMinionZone().stream()
+                .filter(evolution.material())
+                .map(MinionInstance::getInstanceId)
+                .toList();
+    }
+
+    /** 素材の最大数。「1体以上」(不敗鉄人闘太)は今の場のミニオン数が実際の上限になる */
+    private int evolutionMax(PlayerState player, EvolutionSpec evolution) {
+        if (evolution == null) {
+            return 0;
+        }
+        return Math.min(evolution.maxMaterials(), player.getMinionZone().size());
     }
 
     private List<CardView.TargetReqView> toReqViews(TargetSpec spec) {
@@ -345,6 +380,10 @@ public class GameViewBuilder {
                 minion.isTapped(),
                 canUseAbility,
                 ability == null ? null : ability.description(),
-                implementation.isUnimplemented(master));
+                implementation.isUnimplemented(master),
+                minion.isEvolution(),
+                minion.getUnder().stream()
+                        .map(com.example.qte.game.StackedCard::cardId)
+                        .toList());
     }
 }

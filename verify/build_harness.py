@@ -293,7 +293,7 @@ battle = battle.replace(
     '<link href="/css/battle.css" rel="stylesheet">',
 )
 battle = battle.replace(
-    '<script th:src="@{/js/battle.js(v=22)}"></script>',
+    '<script th:src="@{/js/battle.js(v=23)}"></script>',
     '<script src="/js/battle.js"></script>',
 )
 battle = battle.replace("/*[[${roomId}]]*/ ''", "'TESTRM'")
