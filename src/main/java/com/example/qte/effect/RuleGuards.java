@@ -61,6 +61,10 @@ public class RuleGuards {
     // 行動そのものを禁止するカード
     private static final String ORDER_ENFORCER = "QTE-M-LIGHT-4";  // 秩序の執行官(相手は特殊召喚不可)
     private static final String TEMPLE_KNIGHT = "QTE-M-LIGHT-6";   // 戒律の聖堂騎士(相手はサブフェイズ不可)
+    private static final String KOREKI = "QTE-M-LIGHT-31";         // 英霊・コレキ(相手は1ターンに1体しか出せない・★Batch 53)
+
+    /** 英霊・コレキが許すミニオンの登場数(「1度しか」) */
+    private static final int KOREKI_ENTRY_LIMIT = 1;
 
     /** 断罪の大天使が置換を始めるドロー枚数(このターンのN枚目以降) */
     private static final int DRAW_REPLACE_FROM = 3;
@@ -83,7 +87,8 @@ public class RuleGuards {
     public static final Set<String> IMPLEMENTED_CARDS = Set.of(
             PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC,
             MICHAEL, HOLY_PROTECTOR_AURA, JUSTICE_SHIELD, JUDGEMENT_ANGEL,
-            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI, MOANIRU, SUPPORT_TANUKI);
+            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI, MOANIRU, SUPPORT_TANUKI,
+            KOREKI);
 
     private final StatCalculator stats;
 
@@ -318,6 +323,44 @@ public class RuleGuards {
     public String spellDenial(GameState state, PlayerState player) {
         if (player.getSpellSealedOnTurn() == state.getTurnNumber()) {
             return "【断罪の聖導者】の効果でこのターンはスペルを唱えられません";
+        }
+        return null;
+    }
+
+    /**
+     * このプレイヤーがミニオンを場に出せない理由(★Batch 53。《英霊・コレキ》)。出せるなら null。
+     *
+     * <blockquote>【常在】相手は自身のターン中1度しかミニオンを場に出せない</blockquote>
+     *
+     * <h2>「場に出す」はあらゆる登場を数える(マスター裁定)</h2>
+     *
+     * 通常召喚・進化召喚・特殊召喚・墓地からの召喚・効果による「出す」(蘇生・手札から出す・
+     * マナから出す)を<b>すべて合わせて</b>、そのターンに1体までである。
+     * 裁定193(「場に出る」は経路を問わない)に揃えた読みであり、
+     * 数えるのは {@link PlayerState#countMinionEntry(int)} 1箇所である。
+     *
+     * <h2>「自身のターン中」の限定は本文どおりに写す(裁定211)</h2>
+     *
+     * 制限を受けるのは<b>その人が手番のとき</b>だけである。相手のターン中に起きる登場
+     * (【破壊時】の蘇生・カムバックキーパーの自力復帰)は数に入るが、止められない。
+     *
+     * <h2>「1体だけ出て残りは出ない」(マスター裁定)</h2>
+     *
+     * 「ミニオンを3体場に出す」効果に当たったときは、1体目だけが出て残りは出ない。
+     * <b>場が満杯のときとまったく同じ形</b>であり、出せなかったぶんは手札に戻る
+     * (神の福音・ギガマウス・バイトの既存の扱い)。だからこの判定は
+     * {@code GameActions.isFieldEntryBlocked} に合流させてあり、
+     * 呼び出し側は「満杯か」と「コレキか」を区別しない。
+     */
+    public String minionEntryDenial(GameState state, PlayerState owner) {
+        if (!owner.getPlayerId().equals(state.getTurnPlayerId())) {
+            return null; // 「自身のターン中」に限る
+        }
+        if (!hasOnField(state.opponentOf(owner.getPlayerId()), KOREKI)) {
+            return null;
+        }
+        if (owner.minionEntriesOn(state.getTurnNumber()) >= KOREKI_ENTRY_LIMIT) {
+            return "【英霊・コレキ】の効果でこのターンはミニオンを1体しか場に出せません";
         }
         return null;
     }

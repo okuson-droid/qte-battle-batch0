@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "name": "進化・闇確認用(Batch53)",
+  "leaderCardId": "QTE-M-DARK-29",
+  "main": [
+    {
+      "cardId": "QTE-M-DARK-30",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-31",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-35",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-34",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-16",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-33",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-2",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-24",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-26",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-13",
+      "count": 4
+    }
+  ],
+  "taboo": [
+    "QTE-M-LIGHT-39",
+    "QTE-M-LIGHT-30",
+    "QTE-M-LIGHT-2",
+    "QTE-M-WIND-32",
+    "QTE-M-WIND-2",
+    "QTE-M-WATER-31",
+    "QTE-M-WATER-33",
+    "QTE-M-FIRE-33"
+  ]
+}

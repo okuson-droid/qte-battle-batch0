@@ -133,6 +133,23 @@ public class CardEffectRegistry {
     private static final int TOUTA_STAT_PER_UNDER_CARD = 2;
 
     /**
+     * リボーンライヴ・ノア(★Batch 53)。【常在】「自分のミニオンが墓地から場に出た時
+     * そのミニオンは【突進】を得る」を {@link #fireMinionEnteredFromGrave} に直接書いている ——
+     * 演舞の墓守と同じ発火口である。
+     *
+     * <p>★<b>それでも {@link #IMPLEMENTED_CARDS} には入れない。</b>
+     * このカードは【召喚時】のほうで表(targetSpecs / triggers)に載っており、
+     * {@link #isRegistered(String)} が既に真を返すからである。
+     * あの集合は<b>「表に1行も載らないカード」</b>の一覧であって、
+     * 「このクラスが面倒を見ているカード」の一覧ではない ——
+     * 入れると、外しても何も落ちない宣言が1つ増える(壊し検証28番がそれを検出した)。
+     */
+    private static final String NOA = "QTE-M-DARK-30";
+
+    /** 【破壊時】を持つカードを見分けるための本文中の印(★Batch 53。灰ノ霊呼者) */
+    private static final String ON_DESTROYED_MARK = "【破壊時】";
+
+    /**
      * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
      * 趣旨と番人は {@link RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
      */
@@ -164,6 +181,7 @@ public class CardEffectRegistry {
         registerEarthVer11Cards();
         registerEvolutionMaterials();
         registerEvolutionCards();
+        registerEvolutionEffectCards();
     }
 
     // ---------------------------------------------------------------
@@ -455,7 +473,8 @@ public class CardEffectRegistry {
         // ★Batch 50: 墓地から場へ出す経路を reviveFromGrave に集約した
         // (演舞の墓守の常在がそこに1本だけ掛かるようにするため)。
         // 出せなかった場合(場が満杯・登場が置換された)はループを抜ける
-        while (ctx.owner().getTrash().contains(ABYSS_DRAGON) && !ctx.owner().isMinionZoneFull()) {
+        while (ctx.owner().getTrash().contains(ABYSS_DRAGON)
+                && !ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
             if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), ABYSS_DRAGON) == null) {
                 return;
             }
@@ -604,13 +623,30 @@ public class CardEffectRegistry {
      */
     public void fireMinionEnteredFromGrave(EffectContext ctx) {
         MinionInstance entered = ctx.source();
-        if (entered == null || !GRAVE_DANCER_LEADER.equals(ctx.owner().getLeader().id())) {
+        if (entered == null) {
             return;
         }
-        entered.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD,
-                1, StatModifier.Duration.THIS_TURN, GRAVE_DANCER_LEADER));
-        ctx.room().addLog("【演舞の墓守】: 墓地から出た【%s】の攻撃力が+1(このターン)"
-                .formatted(entered.getMaster().name()));
+        if (GRAVE_DANCER_LEADER.equals(ctx.owner().getLeader().id())) {
+            entered.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD,
+                    1, StatModifier.Duration.THIS_TURN, GRAVE_DANCER_LEADER));
+            ctx.room().addLog("【演舞の墓守】: 墓地から出た【%s】の攻撃力が+1(このターン)"
+                    .formatted(entered.getMaster().name()));
+        }
+        // ★Batch 53: リボーンライヴ・ノア(QTE-M-DARK-30)
+        // 「【常在】自分のミニオンが墓地から場に出た時そのミニオンは【突進】を得る」。
+        // ★演舞の墓守が<b>リーダー</b>の常在であるのに対し、こちらは<b>場のミニオン</b>の常在である。
+        //   同じ発火口に2つの読み手が並ぶのは、発火口が「出来事」を表しているからであって
+        //   「リーダーの能力」を表しているからではない(裁定98: 名前は性質に付ける)。
+        // ★<b>ノア自身の【召喚時】で出す3体にも乗る</b>(マスター裁定) ——
+        //   【召喚時】はノアが場に出た後に発動するので、この判定の時点でノアは場に居る。
+        // ★【突進】は「得る」なので恒久の付与である(ギガマウス・バイトと同じ。
+        //   意味を持つのは出したターンだけだが、書かれていない期限を足さない)
+        if (ctx.owner().getMinionZone().stream().anyMatch(m -> NOA.equals(m.getMaster().id()))
+                && !entered.hasKeyword(Keyword.RUSH)) {
+            entered.grantKeyword(Keyword.RUSH);
+            ctx.room().addLog("【リボーンライヴ・ノア】: 墓地から出た【%s】が【突進】を得ました"
+                    .formatted(entered.getMaster().name()));
+        }
     }
 
     /**
@@ -651,8 +687,8 @@ public class CardEffectRegistry {
         if (!COMEBACK_KEEPER.equals(putCardId)) {
             return;
         }
-        if (ctx.owner().isMinionZoneFull()) {
-            ctx.room().addLog("【カムバックキーパー】: 場が満杯のため戻れませんでした");
+        if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
+            ctx.room().addLog("【カムバックキーパー】: 場に出られないため戻れませんでした");
             return;
         }
         if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), COMEBACK_KEEPER) != null) {
@@ -1020,7 +1056,8 @@ public class CardEffectRegistry {
         // 効果による「出す」なので【召喚時】は再発動しない(無限ループにならない)
         register("QTE-M-DARK-16", TriggerType.ON_SUMMON, ctx -> {
             // ★Batch 50: 墓地から場へ出す経路を reviveFromGrave に集約した(fireManaLeft と同じ理由)
-            while (ctx.owner().getTrash().contains("QTE-M-DARK-16") && !ctx.owner().isMinionZoneFull()) {
+            while (ctx.owner().getTrash().contains("QTE-M-DARK-16")
+                    && !ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
                 if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), "QTE-M-DARK-16") == null) {
                     return;
                 }
@@ -1045,7 +1082,10 @@ public class CardEffectRegistry {
         // そのミニオンを蘇生し【突進】を付与してもよい。
         // 「してもよい」の判断はAutoChoice。マナを無駄にしないよう、蘇生できる見込みを先に確かめる
         watchOwnMinionDestroyed("QTE-M-DARK-5", (ctx, destroyedCardId) -> {
+            // ★Batch 53: 「場が満杯か」ではなく「場に出られるか」を先に見る ——
+            // 《英霊・コレキ》で出られないときに裏向きマナだけを失うのを避けるためである
             if (!AutoChoice.shouldRevivePayingMana(ctx.owner())
+                    || ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())
                     || !ctx.owner().getTrash().contains(destroyedCardId)
                     || ctx.actions().isCheatIntoFieldBlocked(destroyedCardId)) {
                 return;
@@ -1401,7 +1441,7 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-LIGHT-12", ctx -> {
             int summoned = 0;
             for (String id : ctx.targets().get(0).handCardIds()) {
-                if (ctx.owner().isMinionZoneFull()) {
+                if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
                     ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
                     continue;
                 }
@@ -2012,7 +2052,7 @@ public class CardEffectRegistry {
                 // 「場が満杯で出せなかった(カードは宙に浮いたまま)」と
                 // 「光霊・モアニールが山札の下へ置き換えた(行き先は決まっている)」。
                 // null だけを見て手札に戻すと、置換された場合にカードが2枚に増える
-                if (ctx.owner().isMinionZoneFull()) {
+                if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
                     ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
                     continue;
                 }
@@ -2874,9 +2914,9 @@ public class CardEffectRegistry {
         String chosenId = revealed.get(chosenIndex);
         List<String> rest = new ArrayList<>(revealed);
         rest.remove(chosenIndex);
-        if (ctx.owner().isMinionZoneFull()) {
+        if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
             ctx.actions().returnToBottomOfDeck(ctx.owner(), revealed);
-            ctx.room().addLog("ミニオンゾーンが満杯のため、公開した4枚はすべて山札の下に置かれました");
+            ctx.room().addLog("場に出せないため、公開した4枚はすべて山札の下に置かれました");
             return;
         }
         ctx.actions().returnToBottomOfDeck(ctx.owner(), rest);
@@ -3038,7 +3078,120 @@ public class CardEffectRegistry {
             // 素手喧嘩の2段目: マナから場に出すミニオンを確定させる。★Batch 51
             case STEGORO_MANA_SUMMON -> ctx.actions().putManaCardIntoField(ctx.room(), ctx.owner(),
                     Integer.parseInt(chosen.get(0)));
+            // 海淵獣ラカブ(QTE-M-WATER-31): 3枚引いた後に捨てる手札を確定させる。★Batch 53
+            case RAKABU_DISCARD -> discardChosenHandCards(ctx, chosen, "海淵獣ラカブ");
+            // 海淵獣ゾクシム(QTE-M-WATER-32): 【破壊時】に捨てる手札を確定させる。★Batch 53。
+            // ★相手のターン中にも通る経路である(裁定214)
+            case ZOKUSHIMU_DISCARD -> discardChosenHandCards(ctx, chosen, "海淵獣ゾクシム");
+            // サモナーポップ・エンラ(QTE-M-DARK-31): 破壊する相手のミニオンを確定させる。★Batch 53。
+            // 選択中に盤面が変わって候補が場から消えている場合は何も起きない
+            // (喚ビ集ウ・アヤカシと同じく instanceId で照合する)
+            case ENRA_DESTROY -> {
+                MinionInstance victim = ctx.opponent().getMinionZone().stream()
+                        .filter(m -> m.getInstanceId().equals(chosen.get(0)))
+                        .findFirst().orElse(null);
+                if (victim == null) {
+                    ctx.room().addLog("【サモナーポップ・エンラ】: 選んだミニオンが場に居ないため、何も起こりませんでした");
+                    break;
+                }
+                ctx.actions().destroyMinion(ctx.room(), ctx.opponent(), victim);
+            }
+            // 灰ノ霊呼者(QTE-M-WIND-32): 手札から場に出す【破壊時】持ちを確定させる。★Batch 53。
+            // ★効果による「出す」なので【召喚時】は発動せず、登場時(ON_ENTER)のみが発動する
+            case ASHINO_REIKOSHA_SUMMON -> {
+                int summoned = 0;
+                for (String cardId : takeHandCardsAt(ctx.owner(), chosen)) {
+                    if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
+                        ctx.owner().getHand().add(cardId); // 出せなかった分は手札に戻す
+                        continue;
+                    }
+                    if (ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId) != null) {
+                        summoned++;
+                    }
+                }
+                ctx.room().addLog("【灰ノ霊呼者】: 【破壊時】を持つミニオン%d体が場に出ました".formatted(summoned));
+            }
+            // 英術・スケアロック(QTE-M-LIGHT-39): 出す進化ミニオンを確定させ、素材を選ばせる。★Batch 53。
+            // ★カードはまだ手札から抜かない —— 素材が確定して実際に場へ出るときに抜く。
+            //   途中で盤面が変わって出せなくなっても、カードがどこにも無い状態を作らないためである
+            case SCARELOCK_EVOLUTION -> {
+                String cardId = ctx.owner().getHand().get(Integer.parseInt(chosen.get(0)));
+                EvolutionSpec spec = evolutions.get(cardId);
+                List<String> materials = ctx.owner().getMinionZone().stream()
+                        .filter(spec.material())
+                        .map(MinionInstance::getInstanceId)
+                        .toList();
+                if (materials.size() < spec.minMaterials()) {
+                    // 候補を作った時点では足りていた。ここへ来るのは選択中に盤面が変わった場合だけである
+                    ctx.room().addLog("【英術・スケアロック】: 進化素材が足りなくなったため、場に出せませんでした");
+                    break;
+                }
+                ctx.owner().setPendingEvolutionCardId(cardId);
+                int max = Math.min(spec.maxMaterials(), materials.size());
+                ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+                        PendingChoice.Kind.MINION, materials, spec.minMaterials(), max,
+                        ResumePoint.SCARELOCK_MATERIAL,
+                        "【%s】の進化素材を選んでください(%s)"
+                                .formatted(cards.findById(cardId).name(), spec.description())));
+            }
+            // 英術・スケアロック(QTE-M-LIGHT-39): 素材を確定させて進化ミニオンを場に出す。★Batch 53
+            case SCARELOCK_MATERIAL -> resolveScarelockMaterials(ctx, chosen);
         }
+    }
+
+    /** 選ばれた手札を捨てる(★Batch 53。ラカブ・ゾクシム共通の後始末) */
+    private void discardChosenHandCards(EffectContext ctx, List<String> chosen, String cardName) {
+        for (String cardId : takeHandCardsAt(ctx.owner(), chosen)) {
+            ctx.room().addLog("【%s】: 【%s】を捨てました"
+                    .formatted(cardName, cards.findById(cardId).name()));
+            // 「場以外から自分の墓地へ」の入口を通す(カムバックキーパーが反応する。裁定207)
+            ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
+        }
+    }
+
+    /**
+     * 《英術・スケアロック》の最終段 —— 素材を確定させて進化ミニオンを効果で場に出す(★Batch 53)。
+     *
+     * ★<b>手札から抜くのは、場に出すことが確定した後である。</b>
+     * 抜いてから出せないと分かると、カードがどのゾーンにも居ない瞬間が生まれる
+     * (51 の「先に場から取り除くと行き先の無いカードが生まれる」と同じ形)。
+     */
+    private void resolveScarelockMaterials(EffectContext ctx, List<String> chosen) {
+        String cardId = ctx.owner().getPendingEvolutionCardId();
+        ctx.owner().setPendingEvolutionCardId(null);
+        if (cardId == null) {
+            return;
+        }
+        List<MinionInstance> materials = new ArrayList<>();
+        for (String instanceId : chosen) {
+            ctx.owner().getMinionZone().stream()
+                    .filter(m -> m.getInstanceId().equals(instanceId))
+                    .findFirst().ifPresent(materials::add);
+        }
+        EvolutionSpec spec = evolutions.get(cardId);
+        if (spec == null || materials.size() < spec.minMaterials()) {
+            ctx.room().addLog("【英術・スケアロック】: 進化素材が足りなくなったため、場に出せませんでした");
+            return;
+        }
+        int handIndex = ctx.owner().getHand().indexOf(cardId);
+        if (handIndex < 0) {
+            return; // 選択中に手札を離れた(通常は起きない)
+        }
+        ctx.owner().getHand().remove(handIndex);
+        MinionInstance put = ctx.actions()
+                .putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId, materials);
+        if (put == null) {
+            // 場に出られなかった。素材は場に残っている(裁定232)ので、カードは手札へ戻す。
+            // ★モアニールの置換で山札の下へ行った場合は行き先が決まっているので戻さない
+            if (!ctx.owner().getDeck().contains(cardId)) {
+                ctx.owner().getHand().add(cardId);
+            }
+            ctx.room().addLog("【英術・スケアロック】: 【%s】は場に出られませんでした"
+                    .formatted(cards.findById(cardId).name()));
+            return;
+        }
+        ctx.room().addLog("【英術・スケアロック】: 【%s】が効果で進化召喚されました"
+                .formatted(cards.findById(cardId).name()));
     }
 
     // ---------------------------------------------------------------
@@ -3240,6 +3393,262 @@ public class CardEffectRegistry {
                 },
                 (state, player) -> player.getMinionZone().stream().anyMatch(MinionInstance::isEvolution),
                 "1マナ: 自分の進化ミニオン1枚の下に手札のミニオンを入れ、1枚引く"));
+    }
+
+    // ---------------------------------------------------------------
+    // ★Batch 53: 盤面を動かす効果を持つ進化ミニオン7枚と、進化を効果で出すスペル1枚。
+    //
+    // Batch 52 の進化7枚は「素材条件と数だけで動くもの」「特殊召喚」「リーダー」であり、
+    // 効果そのものは既存の形の写しで済んだ。53 が扱うのは<b>盤面を動かす進化</b>である ——
+    // 墓地から3体並べ、手札から2体並べ、相手のスペルを重くし、相手の展開を1体に縛る。
+    //
+    // ★《英術・スケアロック》だけがスペルであり、53 の本体でもある ——
+    //   <b>効果から進化召喚を起こす初めてのカード</b>である(裁定226)。
+    // ★《英霊・ニュウキロ》の常在(相手のスペルのコスト+手札の数)は StatCalculator に、
+    //   《英霊・コレキ》の常在(相手は1ターンに1体しか出せない)は RuleGuards にある(裁定180)。
+    // ★《リボーンライヴ・ノア》の常在(墓地から出たミニオンは【突進】)は
+    //   fireMinionEnteredFromGrave に直接書いてある(演舞の墓守と同じ発火口)。
+    // ---------------------------------------------------------------
+    private void registerEvolutionEffectCards() {
+
+        // ---- 海淵獣ラカブ(QTE-M-WATER-31) ----
+        // 「【進化】(水文明の潜伏を持つミニオン1体)【召喚時】カードを3枚引く。
+        //   その後カードを1枚捨てる。」
+        //
+        // 引いた後の手札から捨てるので、使用宣言時に選び終える TargetSpec では表現できない。
+        // アクア・サーチ(QTE-M-WATER-25)と同じ割り込み(a9)を使う。捨てるのは必須(min=1)
+        register("QTE-M-WATER-31", TriggerType.ON_SUMMON, ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
+            requestDiscard(ctx, 1, 1, ResumePoint.RAKABU_DISCARD,
+                    "【海淵獣ラカブ】: 捨てる手札を1枚選んでください");
+        });
+
+        // ---- 海淵獣ゾクシム(QTE-M-WATER-32) ----
+        // 「【進化】(水文明ではないミニオン1体)カードを2枚引く。【破壊時】カードを2枚捨てる。」
+        //
+        // ★前半に誘発の印が無いが、<b>【召喚時】として扱う</b>(マスター裁定)。
+        //   同じ水の進化である《海淵獣ラカブ》が明示的に【召喚時】と書いているので、
+        //   書き分けを尊重した —— 効果で場に出した場合(《英術・スケアロック》)は引かない。
+        // ★【破壊時】の2枚は<b>本人が選ぶ</b>。相手のターン中にも発火するが、
+        //   裁定214 により本人への問い合わせでよい(50 までは自動決定しかできなかった)。
+        // ★手札が2枚に満たなければ、あるだけ捨てる(裁定191・217 と同じ形)
+        register("QTE-M-WATER-32", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2));
+        register("QTE-M-WATER-32", TriggerType.ON_DESTROYED, ctx -> {
+            int count = Math.min(2, ctx.owner().getHand().size());
+            requestDiscard(ctx, count, count, ResumePoint.ZOKUSHIMU_DISCARD,
+                    "【海淵獣ゾクシム】: 捨てる手札を%d枚選んでください".formatted(count));
+        });
+
+        // ---- リボーンライヴ・ノア(QTE-M-DARK-30) ----
+        // 「【進化】(闇文明の体力4以上のミニオン1体)【召喚時】自分の墓地から
+        //   コスト3以下のミニオンを3体場に出す。
+        //   【常在】自分のミニオンが墓地から場に出た時そのミニオンは【突進】を得る」
+        //
+        // ★出す3体は<b>本人が選ぶ</b>(マスター裁定。裁定192 を墓地にも適用した)。
+        //   《冥界神ハデス》《サモンズライト》は自動決定だが、あちらは
+        //   「破壊した後に蘇生する」「相手のターンにも起きる」という構造上の理由があった。
+        //   これは自分のメインフェイズの【召喚時】なので、使用宣言時に選ばせられる。
+        // ★3体に満たなければ居るだけ出す(裁定191)。Requirement.upTo が「あるだけ」の既存の形。
+        // ★【常在】の【突進】付与は fireMinionEnteredFromGrave にある。
+        //   <b>この【召喚時】で出す3体にも乗る</b>(マスター裁定) ——
+        //   ノアは既に場に居るので、あちらの「場にノアが居るか」が真になる。
+        // ★表への登録は<b>カードIDのリテラルのまま</b>にする(落とし穴「効果の実装状況」) ——
+        //   tools/report_effects.py は登録の<b>左辺の書式</b>を走査して数えるので、
+        //   定数に置き換えると数え落とす(実際に 53 で 7枚 が 8枚 とずれた)。
+        //   定数化が要るのは<b>ルール側の判定点</b>(if 文でIDを比べる箇所)である(裁定130)。
+        //   ★ここに走査の対象になる書式を例として書かないこと —— 注釈が番人を騙す(裁定114)。
+        targetSpecs.put("QTE-M-DARK-30", TargetSpec.of(Requirement.upTo(Kind.TRASH, Side.SELF, 3,
+                "場に出す自分の墓地のミニオンを3体まで選んでください",
+                Filter.MINION_CARD, Filter.COST_3_OR_LESS)));
+        register("QTE-M-DARK-30", TriggerType.ON_SUMMON, ctx -> {
+            int summoned = 0;
+            for (String cardId : ctx.targets().get(0).trashCardIds()) {
+                // 墓地から場へ出す経路は reviveFromGrave 1本である(裁定204)。
+                // 「出せるか」の判定もあちらが持つ(場が満杯・踏み倒し禁止・コレキ)
+                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId) != null) {
+                    summoned++;
+                }
+            }
+            ctx.room().addLog("【リボーンライヴ・ノア】: 墓地から%d体を場に出しました".formatted(summoned));
+        });
+
+        // ---- サモナーポップ・エンラ(QTE-M-DARK-31) ----
+        // 「【進化】(ミニオン1体)【特殊召喚】(自分の墓地にミニオンが6体以上のとき
+        //   自分の手札または墓地からコスト1支払って場に出せる。)
+        //   場に出た時相手のコスト3以下のミニオン1体を破壊。」
+        //
+        // ★<b>「自分の手札または墓地から」= 墓地からの特殊召喚</b>という新しい出どころである。
+        //   {@link SpecialSummonSpec#fromGrave()} を true にすると
+        //   GameService.specialSummonFromGrave が使えるようになる。
+        // ★墓地に居るエンラ自身も「6体」に数える(マスター裁定。裁定190 と同じ形) ——
+        //   条件の評価は墓地から取り除く前に行われるので、素直に数えればそうなる。
+        // ★<b>特殊召喚でも素材は要る</b>(裁定226)。代替されているのはコストだけである。
+        // ★「場に出た時」は<b>登場時(ON_ENTER)</b>である(マスター裁定) ——
+        //   【召喚時】と書いていない登場の誘発は経路を問わない(裁定193)。
+        //   したがって対象は使用宣言時ではなく<b>解決中に</b>選ばせる ——
+        //   効果で出した場合には ctx.targets() が無いためである。
+        specialSummons.put("QTE-M-DARK-31", new SpecialSummonSpec(
+                (state, player, handIndex) -> countMinionsInTrash(player) >= 6,
+                1,
+                TargetSpec.of(),
+                ctx -> {
+                },
+                ctx -> {
+                },
+                "自分の墓地にミニオンが6体以上います: コスト1で進化召喚します",
+                true));
+        register("QTE-M-DARK-31", TriggerType.ON_ENTER, ctx -> {
+            // 【潜伏】持ちは相手の効果の対象にならない(既存の原則)ので候補から外す
+            List<String> candidates = ctx.opponent().getMinionZone().stream()
+                    .filter(m -> !m.hasKeyword(Keyword.STEALTH))
+                    .filter(m -> m.getMaster().cost() != null && m.getMaster().cost() <= 3)
+                    .map(MinionInstance::getInstanceId)
+                    .toList();
+            if (candidates.isEmpty()) {
+                ctx.room().addLog("【サモナーポップ・エンラ】: 破壊できる相手のミニオンが居ません");
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MINION, candidates, ResumePoint.ENRA_DESTROY,
+                    "【サモナーポップ・エンラ】: 破壊する相手のコスト3以下のミニオンを1体選んでください"));
+        });
+
+        // ---- 灰ノ霊呼者(QTE-M-WIND-32) ----
+        // 「【進化】(風文明のミニオン1体)【召喚時】:【破壊時】を持つミニオンを手札から2体場に出す。」
+        //
+        // ★「【破壊時】を持つ」の判定は<b>本文に【破壊時】と書いてあるか</b>である(マスター裁定)。
+        //   キーワードの正はテキストである(裁定158)の延長で、効果がまだ未実装のカードも該当する。
+        // ★<b>この判定を TargetSpec.Filter に足さなかった</b>(裁定234) ——
+        //   足すと同じ文字列走査が battle.js にも生まれる(裁定163・195)。
+        //   種別や文明と違って、これは<b>規則</b>である。サーバが候補を絞って送る。
+        // ★2体に満たなければ居るだけ出す(裁定191)。出すのは効果なので【召喚時】は発動しない。
+        register("QTE-M-WIND-32", TriggerType.ON_SUMMON, ctx -> {
+            List<String> candidates = new ArrayList<>();
+            for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+                CardMaster m = cards.findById(ctx.owner().getHand().get(i));
+                if (m.type() == CardType.MINION && m.text() != null
+                        && m.text().contains(ON_DESTROYED_MARK)) {
+                    candidates.add(String.valueOf(i));
+                }
+            }
+            if (candidates.isEmpty()) {
+                ctx.room().addLog("【灰ノ霊呼者】: 手札に【破壊時】を持つミニオンが居ません");
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+                    PendingChoice.Kind.HAND, candidates,
+                    Math.min(2, candidates.size()), Math.min(2, candidates.size()),
+                    ResumePoint.ASHINO_REIKOSHA_SUMMON,
+                    "【灰ノ霊呼者】: 場に出す【破壊時】持ちのミニオンを選んでください"));
+        });
+
+        // ---- 英術・スケアロック(QTE-M-LIGHT-39・スペル) ----
+        // 「自分の手札から光文明のコスト3以下のミニオンを1体場に出す。
+        //   その後自分の手札から【進化】を持つ光文明ミニオンを1体場に出す。」
+        //
+        // ★<b>53 の本体である</b> —— 効果から進化を出す初めてのカードで、素材を要求する(裁定226)。
+        // ★1体目は使用宣言時に選ぶ(条件が盤面に依存しないので TargetSpec で足りる)。
+        //   2体目は<b>1体目を出した後でなければ候補が決まらない</b> ——
+        //   直前に出した1体目を素材にできる(マスター裁定)ためである。
+        // ★素材条件を満たすミニオンが場に居ない進化カードは<b>そもそも候補に入れない</b>
+        //   (マスター裁定)。裁定227(条件を満たす素材が居なければ使用できない)の効果版である。
+        // ★効果で出すので【召喚時】は発動しない(マスター裁定)。登場時(ON_ENTER)のみである。
+        targetSpecs.put("QTE-M-LIGHT-39", TargetSpec.of(Requirement.upTo(Kind.HAND, Side.SELF, 1,
+                "コストを支払わず場に出す光文明のコスト3以下のミニオンを選んでください",
+                Filter.LIGHT_CIVILIZATION, Filter.COST_3_OR_LESS, Filter.MINION_CARD)));
+        spellEffects.put("QTE-M-LIGHT-39", ctx -> {
+            for (String id : ctx.targets().get(0).handCardIds()) {
+                // 「出せるか」を呼ぶ前に自分で見る(神の福音と同じ)。
+                // putIntoFieldByEffect の null には「場に出られなかった」と
+                // 「山札の下へ置き換えられた」の2つの意味がある(50 の教訓)
+                if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
+                    ctx.owner().getHand().add(id);
+                    continue;
+                }
+                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+            }
+            requestScarelockEvolution(ctx);
+        });
+    }
+
+    /**
+     * 《英術・スケアロック》の後半 —— 手札の【進化】光文明ミニオンを1体選ばせる(★Batch 53)。
+     *
+     * ★<b>候補は「今この瞬間、素材を確保できるもの」だけである</b>(マスター裁定)。
+     * 1体目が場に出た後に呼ぶので、その1体目を素材にできる進化もここに現れる。
+     */
+    private void requestScarelockEvolution(EffectContext ctx) {
+        List<String> candidates = new ArrayList<>();
+        for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+            CardMaster m = cards.findById(ctx.owner().getHand().get(i));
+            if (m.type() != CardType.EVOLUTION || m.civilization() != Civilization.LIGHT) {
+                continue;
+            }
+            if (!evolutionMaterialsAvailable(ctx.owner(), m.id())) {
+                continue;
+            }
+            candidates.add(String.valueOf(i));
+        }
+        if (candidates.isEmpty()) {
+            ctx.room().addLog("【英術・スケアロック】: 場に出せる【進化】の光文明ミニオンが手札にありません");
+            return;
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                PendingChoice.Kind.HAND, candidates, ResumePoint.SCARELOCK_EVOLUTION,
+                "【英術・スケアロック】: 場に出す【進化】の光文明ミニオンを選んでください"));
+    }
+
+    /** 今の自分の場だけで、この進化ミニオンの素材の最小数をまかなえるか(★Batch 53) */
+    private boolean evolutionMaterialsAvailable(PlayerState owner, String evolutionCardId) {
+        EvolutionSpec spec = evolutions.get(evolutionCardId);
+        if (spec == null) {
+            return false;
+        }
+        long usable = owner.getMinionZone().stream().filter(spec.material()).count();
+        return usable >= spec.minMaterials();
+    }
+
+    /** 自分の墓地にあるミニオンカードの枚数(★Batch 53。サモナーポップ・エンラの特殊召喚条件) */
+    private int countMinionsInTrash(PlayerState player) {
+        return (int) player.getTrash().stream()
+                .filter(id -> {
+                    CardType type = cards.findById(id).type();
+                    return type == CardType.MINION || type == CardType.EVOLUTION;
+                })
+                .count();
+    }
+
+    /**
+     * 手札から N 枚を捨てる問い合わせを出す(★Batch 53)。
+     * 手札が空なら何も起きない(山札切れなどで捨てようがない場合)。
+     */
+    private void requestDiscard(EffectContext ctx, int min, int max, ResumePoint resumeAt,
+            String prompt) {
+        if (ctx.owner().getHand().isEmpty() || max <= 0) {
+            return;
+        }
+        List<String> positions = new ArrayList<>();
+        for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+            positions.add(String.valueOf(i));
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(),
+                new PendingChoice(PendingChoice.Kind.HAND, positions, min, max, resumeAt, prompt));
+    }
+
+    /**
+     * 選ばれた手札の位置(複数)を、カードIDに直して手札から取り除く(★Batch 53)。
+     * ★位置がずれないよう<b>降順に</b>取り除く(詠唱の疾風騎士と同じ形)。
+     */
+    private List<String> takeHandCardsAt(PlayerState owner, List<String> chosenPositions) {
+        List<Integer> positions = new ArrayList<>();
+        chosenPositions.forEach(s -> positions.add(Integer.parseInt(s)));
+        positions.sort(java.util.Comparator.reverseOrder());
+        List<String> taken = new ArrayList<>();
+        for (int pos : positions) {
+            taken.add(owner.getHand().remove(pos));
+        }
+        return taken;
     }
 
     /** 両者の場に居るミニオンの合計(★Batch 52。飛翔鉄人走太の特殊召喚条件) */

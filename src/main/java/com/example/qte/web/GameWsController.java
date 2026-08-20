@@ -80,6 +80,17 @@ public class GameWsController {
                 request.materialIds()));
     }
 
+    /**
+     * <b>墓地からの</b>【特殊召喚】(★Batch 53。《サモナーポップ・エンラ》)。
+     * 手札からの特殊召喚と違うのは出どころだけで、素材も対象も同じ形で送る。
+     */
+    @MessageMapping("/room/{roomId}/special-summon-from-grave")
+    public void specialSummonFromGrave(@DestinationVariable String roomId, GraveSummonRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.specialSummonFromGrave(
+                room, request.playerId(), request.trashIndex(), request.targets(),
+                request.materialIds()));
+    }
+
     /** 攻撃(targetInstanceIdがnullならリーダー攻撃) */
     @MessageMapping("/room/{roomId}/attack")
     public void attack(@DestinationVariable String roomId, AttackRequest request) {
@@ -198,6 +209,18 @@ public class GameWsController {
      */
     public record PlayCardRequest(String playerId, int handIndex,
             List<TargetChoice> targets, boolean enhanced, List<String> materialIds) {
+
+        public List<String> materialIds() {
+            return materialIds == null ? List.of() : materialIds;
+        }
+    }
+
+    /**
+     * 墓地からの【特殊召喚】(★Batch 53)。手札の位置ではなく墓地の位置を送る。
+     * ★{@code TrashActionRequest} を使い回さなかったのは、こちらが対象と進化素材を伴うためである。
+     */
+    public record GraveSummonRequest(String playerId, int trashIndex,
+            List<TargetChoice> targets, List<String> materialIds) {
 
         public List<String> materialIds() {
             return materialIds == null ? List.of() : materialIds;

@@ -51,6 +51,7 @@ public class StatCalculator {
     private static final String SHEER_AYAKASHI = "QTE-M-WIND-33";       // 透キ通ル・アヤカシ(★Batch 48)
     private static final String GIGAMOUSE_BITE = "QTE-M-WATER-38";      // ギガマウス・バイト(★Batch 49)
     private static final String TENGSUN = "QTE-M-LIGHT-34";             // 光霊・テングスン(★Batch 50)
+    private static final String NYUKIRO = "QTE-M-LIGHT-30";             // 英霊・ニュウキロ(★Batch 53)
 
     // 動的な攻撃力・攻撃回数
     private static final String SHADOW_ASSASSIN = "QTE-M-WATER-28";     // 影潜む水刺客(ウェポン)
@@ -88,7 +89,7 @@ public class StatCalculator {
             NIGHTMARE, SWARM_LICH, SEALED_TABOO_DEMON, RAISE_DEAD,
             CHANT_PALADIN, PRECEPT_GUARDIAN, WISDOM_CRYSTAL, CHANT_ORB,
             TWIN_ILLUSIONIST, GALE_KNIGHT, GATHERING_SYLPH, WIND_CHANTER_LEADER,
-            EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE, TENGSUN,
+            EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE, TENGSUN, NYUKIRO,
             SHADOW_ASSASSIN, ARKINTIS, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
             GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
             GALE_RAPIER, DREAMY, RENTA, MERINA);
@@ -239,9 +240,24 @@ public class StatCalculator {
         //   テキストにも「1体につき」を否定する語が無い。
         // ★封印されし禁忌魔人(コスト+1)以来2枚目のコスト増加である
         if (card.type() == CardType.SPELL) {
-            cost += (int) state.opponentOf(owner.getPlayerId()).getMinionZone().stream()
+            PlayerState across = state.opponentOf(owner.getPlayerId());
+            cost += (int) across.getMinionZone().stream()
                     .filter(m -> TENGSUN.equals(m.getMaster().id()))
                     .count();
+            // ---- 光文明 Ver1.1(★Batch 53): 英霊・ニュウキロ(進化) ----
+            // 「【常在】相手のスペルのコストは自分の手札の数コスト+1される」
+            // ★<b>増える量は「自分の手札の数」そのもの</b>である(マスター裁定)。
+            //   末尾の「+1」は《悪夢》の「1枚につきコスト-1」と同じ<b>増減の書き方</b>であって、
+            //   数に1を足すのではない —— 《サービスブレイク・メリィナ》の「-1」を
+            //   そう読んだ(裁定230)のと同じ規則である。
+            // ★「自分の」はニュウキロの持ち主から見た自分、つまり<b>スペルを唱える側の相手</b>である。
+            //   テングスンと同じく、このメソッドの owner は「カードを使おうとしている側」なので
+            //   数えるのは across の手札になる。
+            // ★複数体並べれば累積する(テングスンと同じ。「1体につき」を否定する語が無い)
+            long nyukiro = across.getMinionZone().stream()
+                    .filter(m -> NYUKIRO.equals(m.getMaster().id()))
+                    .count();
+            cost += (int) nyukiro * across.getHand().size();
         }
         // ---- 土文明: 自分のマナ枚数を参照する動的コスト(条件を満たすと固定値まで下がる) ----
         // 減算型ではなく固定値セット型。土カードは他文明の軽減対象ではないため競合しない。

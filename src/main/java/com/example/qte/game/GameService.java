@@ -462,6 +462,7 @@ public class GameService {
         if (player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
+        requireCanEnterField(state, player);
         // 検証(状態を変えない)→ 支払い → 手札除去 → 場に出す → 効果、の順を守る。
         // 検証で弾かれた場合に状態が一切変わっていないことを保証するため
         ValidatedTargets validated = validateTargets(state, player, handIndex,
@@ -495,6 +496,7 @@ public class GameService {
             int handIndex, CardMaster master, List<TargetChoice> choices,
             List<String> materialIds) {
         requirePhase(state, TurnPhase.MAIN);
+        requireCanEnterField(state, player);
         List<MinionInstance> materials = resolveMaterials(player, master, materialIds);
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.targetSpecOf(master.id()), choices);
@@ -710,6 +712,9 @@ public class GameService {
         if (master.type() == CardType.MINION && player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
+        if (master.type() == CardType.MINION || master.type() == CardType.EVOLUTION) {
+            requireCanEnterField(state, player);
+        }
         if (master.type() == CardType.SPELL && !effects.isSpellImplemented(master.id())) {
             throw new IllegalStateException("このスペルの効果は未実装です");
         }
@@ -846,6 +851,7 @@ public class GameService {
         if (player.isMinionZoneFull() && !costFreesZone && !evolution) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
+        requireCanEnterField(state, player);
         // ★特殊召喚が代替しているのはコストだけであり、素材は通常の進化召喚と同じく要る
         List<MinionInstance> materials = evolution
                 ? resolveMaterials(player, master, materialIds) : List.of();
@@ -863,6 +869,80 @@ public class GameService {
         spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
         player.setPlayedCardThisTurn(true);
         // 特殊召喚もカードの使用として数える(a1)。ミニオンのためスペルフラグはfalse
+        afterCardUsed(room, state, player, false);
+    }
+
+    /**
+     * <b>墓地からの</b>【特殊召喚】(★Batch 53。《サモナーポップ・エンラ》)。
+     *
+     * <blockquote>【特殊召喚】(自分の墓地にミニオンが6体以上のとき
+     * <b>自分の手札または墓地から</b>コスト1支払って場に出せる。)</blockquote>
+     *
+     * <h2>これは4つ目の「場に出す」入口ではない</h2>
+     *
+     * 手札からの特殊召喚({@link #specialSummon})と<b>違うのは出どころだけ</b>である。
+     * 条件・代替コスト・素材・着地はすべて同じ道具を使い、最後は
+     * {@link #summonToField} に合流する。ここで新しく書いているのは
+     * 「墓地から取り除く」ことと、「そのカードが墓地からも出せると宣言しているか」の確認だけである。
+     *
+     * <h2>★墓地に居る自分自身も「6体」に数える(マスター裁定)</h2>
+     *
+     * 条件の評価は<b>墓地から取り除く前</b>に行う。裁定190(「今の手札の枚数」に自身を含む)と
+     * 同じ形であり、まだ場に出ていないカードは今の墓地の中身の一部である。
+     *
+     * <h2>★素材は要る(裁定226)</h2>
+     *
+     * 特殊召喚が代替しているのはコストだけである。墓地から出す場合も、
+     * 素材は<b>自分の場の</b>ミニオンから取る(裁定221)。
+     *
+     * @param trashIndex 墓地の何番目のカードか
+     */
+    public void specialSummonFromGrave(GameRoom room, String playerId, int trashIndex,
+            List<TargetChoice> choices, List<String> materialIds) {
+        GameState state = requireState(room);
+        requireTurnPlayer(state, playerId);
+        requireStatus(state, GameStatus.PLAYING);
+        requirePhase(state, TurnPhase.MAIN);
+        PlayerState player = state.playerOf(playerId);
+        if (player.isCannotUseCardsThisTurn()) {
+            throw new IllegalStateException("このターンはカードを使用できません");
+        }
+        // 【秩序の執行官】は相手の特殊召喚そのものを封じる(出どころを問わない)
+        String summonDenial = guards.specialSummonDenial(state, player);
+        if (summonDenial != null) {
+            throw new IllegalStateException(summonDenial);
+        }
+        if (trashIndex < 0 || trashIndex >= player.getTrash().size()) {
+            throw new IllegalArgumentException("不正な墓地の指定です");
+        }
+        CardMaster master = cards.findById(player.getTrash().get(trashIndex));
+        SpecialSummonSpec spec = effects.specialSummonOf(master.id());
+        if (spec == null || !spec.fromGrave()) {
+            throw new IllegalStateException("このカードは墓地から特殊召喚できません");
+        }
+        // 手札の位置を持たないので -1 を渡す。墓地から出せると宣言しているカードの条件は
+        // 手札の位置を参照しない(参照するなら手札からしか出せないはずである)
+        if (!spec.condition().test(state, player, -1)) {
+            throw new IllegalStateException("特殊召喚の条件を満たしていません");
+        }
+        boolean evolution = master.type() == CardType.EVOLUTION;
+        if (player.isMinionZoneFull() && !evolution) {
+            throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
+        }
+        requireCanEnterField(state, player);
+        List<MinionInstance> materials = evolution
+                ? resolveMaterials(player, master, materialIds) : List.of();
+        // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である
+        ValidatedTargets validated = validateTargets(state, player, -1, spec.targets(), choices);
+        payCost(player, spec.mpCost());
+        ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
+        player.getTrash().remove(trashIndex);
+        room.addLog("%sが墓地から【%s】を特殊召喚".formatted(player.getDisplayName(), master.name()));
+        spec.costEffect().accept(contextOf(room, state, player, null, resolved));
+
+        MinionInstance summoned = summonToField(room, state, player, master, resolved, false, materials);
+        spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
+        player.setPlayedCardThisTurn(true);
         afterCardUsed(room, state, player, false);
     }
 
@@ -899,6 +979,7 @@ public class GameService {
         if (player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
+        requireCanEnterField(state, player);
         payCost(player, stats.effectiveCost(state, player, master));
         player.getTrash().remove(trashIndex);
         room.addLog("%sが墓地から【%s】を召喚".formatted(player.getDisplayName(), master.name()));
@@ -949,38 +1030,19 @@ public class GameService {
             return null;
         }
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
-        // ★Batch 52: 進化の素材を下に置き、付与されていた効果だけを引き継ぐ
-        for (MinionInstance material : materials) {
-            player.getMinionZone().remove(material);
-            // 素材が進化ミニオンなら、その下の束もそのまま引き継ぐ(マスター裁定 A3)。
-            // 束は下から順なので、先に古い束を積んでから素材自身を載せる
-            for (StackedCard stacked : material.getUnder()) {
-                minion.putUnder(stacked);
-            }
-            minion.putUnder(new StackedCard(material.getMaster().id(), material.isFromTaboo()));
-            minion.inheritGrantsFrom(material);
-        }
-        if (!materials.isEmpty()) {
-            EvolutionSpec spec = effects.evolutionOf(master.id());
-            minion.setStatPerUnderCard(spec == null ? 0 : spec.statPerUnderCard());
-            room.addLog("%sが【%s】へ進化しました(素材%d体・下に%d枚)"
-                    .formatted(player.getDisplayName(), master.name(),
-                            materials.size(), minion.getUnder().size()));
-        }
+        // ★Batch 52: 進化の素材を下に置き、付与されていた効果だけを引き継ぐ。
+        // ★Batch 53: その処理そのものを GameActions へ移した ——
+        //   効果による「出す」(《英術・スケアロック》)でも同じ束を作る必要があり、
+        //   2箇所に書くと必ずどちらかが引き継ぎ(裁定224)を忘れる
+        actions.attachEvolutionMaterials(room, player, minion, materials);
         player.getMinionZone().add(minion);
         room.addLog("%sが【%s】を召喚しました".formatted(player.getDisplayName(), master.name()));
 
         EffectContext ctx = contextOf(room, state, player, minion, resolved);
         effects.fire(TriggerType.ON_SUMMON, minion, ctx);
-        effects.fire(TriggerType.ON_ENTER, minion, ctx);
-        // 装備中のウェポンが「自分のミニオンが場に出た」に反応する(禁忌の冥魔剣)。
-        // ON_ENTER と同じ扱いのため、効果による「出す」を行う
-        // GameActions.putIntoFieldByEffect にも同じ発火が置いてある
-        effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
-        // 両者のリーダーが「場にミニオンが出た」に反応する(★Batch 49。ロロイヨ伯爵)。
-        // 自分の召喚でも相手の召喚でも誘発するため、反応する側の判定は発火口の中にある。
-        // GameActions.putIntoFieldByEffect にも同じ発火が置いてある(マスター裁定193)
-        effects.fireAnyMinionEntered(ctx);
+        // 登場の数え上げと ON_ENTER 以降の発火は、効果による「出す」と共通である(★Batch 53)。
+        // 召喚だけが持つのは、この直前の ON_SUMMON 1つだけである
+        actions.fireEntryTriggers(room, player, minion, ctx);
         return minion;
     }
 
@@ -1872,6 +1934,23 @@ public class GameService {
         // 変わってしまう。「選択待ちの間は誰も盤面を動かさない」を両側で守る
         if (state.opponentOf(playerId).getPendingChoice() != null) {
             throw new IllegalStateException("相手が選択中です。解決を待ってください");
+        }
+    }
+
+    /**
+     * ミニオンを場に出せない状態なら拒否する(★Batch 53。《英霊・コレキ》)。
+     *
+     * ★<b>召喚の入口すべてが呼ぶ</b>(通常・進化・特殊召喚・禁忌・墓地からの召喚)。
+     * 「場が満杯」の判定がそれぞれの入口に置かれているのと同じ形であり、
+     * 判定そのものは {@link RuleGuards#minionEntryDenial} 1箇所にしかない。
+     * ★効果による「出す」はここを通らない —— あちらは例外を投げずに
+     * 「出せなかった」を返す({@code GameActions.isFieldEntryBlocked})。
+     * 召喚は宣言そのものを弾き、効果は出せたぶんだけ出す、という違いである。
+     */
+    private void requireCanEnterField(GameState state, PlayerState player) {
+        String denial = guards.minionEntryDenial(state, player);
+        if (denial != null) {
+            throw new IllegalStateException(denial);
         }
     }
 

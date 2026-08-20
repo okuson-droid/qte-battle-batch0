@@ -5271,6 +5271,81 @@ async function clearZoom(page) {
       && stackZoom.includes('炎の従者') && stackZoom.includes('スプラッシュ・ドロー'),
     JSON.stringify({ stackBadge, stackZoom }));
 
+  // ---- 53-1・53-2. ★墓地からの【特殊召喚】(★Batch 53。《サモナーポップ・エンラ》) ----
+  //
+  // ★<b>「今それができるか」はサーバしか知らない。</b> 条件(墓地のミニオンが6体以上)も
+  //   コストも、クライアントは1つも持たない —— 送られてくるのは真偽値1つである
+  //   (Batch 47 の「印」・52 の素材候補と同じ考え方。裁定234)。
+  //   だからここで測るのは「送られた真偽値のとおりにボタンが出るか」と
+  //   「押したら正しい宛先へ trashIndex と materialIds が載って飛ぶか」だけである。
+  const graveCard = autoCard('QTE-M-DARK-31', 'サモナーポップ・エンラ', {
+    type: 'EVOLUTION', civilization: 'DARK', cost: 5, attack: 2, hp: 4,
+    text: '【進化】（ミニオン1体）【特殊召喚】（自分の墓地にミニオンが6体以上のとき'
+      + '自分の手札または墓地からコスト1支払って場に出せる。）場に出た時相手のコスト3以下のミニオン1体を破壊。',
+    canSpecialSummonFromGrave: true,
+    specialSummonText: '自分の墓地にミニオンが6体以上あります: コスト1で進化召喚します',
+    evolutionMaterialIds: ['g1'], evolutionMin: 1, evolutionMax: 1,
+    evolutionText: 'ミニオン1体',
+  });
+  const plainTrashCard = autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2, text: '' });
+  const graveView = autoView({
+    you: autoPlayer({
+      availableMp: 5,
+      trashCount: 2, trashCardNames: ['炎の従者', 'サモナーポップ・エンラ'],
+      trash: [plainTrashCard, graveCard],
+      minions: [autoMinion('g1', 'アクア・ジェリー', { cardId: 'QTE-M-WATER-2' })],
+    }),
+    // ★相手の墓地に同じカードが居ても、こちらには操作の導線を出さない(そうでない側)
+    opponent: autoPlayer({
+      displayName: 'あいて',
+      trashCount: 1, trashCardNames: ['サモナーポップ・エンラ'], trash: [graveCard],
+    }),
+  });
+  await autoDeliver(graveView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  const graveButtons = await autoPage.evaluate(() => {
+    showTrashList(true);
+    const mine = [...document.querySelectorAll('#info-modal-content .auto-zone-card button')]
+      .map((b) => b.textContent);
+    hideModal();
+    showTrashList(false);
+    const theirs = [...document.querySelectorAll('#info-modal-content .auto-zone-card button')]
+      .map((b) => b.textContent);
+    hideModal();
+    return { mine, theirs };
+  });
+  check('★★★墓地からの特殊召喚は、サーバが可と言ったカードにだけ導線が出る(53・裁定234)',
+    graveButtons.mine.length === 1 && graveButtons.mine[0].includes('特殊召喚')
+      && graveButtons.theirs.length === 0,
+    JSON.stringify(graveButtons));
+
+  // ★押すと素材の選択に入り、確定すると special-summon-from-grave へ trashIndex ごと飛ぶ。
+  //   進化なので<b>素材は墓地から出す場合でも要る</b>(裁定226)
+  await autoPage.evaluate(() => {
+    window.confirm = () => true;
+    showTrashList(true);
+    document.querySelector('#info-modal-content .auto-zone-card button').click();
+  });
+  await autoPage.waitForTimeout(60);
+  const graveSelecting = await autoPage.evaluate(() => ({
+    prompt: document.getElementById('selection-prompt').textContent,
+    areaOpen: !document.getElementById('selection-area').classList.contains('d-none'),
+    modalClosed: document.getElementById('info-modal').classList.contains('d-none'),
+    sentSoFar: window.__sent.length,
+  }));
+  const graveMatBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(graveMatBox.x + graveMatBox.width / 2,
+    graveMatBox.y + graveMatBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const graveSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★墓地からの特殊召喚は素材を選ばせてから trashIndex ごと送る(53・裁定226)',
+    graveSelecting.areaOpen && graveSelecting.modalClosed && graveSelecting.sentSoFar === 0
+      && graveSelecting.prompt.includes('進化素材')
+      && !!graveSent && graveSent.destination.endsWith('/special-summon-from-grave')
+      && graveSent.body.trashIndex === 1
+      && JSON.stringify(graveSent.body.materialIds) === JSON.stringify(['g1']),
+    JSON.stringify({ graveSelecting, graveSent }));
+
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
   await autoPage.close();
 

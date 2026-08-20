@@ -293,6 +293,9 @@ function autoCard(cardId, name, overrides = {}) {
     // ★Batch 52: 進化の素材条件。候補の instanceId はサーバが絞り込んで送る ——
     //   クライアントは素材条件を1つも知らない(裁定163)
     evolutionMaterialIds: [], evolutionMin: 0, evolutionMax: 0, evolutionText: null,
+    // ★Batch 53: 墓地からの【特殊召喚】(《サモナーポップ・エンラ》)。
+    //   「今それができるか」を知っているのはサーバだけなので、真偽値だけを送る
+    canSpecialSummonFromGrave: false,
     ...overrides,
   };
 }

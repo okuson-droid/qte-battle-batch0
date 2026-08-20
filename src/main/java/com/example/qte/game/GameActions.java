@@ -414,6 +414,88 @@ public class GameActions {
     }
 
     /**
+     * このプレイヤーが今、ミニオンを場に出せない状態か(★Batch 53)。
+     *
+     * <h2>なぜ {@code isMinionZoneFull()} を直に見る形をやめたか</h2>
+     *
+     * 《英霊・コレキ》(相手は自身のターン中1度しかミニオンを場に出せない)により、
+     * 「出せない理由」が場の枚数以外にもできた。呼び出し側が満杯だけを見ていると、
+     * <b>コレキで弾かれたカードが宙に浮いて消える</b> ——
+     * ギガマウス・バイトは「満杯なら手札に戻す」を自分で判断しており、
+     * 満杯でなければ手札から抜いたまま {@code putIntoFieldByEffect} の null を捨ててしまう。
+     * 黄泉還る水龍・ゾンストライカーの {@code while} ループに至っては
+     * <b>無限ループ</b>になる(墓地から消えないのに出られない)。
+     *
+     * <p>★<b>「出られるか」を問う場所を1つにする</b>のが答えである(裁定163)。
+     * 呼び出し側は理由を区別しない —— 満杯でもコレキでも、やることは同じである。
+     */
+    public boolean isFieldEntryBlocked(GameRoom room, PlayerState owner) {
+        if (owner.isMinionZoneFull()) {
+            return true;
+        }
+        GameState state = room.getGameState();
+        return state != null && guards.minionEntryDenial(state, owner) != null;
+    }
+
+    /**
+     * 進化の素材を場から取り除いて束にし、付与されていた効果だけを引き継ぐ(★Batch 53)。
+     *
+     * <p>Batch 52 はこの処理を {@code GameService.summonToField} の中に直接書いていた。
+     * 53 が<b>効果による「出す」でも進化を場に出せる</b>ようにしたことで、
+     * まったく同じ処理が {@link #putIntoFieldByEffect} にも要ることになった。
+     * ★<b>52 の「着地は1箇所」をもう1段深めて、束を作る処理そのものを1箇所にした。</b>
+     * 2箇所に書くと、必ずどちらかが引き継ぎ(裁定224)を忘れる。
+     *
+     * <p>★<b>呼ぶのは「場に出られる」ことが確定した後である</b>(裁定232)。
+     * モアニールの置換で場に出られなかった場合、素材は場に残らなければならない。
+     */
+    public void attachEvolutionMaterials(GameRoom room, PlayerState owner, MinionInstance minion,
+            java.util.List<MinionInstance> materials) {
+        if (materials == null || materials.isEmpty()) {
+            return;
+        }
+        for (MinionInstance material : materials) {
+            owner.getMinionZone().remove(material);
+            // 素材が進化ミニオンなら、その下の束もそのまま引き継ぐ(裁定222)。
+            // 束は下から順なので、先に古い束を積んでから素材自身を載せる
+            for (StackedCard stacked : material.getUnder()) {
+                minion.putUnder(stacked);
+            }
+            minion.putUnder(new StackedCard(material.getMaster().id(), material.isFromTaboo()));
+            minion.inheritGrantsFrom(material);
+        }
+        com.example.qte.effect.EvolutionSpec spec = effects.evolutionOf(minion.getMaster().id());
+        minion.setStatPerUnderCard(spec == null ? 0 : spec.statPerUnderCard());
+        room.addLog("%sが【%s】へ進化しました(素材%d体・下に%d枚)"
+                .formatted(owner.getDisplayName(), minion.getMaster().name(),
+                        materials.size(), minion.getUnder().size()));
+    }
+
+    /**
+     * ミニオンが場に出た直後の共通処理(★Batch 53)。
+     *
+     * 数え上げ1つと発火3つからなる。<b>召喚(GameService.summonToField)と
+     * 効果による「出す」({@link #putIntoFieldByEffect})の両方が必ずここを通る。</b>
+     * 違うのは【召喚時】(ON_SUMMON)だけで、それは召喚側が先に焚く。
+     *
+     * <p>★52 までは同じ4行が2箇所に並んでいた。53 が
+     * <b>「このターンに何体場に出たか」</b>(《英霊・コレキ》)を数える必要から1本にまとめた ——
+     * 数える場所が2つあると、片方だけを直した日に制限がすり抜ける。
+     */
+    public void fireEntryTriggers(GameRoom room, PlayerState owner, MinionInstance minion,
+            EffectContext ctx) {
+        // 登場の数え上げ(★Batch 53。《英霊・コレキ》)。経路を問わず1体ずつ数える
+        owner.countMinionEntry(room.getGameState().getTurnNumber());
+        effects.fire(TriggerType.ON_ENTER, minion, ctx);
+        // 装備中のウェポンが「自分のミニオンが場に出た」に反応する(禁忌の冥魔剣)。
+        // 蘇生・効果による「出す」でも発動するため、ON_ENTER の隣に置く(発注者確認済み)
+        effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
+        // 両者のリーダーが「場にミニオンが出た」に反応する(★Batch 49。ロロイヨ伯爵)。
+        // 召喚か効果による「出す」かを問わない(マスター裁定193)
+        effects.fireAnyMinionEntered(ctx);
+    }
+
+    /**
      * 効果によってミニオンを場に「出す」(召喚ではない)。
      * 発注者確認済み裁定により【召喚時】(ON_SUMMON)は発動せず、
      * 登場時(ON_ENTER: 知識など)のみ発動する。ミニオンゾーンが上限なら出せない。
@@ -425,15 +507,48 @@ public class GameActions {
      *         場に出ることがあり(黄泉還る水龍)、末尾が別人になりうるからである
      */
     public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId) {
-        if (owner.isMinionZoneFull() || NO_CHEAT_INTO_FIELD.contains(cardId)) {
+        return putIntoFieldByEffect(room, owner, cardId, java.util.List.of());
+    }
+
+    /**
+     * 効果によって<b>進化ミニオン</b>を素材つきで場に「出す」(★Batch 53。《英術・スケアロック》)。
+     *
+     * <h2>これは召喚ではない(マスター裁定)</h2>
+     *
+     * 進化であっても、効果で出したなら<b>【召喚時】は発動せず登場時(ON_ENTER)だけが発動する</b>。
+     * 裁定220(進化召喚は召喚である)は「進化召喚する場合」の話であり、ここと衝突しない。
+     *
+     * <h2>それでも素材は要る(裁定226)</h2>
+     *
+     * 素材の検証(条件・数)は<b>呼び出し側</b>が済ませて実体を渡す。
+     * ここは「場に出られるか」を確かめてから束にするだけである。
+     *
+     * <p>★<b>素材を1体でも取るなら場の上限を見ない。</b>
+     * 進化は素材を最低1体消費するので、場のミニオンが増えることは構造的に起こらない
+     * ({@code GameService.summonToField} と同じ判断)。
+     * ★ただし《英霊・コレキ》の制限は素材の有無に関係なく掛かる ——
+     * あれが数えているのは<b>場に出た体数</b>であって場の空きではない。
+     */
+    public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId,
+            java.util.List<MinionInstance> materials) {
+        boolean evolution = materials != null && !materials.isEmpty();
+        GameState state = room.getGameState();
+        if (NO_CHEAT_INTO_FIELD.contains(cardId)) {
             return null;
         }
-        GameState state = room.getGameState();
+        if (evolution) {
+            if (state != null && guards.minionEntryDenial(state, owner) != null) {
+                return null;
+            }
+        } else if (isFieldEntryBlocked(room, owner)) {
+            return null;
+        }
         CardMaster master = cards.findById(cardId);
         // 【光霊・モアニール】(★Batch 50): 場に出る代わりに山札の下へ置く置換効果。
         // ★null を返すが、<b>行き先はここで決まっている</b>(呼び出し側が手札へ戻すと二重になる)。
         // 「出せなかったぶんを手札に戻す」カード(神の福音・ギガマウス・バイト)は、
-        // 呼ぶ前に isMinionZoneFull() を自分で見る形に揃えてある
+        // 呼ぶ前に isFieldEntryBlocked() を自分で見る形に揃えてある。
+        // ★進化の素材はまだ場に居る —— 出られないなら下にも置かれない(裁定232)
         if (guards.isEntryToDeckBottom(state, owner, master)) {
             owner.getDeck().addLast(cardId);
             room.addLog("【光霊・モアニール】: 【%s】は場に出る代わりに山札の下へ置かれました"
@@ -441,17 +556,10 @@ public class GameActions {
             return null;
         }
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber());
+        attachEvolutionMaterials(room, owner, minion, materials);
         owner.getMinionZone().add(minion);
         room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));
-        EffectContext ctx = contextOf(room, owner, minion);
-        effects.fire(TriggerType.ON_ENTER, minion, ctx);
-        // 装備中のウェポンが「自分のミニオンが場に出た」に反応する(禁忌の冥魔剣)。
-        // 蘇生・効果による「出す」でも発動するため、ON_ENTER の隣に置く(発注者確認済み)
-        effects.fireAllyMinionEvent(TriggerType.ON_ALLY_MINION_ENTER, ctx);
-        // 両者のリーダーが「場にミニオンが出た」に反応する(★Batch 49。ロロイヨ伯爵)。
-        // 召喚か効果による「出す」かを問わない(マスター裁定193)ため、ここにも置く。
-        // GameService.summonToField にも同じ発火がある
-        effects.fireAnyMinionEntered(ctx);
+        fireEntryTriggers(room, owner, minion, contextOf(room, owner, minion));
         return minion;
     }
 
@@ -492,7 +600,8 @@ public class GameActions {
      * @return 蘇生できたらtrue(墓地に無い・ゾーン満杯・踏み倒し禁止ならfalse)
      */
     public MinionInstance reviveFromGrave(GameRoom room, PlayerState owner, String cardId) {
-        if (!owner.getTrash().contains(cardId) || owner.isMinionZoneFull()
+        // ★Batch 53: 「場が満杯か」ではなく「場に出られるか」を問う(《英霊・コレキ》)
+        if (!owner.getTrash().contains(cardId) || isFieldEntryBlocked(room, owner)
                 || NO_CHEAT_INTO_FIELD.contains(cardId)) {
             return null;
         }
@@ -927,8 +1036,10 @@ public class GameActions {
             room.addLog("【%s】はミニオンではないため、マナから場に出せません".formatted(master.name()));
             return null;
         }
-        if (owner.isMinionZoneFull()) {
-            room.addLog("場がいっぱいのため、マナから場に出せませんでした");
+        // ★Batch 53: マナは先に取り除くので、出られないなら<b>ここで止める</b>。
+        // 満杯だけを見ていると《英霊・コレキ》で弾かれたマナカードが消える
+        if (isFieldEntryBlocked(room, owner)) {
+            room.addLog("場に出せないため、マナから場に出せませんでした");
             return null;
         }
         if (isCheatIntoFieldBlocked(mana.getCardId())) {

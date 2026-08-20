@@ -112,7 +112,7 @@ public class GameViewBuilder {
         List<CardView> taboo = null;
         if (isSelf) {
             taboo = player.getTabooDeck().stream()
-                    .map(id -> buildCardView(state, player, cards.findById(id), -1))
+                    .map(id -> buildCardView(state, player, cards.findById(id), -1, false))
                     .toList();
         }
 
@@ -130,14 +130,17 @@ public class GameViewBuilder {
                 minions,
                 player.getTrash().size(),
                 player.getTrash().stream().map(id -> cards.findById(id).name()).toList(),
+                // ★Batch 53: 墓地の面には「墓地から特殊召喚できるか」を添える
+                //   (《サモナーポップ・エンラ》)。相手の墓地でも同じ形で作られるが、
+                //   操作できるのは自分の墓地だけなのでクライアント側が isSelf で絞る
                 player.getTrash().stream()
-                        .map(id -> buildCardView(state, player, cards.findById(id), -1))
+                        .map(id -> buildCardView(state, player, cards.findById(id), -1, true))
                         .toList(),
                 player.getLostZone().size(),
                 player.getLostZone().stream().map(id -> cards.findById(id).name()).toList(),
                 // ★Batch 44: 消滅の面(最上段の表示・一覧のフェイス化)。消滅は墓地と同じ公開情報である
                 player.getLostZone().stream()
-                        .map(id -> buildCardView(state, player, cards.findById(id), -1))
+                        .map(id -> buildCardView(state, player, cards.findById(id), -1, false))
                         .toList(),
                 player.getTabooDeck().size(),
                 taboo,
@@ -255,17 +258,27 @@ public class GameViewBuilder {
 
     /** 手札のカード1枚のビュー。実効コスト・対象仕様・特殊召喚可否はサーバで評価して添える */
     private CardView buildHandCard(GameState state, PlayerState player, int handIndex) {
-        return buildCardView(state, player, cards.findById(player.getHand().get(handIndex)), handIndex);
+        return buildCardView(state, player, cards.findById(player.getHand().get(handIndex)), handIndex, false);
     }
 
     /**
      * カード1枚のビュー。handIndexが-1のときは手札以外(禁忌デッキ)のカードで、
      * 特殊召喚は手札からの召喚のため対象外とする。
      */
-    private CardView buildCardView(GameState state, PlayerState player, CardMaster master, int handIndex) {
+    private CardView buildCardView(GameState state, PlayerState player, CardMaster master,
+            int handIndex, boolean inTrash) {
         SpecialSummonSpec special = handIndex < 0 ? null : effects.specialSummonOf(master.id());
         boolean canSpecial = special != null
                 && special.condition().test(state, player, handIndex);
+        // ★Batch 53: 墓地からの特殊召喚(《サモナーポップ・エンラ》)。
+        // 手札の位置を持たないので -1 を渡す —— 墓地から出せると宣言しているカードの条件は
+        // 手札の位置を参照しない(参照するなら手札からしか出せないはずである)。
+        // 判定は GameService.specialSummonFromGrave が同じ述語でやり直す
+        SpecialSummonSpec fromGrave = inTrash ? effects.specialSummonOf(master.id()) : null;
+        boolean canSpecialFromGrave = fromGrave != null && fromGrave.fromGrave()
+                && fromGrave.condition().test(state, player, -1);
+        // 対象要求と確認の文言は、手札からでも墓地からでも同じ仕様を見せる
+        SpecialSummonSpec shown = special != null ? special : (canSpecialFromGrave ? fromGrave : null);
         // ★Batch 52: 進化ミニオンの素材条件。手札以外(禁忌デッキ)のカードにも添える ——
         // 禁忌からの進化召喚も出し方は同じである(マスター裁定 E1)
         EvolutionSpec evolution = effects.evolutionOf(master.id());
@@ -284,8 +297,8 @@ public class GameViewBuilder {
                 master.text(),
                 toReqViews(spec),
                 canSpecial,
-                special == null ? List.of() : toReqViews(special.targets()),
-                special == null ? null : special.description(),
+                shown == null ? List.of() : toReqViews(shown.targets()),
+                shown == null ? null : shown.description(),
                 spec.combinedTotal(),
                 enhanced == null ? 0 : enhanced.extraCost(),
                 enhanced == null ? null : enhanced.prompt(),
@@ -293,7 +306,8 @@ public class GameViewBuilder {
                 evolutionMaterialIds(player, evolution),
                 evolution == null ? 0 : evolution.minMaterials(),
                 evolutionMax(player, evolution),
-                evolution == null ? null : evolution.description());
+                evolution == null ? null : evolution.description(),
+                canSpecialFromGrave);
     }
 
     /**

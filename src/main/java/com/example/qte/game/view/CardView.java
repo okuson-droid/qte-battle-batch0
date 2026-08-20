@@ -32,6 +32,12 @@ import com.example.qte.master.Keyword;
  * @param evolutionMin      必要な素材の最小数(進化ミニオン以外は0)
  * @param evolutionMax      素材の最大数。「1体以上」のカードは今の場のミニオン数まで
  * @param evolutionText     素材条件の説明(進化ミニオン以外はnull)
+ * @param canSpecialSummonFromGrave ★Batch 53。<b>墓地に置かれているこのカードを、今この瞬間
+ *                          特殊召喚できるか</b>(《サモナーポップ・エンラ》)。
+ *                          墓地の面にしか意味を持たず、手札・禁忌デッキのビューでは常に false。
+ *                          ★{@link #canSpecialSummon} と分けたのは、出どころが違えば
+ *                          クライアントが送る操作も違う(play/special-summon ではなく
+ *                          special-summon-from-grave)ためである
  */
 public record CardView(
         String cardId,
@@ -55,7 +61,8 @@ public record CardView(
         List<String> evolutionMaterialIds,
         int evolutionMin,
         int evolutionMax,
-        String evolutionText) {
+        String evolutionText,
+        boolean canSpecialSummonFromGrave) {
 
     public static List<String> keywordNames(CardMaster master) {
         return master.keywords().stream().map(Keyword::getDisplayName).toList();

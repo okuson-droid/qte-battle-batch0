@@ -693,7 +693,7 @@ function hideModal() {
 function showTrashList(isSelf) {
     if (!latestView || !latestView.you) return;
     const p = isSelf ? latestView.you : latestView.opponent;
-    showZoneFaces(`${p.displayName}の墓地(${p.trashCount}枚)`, p.trash || []);
+    showZoneFaces(`${p.displayName}の墓地(${p.trashCount}枚)`, p.trash || [], isSelf);
 }
 
 function showLostList(isSelf) {
@@ -1086,7 +1086,7 @@ function renderPiles(isSelf, p) {
     const trashTop = (p.trash && p.trash.length > 0) ? p.trash[p.trash.length - 1] : null;
     wrap.appendChild(pileEl('墓地', {
         top: trashTop, countId: prefix + '-trash-count',
-        onClick: () => showZoneFaces(`${who}の墓地(${p.trashCount}枚)`, p.trash),
+        onClick: () => showZoneFaces(`${who}の墓地(${p.trashCount}枚)`, p.trash, isSelf),
     }));
     const lostTop = (p.lost && p.lost.length > 0) ? p.lost[p.lost.length - 1] : null;
     wrap.appendChild(pileEl('消滅', {
@@ -1105,7 +1105,7 @@ function renderPiles(isSelf, p) {
  * ゾーンの中身をフェイスの一覧で出す(墓地・消滅)。
  * 33 までの「名前の文字列」を面に格上げした。右クリックで1枚ずつ拡大できる。
  */
-function showZoneFaces(title, cards) {
+function showZoneFaces(title, cards, graveSummon) {
     document.getElementById('info-modal-title').textContent = title;
     const content = document.getElementById('info-modal-content');
     content.innerHTML = '';
@@ -1114,16 +1114,52 @@ function showZoneFaces(title, cards) {
     } else {
         const grid = document.createElement('div');
         grid.className = 'auto-zone-grid';
-        cards.forEach(card => {
+        cards.forEach((card, index) => {
             const holder = document.createElement('div');
             holder.className = 'auto-zone-card';
             holder.appendChild(cardFace(faceDataFromCardView(card), 'mini'));
             attachZoom(holder, () => faceDataFromCardView(card));
+            // ★Batch 53: 墓地からの【特殊召喚】(《サモナーポップ・エンラ》)。
+            // 「今それができるか」を知っているのはサーバだけなので、
+            // この画面は canSpecialSummonFromGrave をそのまま信じてボタンを出す
+            // (印(Batch 47)・進化素材の候補(裁定234)と同じ考え方である)
+            if (graveSummon && card.canSpecialSummonFromGrave) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn btn-sm btn-warning w-100 mt-1';
+                btn.textContent = '★特殊召喚';
+                btn.onclick = () => beginGraveSpecialSummon(index, card);
+                holder.appendChild(btn);
+            }
             grid.appendChild(holder);
         });
         content.appendChild(grid);
     }
     document.getElementById('info-modal').classList.remove('d-none');
+}
+
+/**
+ * ★Batch 53: 墓地からの【特殊召喚】を始める。
+ * 手札からの特殊召喚と違うのは<b>出どころ(trashIndex)だけ</b>で、
+ * 進化なら素材、対象があれば対象、という段取りはまったく同じである。
+ */
+function beginGraveSpecialSummon(trashIndex, card) {
+    if (!latestView || !latestView.myTurn || latestView.phase !== 'MAIN') {
+        showMessage('墓地からの特殊召喚はメインフェイズにのみ行えます');
+        return;
+    }
+    if (!confirm(card.specialSummonText + '\n\nOK = 墓地から特殊召喚する')) {
+        return;
+    }
+    hideModal();
+    const action = 'special-summon-from-grave';
+    const specs = card.specialTargets;
+    const extra = { trashIndex };
+    if (card.type === 'EVOLUTION') {
+        beginEvolutionSelection(action, null, specs, extra, card);
+        return;
+    }
+    beginSelection(action, null, specs, extra);
 }
 
 // ---------------------------------------------------------------

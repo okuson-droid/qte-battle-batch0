@@ -64,25 +64,46 @@ class EffectImplementationTest {
      * 49(水文明の6枚)で 50枚 = 進化18 + 非進化32 になった。
      * 50(闇6枚 + 光6枚)で 38枚 = 進化18 + 非進化20 になった。
      * 51(火7枚 + 土8枚)で 23枚 = 進化18 + 非進化5 になった(P2 の終わり)。
-     * ★<b>52(進化エンジン + 進化6枚 + 機神兵長茶爺)で 15枚 = 進化11 + 非進化4 になった。</b>
-     * 内訳は Batch 53 が引き取る8枚(進化7 + 《英術・スケアロック》)と、
-     * P4 が引き取る7枚(【賢魂】を持つ進化4枚 + 非進化3枚)である。
+     * 52(進化エンジン + 進化6枚 + 機神兵長茶爺)で 15枚 = 進化11 + 非進化4 になった。
+     * ★<b>53(進化7枚 + 英術・スケアロック)で 7枚 = 進化4 + 非進化3 になった(P3 の終わり)。</b>
+     * ★<b>残る7枚はすべて【賢魂】待ちであり、P4 が丸ごと引き取る</b>(裁定229) ——
+     * つまり<b>「まだ誰も引き取っていないカード」は1枚も無い</b>状態になった。
      *
      * <p>★<b>進化の素材条件は18枚すべて登録されているが、印はそれでは消えない。</b>
      * 素材条件は「効果」ではなく<b>場に出す手段</b>だからである
      * ({@code CardEffectRegistry.evolutions} は {@code isRegistered} が見ない)。
      */
     @Test
-    void 効果未実装のカードは15枚である() {
+    void 効果未実装のカードは7枚である() {
         long unimplemented = cards.getAllCards().stream().filter(implementation::isUnimplemented).count();
-        assertThat(unimplemented).isEqualTo(15);
+        assertThat(unimplemented).isEqualTo(7);
     }
 
     @Test
-    void 印が付くカードのうち進化ミニオンは11枚で残り4枚がデッキに入る() {
+    void 印が付くカードのうち進化ミニオンは4枚で残り3枚がデッキに入る() {
         var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
-        assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(11);
-        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(4);
+        assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(4);
+        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(3);
+    }
+
+    /**
+     * ★<b>印が付いて残っているのは【賢魂】を持つカードだけである</b>(★Batch 53)。
+     *
+     * 47〜53 のあいだ、印は「まだ手が回っていないカード」と「意図して後続へ送ったカード」の
+     * 両方を指していた。53 で前者が尽きたので、<b>残りが全部同じ理由であること</b>を
+     * 不変条件として測れるようになった(裁定209・219: 題材ではなく不変条件を測る)。
+     * ★P4 がこの7枚を実装すると、このリストは空になり、
+     * <b>この試験は「印の付くカードは1枚も無い」を主張する形へ変わる。</b>
+     */
+    @Test
+    void 印が付くカードはすべて賢魂を持つ() {
+        var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
+        assertThat(marked).isNotEmpty();
+        for (CardMaster card : marked) {
+            assertThat(card.text())
+                    .as(card.name() + " に印が付いているが、【賢魂】を持たない(引き取り手が決まっていない)")
+                    .contains("【賢魂");
+        }
     }
 
     /**
@@ -264,7 +285,7 @@ class EffectImplementationTest {
      * マスター裁定 E2 が案(b) を選んだ、その判断がここで固定される。
      */
     @Test
-    void Batch52が賢魂待ちとしてP4へ送った7枚には今も印が付く() {
+    void Batch52と53が賢魂待ちとしてP4へ送った7枚には今も印が付く() {
         String[] deferredToP4 = {
             "QTE-M-LIGHT-32", // 英霊・タイガラム … 進化 +【賢魂：3】
             "QTE-M-WIND-30",  // 黒ノ霊導者 … 進化 +【賢魂：1】
@@ -283,29 +304,32 @@ class EffectImplementationTest {
     }
 
     /**
-     * ★Batch 52 が Batch 53 へ送った8枚にも、今も印が付いていなければならない。
+     * ★Batch 53 で印が消えた8枚(進化7 + スペル1)。
      *
-     * P3 を2つに割った境目そのものであり、53 がこの試験を空にするのが目的である(裁定219)。
-     * ★<b>この8枚も「出す」ことはできる</b> —— 素材条件は18枚すべて登録してあるので、
-     * デッキに入れて場に出せる。印が言っているのは「効果が起きない」ことだけである。
+     * 52 の「Batch53へ送った8枚には今も印が付く」を<b>裏返した試験である</b> ——
+     * P3 を2つに割った境目がここで閉じる(裁定219: 送ると決めたものは名指しする)。
+     * ★このバッチも実装の置き場所が散っている ——
+     * 表(トリガー・特殊召喚・スペル)、{@link StatCalculator}(ニュウキロのコスト増加)、
+     * {@link com.example.qte.effect.RuleGuards}(コレキの登場制限)、
+     * そして {@code CardEffectRegistry} の宣言(ノアの常在)である(裁定180)。
      */
     @Test
-    void Batch52がBatch53へ送った8枚には今も印が付く() {
-        String[] deferredTo53 = {
-            "QTE-M-WATER-31", // 海淵獣ラカブ
-            "QTE-M-WATER-32", // 海淵獣ゾクシム
-            "QTE-M-DARK-30",  // リボーンライヴ・ノア
-            "QTE-M-DARK-31",  // サモナーポップ・エンラ
-            "QTE-M-LIGHT-30", // 英霊・ニュウキロ
-            "QTE-M-LIGHT-31", // 英霊・コレキ
-            "QTE-M-WIND-32",  // 灰ノ霊呼者
-            "QTE-M-LIGHT-39", // 英術・スケアロック(スペル。51 が P3 へ送ったカード)
+    void Batch53で実装した8枚には印が付かない() {
+        String[] batch53 = {
+            "QTE-M-WATER-31", // 海淵獣ラカブ … 表(ON_SUMMON + 割り込み)
+            "QTE-M-WATER-32", // 海淵獣ゾクシム … 表(ON_SUMMON / ON_DESTROYED)
+            "QTE-M-DARK-30",  // リボーンライヴ・ノア … 表(ON_SUMMON) + 宣言(常在の【突進】)
+            "QTE-M-DARK-31",  // サモナーポップ・エンラ … 表(墓地からの特殊召喚 + ON_ENTER)
+            "QTE-M-LIGHT-30", // 英霊・ニュウキロ … StatCalculator(相手のスペルのコスト)
+            "QTE-M-LIGHT-31", // 英霊・コレキ … RuleGuards(登場の制限)
+            "QTE-M-WIND-32",  // 灰ノ霊呼者 … 表(ON_SUMMON + 割り込み)
+            "QTE-M-LIGHT-39", // 英術・スケアロック … 表(スペル。効果から進化を出す)
         };
-        for (String cardId : deferredTo53) {
+        for (String cardId : batch53) {
             CardMaster card = cards.findById(cardId);
             assertThat(implementation.isUnimplemented(card))
-                    .as(card.name() + " は Batch 53 の範囲なので印が付いたままでなければならない")
-                    .isTrue();
+                    .as(card.name() + " は Batch 53 で実装したので印を付けてはいけない")
+                    .isFalse();
         }
     }
 

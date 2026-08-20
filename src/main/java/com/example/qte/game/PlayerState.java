@@ -321,6 +321,44 @@ public class PlayerState {
     private SpellDisposition pendingSpellDisposition;
 
     /**
+     * 効果で場に出そうとしている進化ミニオンのカードID(★Batch 53。《英術・スケアロック》)。
+     *
+     * 素材を選ばせる割り込み({@link com.example.qte.effect.ResumePoint#SCARELOCK_MATERIAL})を
+     * またいで「どの進化カードを出そうとしているか」を運ぶ。
+     * {@link com.example.qte.effect.PendingChoice} は候補の一覧しか持てないため、
+     * それ以外の文脈は pendingSacrificeCount と同じくここに置く。
+     * ★カードは選択待ちの間<b>手札に残したまま</b>である ——
+     * 素材が確定して実際に場へ出るときに、はじめて手札から取り除く。
+     */
+    @Setter
+    private String pendingEvolutionCardId;
+
+    /**
+     * 自分の場にミニオンが出たターン番号と、そのターンに出た体数(★Batch 53。《英霊・コレキ》)。
+     *
+     * <b>真偽値ではなくターン番号を刻む形である</b>(裁定156(3) の系譜) ——
+     * この数は<b>相手のターン中の登場も数える</b>ので、自分のターン開始時のリセットでは足りない。
+     * 読むときに現在のターン番号と照合し、違えば 0 とみなす。
+     */
+    private int minionEntryTurn = -1;
+
+    private int minionEntryCount = 0;
+
+    /** ミニオンが1体場に出たことを記録する(★Batch 53)。経路は問わない */
+    public void countMinionEntry(int currentTurn) {
+        if (minionEntryTurn != currentTurn) {
+            minionEntryTurn = currentTurn;
+            minionEntryCount = 0;
+        }
+        minionEntryCount++;
+    }
+
+    /** そのターンに自分の場へ出たミニオンの体数(★Batch 53。《英霊・コレキ》の判定) */
+    public int minionEntriesOn(int currentTurn) {
+        return minionEntryTurn == currentTurn ? minionEntryCount : 0;
+    }
+
+    /**
      * このターンに引いた枚数。【断罪の大天使】が「3枚目以降のドロー」を数えるために使う。
      * ターン開始時の通常ドローも1枚目として含む(発注者確認済み)。
      */
@@ -474,6 +512,9 @@ public class PlayerState {
         drawnCountThisTurn = 0;
         pendingSacrificeCount = 0;
         minionsDestroyedThisTurn.clear();
+        // minionEntryTurn / minionEntryCount(★Batch 53)はここで戻さない。
+        // 相手のターン中の登場も数えるため、ターン番号の照合で判断する
+        // (minionAttackLimitedOnTurn と同じ理由)
     }
 
     /** マナゾーンにある裏向きのカードの枚数(闇文明の参照元) */
