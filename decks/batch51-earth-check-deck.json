@@ -1,0 +1,61 @@
+{
+  "formatVersion": 1,
+  "name": "土Ver1.1確認用(Batch51)",
+  "leaderCardId": "QTE-M-EARTH-29",
+  "main": [
+    {
+      "cardId": "QTE-M-EARTH-33",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-34",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-35",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-37",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-38",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-39",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-7",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-36",
+      "count": 2
+    },
+    {
+      "cardId": "QTE-M-EARTH-16",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-EARTH-9",
+      "count": 3
+    },
+    {
+      "cardId": "QTE-M-EARTH-25",
+      "count": 3
+    }
+  ],
+  "taboo": [
+    "QTE-M-FIRE-10",
+    "QTE-M-FIRE-9",
+    "QTE-M-WATER-9",
+    "QTE-M-WIND-16",
+    "QTE-M-LIGHT-13",
+    "QTE-M-DARK-24",
+    "QTE-M-WATER-18",
+    "QTE-M-WIND-5"
+  ]
+}

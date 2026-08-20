@@ -101,6 +101,9 @@ public class CardEffectRegistry {
     /** 1stL「NEMれぬ夜のドリーミー」が【速攻】を得る破壊数(「10体以上で」) */
     private static final int DREAMY_HASTE_THRESHOLD = 10;
 
+    /** 乱戦鉄機狼(★Batch 51): この値以下なら自傷が相手への1ダメージに置き換わる */
+    private static final int IRON_WOLF_LP_THRESHOLD = 10;
+
     /**
      * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
      * 趣旨と番人は {@link RuleGuards#IMPLEMENTED_CARDS} の説明を参照。
@@ -128,6 +131,8 @@ public class CardEffectRegistry {
         registerWaterVer11Cards();
         registerDarkVer11Cards();
         registerLightVer11Cards();
+        registerFireVer11Cards();
+        registerEarthVer11Cards();
     }
 
     // ---------------------------------------------------------------
@@ -2190,6 +2195,402 @@ public class CardEffectRegistry {
     }
 
     // ---------------------------------------------------------------
+    // 登録: 火文明の Ver1.1(★Batch 51)
+    //
+    // 火の Ver1.1 は「鉄機」——【進化】を軸にした機械の群れである。
+    // 進化エンジンそのものは P3 の担当だが、7枚のうち2枚は<b>進化を参照するだけ</b>で、
+    // 参照は「そのカードの種別が EVOLUTION か」を見るだけで足りる(マスター裁定215)。
+    // ★現行のカードプールでは進化ミニオンを場に出せないため、その分岐は今は必ず偽である。
+    //   50 の演舞の墓守の2本目の発火位置と同じ性質であり、P3 で自動的に効き始める。
+    // ★手札から進化ミニオンを場に出す《機神兵長茶爺》だけは、進化スタックそのものを
+    //   要求するため P3 送りである。
+    // ---------------------------------------------------------------
+    private void registerFireVer11Cards() {
+
+        // ---- 支援盾機狸(QTE-M-FIRE-33) ----
+        // 「【守護】このミニオンは攻撃できない。【破壊時】自分のリーダーに1ダメージ」
+        //
+        // 【守護】はテキストから抽出される(裁定158)。「攻撃できない」は判定であり、
+        // RuleGuards.minionAttackDenial にある(煌めきの盾・ハク霊・コク霊と同じ形)。
+        // ここに登録するのは【破壊時】だけでよい。
+        // ★0コストで出る【守護】の壁であり、自分のリーダーを削ることが代償になっている
+        register("QTE-M-FIRE-33", TriggerType.ON_DESTROYED, ctx ->
+                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-33"));
+
+        // ---- 乱戦鉄機狼(QTE-M-FIRE-34) ----
+        // 「【速攻】【召喚時】自分のリーダーに1ダメージ。
+        //   自分のリーダーの体力が10以下なら代わりに相手のリーダーに1ダメージ。」
+        //
+        // ★「代わりに」なので置換であり、<b>両方には当たらない</b>。
+        // ★判定はダメージを与える前の自分のLPで行う(マスター裁定216)。
+        //   これは置換効果の一般則である —— 置換は「起きようとしている事象」を見て決まる。
+        // ★自傷は火文明の資源であり、火炎の狂信者・反転の炎鏡が反応する。
+        //   発生源IDを渡しているのはそのためである(damageLeader の第4引数)
+        register("QTE-M-FIRE-34", TriggerType.ON_SUMMON, ctx -> {
+            if (ctx.owner().getLp() <= IRON_WOLF_LP_THRESHOLD) {
+                ctx.room().addLog("【乱戦鉄機狼】: 自分のLPが%d以下のため、相手のリーダーに1ダメージ"
+                        .formatted(IRON_WOLF_LP_THRESHOLD));
+                ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-FIRE-34");
+            } else {
+                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-34");
+            }
+        });
+
+        // ---- 砲台鉄機虎(QTE-M-FIRE-35) ----
+        // 「【特殊召喚】(場に進化ミニオンが1体以上いるとき0コストとして場に出せる)【突進】」
+        //
+        // ★「場に」に<b>「自分の」が付いていない</b>ので両者の場を見る(記法規約。裁定156(2))。
+        // ★代替コストは無い(0コストで出るだけ)。創世神ガイアと同じ形である。
+        // ★現行のカードプールでは進化ミニオンが場に出ないため、この条件は常に偽になる。
+        //   P3 で進化が解禁された時点で、ここに手を入れずに効き始める
+        specialSummons.put("QTE-M-FIRE-35", SpecialSummonSpec.of(
+                (state, player, handIndex) -> hasEvolutionOnAnyField(state),
+                TargetSpec.of(),
+                ctx -> {
+                },
+                "場に進化ミニオンが居ます: 代替コストなしで0コスト召喚します"));
+
+        // ---- ラスト・アタック(QTE-M-FIRE-36・スペル) ----
+        // 「場の自分のミニオンを1枚選び破壊する。そうしたら相手のミニオンに3ダメージを与える。
+        //   こうして破壊した自分のミニオンが進化ミニオンなら相手の全てのミニオンに追加で2ダメージ。」
+        //
+        // ★自分のミニオンの選択は<b>必須</b>である。喚ビ集ウ・アヤカシ(48)は【召喚時】だったので
+        //   TargetSpec にすると召喚そのものが弾かれたが、こちらはスペルであり、
+        //   「破壊できないなら撃てない」で正しい(テキストが破壊を条件にしている)。
+        // ★相手のミニオンの選択は任意にしてある。相手の場が空でも自分のミニオンを破壊する
+        //   意味はある(【破壊時】を能動的に起こす)ため、撃てなくしてはいけない。
+        // ★「そうしたら」= 実際に破壊できたときだけ先へ進む。破壊の置換(大天使ミカエル等)で
+        //   場に残った場合はダメージを与えない(48 の喚ビ集ウ・アヤカシと同じ判定)
+        targetSpecs.put("QTE-M-FIRE-36", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(),
+                        "破壊する自分のミニオンを1体選んでください"),
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
+                        "3ダメージを与える相手のミニオンを1体選んでください")));
+        spellEffects.put("QTE-M-FIRE-36", ctx -> {
+            ResolvedTargets.TargetedMinion sacrifice = ctx.targets().get(0).minions().get(0);
+            boolean wasEvolution = sacrifice.minion().getMaster().type() == CardType.EVOLUTION;
+            ctx.actions().destroyMinion(ctx.room(), sacrifice.owner(), sacrifice.minion());
+            if (sacrifice.owner().getMinionZone().contains(sacrifice.minion())) {
+                ctx.room().addLog("【ラスト・アタック】: 破壊されなかったため、ダメージは発生しません");
+                return;
+            }
+            ctx.targets().get(1).minions().forEach(t ->
+                    ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3));
+            if (!wasEvolution) {
+                return;
+            }
+            ctx.room().addLog("【ラスト・アタック】: 破壊したのが進化ミニオンのため、相手全体に追加で2ダメージ");
+            for (MinionInstance m : List.copyOf(ctx.opponent().getMinionZone())) {
+                ctx.actions().damageMinion(ctx.room(), ctx.opponent(), m, 2);
+            }
+        });
+
+        // ---- リペア・チューナー(QTE-M-FIRE-37・スペル) ----
+        // 「手札を1枚捨てる。その後カードを2枚引く。」
+        //
+        // ★捨てる手札は「あるだけ」(upTo)にしてある(裁定191 の形)。必須にすると、
+        //   このスペル1枚しか手札に無いときに<b>撃てなくなる</b> ——
+        //   テキストは「捨てられなければ引けない」とは書いていない(マスター裁定217)。
+        // ★選択済みの手札は検証の時点で手札から取り除かれて届く。
+        //   行き先を決めるだけでよく、「場以外から墓地へ」の入口を通す(★Batch 50)
+        targetSpecs.put("QTE-M-FIRE-37", TargetSpec.of(
+                Requirement.upTo(Kind.HAND, Side.SELF, 1, "捨てるカードを1枚選んでください")));
+        spellEffects.put("QTE-M-FIRE-37", ctx -> {
+            ctx.targets().get(0).handCardIds().forEach(
+                    id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+        });
+
+        // ---- アイアン・リターン(QTE-M-FIRE-38・スペル) ----
+        // 「自分の手札を全て山札に戻してシャッフルする。こうして戻した枚数+1枚山札からカードを引く。」
+        //
+        // ★このカード自身は数に入らない。スペルの解決は
+        //   検証 → コスト支払い → 手札からの除去(removePlayedAndTargets)→ 解決 の順で進むため、
+        //   ここに来た時点でこのカードは既に手札を離れている。
+        //   ギガマウス・バイトのコスト計算が自身を含む(裁定190)のと対になる事実であり、
+        //   <b>数えるのが「コストの計算時点」か「解決時点」かで答えが変わる</b>
+        spellEffects.put("QTE-M-FIRE-38", ctx -> {
+            List<String> hand = new ArrayList<>(ctx.owner().getHand());
+            ctx.owner().getHand().clear();
+            ctx.actions().returnToDeckAndShuffle(ctx.room(), ctx.owner(), hand);
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), hand.size() + 1);
+        });
+
+        // ---- ドレイン・ブラスト(QTE-M-FIRE-39・スペル) ----
+        // 「ミニオンを2体選び4ダメージ与える。この効果で破壊した枚数自分のリーダーを1回復行う。【還元】」
+        //
+        // ★「ミニオン」に「相手の」が付いていないので<b>自分のミニオンも選べる</b>(記法規約)。
+        // ★「2体」は upTo である(裁定191)。場に2体居なければ、あるだけを選ぶ。
+        //   固定にすると、盤面に1体しか居ないときに撃てなくなる。
+        // ★回復量は<b>実際に破壊できた数</b>である(48 の「破壊した数」と同じ)。
+        //   破壊の置換で場に残ったミニオンは数えない。
+        // ★【還元】の処理は GameActions 側の共通処理(流転の書・英術グラーニスと同じ)
+        targetSpecs.put("QTE-M-FIRE-39", TargetSpec.of(
+                Requirement.upTo(Kind.MINION, Side.ANY, 2,
+                        "4ダメージを与えるミニオンを2体まで選んでください")));
+        spellEffects.put("QTE-M-FIRE-39", ctx -> {
+            List<ResolvedTargets.TargetedMinion> chosen = ctx.targets().get(0).minions();
+            int destroyed = 0;
+            for (ResolvedTargets.TargetedMinion t : chosen) {
+                ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 4);
+                if (!t.owner().getMinionZone().contains(t.minion())) {
+                    destroyed++;
+                }
+            }
+            if (destroyed > 0) {
+                ctx.actions().healLeader(ctx.room(), ctx.owner(), destroyed, "QTE-M-FIRE-39");
+            }
+        });
+    }
+
+    /**
+     * 場に進化ミニオンが1体でも居るか(★Batch 51。砲台鉄機虎)。
+     *
+     * ★「場に」に「自分の」が付いていないため両者の場を見る(記法規約)。
+     * ★進化エンジンは P3 の担当であり、現行のカードプールではここは必ず false を返す。
+     *   それでも書いておくのは、P3 が解禁したときにこのカードへ戻ってこなくて済むようにするためである。
+     */
+    private boolean hasEvolutionOnAnyField(GameState state) {
+        return List.of(state.getPlayer1(), state.getPlayer2()).stream()
+                .flatMap(p -> p.getMinionZone().stream())
+                .anyMatch(m -> m.getMaster().type() == CardType.EVOLUTION);
+    }
+
+    // ---------------------------------------------------------------
+    // 登録: 土文明の Ver1.1(★Batch 51)
+    //
+    // 土の Ver1.1 は「マナと場を直接つなぐ」——13a が作ったマナ加速の資源を、
+    // そのまま盤面に変える。そのための2方向の入口は GameActions に1本ずつ作った
+    // (putManaCardIntoField / putFieldMinionIntoManaFaceDown)。
+    // ★manaZone や minionZone に直接 add / remove を書かないこと。
+    //
+    // 「マナから場へ出すミニオンを選ぶ」は4枚に現れる。候補の絞り込みだけが違うので、
+    // requestManaSummon に集約してある(裁定163: 同じ規則を2箇所に置かない)。
+    // ---------------------------------------------------------------
+    private void registerEarthVer11Cards() {
+
+        // ---- 百獣の王 ベヒーモス(QTE-M-EARTH-7) ----
+        // 「【召喚時】他のミニオン全てに7ダメージ。体力の多いリーダーに3ダメージ」
+        //
+        // ★Ver0.4 では効果を持たないバニラだったカードに、Ver1.1 で効果が付いた
+        //   (13b の登録不要リストにあった3枚のうちの1枚である)。
+        // ★「他のミニオン全て」= 自分自身を除く両者の場。創世神ガイアと同じ形。
+        // ★「体力の多いリーダー」が<b>同値のときは何も起きない</b>(マスター裁定218)。
+        //   「多いほう」が一意に定まらないためである
+        register("QTE-M-EARTH-7", TriggerType.ON_SUMMON, ctx -> {
+            MinionInstance self = ctx.source();
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                for (MinionInstance m : List.copyOf(side.getMinionZone())) {
+                    if (m != self) {
+                        ctx.actions().damageMinion(ctx.room(), side, m, 7);
+                    }
+                }
+            }
+            if (ctx.owner().getLp() == ctx.opponent().getLp()) {
+                ctx.room().addLog("【百獣の王 ベヒーモス】: 体力が同じため、リーダーへのダメージは発生しません");
+                return;
+            }
+            PlayerState higher = ctx.owner().getLp() > ctx.opponent().getLp()
+                    ? ctx.owner() : ctx.opponent();
+            ctx.actions().damageLeader(ctx.room(), higher, 3, "QTE-M-EARTH-7");
+        });
+
+        // ---- 地上覇総長・翔山(QTE-M-EARTH-29・リーダー) ----
+        // 「【起動：2】自分の墓地からカード1枚選びマナに置く。」
+        //
+        // ★向きが書かれていない。<b>表向き</b>で置く(マスター裁定210)——
+        //   《ガイア・リソース》が同じく向きを書いておらず、既存実装が表向きだからである。
+        //   墓地→マナの既存2枚(マナを貪る怨霊・禁忌の墓地利用)はどちらも本文に
+        //   「裏向きで」と明記しているので、明記の無いこれは表向きの側に入る。
+        // ★表向きであることには意味がある —— 翔山で置いたカードは、
+        //   《俺等地上覇夜露死苦》の「表向きのマナから場に出す」で盤面に変えられる。
+        //   土の Ver1.1 は「墓地 → マナ → 場」の1本の線として組まれている。
+        // ★配置は placeCardInManaFaceUp を通す(マナ上限の判定・配置回数の計数・
+        //   豊穣の地霊主の発火が、そこに集約されている)
+        leaderAbilities.put("QTE-M-EARTH-29", LeaderAbilitySpec.of(2,
+                TargetSpec.of(new Requirement(Kind.TRASH, Side.SELF, 1, false, false, List.of(),
+                        "マナに置く墓地のカードを1枚選んでください")),
+                ctx -> {
+                    String cardId = ctx.targets().get(0).trashCardIds().get(0);
+                    if (!ctx.owner().getTrash().remove(cardId)) {
+                        return;
+                    }
+                    if (!ctx.actions().placeCardInManaFaceUp(ctx.room(), ctx.owner(), cardId)) {
+                        // マナ上限で置けなかった場合は墓地へ戻す(カードを消さない)
+                        ctx.owner().getTrash().add(cardId);
+                        return;
+                    }
+                    ctx.room().addLog("【地上覇総長・翔山】: 【%s】を墓地から表向きでマナに置きました"
+                            .formatted(cards.findById(cardId).name()));
+                },
+                "墓地のカード1枚を表向きでマナに置きます"));
+
+        // ---- 分那愚利(QTE-M-EARTH-33) ----
+        // 「【突進】【召喚時】相手ミニオン1体に1ダメージ」
+        //
+        // 【突進】はテキストから抽出される。ここは【召喚時】の1ダメージだけでよい。
+        // ★相手の場が空でも召喚できるよう、対象は任意にする(腐敗の投擲者と同じ形)
+        targetSpecs.put("QTE-M-EARTH-33", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
+                        "1ダメージを与える相手のミニオンを1体選んでください")));
+        register("QTE-M-EARTH-33", TriggerType.ON_SUMMON, ctx ->
+                ctx.targets().get(0).minions().forEach(t ->
+                        ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 1)));
+
+        // ---- 勝鼓美(QTE-M-EARTH-34) ----
+        // 「【破壊時】山札の上からカードを1枚マナゾーンに置く。
+        //   その後コスト3以下のミニオンを1体選びマナゾーンから場に出す。」
+        //
+        // ★マナに置く向きは書かれていない → 表向き(マスター裁定210。翔山と同じ根拠)。
+        // ★場に出す候補は<b>裏向きのマナも含む</b>(マスター裁定211)——
+        //   本文が「表向きの」と限定していないためである。限定しているのは
+        //   《俺等地上覇夜露死苦》1枚だけで、そちらだけが表向きに絞られる。
+        // ★★【破壊時】は<b>相手のターン中にも起きる</b>。50 まではそこで本人に選ばせられず
+        //   自動決定にするしかなかったが(サモンズライト)、51 で
+        //   GameService.resolveChoice の制限を外した(マスター裁定214)ので、本人が選ぶ
+        register("QTE-M-EARTH-34", TriggerType.ON_DESTROYED, ctx -> {
+            ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner());
+            requestManaSummon(ctx, "勝鼓美", ResumePoint.KACHIKOMI_MANA_SUMMON,
+                    mana -> {
+                        CardMaster master = cards.findById(mana.getCardId());
+                        return master.type() == CardType.MINION && master.cost() <= 3;
+                    },
+                    "【勝鼓美】: マナから場に出すコスト3以下のミニオンを1体選んでください");
+        });
+
+        // ---- 素手喧嘩(QTE-M-EARTH-35) ----
+        // 「【突進】攻撃時このカードをマナに裏向きで置いても良い。
+        //   そうしたらマナにある表向きのAttackが6以下のミニオンを1体場に出す。」
+        //
+        // ★★<b>置いた場合、戦闘は起きない</b>(マスター裁定213)。攻撃者が場を離れるためである。
+        //   そのため 51 では「攻撃時の割り込みが出たら戦闘の解決を保留する」構造を
+        //   GameService に入れた(GameState.pendingAttack)。この登録自体は
+        //   戦闘のことを何も知らない —— 場を離れたという事実だけが戦闘を止める。
+        // ★「置いても良い」なので min=0 の任意選択である。候補は自分自身1体だけであり、
+        //   Kind.MINION の候補に自分を1体だけ入れることで「はい/いいえ」を表している。
+        //   真偽値を選ばせる新しい PendingChoice.Kind を足していないのは、
+        //   クライアントの分岐を増やさずに済むためである(版数を上げずに済んでいる)。
+        // ★2段目(マナから出すミニオン)は「マナにある<b>表向きの</b>」と限定されている
+        register("QTE-M-EARTH-35", TriggerType.ON_ATTACK, ctx -> {
+            MinionInstance self = ctx.source();
+            if (self == null || !ctx.owner().getMinionZone().contains(self)) {
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.upTo(
+                    PendingChoice.Kind.MINION, List.of(self.getInstanceId()), 1,
+                    ResumePoint.STEGORO_TO_MANA,
+                    "【素手喧嘩】: このカードを裏向きでマナに置きますか?"
+                            + "(置くと戦闘は行われず、マナから表向きのAttack6以下のミニオンを1体出します)"));
+        });
+
+        // ---- 勝阿外(QTE-M-EARTH-36)は P4(【賢魂】)の担当である ----
+        // 【常在】(相手はスペルを唱えられない / 相手の手札の枚数だけAttack+1)だけなら
+        // 51 で書けるが、【賢魂：2】と合わせて1枚のカードであり、
+        // 常在だけを実装すると「効果未実装」の印が消えて<b>賢魂も実装済みに見えてしまう</b>
+        // (裁定165: 印は部分実装を表せない)。マスター裁定により、丸ごと P4 へ送る。
+
+        // ---- 仏恥義理(QTE-M-EARTH-37・スペル) ----
+        // 「カードを1枚引く。その後自分の手札を1枚選びマナに裏向きで置く。」
+        //
+        // ★引いた後に選ぶので、使用宣言時の対象指定(TargetSpec)では表せない ——
+        //   引いたカードが候補に入らないためである。割り込み(PendingChoice)を使う。
+        //   《風のマナ変換》とまったく同じ形だが、再開先は分けてある(ResumePoint の説明)
+        spellEffects.put("QTE-M-EARTH-37", ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            int size = ctx.owner().getHand().size();
+            if (size == 0) {
+                ctx.room().addLog("【仏恥義理】: 手札が無いため、マナに置けませんでした");
+                return;
+            }
+            List<String> positions = new ArrayList<>();
+            for (int i = 0; i < size; i++) {
+                positions.add(String.valueOf(i));
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.HAND, positions, ResumePoint.BUCCHIGIRI_MANA_PUT,
+                    "【仏恥義理】: 裏向きでマナに置く手札を1枚選んでください"));
+        });
+
+        // ---- 喧嘩上等(QTE-M-EARTH-38・スペル) ----
+        // 「相手のミニオンを1体マナに裏向きで置く。
+        //   その後自分のマナからコスト6以下のミニオンを1体マナから場に出す」
+        //
+        // ★置き先は<b>相手のマナゾーン</b>である(マスター裁定212)。
+        //   後半が「自分のマナから」と書き分けているので、前半の「マナ」は相手のものと読む。
+        //   相手にマナを1枚与えることになるが、それがこの除去の調整になっている。
+        // ★破壊ではないので【破壊時】は発動しない。禁忌由来のミニオンは消滅する
+        //   (putFieldMinionIntoManaFaceDown が bounceToHand と同じ扱いをする)。
+        // ★相手の場が空でも撃てるよう、対象は任意にしてある
+        targetSpecs.put("QTE-M-EARTH-38", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
+                        "マナに置く相手のミニオンを1体選んでください")));
+        spellEffects.put("QTE-M-EARTH-38", ctx -> {
+            ctx.targets().get(0).minions().forEach(t ->
+                    ctx.actions().putFieldMinionIntoManaFaceDown(ctx.room(), t.owner(), t.minion()));
+            requestManaSummon(ctx, "喧嘩上等", ResumePoint.KENKAJOTO_MANA_SUMMON,
+                    mana -> {
+                        CardMaster master = cards.findById(mana.getCardId());
+                        return master.type() == CardType.MINION && master.cost() <= 6;
+                    },
+                    "【喧嘩上等】: マナから場に出すコスト6以下のミニオンを1体選んでください");
+        });
+
+        // ---- 俺等地上覇夜露死苦(QTE-M-EARTH-39・スペル) ----
+        // 「相手のミニオンを全て破壊する。その後自分の表向きのマナからミニオンを1枚選び場に出す。」
+        //
+        // ★このカードだけが「<b>表向きの</b>マナから」と限定している。
+        //   勝鼓美・喧嘩上等が限定していないのは書き落としではなく、
+        //   限定の有無をそのまま実装に写す(マスター裁定211)。
+        // ★出すミニオンにコストの制限は無い。マナに置いた大物をそのまま盤面に変えられる
+        //   のが、コスト9に見合う部分である
+        spellEffects.put("QTE-M-EARTH-39", ctx -> {
+            for (MinionInstance m : List.copyOf(ctx.opponent().getMinionZone())) {
+                ctx.actions().destroyMinion(ctx.room(), ctx.opponent(), m);
+            }
+            requestManaSummon(ctx, "俺等地上覇夜露死苦", ResumePoint.SEKAIWO_MANA_SUMMON,
+                    mana -> mana.isFaceUp()
+                            && cards.findById(mana.getCardId()).type() == CardType.MINION,
+                    "【俺等地上覇夜露死苦】: 表向きのマナから場に出すミニオンを1枚選んでください");
+        });
+    }
+
+    /**
+     * 「自分のマナから場に出すミニオンを1体選ぶ」の共通処理(★Batch 51)。
+     *
+     * 土の Ver1.1 の4枚(勝鼓美・素手喧嘩・喧嘩上等・俺等地上覇夜露死苦)が同じ形を持ち、
+     * 違うのは<b>候補の絞り込みと再開先だけ</b>である。候補が0体なら不発、1体なら自動決定、
+     * 2体以上なら本人に選ばせる(降臨の伝道師・地砕きの突撃兵と同じ流儀)。
+     *
+     * <b>候補はマナゾーン内の位置(0起点)で表す。</b> 選択待ちの間に位置がずれないことは、
+     * 「選択待ちのあいだは誰も盤面を動かせない」という規則が保証している
+     * ({@code GameService.requireTurnPlayer} が両者を塞ぐ。★Batch 51 で相手側も塞いだ)。
+     *
+     * @param filter 候補にするマナの条件。カードの本文が限定している内容をそのまま書く
+     */
+    private void requestManaSummon(EffectContext ctx, String cardName, ResumePoint resumeAt,
+            java.util.function.Predicate<ManaCard> filter, String prompt) {
+        List<String> positions = new ArrayList<>();
+        List<ManaCard> mana = ctx.owner().getManaZone();
+        for (int i = 0; i < mana.size(); i++) {
+            if (filter.test(mana.get(i))) {
+                positions.add(String.valueOf(i));
+            }
+        }
+        if (positions.isEmpty()) {
+            ctx.room().addLog("【%s】: 条件に合うミニオンがマナに無いため、場には出せませんでした"
+                    .formatted(cardName));
+            return;
+        }
+        if (positions.size() == 1) {
+            ctx.actions().putManaCardIntoField(ctx.room(), ctx.owner(),
+                    Integer.parseInt(positions.get(0)));
+            return;
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(),
+                PendingChoice.one(PendingChoice.Kind.MANA, positions, resumeAt, prompt));
+    }
+
+    // ---------------------------------------------------------------
     // 登録: 土文明(Batch 13b)
     //
     // 土のテーマは「マナ加速」。山札や手札のカードを表向きでマナに置く効果が多く、
@@ -2566,6 +2967,44 @@ public class CardEffectRegistry {
                         .formatted(cards.findById(cardId).name()));
                 ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
             }
+            // 仏恥義理(QTE-M-EARTH-37): 引いた後に裏向きマナへ置く手札を確定させる。★Batch 51
+            case BUCCHIGIRI_MANA_PUT -> {
+                int idx = Integer.parseInt(chosen.get(0));
+                ctx.actions().putHandCardIntoManaFaceDown(ctx.room(), ctx.owner(), idx);
+            }
+            // 勝鼓美(QTE-M-EARTH-34)/ 喧嘩上等(QTE-M-EARTH-38)/ 俺等地上覇夜露死苦(QTE-M-EARTH-39):
+            // マナから場に出すミニオンを確定させる。★Batch 51。
+            // 3枚とも候補の絞り込みだけが違い、確定のしかたは同じである
+            // (再開先を分けているのは、ログに出す名前と将来の分岐のため。ResumePoint の説明)
+            case KACHIKOMI_MANA_SUMMON, KENKAJOTO_MANA_SUMMON, SEKAIWO_MANA_SUMMON ->
+                    ctx.actions().putManaCardIntoField(ctx.room(), ctx.owner(),
+                            Integer.parseInt(chosen.get(0)));
+            // 素手喧嘩(QTE-M-EARTH-35): 攻撃時に自分をマナへ置くかを確定させる。★Batch 51。
+            // ★選ばなかった(chosen が空)なら何も起きず、保留していた戦闘がそのまま解決される。
+            //   置いた場合は攻撃者が場を離れるため、戦闘は起きない(マスター裁定213)
+            case STEGORO_TO_MANA -> {
+                if (chosen.isEmpty()) {
+                    ctx.room().addLog("【素手喧嘩】: マナに置かずに攻撃を続けます");
+                    break;
+                }
+                MinionInstance self = ctx.owner().getMinionZone().stream()
+                        .filter(m -> m.getInstanceId().equals(chosen.get(0)))
+                        .findFirst().orElse(null);
+                if (self == null || !ctx.actions()
+                        .putFieldMinionIntoManaFaceDown(ctx.room(), ctx.owner(), self)) {
+                    break;
+                }
+                requestManaSummon(ctx, "素手喧嘩", ResumePoint.STEGORO_MANA_SUMMON,
+                        mana -> {
+                            CardMaster master = cards.findById(mana.getCardId());
+                            return mana.isFaceUp() && master.type() == CardType.MINION
+                                    && master.attack() != null && master.attack() <= 6;
+                        },
+                        "【素手喧嘩】: マナから場に出す表向きのAttack6以下のミニオンを1体選んでください");
+            }
+            // 素手喧嘩の2段目: マナから場に出すミニオンを確定させる。★Batch 51
+            case STEGORO_MANA_SUMMON -> ctx.actions().putManaCardIntoField(ctx.room(), ctx.owner(),
+                    Integer.parseInt(chosen.get(0)));
         }
     }
 

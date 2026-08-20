@@ -51,6 +51,7 @@ public class RuleGuards {
     private static final String ZODIAC = "QTE-M-LIGHT-8";          // ゾディアック(相手リーダーは攻撃不可)
     private static final String HAKUREI = "QTE-M-WIND-34";         // ハク霊(自身は攻撃不可・★Batch 48)
     private static final String KOKUREI = "QTE-M-WIND-35";         // コク霊(自身は攻撃不可・★Batch 48)
+    private static final String SUPPORT_TANUKI = "QTE-M-FIRE-33";  // 支援盾機狸(自身は攻撃不可・★Batch 51)
     // 破壊・ダメージ・ドローを置換するカード
     private static final String MICHAEL = "QTE-M-LIGHT-7";         // 大天使ミカエル(戦闘では破壊されない)
     private static final String HOLY_PROTECTOR_AURA = "QTE-M-LIGHT-1"; // 聖光の守護聖(相手の効果で破壊されない)
@@ -82,7 +83,7 @@ public class RuleGuards {
     public static final Set<String> IMPLEMENTED_CARDS = Set.of(
             PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC,
             MICHAEL, HOLY_PROTECTOR_AURA, JUSTICE_SHIELD, JUDGEMENT_ANGEL,
-            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI, MOANIRU);
+            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI, MOANIRU, SUPPORT_TANUKI);
 
     private final StatCalculator stats;
 
@@ -137,6 +138,12 @@ public class RuleGuards {
         }
         if (KOKUREI.equals(attacker.getMaster().id())) {
             return "【コク霊】は攻撃できません";
+        }
+        // ---- 火文明(★Batch 51): 自身は攻撃できない ----
+        // 支援盾機狸は「【守護】を持つが殴れない0コストの壁」であり、
+        // 煌めきの盾・ハク霊・コク霊と同じ形である(自分のリーダーを削る代償つき)
+        if (SUPPORT_TANUKI.equals(attacker.getMaster().id())) {
+            return "【支援盾機狸】は攻撃できません";
         }
         if (targetIsLeader && GENESIS_IRIS.equals(attacker.getMaster().id())) {
             return "【創世神 ゾディアックアイリス】はリーダーを攻撃できません";

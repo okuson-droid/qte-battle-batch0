@@ -794,6 +794,103 @@ public class GameActions {
         return placed;
     }
 
+    // ---------------------------------------------------------------
+    // ★Batch 51: マナゾーンと場の行き来
+    //
+    // 51 まで、マナゾーンの出入り口は「手札・山札・墓地 ⇄ マナ」だけだった。
+    // 土文明の Ver1.1 は<b>マナと場を直接つなぐ</b>4枚(勝鼓美・素手喧嘩・喧嘩上等・
+    // 俺等地上覇夜露死苦)を持ち込むため、その2方向をここに1本ずつ作る。
+    //
+    // ★どちらも「置く/出す」であって召喚でも破壊でもない。
+    //   したがって【召喚時】も【破壊時】も発動しない(既存の bounceToHand・
+    //   reviveFromGrave と同じ流儀)。
+    // ---------------------------------------------------------------
+
+    /**
+     * マナゾーンの指定位置のカードを場に出す(★Batch 51。「マナから場へ」の唯一の入口)。
+     *
+     * 召喚ではないため【召喚時】は発動せず、{@code putIntoFieldByEffect} と同じく
+     * ON_ENTER のみが発動する。踏み倒し禁止(封印されし禁忌魔人)もそちらで弾かれる。
+     *
+     * <b>取り除く前に出せるかを確かめている。</b> {@code putIntoFieldByEffect} が
+     * null を返す理由は2つあり(場が満杯 / 光霊・モアニールの置換)、前者で null が返ると
+     * マナからは消えたのに場にも山札にも居ない「宙に浮いたカード」が生まれる。
+     * 満杯と踏み倒し禁止を<b>先に</b>見ることで、マナから取り除いた後は
+     * 「場に出る」か「モアニールにより山札の下へ行く」かのどちらかに必ず決まる。
+     *
+     * <b>manaLeft を最後に発火する理由。</b> このイベントは黄泉還る水龍を場に出しうる。
+     * 先に発火すると、その1体で場が埋まって本命が出せなくなる。
+     * マナから取り除く → 場に出す → 離脱を告げる、の順に固定する
+     * ({@link #returnManaToHandAt} と同じ順序である)。
+     *
+     * @param index マナゾーン内の位置(0起点)
+     * @return 場に出たミニオン。出せなかった(位置が不正・ミニオンでない・場が満杯・
+     *         踏み倒し禁止・モアニールの置換)場合は null
+     */
+    public MinionInstance putManaCardIntoField(GameRoom room, PlayerState owner, int index) {
+        if (index < 0 || index >= owner.getManaZone().size()) {
+            return null;
+        }
+        ManaCard mana = owner.getManaZone().get(index);
+        CardMaster master = cards.findById(mana.getCardId());
+        if (master.type() != com.example.qte.master.CardType.MINION) {
+            room.addLog("【%s】はミニオンではないため、マナから場に出せません".formatted(master.name()));
+            return null;
+        }
+        if (owner.isMinionZoneFull()) {
+            room.addLog("場がいっぱいのため、マナから場に出せませんでした");
+            return null;
+        }
+        if (isCheatIntoFieldBlocked(mana.getCardId())) {
+            room.addLog("【%s】はコストを支払わずに場に出せません".formatted(master.name()));
+            return null;
+        }
+        owner.getManaZone().remove(index);
+        MinionInstance minion = putIntoFieldByEffect(room, owner, mana.getCardId());
+        if (minion != null) {
+            room.addLog("%sのマナから【%s】が場に出ました"
+                    .formatted(owner.getDisplayName(), master.name()));
+        }
+        manaLeft(room, owner);
+        return minion;
+    }
+
+    /**
+     * 場のミニオン1体を裏向きでマナゾーンに置く(★Batch 51。喧嘩上等・素手喧嘩)。
+     *
+     * 破壊ではないため【破壊時】は発動しない。禁忌由来のミニオンは場を離れると消滅する
+     * (総合ルール3-6)ため、マナには行かず消滅ゾーンへ送る —— {@link #bounceToHand} と
+     * まったく同じ扱いである。
+     *
+     * ★マナ上限(15枚)で置けない場合は<b>場から動かさない。</b>
+     * 先に場から取り除いてしまうと、行き先が無いカードが消えてしまう。
+     *
+     * @return マナに置けた(または禁忌により消滅した)ならtrue
+     */
+    public boolean putFieldMinionIntoManaFaceDown(GameRoom room, PlayerState owner,
+            MinionInstance minion) {
+        if (!owner.getMinionZone().contains(minion)) {
+            return false; // 連鎖する効果で既に場を離れている
+        }
+        if (!minion.isFromTaboo() && owner.getManaZone().size() >= PlayerState.MAX_MANA) {
+            room.addLog("マナが15枚のため、【%s】をマナに置けませんでした"
+                    .formatted(minion.getMaster().name()));
+            return false;
+        }
+        owner.getMinionZone().remove(minion);
+        if (minion.isFromTaboo()) {
+            owner.getLostZone().add(minion.getMaster().id());
+            room.addLog("【%s】は禁忌カードのため消滅しました".formatted(minion.getMaster().name()));
+            return true;
+        }
+        ManaCard mana = new ManaCard(minion.getMaster().id(), false);
+        mana.turnFaceDown();
+        owner.getManaZone().add(mana);
+        room.addLog("【%s】が場から裏向きでマナに置かれました(マナ%d枚)"
+                .formatted(minion.getMaster().name(), owner.getManaZone().size()));
+        return true;
+    }
+
     /**
      * 大地の守護盾(QTE-M-EARTH-13)による、リーダーへの攻撃の肩代わり(置換効果)。
      *

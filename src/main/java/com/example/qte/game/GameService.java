@@ -547,10 +547,16 @@ public class GameService {
     public void resolveChoice(GameRoom room, String playerId, List<Integer> chosenIndexes) {
         GameState state = requireState(room);
         // この操作自身が pendingChoice を解消するため、requireTurnPlayer は経由しない
-        // (経由すると「選び終えるまで塞ぐ」判定に自分自身が引っかかってしまう)
-        if (!playerId.equals(state.getTurnPlayerId())) {
-            throw new IllegalStateException("相手のターンです");
-        }
+        // (経由すると「選び終えるまで塞ぐ」判定に自分自身が引っかかってしまう)。
+        //
+        // ★Batch 51: ターンプレイヤーであることを要求しなくなった(マスター裁定214)。
+        // 【破壊時】は相手のターン中にも起きるため、「ターンプレイヤーでなければ拒否する」形だと
+        // 相手ターンに発火する効果は本人に選ばせられず、自動決定にするしかなかった
+        // (50 のサモンズライトがそれである。50 設計解説 6-2)。
+        // <b>選択待ちであること自体が、この操作を行ってよい根拠である</b> ——
+        // pendingChoice を持たない者は下の判定で弾かれ、持つ者は自分の分だけを解決できる。
+        // 手番の側は requireTurnPlayer が「相手の選択待ち」を見て塞ぐので、
+        // 選んでいる最中に盤面が動くこともない
         requireStatus(state, GameStatus.PLAYING);
         PlayerState player = state.playerOf(playerId);
         PendingChoice choice = player.getPendingChoice();
@@ -574,6 +580,10 @@ public class GameService {
         // 解決の前に pendingChoice を解消する(効果内で例外が起きても選択待ちのまま固まらないように)
         player.setPendingChoice(null);
         effects.resolveChoice(contextOf(room, state, player, null, null), choice, chosen);
+
+        // ★Batch 51: 攻撃時の割り込みだった場合、保留していた戦闘をここで解決する。
+        // 下のターン受け渡しより先に置くのは、戦闘のほうが同じターンの中の事象だからである
+        resumePendingAttack(room, state);
 
         // ターンエンド中の割り込み(詠唱の疾風騎士)だった場合、選択の解決後に
         // 保留していたターンの受け渡しを行う。それ以外(メインフェイズ中の割り込み)では
@@ -1146,6 +1156,51 @@ public class GameService {
             return;
         }
 
+        // ★Batch 51: 攻撃時効果が割り込み選択を作ったら、戦闘の解決を選択の後まで保留する。
+        //
+        // 51 より前は、選択待ちのまま戦闘まで解決していた(地砕きの突撃兵は「マナを手札に戻す」
+        // だけで攻撃者が場を離れないため、その順序でも辻褄が合っていた)。
+        // 素手喧嘩(QTE-M-EARTH-35)は攻撃時に<b>攻撃者自身がマナへ移る</b>ため、
+        // 選択の答えが「戦闘を行うかどうか」を決める(マスター裁定213)。
+        // したがって、答えを待たずに戦闘へ進んではならない。
+        //
+        // ★この保留は素手喧嘩専用の分岐ではなく、攻撃時の割り込み全体に効く構造である。
+        //   地砕きの突撃兵も 51 からは「マナを選んでから戦闘」に変わる —— 挙動の変更だが、
+        //   選んだ結果が戦闘に影響しないカードなので、遊びの上では順序が見えるだけである。
+        if (player.getPendingChoice() != null) {
+            state.setPendingAttack(new PendingAttack(playerId, attackerInstanceId,
+                    targetInstanceId, targetIsLeader));
+            return;
+        }
+
+        resolveCombat(room, state, player, opponent, attacker, target, targetIsLeader);
+    }
+
+    /**
+     * 戦闘の解決(★Batch 51 で attack から切り出した)。
+     *
+     * 攻撃宣言と攻撃時効果の発火までを {@link #attack} が行い、そこから先をここが担う。
+     * 分けたのは、攻撃時の割り込み選択を挟んだ場合に<b>同じ処理を後から呼び直す</b>必要が
+     * 生じたためである({@link #resumePendingAttack})。
+     */
+    private void resolveCombat(GameRoom room, GameState state, PlayerState player,
+            PlayerState opponent, MinionInstance attacker, MinionInstance target,
+            boolean targetIsLeader) {
+        // ★Batch 51: 攻撃宣言のあとに攻撃者が場を離れていたら、戦闘は起きない。
+        // 素手喧嘩が自分をマナへ置いた場合がこれにあたる(マスター裁定213)。
+        // 「場に居ないミニオンの攻撃力で殴る」ことを構造として封じるため、
+        // 素手喧嘩の分岐ではなく場に居るかどうかで判定する
+        if (!player.getMinionZone().contains(attacker)) {
+            room.addLog("【%s】が場を離れたため、戦闘は行われませんでした"
+                    .formatted(attacker.getMaster().name()));
+            return;
+        }
+        // 攻撃対象のミニオンが場を離れていた場合も同様(攻撃時効果で対象が消えることがある)
+        if (!targetIsLeader && !opponent.getMinionZone().contains(target)) {
+            room.addLog("攻撃対象が場を離れたため、戦闘は行われませんでした");
+            return;
+        }
+
         if (targetIsLeader) {
             // 大地の守護盾(土文明): リーダーへの攻撃をウェポンの破壊で肩代わりする(ダメージ無効)。
             // ★光霊・モアニール(★Batch 50)も同じ位置で肩代わりする(leaderAttack と同じ順序)
@@ -1185,6 +1240,53 @@ public class GameService {
                         contextOf(room, state, opponent, target, null));
             }
         }
+    }
+
+    /**
+     * 保留していた戦闘の再開(★Batch 51)。割り込み選択が解決するたびに呼ばれる。
+     *
+     * <b>まだ再開しない条件が3つある。</b>
+     * (1) 保留された戦闘がそもそも無い。
+     * (2) 割り込みが連鎖しており、どちらかのプレイヤーがまだ選択待ちである
+     *     (素手喧嘩は「マナに置くか」→「マナから出すミニオン」の2段になる)。
+     * (3) 既に決着している。
+     *
+     * 攻撃者・対象は instanceId から引き直す。見つからなければ場を離れているということであり、
+     * {@link #resolveCombat} の先頭が「戦闘は起きない」と判断する。
+     */
+    private void resumePendingAttack(GameRoom room, GameState state) {
+        PendingAttack pending = state.getPendingAttack();
+        if (pending == null) {
+            return;
+        }
+        if (state.getPlayer1().getPendingChoice() != null
+                || state.getPlayer2().getPendingChoice() != null) {
+            return; // 連鎖した割り込みの解決を待つ
+        }
+        state.setPendingAttack(null);
+        if (state.getStatus() != GameStatus.PLAYING) {
+            return;
+        }
+        PlayerState player = state.playerOf(pending.attackerPlayerId());
+        PlayerState opponent = state.opponentOf(pending.attackerPlayerId());
+        MinionInstance attacker = player.getMinionZone().stream()
+                .filter(m -> m.getInstanceId().equals(pending.attackerInstanceId()))
+                .findFirst().orElse(null);
+        if (attacker == null) {
+            room.addLog("攻撃したミニオンが場を離れたため、戦闘は行われませんでした");
+            return;
+        }
+        MinionInstance target = null;
+        if (!pending.targetIsLeader()) {
+            target = opponent.getMinionZone().stream()
+                    .filter(m -> m.getInstanceId().equals(pending.targetInstanceId()))
+                    .findFirst().orElse(null);
+            if (target == null) {
+                room.addLog("攻撃対象が場を離れたため、戦闘は行われませんでした");
+                return;
+            }
+        }
+        resolveCombat(room, state, player, opponent, attacker, target, pending.targetIsLeader());
     }
 
     /**
@@ -1625,6 +1727,13 @@ public class GameService {
         // (resolveChoice 自身はこのメソッドを経由しないため、選択操作そのものは塞がない)。
         if (state.playerOf(playerId).getPendingChoice() != null) {
             throw new IllegalStateException("先に選択を解決してください");
+        }
+        // ★Batch 51: 相手が選択待ちのあいだも手番の操作を止める(マスター裁定214 の対)。
+        // 相手ターンにも本人へ問い合わせるようになった以上、答えが返る前に手番の側が
+        // 盤面を動かせてしまうと、候補が指す先(マナゾーンの位置・instanceId)が
+        // 変わってしまう。「選択待ちの間は誰も盤面を動かさない」を両側で守る
+        if (state.opponentOf(playerId).getPendingChoice() != null) {
+            throw new IllegalStateException("相手が選択中です。解決を待ってください");
         }
     }
 

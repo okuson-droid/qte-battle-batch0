@@ -74,6 +74,17 @@ public class GameState {
     @Setter
     private String pendingNextPlayerId;
 
+    /**
+     * 攻撃時効果が割り込み選択を作ったために、解決を保留している戦闘(★Batch 51)。
+     *
+     * {@link #turnHandoffPending} と同じ性質の保留である —— 割り込みの答えが出るまで、
+     * その先の事象(あちらは次のターンの開始、こちらは戦闘の解決)を進めてはならない。
+     * 選択が解決した時点で {@code GameService.resumePendingAttack} が戦闘を再開する。
+     * 保留中でなければ null。
+     */
+    @Setter
+    private PendingAttack pendingAttack;
+
     public GameState(String roomId, PlayerState player1, PlayerState player2) {
         this.roomId = roomId;
         this.player1 = player1;

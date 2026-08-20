@@ -3,6 +3,8 @@ package com.example.qte;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -11,9 +13,9 @@ import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectImplementation;
 import com.example.qte.game.DeckFactory;
 import com.example.qte.master.CardMaster;
+import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
-import com.example.qte.master.Civilization;
 
 /**
  * 「効果未実装」の印の判定({@link EffectImplementation})の試験(★Batch 47 で新設)。
@@ -59,21 +61,24 @@ class EffectImplementationTest {
      * 47 の時点では 64枚 = 進化18 + 非進化46 だった。
      * 48(風文明の8枚)で 56枚 = 進化18 + 非進化38 になった。
      * 49(水文明の6枚)で 50枚 = 進化18 + 非進化32 になった。
-     * ★<b>50(闇6枚 + 光6枚)で 38枚 = 進化18 + 非進化20 になった。</b>
-     * 風・水・光・闇に残っている非進化は、闇の【賢魂】2枚(P4)と
-     * 光の《英術・スケアロック》1枚(【進化】を出すため P3)だけである。
+     * 50(闇6枚 + 光6枚)で 38枚 = 進化18 + 非進化20 になった。
+     * ★<b>51(火7枚 + 土8枚)で 23枚 = 進化18 + 非進化5 になった。P2 はこれで終わりである。</b>
+     * 残る非進化5枚は、すべて<b>進化か賢魂を待っている</b>もので、後続のフェーズが引き取る ——
+     * 【賢魂】が3枚(闇の《グレイヴガールズファン》《スタンディングテント》・
+     * 土の《勝阿外》。P4)、進化に関わるものが2枚
+     * (光の《英術・スケアロック》・火の《機神兵長茶爺》。P3)である。
      */
     @Test
-    void 効果未実装のカードは38枚である() {
+    void 効果未実装のカードは23枚である() {
         long unimplemented = cards.getAllCards().stream().filter(implementation::isUnimplemented).count();
-        assertThat(unimplemented).isEqualTo(38);
+        assertThat(unimplemented).isEqualTo(23);
     }
 
     @Test
-    void 印が付くカードのうち進化ミニオンは18枚で残り20枚がデッキに入る() {
+    void 印が付くカードのうち進化ミニオンは18枚で残り5枚がデッキに入る() {
         var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
         assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(18);
-        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(20);
+        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(5);
     }
 
     /**
@@ -166,6 +171,75 @@ class EffectImplementationTest {
             assertThat(implementation.isUnimplemented(card))
                     .as(card.name() + " は Batch 50 で実装したので印を付けてはいけない")
                     .isFalse();
+        }
+    }
+
+    /**
+     * ★Batch 51 で印が消えた15枚(火7 + 土8)。
+     *
+     * 48〜50 と同じ理由で、枚数だけでなく<b>実物を名指しして測る</b>(裁定181)。
+     * ★火の《砲台鉄機虎》《ラスト・アタック》は<b>進化を参照する分岐を持つ</b>が、
+     *   進化エンジンそのものは要らない(種別を見るだけ)ので 51 で実装済みである
+     *   (マスター裁定215)。参照ではなく進化スタックを要求する《機神兵長茶爺》だけが P3 に残る。
+     */
+    @Test
+    void 火文明のVer11カード7枚には印が付かない() {
+        String[] fire51 = {
+            "QTE-M-FIRE-33", // 支援盾機狸 … 表(ON_DESTROYED) + RuleGuards(攻撃不可)
+            "QTE-M-FIRE-34", // 乱戦鉄機狼 … 表(ON_SUMMON)
+            "QTE-M-FIRE-35", // 砲台鉄機虎 … 表(特殊召喚。進化を参照)
+            "QTE-M-FIRE-36", // ラスト・アタック … 表(spellEffects + targetSpecs。進化を参照)
+            "QTE-M-FIRE-37", // リペア・チューナー … 表(spellEffects + targetSpecs)
+            "QTE-M-FIRE-38", // アイアン・リターン … 表(spellEffects)
+            "QTE-M-FIRE-39", // ドレイン・ブラスト … 表(spellEffects + targetSpecs)
+        };
+        for (String cardId : fire51) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は Batch 51 で実装したので印を付けてはいけない")
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void 土文明のVer11カード8枚には印が付かない() {
+        String[] earth51 = {
+            "QTE-M-EARTH-7",  // 百獣の王 ベヒーモス … 表(ON_SUMMON。Ver1.1 で効果が付いた)
+            "QTE-M-EARTH-29", // 地上覇総長・翔山 … 表(leaderAbilities)
+            "QTE-M-EARTH-33", // 分那愚利 … 表(ON_SUMMON + targetSpecs)
+            "QTE-M-EARTH-34", // 勝鼓美 … 表(ON_DESTROYED)
+            "QTE-M-EARTH-35", // 素手喧嘩 … 表(ON_ATTACK)
+            "QTE-M-EARTH-37", // 仏恥義理 … 表(spellEffects)
+            "QTE-M-EARTH-38", // 喧嘩上等 … 表(spellEffects + targetSpecs)
+            "QTE-M-EARTH-39", // 俺等地上覇夜露死苦 … 表(spellEffects)
+        };
+        for (String cardId : earth51) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は Batch 51 で実装したので印を付けてはいけない")
+                    .isFalse();
+        }
+    }
+
+    /**
+     * ★Batch 51 が「後続のフェーズ送り」にした2枚には、今も印が付いていなければならない。
+     *
+     * 枚数だけを直すと、送ったはずのカードがいつのまにか実装済みに見えていても気づけない。
+     * ★《勝阿外》は【常在】だけなら 51 で書けたが、【賢魂：2】と1枚のカードであり、
+     *   常在だけを実装すると印が消えて<b>賢魂も実装済みに見える</b>(裁定165)。
+     *   そのため丸ごと P4 へ送った —— その判断がここで固定される。
+     */
+    @Test
+    void Batch51が後続に送った2枚には今も印が付く() {
+        String[] deferred = {
+            "QTE-M-FIRE-29",  // 機神兵長茶爺 … 進化スタックの下に手札を入れる(P3)
+            "QTE-M-EARTH-36", // 勝阿外 … 【賢魂：2】を持つ(P4)
+        };
+        for (String cardId : deferred) {
+            CardMaster card = cards.findById(cardId);
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は Batch 51 の範囲外なので印が付いたままでなければならない")
+                    .isTrue();
         }
     }
 
@@ -288,28 +362,45 @@ class EffectImplementationTest {
     // ------------------------------------------------------------------
 
     /**
-     * ★<b>移行が掘り出した不整合</b>(裁定175 の続き)。
+     * ★<b>プリセットに載っていることは実装済みの根拠にならない</b>(裁定175 の続き)。
      *
-     * 《百獣の王 ベヒーモス》は Ver0.4 では効果を持たないバニラだったが、
-     * Ver1.1 で【召喚時】が付いた。実装は追いついておらず、しかも
-     * <b>土のプリセットデッキに1枚入っている</b>。46b までの数え方は
-     * 「Java のどこかにIDが書いてあれば実装済み」だったので、
-     * DeckFactory に書かれたこの1行のせいで<b>実装済みに化けていた</b>。
+     * 46b までの数え方は「Java のどこかにIDが書いてあれば実装済み」だったので、
+     * {@code DeckFactory} に書かれた1行のせいで印が消えるカードがあった。
+     * 印の判定は<b>カードの本文と、登録・宣言だけ</b>を見なければならない。
      *
-     * <p>この試験は2つのことを同時に言っている ——
-     * 印が正しく付くこと、そして<b>印が絵に描いた餅ではない</b>(実際に配られるデッキに現れる)こと。
+     * <p>★<b>題材の名指しをやめた(★Batch 51。裁定219)。</b>
+     * 47 はここで《百獣の王 ベヒーモス》を「プリセットに入っているのに未実装の実例」として
+     * 名指ししていた。51 がそれを実装したのでこの試験は落ちた ——
+     * 50 でスペル側の試験に起きたこと(裁定209)が、そのままミニオン側にも起きたのである。
+     * <b>「まだ未実装であること」を題材にした試験は、種別を問わず必ず陳腐化する。</b>
+     *
+     * <p>代わりに測るのは、プリセットに現れるカードが<b>特別扱いされていないこと</b>である。
+     * 登録にも宣言にも無いカードが1枚でもプリセットに紛れていれば、それには印が付く。
+     * ★1枚も紛れていない状態(=プリセットが全部実装済み)も正しい答えなので、
+     * ここでは非空を要求しない —— 代わりに「プリセットを実際に読んだ」ことのほうを確かめる
+     * (裁定186: 仕事をしていないことを自分で区別できなければならない)。
      */
     @Test
-    void プリセットに入っている未実装カードに印が付く() {
-        CardMaster behemoth = cards.findById("QTE-M-EARTH-7");
-        assertThat(implementation.isUnimplemented(behemoth))
-                .as(behemoth.name() + " は効果が未実装である")
-                .isTrue();
-        CardMaster earthLeader = cards.findByCivilization(Civilization.EARTH).stream()
-                .filter(c -> c.type() == CardType.LEADER).findFirst().orElseThrow();
-        assertThat(deckFactory.createMainDeck(earthLeader))
-                .as("土のプリセットデッキに入っている")
-                .contains("QTE-M-EARTH-7");
+    void プリセットに載っていることは実装済みの根拠にならない() {
+        List<CardMaster> leaders = cards.getAllCards().stream()
+                .filter(c -> c.type() == CardType.LEADER).toList();
+        int inspected = 0;
+        for (CardMaster leader : leaders) {
+            for (String cardId : deckFactory.createMainDeck(leader)) {
+                inspected++;
+                CardMaster card = cards.findById(cardId);
+                if (!CardTextKeywords.hasEffectSentence(card.text())
+                        || effects.isRegistered(cardId)
+                        || EffectImplementation.ruleSideCards().contains(cardId)) {
+                    continue;
+                }
+                assertThat(implementation.isUnimplemented(card))
+                        .as(card.name() + " は登録にも宣言にも無いので、"
+                                + "プリセットに載っていても印が付かなければならない")
+                        .isTrue();
+            }
+        }
+        assertThat(inspected).as("プリセットデッキを実際に読んだ(空振りでないこと)").isPositive();
     }
 
     /**
