@@ -364,6 +364,28 @@ public class PlayerState {
     private boolean leaderAbilityUsedThisTurn = false;
 
     /**
+     * このターン番号の間、自分のミニオンは<b>場全体で合計1回しか</b>攻撃できない
+     * (★Batch 50。英術・バンユー)。0なら制限なし。
+     *
+     * 凍結({@link #leaderCannotAttackOnTurn})・スペル封じ({@link #spellSealedOnTurn})と同じく、
+     * 効果を受けた時点で「次のターン番号」を記録する方式である。
+     *
+     * <b>「1体につき1回」ではない</b>(マスター裁定200)。ミニオン個体の攻撃回数は
+     * {@code MinionInstance.attacksUsedThisTurn} が持っているが、この制限が数えるのは
+     * <b>プレイヤーが場全体で行った攻撃宣言の回数</b>であり、別の量である。
+     */
+    @Setter
+    private int minionAttackLimitedOnTurn = 0;
+
+    /**
+     * このターンに自分のミニオンが行った攻撃宣言の回数(場全体の合計。★Batch 50)。
+     * 上の {@link #minionAttackLimitedOnTurn} と対にして英術・バンユーの制限を判定する。
+     * ミニオン1体が2回攻撃すれば2と数える。
+     */
+    @Setter
+    private int minionAttacksUsedThisTurn = 0;
+
+    /**
      * このターンにリーダーが攻撃した回数。上限は装備ウェポンによって変わる
      * (通常1回・疾風のレイピアなら2回)ため、真偽値ではなく回数で持つ(設計判断7)。
      * 上限の評価は StatCalculator.maxLeaderAttacks が行う。
@@ -444,6 +466,10 @@ public class PlayerState {
         pendingFireMinionDiscount = 0;
         leaderAbilityUsedThisTurn = false;
         leaderAttacksUsedThisTurn = 0;
+        // 攻撃宣言の回数(★Batch 50。英術・バンユー)。制限そのもの(minionAttackLimitedOnTurn)は
+        // ターン番号を刻んでいるので戻さない —— 戻すと、制限を掛けられた本人の
+        // ターン開始でその制限が消えてしまう
+        minionAttacksUsedThisTurn = 0;
         ownMinionDestroyedThisTurn = false;
         drawnCountThisTurn = 0;
         pendingSacrificeCount = 0;

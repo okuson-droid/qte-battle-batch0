@@ -91,6 +91,15 @@ public class CardEffectRegistry {
     private static final String FLAME_MIRROR = "QTE-M-FIRE-28";     // 反転の炎鏡(自傷を水増しする)
     private static final String STOK_LEADER = "QTE-M-WIND-29";      // 妖ノ長・ストク(★Batch 48)
     private static final String LOLOIYO_LEADER = "QTE-M-WATER-29";  // ロロイヨ伯爵(★Batch 49)
+    private static final String GRAVE_DANCER_LEADER = "QTE-M-DARK-29"; // 演舞の墓守(★Batch 50)
+    private static final String COMEBACK_KEEPER = "QTE-M-DARK-35";  // カムバックキーパー(★Batch 50)
+    private static final String ANTOMARUEL_LEADER = "QTE-M-LIGHT-29"; // 英皇アントマルエル(★Batch 50)
+
+    /** 英皇アントマルエルがドローする手札の上限(「自分の手札が6枚以下だったら」) */
+    private static final int ANTOMARUEL_HAND_LIMIT = 6;
+
+    /** 1stL「NEMれぬ夜のドリーミー」が【速攻】を得る破壊数(「10体以上で」) */
+    private static final int DREAMY_HASTE_THRESHOLD = 10;
 
     /**
      * このクラスのコードに直接書かれている(=表に載っていない)カード(★Batch 47)。
@@ -98,7 +107,8 @@ public class CardEffectRegistry {
      */
     public static final java.util.Set<String> IMPLEMENTED_CARDS =
             java.util.Set.of(ABYSS_DRAGON, HARVEST_LEADER, FLAME_FANATIC, FLAME_MIRROR,
-                    STOK_LEADER, LOLOIYO_LEADER);
+                    STOK_LEADER, LOLOIYO_LEADER,
+                    GRAVE_DANCER_LEADER, COMEBACK_KEEPER, ANTOMARUEL_LEADER);
 
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
@@ -116,6 +126,8 @@ public class CardEffectRegistry {
         registerWindCards();
         registerEarthCards();
         registerWaterVer11Cards();
+        registerDarkVer11Cards();
+        registerLightVer11Cards();
     }
 
     // ---------------------------------------------------------------
@@ -230,7 +242,8 @@ public class CardEffectRegistry {
                 return; // 「そうしたら」: 捨てが成立しなければバウンスもしない
             }
             // 選択済み手札は除去済みで届くため、行き先(墓地)を決めるだけでよい
-            discarded.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            discarded.handCardIds().forEach(
+                    id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
             ctx.room().addLog("%sが手札を1枚捨てました".formatted(ctx.owner().getDisplayName()));
             ctx.targets().get(1).minions().forEach(
                     t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
@@ -245,7 +258,8 @@ public class CardEffectRegistry {
             if (selection.isEmpty()) {
                 return; // 「〜してもよい」なので捨てなくてもよい
             }
-            selection.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            selection.handCardIds().forEach(
+                    id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
             // 「【知識】を行う」= 知識のキーワードアクション(1ドロー)を実行する
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
             ctx.room().addLog("【知識】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));
@@ -311,7 +325,8 @@ public class CardEffectRegistry {
                 TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, false, List.of(),
                         "捨てるカードを3枚選んでください")),
                 ctx -> {
-                    ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+                    ctx.targets().get(0).handCardIds().forEach(
+                            id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
                     ctx.room().addLog("%sが手札3枚を捨てました".formatted(ctx.owner().getDisplayName()));
                 },
                 "手札3枚を捨て、コストを支払わずに召喚します(メインフェーズ開始時のみ)"));
@@ -401,9 +416,13 @@ public class CardEffectRegistry {
      * 場に限定されないゾーン横断トリガー(設計判断15)の初の実装例。
      */
     public void fireManaLeft(EffectContext ctx) {
+        // ★Batch 50: 墓地から場へ出す経路を reviveFromGrave に集約した
+        // (演舞の墓守の常在がそこに1本だけ掛かるようにするため)。
+        // 出せなかった場合(場が満杯・登場が置換された)はループを抜ける
         while (ctx.owner().getTrash().contains(ABYSS_DRAGON) && !ctx.owner().isMinionZoneFull()) {
-            ctx.owner().getTrash().remove(ABYSS_DRAGON);
-            ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), ABYSS_DRAGON);
+            if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), ABYSS_DRAGON) == null) {
+                return;
+            }
         }
     }
 
@@ -490,6 +509,20 @@ public class CardEffectRegistry {
         }
         int turn = ctx.state().getTurnNumber();
         for (PlayerState watcher : List.of(ctx.state().getPlayer1(), ctx.state().getPlayer2())) {
+            // 英皇アントマルエル(★Batch 50): 「【常在】場にミニオンが出た時
+            // 自分の手札が6枚以下だったらカードを1枚引く」。
+            // ★<b>「ターンに一回」と書かれていない</b>ので回数制限は無い。
+            //   ロロイヨ伯爵(すぐ下)がターン刻印を要るのは、あちらのテキストに
+            //   「ターンに一回」と書いてあるからであって、この発火口の性質ではない。
+            // ★手札の枚数を見るのは<b>反応する側(watcher)</b>である。
+            //   自分の召喚で誘発した場合、そのカードは既に手札を離れている
+            //   (GameService は removePlayedAndTargets のあとで場に出す)ので、
+            //   数えるのは「出したあとの手札」になる
+            if (ANTOMARUEL_LEADER.equals(watcher.getLeader().id())
+                    && watcher.getHand().size() <= ANTOMARUEL_HAND_LIMIT) {
+                ctx.room().addLog("【英皇アントマルエル】: 場にミニオンが出たため1ドロー");
+                ctx.actions().drawCards(ctx.room(), watcher, 1);
+            }
             if (!LOLOIYO_LEADER.equals(watcher.getLeader().id())) {
                 continue;
             }
@@ -505,6 +538,89 @@ public class CardEffectRegistry {
                 ctx.room().addLog("【ロロイヨ伯爵】: 【潜伏】のミニオンが場に出たため1ドロー");
                 ctx.actions().drawCards(ctx.room(), watcher, 1);
             }
+        }
+    }
+
+    /**
+     * 「自分の墓地から場にミニオンが出た」イベントの処理(★Batch 50)。
+     *
+     * <blockquote>演舞の墓守(QTE-M-DARK-29・リーダー):
+     * 【常在】自分の墓地から出たミニオンのAttackをそのターン+1</blockquote>
+     *
+     * <b>経路を問わない</b>(マスター裁定204)。効果による「出す」(蘇生)も、
+     * 黄泉の召喚主の「墓地からの召喚」も、カムバックキーパーの自己復帰も、
+     * すべてこの1行の対象である。したがって発火位置も2箇所ある ——
+     * {@code GameActions.reviveFromGrave}(効果で出す側の唯一の入口)と
+     * {@code GameService.summonFromGrave}(召喚する側)。
+     *
+     * <p><b>「自分の」なので相手のリーダーは見ない。</b> 蘇生は自分の墓地から自分の場へ行う
+     * 操作しか存在しないため、墓地の持ち主 = 出たミニオンの持ち主 = {@code ctx.owner()} である。
+     * ロロイヨ伯爵の発火口({@link #fireAnyMinionEntered})が両者を回すのと対称ではないが、
+     * これはテキストの「自分の」の有無から来る意図した非対称である(裁定156(2))。
+     *
+     * <p>修正の期限は {@code THIS_TURN} である。「そのターン」と書いてあるとおりで、
+     * 既存の期限管理({@code expireThisTurnModifiers})がそのまま担う ——
+     * <b>常在だが保存しない形ではない</b>。アルキンティスのような「評価するたびに場を見る」常在と違い、
+     * これは<b>登場という一度きりの出来事に反応して修正を配る</b>効果であり、
+     * 墓守が場を離れても配り終えた修正は残る(突風のまとめ役と同じ性質)。
+     *
+     * @param ctx ctx.source() に墓地から出たミニオンが入る
+     */
+    public void fireMinionEnteredFromGrave(EffectContext ctx) {
+        MinionInstance entered = ctx.source();
+        if (entered == null || !GRAVE_DANCER_LEADER.equals(ctx.owner().getLeader().id())) {
+            return;
+        }
+        entered.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD,
+                1, StatModifier.Duration.THIS_TURN, GRAVE_DANCER_LEADER));
+        ctx.room().addLog("【演舞の墓守】: 墓地から出た【%s】の攻撃力が+1(このターン)"
+                .formatted(entered.getMaster().name()));
+    }
+
+    /**
+     * 「カードが場以外から自分の墓地に置かれた」イベントの処理(★Batch 50)。
+     *
+     * <blockquote>カムバックキーパー(QTE-M-DARK-35):
+     * 場以外から自分の墓地に置かれたときに墓地からこのカードを場に出す。【守護】</blockquote>
+     *
+     * <h2>★なぜ TriggerType を足さなかったか(裁定194 の2度目の適用)</h2>
+     *
+     * 計画書(`notes/ver11-migration-plan.md` 2-1)は、このイベントを
+     * 「P2 で足す3つの TriggerType の3つ目」と見込んでいた。使い手を読んで、また外れた。
+     *
+     * <p>{@link #fire(TriggerType, MinionInstance, EffectContext)} は
+     * <b>場に居るミニオンの表を引く</b>仕組みである。ところがカムバックキーパーが反応するのは
+     * <b>自分が墓地に置かれた瞬間</b>であり、そのとき場には居ない。
+     * トリガー型として登録しても、引く相手が居ないので永久に発火しない。
+     * 器の形は「場に限定されないゾーン横断トリガー」(設計判断15)であり、
+     * これは黄泉還る水龍の {@link #fireManaLeft(EffectContext)} と同じ形である。
+     *
+     * <h2>★反応するのはこのカード自身が置かれたときだけ</h2>
+     *
+     * テキストは「(何かが)場以外から自分の墓地に置かれたとき」とも読めるが、
+     * <b>主語はこのカード自身である</b>(マスター裁定203)。したがって
+     * 置かれたカードのIDを引数で受け取り、それが自分でなければ何もしない ——
+     * 「墓地にあれば何かが捨てられるたびに戻ってくる」形にはしない。
+     *
+     * <h2>★「場以外から」の担保</h2>
+     *
+     * この発火口を呼ぶのは {@code GameActions.putIntoTrashFromElsewhere} 1つだけであり、
+     * 場を離れる処理({@code leaveFieldByDestruction} → {@code sendToTrashOrRestore})は
+     * <b>この入口を通らない</b>。したがって「場で破壊されたときには戻ってこない」が
+     * 条件分岐ではなく<b>構造で</b>決まる。
+     *
+     * @param putCardId 墓地に置かれたカードのID
+     */
+    public void fireCardPutIntoTrashFromElsewhere(EffectContext ctx, String putCardId) {
+        if (!COMEBACK_KEEPER.equals(putCardId)) {
+            return;
+        }
+        if (ctx.owner().isMinionZoneFull()) {
+            ctx.room().addLog("【カムバックキーパー】: 場が満杯のため戻れませんでした");
+            return;
+        }
+        if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), COMEBACK_KEEPER) != null) {
+            ctx.room().addLog("【カムバックキーパー】: 墓地から場に戻りました");
         }
     }
 
@@ -607,12 +723,16 @@ public class CardEffectRegistry {
             }
         });
 
-        // 背水の烈火使い: 手札をすべて捨てる
+        // 背水の烈火使い: 手札をすべて捨てる。
+        // ★手札を先に空にしてから墓地へ移す(★Batch 50)。1枚ずつ「場以外から墓地へ」の入口を
+        // 通すため、その途中で走る効果(カムバックキーパーの復帰)から見える手札が
+        // 中途半端な状態にならないようにする
         register("QTE-M-FIRE-7", TriggerType.ON_SUMMON, ctx -> {
-            int count = ctx.owner().getHand().size();
-            ctx.owner().getTrash().addAll(ctx.owner().getHand());
+            List<String> discarded = List.copyOf(ctx.owner().getHand());
             ctx.owner().getHand().clear();
-            ctx.room().addLog("%sは手札%d枚をすべて捨てた".formatted(ctx.owner().getDisplayName(), count));
+            ctx.room().addLog("%sは手札%d枚をすべて捨てた"
+                    .formatted(ctx.owner().getDisplayName(), discarded.size()));
+            discarded.forEach(id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
         });
 
         // 背水の炎壁: 【召喚時】2回復(特殊召喚で出した場合の追加1回復は下のspecで別途)。
@@ -675,7 +795,8 @@ public class CardEffectRegistry {
             if (selection.isEmpty()) {
                 return;
             }
-            selection.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            selection.handCardIds().forEach(
+                    id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
         });
 
@@ -687,7 +808,8 @@ public class CardEffectRegistry {
             if (selection.isEmpty()) {
                 return;
             }
-            selection.handCardIds().forEach(id -> ctx.owner().getTrash().add(id));
+            selection.handCardIds().forEach(
+                    id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
             ctx.actions().healLeader(ctx.room(), ctx.owner(), 3, "QTE-M-FIRE-25");
         });
 
@@ -861,9 +983,11 @@ public class CardEffectRegistry {
         // ゾンストライカー: 【召喚時】墓地の「ゾンストライカー」を全て出す(ゾーン上限まで)。
         // 効果による「出す」なので【召喚時】は再発動しない(無限ループにならない)
         register("QTE-M-DARK-16", TriggerType.ON_SUMMON, ctx -> {
+            // ★Batch 50: 墓地から場へ出す経路を reviveFromGrave に集約した(fireManaLeft と同じ理由)
             while (ctx.owner().getTrash().contains("QTE-M-DARK-16") && !ctx.owner().isMinionZoneFull()) {
-                ctx.owner().getTrash().remove("QTE-M-DARK-16");
-                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), "QTE-M-DARK-16");
+                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), "QTE-M-DARK-16") == null) {
+                    return;
+                }
             }
         });
 
@@ -893,9 +1017,11 @@ public class CardEffectRegistry {
             if (ctx.actions().destroyFaceDownMana(ctx.room(), ctx.owner(), 1) == 0) {
                 return;
             }
-            if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), destroyedCardId)) {
-                List<MinionInstance> zone = ctx.owner().getMinionZone();
-                zone.get(zone.size() - 1).grantKeyword(Keyword.RUSH);
+            // ★Batch 50: 「場の末尾を取る」形をやめ、蘇生したミニオンの実体を受け取る。
+            // 末尾は ON_ENTER の中でさらに場が増えると別人になりうる(49 設計解説 2-3)
+            MinionInstance revived = ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), destroyedCardId);
+            if (revived != null) {
+                revived.grantKeyword(Keyword.RUSH);
                 ctx.room().addLog("【不滅のネクロマンサー】が【%s】を蘇生し【突進】を付与"
                         .formatted(cards.findById(destroyedCardId).name()));
             }
@@ -932,7 +1058,7 @@ public class CardEffectRegistry {
                 if (revived >= reviveLimit) {
                     break;
                 }
-                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId)) {
+                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId) != null) {
                     revived++;
                 }
             }
@@ -1063,9 +1189,10 @@ public class CardEffectRegistry {
                     .toList();
             // 蘇生する1体はAutoChoice(コストの高い順)が決める
             for (String cardId : AutoChoice.reviveOrder(cards, candidates)) {
-                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId)) {
-                    List<MinionInstance> zone = ctx.owner().getMinionZone();
-                    zone.get(zone.size() - 1).grantKeyword(Keyword.RUSH);
+                // ★Batch 50: 「場の末尾を取る」形をやめ、蘇生したミニオンの実体を受け取る
+                MinionInstance revived = ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId);
+                if (revived != null) {
+                    revived.grantKeyword(Keyword.RUSH);
                     ctx.room().addLog("【死者蘇生】が【%s】を蘇生し【突進】を付与"
                             .formatted(cards.findById(cardId).name()));
                     break;
@@ -1242,8 +1369,11 @@ public class CardEffectRegistry {
                     ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
                     continue;
                 }
-                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
-                summoned++;
+                // ★Batch 50: 「出した数だけ引く」ので、実際に場へ出たかを戻り値で見る
+                // (光霊・モアニールに山札の下へ置き換えられた場合は出ていない)
+                if (ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id) != null) {
+                    summoned++;
+                }
             }
             if (summoned > 0) {
                 ctx.actions().drawCards(ctx.room(), ctx.owner(), summoned);
@@ -1711,7 +1841,7 @@ public class CardEffectRegistry {
     /** ハク霊・コク霊の【破壊時】に相方を墓地から場へ出す。墓地に無い・場が満杯なら不発 */
     private void reviveCounterpart(EffectContext ctx, String counterpartId,
             String selfLabel, String counterpartLabel) {
-        if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), counterpartId)) {
+        if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), counterpartId) != null) {
             ctx.room().addLog("【%s】: 墓地から【%s】が場に出ました".formatted(selfLabel, counterpartLabel));
         } else {
             ctx.room().addLog("【%s】: 墓地に【%s】が無いか場が満杯のため、出せませんでした"
@@ -1839,10 +1969,18 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-WATER-38", ctx -> {
             int summoned = 0;
             for (String id : ctx.targets().get(0).handCardIds()) {
-                MinionInstance put = ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
-                if (put == null) {
+                // ★Batch 50: 「場が満杯か」を呼ぶ前に自分で見る形に揃えた(神の福音と同じ)。
+                // putIntoFieldByEffect が null を返す理由が2つになったためである ——
+                // 「場が満杯で出せなかった(カードは宙に浮いたまま)」と
+                // 「光霊・モアニールが山札の下へ置き換えた(行き先は決まっている)」。
+                // null だけを見て手札に戻すと、置換された場合にカードが2枚に増える
+                if (ctx.owner().isMinionZoneFull()) {
                     ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
                     continue;
+                }
+                MinionInstance put = ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+                if (put == null) {
+                    continue; // 登場が置換された(行き先は置換側が決めている)
                 }
                 // 【突進】は「得る」なので恒久の付与である(そのターン限定とは書かれていない)。
                 // 実際に意味を持つのは出したターンだけだが、期限を勝手に足さない
@@ -1851,6 +1989,203 @@ public class CardEffectRegistry {
             }
             ctx.room().addLog("【ギガマウス・バイト】: 水文明のミニオン%d体が【突進】を得て場に出ました"
                     .formatted(summoned));
+        });
+    }
+
+    // ---------------------------------------------------------------
+    // ★Batch 50: Ver1.1 で追加された闇文明のカード(P2 の3本目・前半)。
+    //
+    // 闇の新しいテーマは「墓地を出入り口として使うこと」である ——
+    // 演舞の墓守は墓地から出てきたミニオンを強化し、カムバックキーパーは
+    // 捨てられても自力で場へ戻り、サモンズライトは自分が壊れたときに次を呼ぶ。
+    // 既存の闇(墓地と裏向きマナを<b>資源として使い潰す</b>)とは向きが逆で、
+    // ここでの墓地は<b>通り道</b>である。
+    //
+    // ★演舞の墓守(QTE-M-DARK-29)とカムバックキーパー(QTE-M-DARK-35)は
+    //   ここに登録を持たない。前者はリーダーの常在なので fireMinionEnteredFromGrave に、
+    //   後者は「場に居ない間に反応する」ため fireCardPutIntoTrashFromElsewhere に直接書いてある。
+    // ★1stL「NEMれぬ夜のドリーミー」の【常在】(破壊数ぶんのAttack)は StatCalculator にある。
+    //   1枚のカードの実装が複数のクラスに分かれるのは想定内である(裁定180)。
+    // ---------------------------------------------------------------
+    private void registerDarkVer11Cards() {
+
+        // ---- デビルズマイク(QTE-M-DARK-33) ----
+        // 「攻撃時、相手のリーダーに1ダメージ」
+        //
+        // 攻撃対象を限定していないので、リーダーを殴っても他のミニオンを殴っても発動する
+        // (不動の絶対神ガイアと同じ形)。1/1 のコスト1が毎ターン1点を足していく
+        register("QTE-M-DARK-33", TriggerType.ON_ATTACK,
+                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-DARK-33"));
+
+        // ---- サモンズライト(QTE-M-DARK-34) ----
+        // 「【召喚時】相手のミニオン1体に1ダメージ。
+        //   【破壊時】自分の墓地からコスト1のミニオンを1体場に出す」
+        //
+        // ★【召喚時】の対象は optional である。必須にすると、相手の場が空のときに
+        //   <b>召喚そのものが弾かれる</b>(腐敗の投擲者と同じ理由)。
+        targetSpecs.put("QTE-M-DARK-34", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
+                        "1ダメージを与える相手のミニオンを選んでください")));
+        register("QTE-M-DARK-34", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
+                .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 1)));
+        // ★【破壊時】の蘇生対象は<b>自動決定</b>である(AutoChoice)。裁定192
+        //   (盤面に残るものを決める選択は本人にさせる)の例外にあたるが、構造上の理由がある ——
+        //   【破壊時】は<b>相手のターン中にも起きる</b>のに対し、割り込み選択の解決
+        //   (GameService.resolveChoice)は「ターンプレイヤーでなければ拒否する」。
+        //   相手ターンに問い合わせを出すと、誰も解決できないまま盤面が固まる。
+        // ★数えるのは印刷コストである(場に出る前のカードには動的コストが無い)。
+        // ★自分自身(コスト2)は候補にならない。破壊処理は墓地へ置いてから
+        //   ON_DESTROYED を発火するため、もしコスト1だったら自分を選びうる点に注意
+        register("QTE-M-DARK-34", TriggerType.ON_DESTROYED, ctx -> {
+            List<String> candidates = ctx.owner().getTrash().stream()
+                    .filter(id -> {
+                        CardMaster m = cards.findById(id);
+                        return m.type() == CardType.MINION && m.cost() != null && m.cost() == 1;
+                    })
+                    .toList();
+            for (String cardId : AutoChoice.reviveOrder(cards, candidates)) {
+                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId) != null) {
+                    ctx.room().addLog("【サモンズライト】: 墓地から【%s】を場に出しました"
+                            .formatted(cards.findById(cardId).name()));
+                    return;
+                }
+            }
+            ctx.room().addLog("【サモンズライト】: 墓地にコスト1のミニオンが居ないため、何も起こりませんでした");
+        });
+
+        // ---- ダークネオンステージ(QTE-M-DARK-36) ----
+        // 「【特殊召喚】(自分の場1枚、自分の手札を2枚捨てることでこのカードを0コストとして場に出す)」
+        //
+        // ★「自分の場1枚」は<b>自分の場のミニオン1体を破壊する</b>ことである(マスター裁定198)。
+        //   闇文明の代替コストは一貫して「資源を失う」形であり(這い寄る生霊・冥界神ハデス・
+        //   禁忌の代償)、場を減らさずに0コストで5マナ相当が出る読みは取らない。
+        // ★手札は<b>このカード自身を除いて</b>2枚必要である。対象指定はプレイするカードを
+        //   自動で除外する(GameService.validateTargets)ので、条件側でも1枚引いて数える。
+        // ★生贄で場が1つ空くため、specialSummon の「場が満杯なら弾く」事前判定は
+        //   MINION/SELF の要求があることで自動的に免除される(知恵の双翼と同じ)
+        specialSummons.put("QTE-M-DARK-36", SpecialSummonSpec.of(
+                (state, player, handIndex) -> !player.getMinionZone().isEmpty()
+                        && player.getHand().size() - 1 >= 2,
+                TargetSpec.of(
+                        new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(),
+                                "破壊する自分のミニオンを1体選んでください"),
+                        new Requirement(Kind.HAND, Side.SELF, 2, false, false, List.of(),
+                                "捨てるカードを2枚選んでください")),
+                ctx -> {
+                    ctx.targets().get(0).minions().forEach(
+                            t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+                    // 選択済みの手札は既に除去されて届くので、行き先(墓地)を決めるだけでよい。
+                    // ★「場以外から墓地へ」の入口を通す(カムバックキーパーが反応する)
+                    ctx.targets().get(1).handCardIds().forEach(
+                            id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
+                    ctx.room().addLog("【ダークネオンステージ】: 自分のミニオン1体と手札2枚を代償にしました");
+                },
+                "自分のミニオン1体を破壊し手札2枚を捨てて、0コストで召喚します"));
+
+        // ---- 1stL「NEMれぬ夜のドリーミー」(QTE-M-DARK-39) ----
+        // 「【召喚時】他のミニオンを全て破壊する。こうして破壊したミニオンが10体以上で
+        //   自分のリーダーが闇文明ならこれは【速攻】を得る。
+        //   【常在】このターン中破壊されたミニオン1体につきこのターンの間Attack+1」
+        //
+        // ★【召喚時】は<b>両者の場</b>の、自身以外すべてを破壊する(創世神ガイアと同じ)。
+        //   「自分の」と書いていないので両者を見る(裁定156(2))。
+        // ★「こうして破壊した」数は<b>実際に破壊できた数</b>である(裁定: 2種のオニと同じ)。
+        //   大天使ミカエル・聖光の守護聖の置換で場に残ったミニオンは数えない。
+        // ★【常在】のAttack加算は StatCalculator にある。こちらが数えるのは
+        //   「この召喚で破壊した数」だけであり、別の量である
+        register("QTE-M-DARK-39", TriggerType.ON_SUMMON, ctx -> {
+            MinionInstance self = ctx.source();
+            int destroyed = 0;
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                for (MinionInstance m : List.copyOf(side.getMinionZone())) {
+                    if (m == self) {
+                        continue;
+                    }
+                    ctx.actions().destroyMinion(ctx.room(), side, m);
+                    if (!side.getMinionZone().contains(m)) {
+                        destroyed++;
+                    }
+                }
+            }
+            ctx.room().addLog("【1stL「NEMれぬ夜のドリーミー」】: 他のミニオンを%d体破壊しました"
+                    .formatted(destroyed));
+            boolean darkLeader = ctx.owner().getLeader().civilization() == Civilization.DARK;
+            if (destroyed >= DREAMY_HASTE_THRESHOLD && darkLeader && self != null) {
+                self.grantKeyword(Keyword.HASTE);
+                ctx.room().addLog("【1stL「NEMれぬ夜のドリーミー」】は【速攻】を得た");
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------
+    // ★Batch 50: Ver1.1 で追加された光文明のカード(P2 の3本目・後半)。
+    //
+    // 光の新しいテーマは既存と地続きで「相手の流れを止めること」だが、
+    // 止める場所が増えた —— テングスンは<b>スペルのコスト</b>を、
+    // モアニールは<b>ミニオンの登場</b>と<b>リーダーへのダメージ</b>を、
+    // バンユーは<b>攻撃の回数</b>を止める。
+    //
+    // ★英皇アントマルエル(QTE-M-LIGHT-29)はここに登録を持たない。
+    //   常在の登場誘発は fireAnyMinionEntered に直接書いてある(ロロイヨ伯爵と同じ形)。
+    // ★光霊・テングスンのコスト+1は StatCalculator、光霊・モアニールの2つの置換は
+    //   RuleGuards(判定)と GameActions / GameService(実行)、
+    //   英術・バンユーの攻撃制限は RuleGuards にある(裁定180)。
+    // ---------------------------------------------------------------
+    private void registerLightVer11Cards() {
+
+        // ---- 光霊・ネフラ(QTE-M-LIGHT-35) ----
+        // 「【召喚時】自分の山札の上から3枚表向きにする。
+        //   その中の【守護】を持っているもしくはスペルのカードを全て手札に加える。」
+        //
+        // ★<b>残りの行き先は本文に書かれていない。</b>山札の下に置く(マスター裁定199) ——
+        //   降臨の伝道師(公開4枚 → 残りは山札の下)と同じ既存の形である。
+        // ★条件は「【守護】を持つ」<b>または</b>「スペルである」。【守護】はミニオン以外にも
+        //   付きうる(ウェポン)ため、種別ではなくキーワードで見る。
+        // ★プレイヤーの選択は発生しない(全部加える)ので、割り込みは要らない。
+        // ★山札が3枚に満たなければ、あるだけ公開する(revealFromTopOfDeck の既存の挙動)
+        register("QTE-M-LIGHT-35", TriggerType.ON_SUMMON, ctx -> {
+            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 3);
+            List<String> rest = new ArrayList<>();
+            int taken = 0;
+            for (String cardId : revealed) {
+                CardMaster master = cards.findById(cardId);
+                if (master.hasKeyword(Keyword.GUARD) || master.type() == CardType.SPELL) {
+                    ctx.owner().getHand().add(cardId);
+                    ctx.room().addLog("【光霊・ネフラ】: 【%s】を手札に加えました".formatted(master.name()));
+                    taken++;
+                } else {
+                    rest.add(cardId);
+                }
+            }
+            ctx.actions().returnToBottomOfDeck(ctx.owner(), rest);
+            ctx.room().addLog("【光霊・ネフラ】: %d枚を手札に加え、残り%d枚を山札の下に置きました"
+                    .formatted(taken, rest.size()));
+        });
+
+        // ---- 英術・グラーニス(QTE-M-LIGHT-37・スペル) ----
+        // 「自分のリーダーの体力を2回復する。【還元】」
+        //
+        // 【還元】(墓地の代わりに裏向きでマナへ)の処理は GameActions 側で共通である
+        // (流転の書・再起の炎陣と同じ)。ここに書くのは回復だけでよい
+        spellEffects.put("QTE-M-LIGHT-37",
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-M-LIGHT-37"));
+
+        // ---- 英術・バンユー(QTE-M-LIGHT-38・スペル) ----
+        // 「相手は次の相手のターン中スペルを唱えられない。
+        //   相手のミニオンは次の相手のターン1度しか攻撃できない。」
+        //
+        // ★スペル封じは断罪の聖導者(QTE-M-LIGHT-15)とまったく同じ仕組みを使う
+        //   —— 効果を受けた時点で「次のターン番号」を刻む。
+        // ★「1度しか攻撃できない」は<b>相手の場全体で合計1回</b>である(マスター裁定200)。
+        //   ミニオン1体につき1回ではない —— 判定は RuleGuards.minionAttackDenial にある。
+        // ★リーダー(ウェポン)の攻撃は止めない。テキストが「相手のミニオンは」と
+        //   書いているので、書かれていない対象を勝手に増やさない
+        spellEffects.put("QTE-M-LIGHT-38", ctx -> {
+            int nextTurn = ctx.state().getTurnNumber() + 1;
+            ctx.opponent().setSpellSealedOnTurn(nextTurn);
+            ctx.opponent().setMinionAttackLimitedOnTurn(nextTurn);
+            ctx.room().addLog("次の%sのターン、スペルを唱えられず、ミニオンの攻撃は合計1回までになります"
+                    .formatted(ctx.opponent().getDisplayName()));
         });
     }
 
@@ -2111,9 +2446,15 @@ public class CardEffectRegistry {
             return;
         }
         ctx.actions().returnToBottomOfDeck(ctx.owner(), rest);
-        ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), chosenId);
-        List<MinionInstance> zone = ctx.owner().getMinionZone();
-        MinionInstance summoned = zone.get(zone.size() - 1);
+        // ★Batch 50: 「場の末尾を取る」形をやめ、出したミニオンの実体を受け取る。
+        // 末尾は ON_ENTER の中でさらに場が増えると別人になり、
+        // <b>関係の無いミニオンに3ダメージを与えてしまう</b>(49 設計解説 2-3 が戒めた形)
+        MinionInstance summoned = ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), chosenId);
+        if (summoned == null) {
+            ctx.room().addLog("【降臨の伝道師】: 【%s】は場に出られませんでした"
+                    .formatted(cards.findById(chosenId).name()));
+            return;
+        }
         ctx.room().addLog("【降臨の伝道師】が【%s】を場に出しました".formatted(cards.findById(chosenId).name()));
         ctx.actions().damageMinion(ctx.room(), ctx.owner(), summoned, 3);
     }
@@ -2144,8 +2485,8 @@ public class CardEffectRegistry {
                 if (!chosen.isEmpty()) {
                     int idx = Integer.parseInt(chosen.get(0));
                     String cardId = ctx.owner().getHand().remove(idx);
-                    ctx.owner().getTrash().add(cardId);
                     ctx.room().addLog("【選択の追い風】: 【%s】を捨てました".formatted(cards.findById(cardId).name()));
+                    ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
                     ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
                 }
             }
@@ -2193,9 +2534,9 @@ public class CardEffectRegistry {
             case AQUA_SEARCH_DISCARD -> {
                 int idx = Integer.parseInt(chosen.get(0));
                 String cardId = ctx.owner().getHand().remove(idx);
-                ctx.owner().getTrash().add(cardId);
                 ctx.room().addLog("【アクア・サーチ】: 【%s】を捨てました"
                         .formatted(cards.findById(cardId).name()));
+                ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
             }
             // 喚ビ集ウ・アヤカシ(QTE-M-WIND-36): 【召喚時】に破壊する自分のミニオンを確定させる。★Batch 48。
             // 「そうしたらカードを2枚引く」なので、破壊が実際に起きたときだけ引く。
@@ -2221,9 +2562,9 @@ public class CardEffectRegistry {
             case TIDE_COANCHI_DISCARD -> {
                 int idx = Integer.parseInt(chosen.get(0));
                 String cardId = ctx.owner().getHand().remove(idx);
-                ctx.owner().getTrash().add(cardId);
                 ctx.room().addLog("【潮獣コアンチ】: 【%s】を捨てました"
                         .formatted(cards.findById(cardId).name()));
+                ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
             }
         }
     }

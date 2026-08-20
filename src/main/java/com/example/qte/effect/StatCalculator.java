@@ -50,6 +50,7 @@ public class StatCalculator {
     private static final String EARTH_BERSERKER = "QTE-M-EARTH-18";     // 大地の狂戦士
     private static final String SHEER_AYAKASHI = "QTE-M-WIND-33";       // 透キ通ル・アヤカシ(★Batch 48)
     private static final String GIGAMOUSE_BITE = "QTE-M-WATER-38";      // ギガマウス・バイト(★Batch 49)
+    private static final String TENGSUN = "QTE-M-LIGHT-34";             // 光霊・テングスン(★Batch 50)
 
     // 動的な攻撃力・攻撃回数
     private static final String SHADOW_ASSASSIN = "QTE-M-WATER-28";     // 影潜む水刺客(ウェポン)
@@ -61,6 +62,7 @@ public class StatCalculator {
     private static final String CYCLONE_FENCER = "QTE-M-WIND-5";        // サイクロン・フェンサー
     private static final String BOULDER_BARRAGE = "QTE-M-EARTH-19";     // 連撃の巨岩
     private static final String GALE_RAPIER = "QTE-M-WIND-14";          // 疾風のレイピア(ウェポン)
+    private static final String DREAMY = "QTE-M-DARK-39";               // 1stL「NEMれぬ夜のドリーミー」(★Batch 50)
 
     /**
      * ★このカードは<b>数えられる対象</b>であって、このクラスが挙動を実装しているカードではない。
@@ -77,10 +79,10 @@ public class StatCalculator {
             NIGHTMARE, SWARM_LICH, SEALED_TABOO_DEMON, RAISE_DEAD,
             CHANT_PALADIN, PRECEPT_GUARDIAN, WISDOM_CRYSTAL, CHANT_ORB,
             TWIN_ILLUSIONIST, GALE_KNIGHT, GATHERING_SYLPH, WIND_CHANTER_LEADER,
-            EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE,
+            EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE, TENGSUN,
             SHADOW_ASSASSIN, ARKINTIS, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
             GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
-            GALE_RAPIER);
+            GALE_RAPIER, DREAMY);
 
     /** 墓地のカードの種別(スペルか否か)を判定するために参照する */
     private final CardMasterRepository cards;
@@ -207,6 +209,18 @@ public class StatCalculator {
         if (GIGAMOUSE_BITE.equals(card.id())) {
             cost -= owner.getHand().size();
         }
+        // ---- 光文明 Ver1.1(★Batch 50): 相手のスペルを重くする常在 ----
+        // 光霊・テングスン: 「【常在】相手はスペルを唱えるコスト+1される。」
+        // ★数えるのは<b>相手の場</b>に居るテングスンである。このメソッドの owner は
+        //   「カードを使おうとしている側」なので、その相手の場を見る。
+        // ★複数体並べば累積する —— 唱導の聖騎士(自分のスペル-1)が体数ぶん重なるのと対称であり、
+        //   テキストにも「1体につき」を否定する語が無い。
+        // ★封印されし禁忌魔人(コスト+1)以来2枚目のコスト増加である
+        if (card.type() == CardType.SPELL) {
+            cost += (int) state.opponentOf(owner.getPlayerId()).getMinionZone().stream()
+                    .filter(m -> TENGSUN.equals(m.getMaster().id()))
+                    .count();
+        }
         // ---- 土文明: 自分のマナ枚数を参照する動的コスト(条件を満たすと固定値まで下がる) ----
         // 減算型ではなく固定値セット型。土カードは他文明の軽減対象ではないため競合しない。
         if (EARTH_BERSERKER.equals(card.id()) && owner.getManaZone().size() >= 7) {
@@ -315,6 +329,17 @@ public class StatCalculator {
         // SETの後に評価しなければ加算が上書きで消えるため、必ずこの位置に置く
         if (GRAVE_WRAITH_MASS.equals(cardId)) {
             attack += nonSpellCountInTrash(owner);
+        }
+        // 1stL「NEMれぬ夜のドリーミー」(★Batch 50):
+        // 「【常在】このターン中破壊されたミニオン1体につきこのターンの間Attack+1」。
+        // ★数えるのは<b>両者の合計</b>であり、破壊された後の行き先も問わない(マスター裁定205)。
+        //   「自分の」と書いていない条件は両者を見る(裁定156(2))ので、
+        //   天翔ケル霊鬼・シュテンと同じ GameState のカウンタを読む(裁定185)。
+        // ★【常在】は保存しない —— 評価するたびに数える。ターンが変われば
+        //   カウンタが 0 に戻る(GameService.beginTurn)ので、「このターンの間」は自然に満たされる。
+        // ★自身の【召喚時】(他のミニオンを全て破壊する)で増えた分もここに含まれる
+        if (DREAMY.equals(cardId)) {
+            attack += state.getMinionsDestroyedThisTurn();
         }
 
         // ---- 動的ADD(オーラ) ----

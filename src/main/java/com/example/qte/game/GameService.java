@@ -791,7 +791,13 @@ public class GameService {
         payCost(player, stats.effectiveCost(state, player, master));
         player.getTrash().remove(trashIndex);
         room.addLog("%sが墓地から【%s】を召喚".formatted(player.getDisplayName(), master.name()));
-        summonToField(room, state, player, master, null, false);
+        MinionInstance summoned = summonToField(room, state, player, master, null, false);
+        // 【演舞の墓守】(★Batch 50): 自分の墓地から出たミニオンはそのターンAttack+1。
+        // ★経路を問わない(マスター裁定204)ので、効果による「出す」(GameActions.reviveFromGrave)
+        // だけでなく、この「墓地からの召喚」でも乗る
+        if (summoned != null) {
+            effects.fireMinionEnteredFromGrave(contextOf(room, state, player, summoned, null));
+        }
         player.setPlayedCardThisTurn(true);
         // 墓地からの召喚もカードの使用として数える(a1)
         afterCardUsed(room, state, player, false);
@@ -801,6 +807,23 @@ public class GameService {
      *  効果による「出す」(黄泉還る水龍など)を実装するときはON_ENTERのみを発火する */
     private MinionInstance summonToField(GameRoom room, GameState state, PlayerState player,
             CardMaster master, ResolvedTargets resolved, boolean fromTaboo) {
+        // 【光霊・モアニール】(★Batch 50): 自分のマナよりコストの大きいミニオンは、
+        // 場に出る代わりに山札の下へ置かれる。コストは既に支払われており、
+        // カードも手札(または禁忌デッキ)から取り除かれた後である —— 置換されるのは
+        // 「場に出る」ことだけであって、召喚の宣言そのものは成立している。
+        // ★禁忌由来のカードは山札に戻せない(総合ルール3-6: 禁忌カードは消滅する)ため消滅ゾーンへ送る
+        if (guards.isEntryToDeckBottom(state, player, master)) {
+            if (fromTaboo) {
+                player.getLostZone().add(master.id());
+                room.addLog("【光霊・モアニール】: 【%s】は場に出られず、禁忌カードのため消滅しました"
+                        .formatted(master.name()));
+            } else {
+                player.getDeck().addLast(master.id());
+                room.addLog("【光霊・モアニール】: 【%s】は場に出る代わりに山札の下へ置かれました"
+                        .formatted(master.name()));
+            }
+            return null;
+        }
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
         player.getMinionZone().add(minion);
         room.addLog("%sが【%s】を召喚しました".formatted(player.getDisplayName(), master.name()));
@@ -912,8 +935,11 @@ public class GameService {
 
         if (targetIsLeader) {
             // 大地の守護盾(土文明): リーダーへの攻撃をウェポンの破壊で肩代わりする(ダメージ無効)。
-            // 攻撃宣言は成立しているため、下のウェポン攻撃時効果は肩代わりの有無に関わらず発動する
-            if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)) {
+            // 攻撃宣言は成立しているため、下のウェポン攻撃時効果は肩代わりの有無に関わらず発動する。
+            // ★光霊・モアニール(★Batch 50)も同じ位置で肩代わりする。短絡評価により、
+            // 守護盾が先に肩代わりした場合はモアニールを消費しない
+            if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)
+                    && !actions.tryReplaceLeaderDamageWithGuardian(room, opponent)) {
                 opponent.setLp(opponent.getLp() - damage);
                 room.addLog("相手リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
                 if (opponent.getLp() <= 0) {
@@ -1105,6 +1131,9 @@ public class GameService {
         validateAttack(state, player, attacker, target, targetIsLeader, opponent);
 
         attacker.countAttack();
+        // 場全体の攻撃宣言の回数(★Batch 50。英術・バンユーの「合計1回まで」が読む)。
+        // 個体の攻撃回数(countAttack)とは数えている量が違うため、別に数える
+        player.setMinionAttacksUsedThisTurn(player.getMinionAttacksUsedThisTurn() + 1);
         room.addLog("【%s】が攻撃を宣言".formatted(attacker.getMaster().name()));
         EffectContext attackCtx = contextOf(room, state, player, attacker, null);
         effects.fire(TriggerType.ON_ATTACK, attacker, attackCtx);
@@ -1118,8 +1147,10 @@ public class GameService {
         }
 
         if (targetIsLeader) {
-            // 大地の守護盾(土文明): リーダーへの攻撃をウェポンの破壊で肩代わりする(ダメージ無効)
-            if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)) {
+            // 大地の守護盾(土文明): リーダーへの攻撃をウェポンの破壊で肩代わりする(ダメージ無効)。
+            // ★光霊・モアニール(★Batch 50)も同じ位置で肩代わりする(leaderAttack と同じ順序)
+            if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)
+                    && !actions.tryReplaceLeaderDamageWithGuardian(room, opponent)) {
                 int damage = stats.effectiveAttack(state, player, attacker);
                 opponent.setLp(opponent.getLp() - damage);
                 room.addLog("リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));

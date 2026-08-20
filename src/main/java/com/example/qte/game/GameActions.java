@@ -77,9 +77,9 @@ public class GameActions {
             boolean replaced = guards.isDrawReplaced(state, player, player.getDrawnCountThisTurn());
             player.setDrawnCountThisTurn(player.getDrawnCountThisTurn() + 1);
             if (replaced) {
-                player.getTrash().add(cardId);
                 room.addLog("【断罪の大天使】により、%sのドローは墓地に置かれました"
                         .formatted(player.getDisplayName()));
+                putIntoTrashFromElsewhere(room, player, cardId); // 山札から = 場以外から(★Batch 50)
                 continue;
             }
             player.getHand().add(cardId);
@@ -147,6 +147,12 @@ public class GameActions {
         int reduced = guards.reduceLeaderDamage(room.getGameState(), player, amount);
         if (reduced <= 0) {
             room.addLog("%sのリーダーへのダメージは軽減されました".formatted(player.getDisplayName()));
+            return;
+        }
+        // 【光霊・モアニール】(★Batch 50): リーダーがダメージを受けるとき、代わりにこのカードを破壊する。
+        // 軽減(正義の御盾)より後に置いているのは、軽減で0になった場合は
+        // 「ダメージを受けていない」からである —— 受けていないものを肩代わりはできない
+        if (tryReplaceLeaderDamageWithGuardian(room, player)) {
             return;
         }
         amount = reduced;
@@ -334,6 +340,16 @@ public class GameActions {
         }
         GameState state = room.getGameState();
         CardMaster master = cards.findById(cardId);
+        // 【光霊・モアニール】(★Batch 50): 場に出る代わりに山札の下へ置く置換効果。
+        // ★null を返すが、<b>行き先はここで決まっている</b>(呼び出し側が手札へ戻すと二重になる)。
+        // 「出せなかったぶんを手札に戻す」カード(神の福音・ギガマウス・バイト)は、
+        // 呼ぶ前に isMinionZoneFull() を自分で見る形に揃えてある
+        if (guards.isEntryToDeckBottom(state, owner, master)) {
+            owner.getDeck().addLast(cardId);
+            room.addLog("【光霊・モアニール】: 【%s】は場に出る代わりに山札の下へ置かれました"
+                    .formatted(master.name()));
+            return null;
+        }
         MinionInstance minion = new MinionInstance(master, state.getTurnNumber());
         owner.getMinionZone().add(minion);
         room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));
@@ -371,7 +387,7 @@ public class GameActions {
             if (cardId == null) {
                 break;
             }
-            player.getTrash().add(cardId);
+            putIntoTrashFromElsewhere(room, player, cardId); // 山札から = 場以外から(★Batch 50)
             moved++;
         }
         room.addLog("%sが山札の上から%d枚を墓地に置きました(墓地%d枚)"
@@ -385,13 +401,70 @@ public class GameActions {
      *
      * @return 蘇生できたらtrue(墓地に無い・ゾーン満杯・踏み倒し禁止ならfalse)
      */
-    public boolean reviveFromGrave(GameRoom room, PlayerState owner, String cardId) {
+    public MinionInstance reviveFromGrave(GameRoom room, PlayerState owner, String cardId) {
         if (!owner.getTrash().contains(cardId) || owner.isMinionZoneFull()
                 || NO_CHEAT_INTO_FIELD.contains(cardId)) {
-            return false;
+            return null;
         }
         owner.getTrash().remove(cardId);
-        putIntoFieldByEffect(room, owner, cardId);
+        MinionInstance revived = putIntoFieldByEffect(room, owner, cardId);
+        if (revived != null) {
+            // 【演舞の墓守】(★Batch 50): 自分の墓地から場に出たミニオンは、そのターンAttack+1。
+            // ★<b>墓地から場に出す経路はここに集約してある</b>(黄泉還る水龍・ゾンストライカー・
+            // 不滅のネクロマンサー・死者蘇生・冥界神ハデス・ハク霊/コク霊・サモンズライト・
+            // カムバックキーパー)。もう1本の経路である「墓地からの召喚」(黄泉の召喚主)は
+            // 召喚なのでこのメソッドを通らず、GameService.summonFromGrave が同じ発火口を呼ぶ
+            effects.fireMinionEnteredFromGrave(contextOf(room, owner, revived));
+        }
+        return revived;
+    }
+
+    /**
+     * カード1枚を<b>場以外のゾーンから</b>自分の墓地に置く(★Batch 50)。
+     *
+     * <h2>なぜ入口を1つにしたか</h2>
+     *
+     * 《カムバックキーパー》は「場以外から自分の墓地に置かれたとき」に反応する。
+     * このイベントは<b>場を離れる処理({@link #leaveFieldByDestruction})を通らない</b>ため、
+     * 既存の破壊トリガーではまったく拾えない。手札からの discard・山札からのミル・
+     * 断罪の大天使によるドローの置換・裏向きマナの破壊が、これまでは
+     * {@code getTrash().add(...)} を各所に直接書く形で散らばっていた。
+     *
+     * <p>反応する側を1箇所にまとめるには、<b>置く側も1箇所にまとめるしかない</b>(裁定163)。
+     * したがってこのメソッドが「場以外から墓地へ」の唯一の入口である。
+     *
+     * <h2>★【還元】は適用しない(既存の挙動を変えない)</h2>
+     *
+     * 行き先の分岐({@link #sendToTrashOrRestore})は<b>場を離れたカードと使用済みのカード</b>の
+     * ためのものであり、手札から捨てられたカードは従来から素直に墓地へ行っていた。
+     * ここで還元を効かせると、このバッチと無関係な既存カードの挙動が変わる。
+     */
+    public void putIntoTrashFromElsewhere(GameRoom room, PlayerState owner, String cardId) {
+        owner.getTrash().add(cardId);
+        effects.fireCardPutIntoTrashFromElsewhere(contextOf(room, owner, null), cardId);
+    }
+
+    /**
+     * 【光霊・モアニール】(★Batch 50): リーダーへのダメージを、このミニオンの破壊で肩代わりする。
+     *
+     * 戦闘・効果を問わずすべてのダメージが対象である(マスター裁定202)。
+     * 肩代わりが起きたダメージは<b>0になる</b>ため、被ダメージトリガー
+     * (火炎の狂信者・反転の炎鏡)も誘発しない —— 大地の守護盾
+     * ({@link #tryInterceptLeaderAttackWithShield})と同じ扱いである。
+     *
+     * <p>効果ダメージ({@link #damageLeader})・ミニオンの攻撃・ウェポンでの攻撃の
+     * 3経路すべてから呼ばれる。どれを選ぶかの判定は {@link RuleGuards#leaderDamageInterceptor} にある。
+     *
+     * @return 肩代わりが発生した(=リーダーへのダメージを無効化した)ならtrue
+     */
+    public boolean tryReplaceLeaderDamageWithGuardian(GameRoom room, PlayerState target) {
+        MinionInstance interceptor = guards.leaderDamageInterceptor(target);
+        if (interceptor == null) {
+            return false;
+        }
+        room.addLog("【%s】がリーダーへのダメージを肩代わりしました"
+                .formatted(interceptor.getMaster().name()));
+        destroyMinion(room, target, interceptor);
         return true;
     }
 
@@ -461,9 +534,9 @@ public class GameActions {
                 continue;
             }
             owner.getManaZone().remove(i);
-            owner.getTrash().add(mana.getCardId());
-            destroyed++;
             room.addLog("裏向きのマナ【%s】が破壊されました".formatted(cards.findById(mana.getCardId()).name()));
+            putIntoTrashFromElsewhere(room, owner, mana.getCardId()); // マナから = 場以外から(★Batch 50)
+            destroyed++;
         }
         if (destroyed > 0) {
             manaLeft(room, owner);

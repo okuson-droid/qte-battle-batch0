@@ -56,6 +56,7 @@ public class RuleGuards {
     private static final String HOLY_PROTECTOR_AURA = "QTE-M-LIGHT-1"; // 聖光の守護聖(相手の効果で破壊されない)
     private static final String JUSTICE_SHIELD = "QTE-M-LIGHT-13";  // 正義の御盾(リーダーへのダメージ-1)
     private static final String JUDGEMENT_ANGEL = "QTE-M-LIGHT-24"; // 断罪の大天使(3枚目以降のドローを置換)
+    private static final String MOANIRU = "QTE-M-LIGHT-36";        // 光霊・モアニール(登場とダメージの置換・★Batch 50)
     // 行動そのものを禁止するカード
     private static final String ORDER_ENFORCER = "QTE-M-LIGHT-4";  // 秩序の執行官(相手は特殊召喚不可)
     private static final String TEMPLE_KNIGHT = "QTE-M-LIGHT-6";   // 戒律の聖堂騎士(相手はサブフェイズ不可)
@@ -81,7 +82,7 @@ public class RuleGuards {
     public static final Set<String> IMPLEMENTED_CARDS = Set.of(
             PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC,
             MICHAEL, HOLY_PROTECTOR_AURA, JUSTICE_SHIELD, JUDGEMENT_ANGEL,
-            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI);
+            ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI, MOANIRU);
 
     private final StatCalculator stats;
 
@@ -151,7 +152,67 @@ public class RuleGuards {
         if (targetIsLeader && hasOnField(state.opponentOf(owner.getPlayerId()), ZODIAC)) {
             return "【天界の守護神 ゾディアック】がいるためリーダーを攻撃できません";
         }
+        // ---- 光文明(★Batch 50): 場全体で合計1回しか攻撃できない(英術・バンユー) ----
+        // ★「ミニオン1体につき1回」ではなく<b>プレイヤーの場全体で1回</b>である(マスター裁定200)。
+        // 個体の攻撃回数(いちばん上の maxAttacks の判定)とは数えている量が違うため、
+        // 判定も別に置いている
+        if (owner.getMinionAttackLimitedOnTurn() == state.getTurnNumber()
+                && owner.getMinionAttacksUsedThisTurn() >= 1) {
+            return "【英術・バンユー】の効果でこのターンはミニオンで1度しか攻撃できません";
+        }
         return null;
+    }
+
+    // ---------------------------------------------------------------
+    // 登場の置換(★Batch 50。光霊・モアニール)
+    // ---------------------------------------------------------------
+
+    /**
+     * このミニオンが場に出る代わりに山札の下へ置かれるか(光霊・モアニール)。
+     *
+     * <blockquote>【常在】相手は自身のマナよりコストの大きいミニオンを場に出すとき、
+     * 代わりに山札の下に置く。</blockquote>
+     *
+     * <b>「自身のマナ」はマナゾーンの枚数である</b>(マスター裁定201)。タップ・向きは問わない。
+     * 使用可能MP(アンタップの枚数)で測ると、通常召喚は支払い直後に必ず0になるため
+     * <b>ほぼ全てのミニオンが山札の下へ行く</b>ことになり、テキストの意図から外れる。
+     *
+     * <b>比べるのは印刷コストである。</b> 場に出るミニオンには動的コストの概念が無く
+     * (コストが動くのは手札にある間だけ。透キ通ル・アヤカシの説明と同じ)、
+     * 蘇生や効果による「出す」では手札を経由しないため、実効コストを引く先が無い。
+     *
+     * <b>誰が制限を受けるか。</b> テキストの「相手」はモアニールの持ち主から見た相手である。
+     * したがって「場に出ようとしているミニオンの持ち主から見て、<b>相手の場</b>にモアニールが居る」
+     * ときに置換が起きる。
+     */
+    public boolean isEntryToDeckBottom(GameState state, PlayerState owner,
+            com.example.qte.master.CardMaster master) {
+        if (!hasOnField(state.opponentOf(owner.getPlayerId()), MOANIRU)) {
+            return false;
+        }
+        Integer cost = master.cost();
+        return cost != null && cost > owner.getManaZone().size();
+    }
+
+    /**
+     * リーダーへのダメージを肩代わりするミニオン(光霊・モアニール)。居なければ null。
+     *
+     * <blockquote>自分のリーダーがダメージを受けるとき代わりにこのカードを破壊する。</blockquote>
+     *
+     * <b>戦闘・効果を問わず、すべてのダメージが対象である</b>(マスター裁定202)。
+     * 肩代わりが起きるとダメージは0になり、モアニール1体が破壊される。
+     * 複数体並んでいれば、ダメージ1回につき1体ずつ消費される
+     * (選ぶのは盤面の並び順の先頭。どれが消えても盤面の結果は同じであり、
+     * プレイヤーに選ばせる意味が無いため問い合わせは出さない)。
+     *
+     * ★<b>破壊そのものはここでは行わない。</b> このクラスは判定層であり、
+     * 状態を変えるのは {@code GameActions} の仕事である(このクラスの冒頭の設計方針)。
+     */
+    public MinionInstance leaderDamageInterceptor(PlayerState target) {
+        return target.getMinionZone().stream()
+                .filter(m -> MOANIRU.equals(m.getMaster().id()))
+                .findFirst()
+                .orElse(null);
     }
 
     /**
