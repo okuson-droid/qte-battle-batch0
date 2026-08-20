@@ -55,8 +55,7 @@ class EffectImplementationTest {
     // ------------------------------------------------------------------
 
     /**
-     * ★この数はカードの実装が進むたびに<b>減る</b>。P2(Batch 48〜53)で効果を1枚実装したら、
-     * ここも1つ減らすこと。減らし忘れたら落ちるので、進捗の記録がテストとして残る。
+     * ★この数はカードの実装が進むたびに<b>減った</b>。P2〜P4 の全体の記録である。
      *
      * <p>内訳は {@code python3 tools/report_effects.py} が出す。
      * 47 の時点では 64枚 = 進化18 + 非進化46 だった。
@@ -65,44 +64,48 @@ class EffectImplementationTest {
      * 50(闇6枚 + 光6枚)で 38枚 = 進化18 + 非進化20 になった。
      * 51(火7枚 + 土8枚)で 23枚 = 進化18 + 非進化5 になった(P2 の終わり)。
      * 52(進化エンジン + 進化6枚 + 機神兵長茶爺)で 15枚 = 進化11 + 非進化4 になった。
-     * ★<b>53(進化7枚 + 英術・スケアロック)で 7枚 = 進化4 + 非進化3 になった(P3 の終わり)。</b>
-     * ★<b>残る7枚はすべて【賢魂】待ちであり、P4 が丸ごと引き取る</b>(裁定229) ——
-     * つまり<b>「まだ誰も引き取っていないカード」は1枚も無い</b>状態になった。
+     * 53(進化7枚 + 英術・スケアロック)で 7枚 = 進化4 + 非進化3 になった(P3 の終わり)。
+     * ★<b>54(【賢魂】のエンジン + 7枚)で 0枚になった。</b>
      *
-     * <p>★<b>進化の素材条件は18枚すべて登録されているが、印はそれでは消えない。</b>
+     * <h2>★数から不変条件へ書き換えた(裁定209)</h2>
+     *
+     * 47〜53 のあいだ、この試験は<b>残りの枚数</b>を主張していた。
+     * 実装が進むフェーズでは、その種の題材はバッチごとに必ず書き換わる。
+     * 0 になった今は<b>「効果の文があるカードは、すべてエンジンが処理を持っている」</b>という
+     * 不変条件そのものを測れる —— こちらは実装が増えても書き換える必要がない。
+     * ★<b>落ちたときに何が起きたかも分かる</b>: 名前を並べて見せるので、
+     * 新しいカードを足して登録し忘れた、という形で必ず現れる。
+     *
+     * <p>★進化の素材条件は18枚すべて登録されているが、印はそれでは消えない。
      * 素材条件は「効果」ではなく<b>場に出す手段</b>だからである
      * ({@code CardEffectRegistry.evolutions} は {@code isRegistered} が見ない)。
      */
     @Test
-    void 効果未実装のカードは7枚である() {
-        long unimplemented = cards.getAllCards().stream().filter(implementation::isUnimplemented).count();
-        assertThat(unimplemented).isEqualTo(7);
-    }
-
-    @Test
-    void 印が付くカードのうち進化ミニオンは4枚で残り3枚がデッキに入る() {
-        var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
-        assertThat(marked).filteredOn(c -> c.type() == CardType.EVOLUTION).hasSize(4);
-        assertThat(marked).filteredOn(c -> c.type() != CardType.EVOLUTION).hasSize(3);
+    void 効果未実装のカードは1枚も無い() {
+        var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented)
+                .map(CardMaster::name).toList();
+        assertThat(marked)
+                .as("効果の文があるのにエンジンが処理を持たないカード")
+                .isEmpty();
     }
 
     /**
-     * ★<b>印が付いて残っているのは【賢魂】を持つカードだけである</b>(★Batch 53)。
+     * ★<b>【賢魂】を持つ7枚は、1枚残らず実装済みでなければならない</b>(★Batch 54)。
      *
-     * 47〜53 のあいだ、印は「まだ手が回っていないカード」と「意図して後続へ送ったカード」の
-     * 両方を指していた。53 で前者が尽きたので、<b>残りが全部同じ理由であること</b>を
-     * 不変条件として測れるようになった(裁定209・219: 題材ではなく不変条件を測る)。
-     * ★P4 がこの7枚を実装すると、このリストは空になり、
-     * <b>この試験は「印の付くカードは1枚も無い」を主張する形へ変わる。</b>
+     * 53 までは「印が付くカードはすべて【賢魂】を持つ」という形で、
+     * <b>まだ引き取られていないカードの一覧</b>を測っていた。P4 でそれが空になったので、
+     * 同じ集合を<b>反対側から</b>測る —— 賢魂を持つカードに印が付いていないこと、である。
+     * ★枚数(7)も一緒に測る。カードデータに【賢魂】が増えたら、ここで気づける。
      */
     @Test
-    void 印が付くカードはすべて賢魂を持つ() {
-        var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented).toList();
-        assertThat(marked).isNotEmpty();
-        for (CardMaster card : marked) {
-            assertThat(card.text())
-                    .as(card.name() + " に印が付いているが、【賢魂】を持たない(引き取り手が決まっていない)")
-                    .contains("【賢魂");
+    void 賢魂を持つ7枚はすべて実装済みである() {
+        var souls = cards.getAllCards().stream()
+                .filter(c -> CardTextKeywords.hasSoul(c.text())).toList();
+        assertThat(souls).hasSize(7);
+        for (CardMaster card : souls) {
+            assertThat(implementation.isUnimplemented(card))
+                    .as(card.name() + " は【賢魂】を持つのに効果が未実装である")
+                    .isFalse();
         }
     }
 
@@ -276,30 +279,37 @@ class EffectImplementationTest {
     }
 
     /**
-     * ★Batch 52 が「【賢魂】待ち」として P4 へ送った7枚には、今も印が付いていなければならない。
+     * ★Batch 52・53 が「【賢魂】待ち」として P4 へ送った7枚から、印が消えた(★Batch 54)。
      *
      * <b>これは任意の標本ではなくスコープの決定の記録である</b>(裁定219)。
-     * ★とくに進化4枚は、<b>進化部分だけなら 52 で書けた</b> ——
+     * 52・53 の時点では<b>「今も印が付く」</b>を主張しており、
+     * 54 がその7枚を実装したことで<b>裏返した</b> ——
+     * 送ると決めた境目が、こうして閉じる。
+     *
+     * ★とくに進化4枚は、<b>進化部分だけなら 52・53 で書けた</b> ——
      * それでも丸ごと送ったのは、進化だけを実装すると印が消えて
      * <b>【賢魂】も実装済みに見える</b>からである(裁定165: 部分実装は印で表せない)。
-     * マスター裁定 E2 が案(b) を選んだ、その判断がここで固定される。
+     * ★実装の置き場所は3つに散っている ——
+     * {@code soulSpells}(7枚すべて)、表のトリガー(タイガラム・スタンディングテント・白ノ霊知者)、
+     * そして {@link com.example.qte.effect.RuleGuards} と {@link StatCalculator}
+     * (勝阿外の【常在】2つ)である(裁定180)。
      */
     @Test
-    void Batch52と53が賢魂待ちとしてP4へ送った7枚には今も印が付く() {
+    void Batch52と53がP4へ送った7枚は54で実装された() {
         String[] deferredToP4 = {
             "QTE-M-LIGHT-32", // 英霊・タイガラム … 進化 +【賢魂：3】
             "QTE-M-WIND-30",  // 黒ノ霊導者 … 進化 +【賢魂：1】
             "QTE-M-WIND-31",  // 白ノ霊知者 … 進化 +【賢魂：2】
             "QTE-M-EARTH-30", // 愚乱怒土地 … 進化 +【賢魂：3】
-            "QTE-M-DARK-37",  // グレイヴガールズファン …【賢魂】
-            "QTE-M-DARK-38",  // スタンディングテント …【賢魂】
+            "QTE-M-DARK-37",  // グレイヴガールズファン …【賢魂：１】(全角)
+            "QTE-M-DARK-38",  // スタンディングテント …【賢魂：2】
             "QTE-M-EARTH-36", // 勝阿外 …【賢魂：2】(51 が送ったカード)
         };
         for (String cardId : deferredToP4) {
             CardMaster card = cards.findById(cardId);
             assertThat(implementation.isUnimplemented(card))
-                    .as(card.name() + " は【賢魂】待ちなので印が付いたままでなければならない")
-                    .isTrue();
+                    .as(card.name() + " は 54 で実装したので印が消えていなければならない")
+                    .isFalse();
         }
     }
 

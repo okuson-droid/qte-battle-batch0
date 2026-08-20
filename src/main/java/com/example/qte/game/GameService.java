@@ -20,6 +20,7 @@ import com.example.qte.effect.PersistentAura;
 import com.example.qte.effect.ResumePoint;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.ResolvedTargets;
+import com.example.qte.effect.SoulSpellSpec;
 import com.example.qte.effect.SpecialSummonSpec;
 import com.example.qte.effect.StatCalculator;
 import com.example.qte.effect.TargetChoice;
@@ -27,6 +28,7 @@ import com.example.qte.effect.TargetSpec;
 import com.example.qte.effect.TriggerType;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
+import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.CardType;
 import com.example.qte.master.Keyword;
 import com.example.qte.room.GameRoom;
@@ -456,6 +458,136 @@ public class GameService {
         afterCardUsed(room, state, player, master.type() == CardType.SPELL);
     }
 
+    /**
+     * 手札のミニオンを【賢魂：n】として使う(★Batch 54。裁定152)。
+     *
+     * <blockquote>賢魂：n を持つミニオンは、スペルとしても使うことができる。</blockquote>
+     *
+     * <h2>なぜ {@code playCard} と別の入口なのか</h2>
+     *
+     * {@code playCard} は<b>カードの種別</b>で分岐する。賢魂は同じ種別のカードに
+     * 2つの使い方があるという話であり、種別からは決まらない ——
+     * <b>どちらの姿で使うかはプレイヤーの宣言</b>である。
+     * 宣言を引数の真偽値で運ぶこともできるが、そうすると {@code playCard} の
+     * 冒頭の検証(ミニオンとして出せるか)を賢魂のときだけ飛ばす分岐が中に増える。
+     * 入口を分ければ、どちらの規則を通るかが<b>呼び出し位置そのもの</b>で決まる(裁定207)。
+     *
+     * <h2>ここから先はスペルの使用である</h2>
+     *
+     * 使用回数の計上・{@code ON_CARD_USED}・コスト軽減・スペル封じ・使用後の行き先は、
+     * すべて通常のスペルと同じ道具を通る(マスター裁定 A2)。
+     */
+    public void playSoulCard(GameRoom room, String playerId, int handIndex, List<TargetChoice> choices) {
+        GameState state = requireState(room);
+        requireTurnPlayer(state, playerId);
+        requireStatus(state, GameStatus.PLAYING);
+        if (state.getPhase() != TurnPhase.MAIN && state.getPhase() != TurnPhase.SUB) {
+            throw new IllegalStateException("スペルはメイン/サブフェイズでのみ使用できます");
+        }
+        PlayerState player = state.playerOf(playerId);
+        if (player.isCannotUseCardsThisTurn()) {
+            throw new IllegalStateException("このターンはカードを使用できません");
+        }
+        CardMaster master = cards.findById(peekHand(player, handIndex));
+        SoulSpellSpec soul = requireSoul(state, player, master);
+
+        ValidatedTargets validated = validateTargets(state, player, handIndex, soul.targets(), choices);
+        payCost(player, stats.effectiveSoulCost(state, player, master, soulCostOf(master)));
+        ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
+        // 【詠唱の宝珠】のような「次に唱えるスペル」限定の効果は、ここで使い切る。
+        // コストの計算が終わった後に消すこと(playSpell と同じ順序)
+        player.getPersistentAuras().removeIf(
+                aura -> aura.expiry() == PersistentAura.Expiry.ON_NEXT_SPELL);
+
+        resolveSoulSpell(room, state, player, master, soul, resolved, false);
+
+        player.setPlayedCardThisTurn(true);
+        // 賢魂はスペルの使用である —— spellsCastThisTurn も進む(マスター裁定 A2(1))
+        afterCardUsed(room, state, player, true);
+    }
+
+    /**
+     * このカードを賢魂として使えるかを確かめ、仕様を返す(★Batch 54)。
+     *
+     * ★<b>{@code playConditions}(「代償を払えなければ使用できない」)は見ない。</b>
+     * あの表はミニオンとしての姿に紐づく条件であり(《禁忌の代償》《絶望の連鎖》)、
+     * 賢魂を持つ7枚は1枚も登録していない。姿ごとに条件を分けるのが本筋なので、
+     * 将来そういうカードが出たら {@link SoulSpellSpec} 側に条件を足すこと。
+     */
+    private SoulSpellSpec requireSoul(GameState state, PlayerState player, CardMaster master) {
+        if (!CardTextKeywords.hasSoul(master.text())) {
+            throw new IllegalStateException("このカードは【賢魂】を持ちません");
+        }
+        SoulSpellSpec soul = effects.soulSpellOf(master.id());
+        if (soul == null) {
+            throw new IllegalStateException("この【賢魂】の効果は未実装です");
+        }
+        // 賢魂の使用は「スペルの使用」である —— スペルを封じるものに止められる(マスター裁定 A2(3))
+        String spellDenial = guards.spellDenial(state, player);
+        if (spellDenial != null) {
+            throw new IllegalStateException(spellDenial);
+        }
+        return soul;
+    }
+
+    /** 【賢魂：n】の n。テキストが唯一の出どころである(裁定158 の延長) */
+    private int soulCostOf(CardMaster master) {
+        Integer cost = CardTextKeywords.soulCost(master.text());
+        if (cost == null) {
+            throw new IllegalStateException("このカードは【賢魂】を持ちません");
+        }
+        return cost;
+    }
+
+    /**
+     * 賢魂の効果の解決と、使い終わったカードの行き先(★Batch 54)。
+     *
+     * ★<b>行き先は通常のスペルと同じ道具を通る</b>(マスター裁定 A1) ——
+     * 墓地、【還元】ならマナ、禁忌由来なら消滅である。
+     * ★<b>ただし【還元】の判定に {@code master.hasKeyword} を使わない。</b>
+     * 賢魂を持つカードは2つの姿を持ち、キーワードは姿ごとに違う(マスター裁定 B1)。
+     * 《白ノ霊知者》の【還元】は賢魂の姿にだけ付いている。
+     */
+    private void resolveSoulSpell(GameRoom room, GameState state, PlayerState player,
+            CardMaster master, SoulSpellSpec soul, ResolvedTargets resolved, boolean fromTaboo) {
+        room.addLog("%sが【%s】を【賢魂：%d】として唱えました"
+                .formatted(player.getDisplayName(), master.name(), soulCostOf(master)));
+        player.setPendingSpellDisposition(null);
+        soul.effect().accept(new EffectContext(room, state, player,
+                state.opponentOf(player.getPlayerId()), null, resolved, actions, false, fromTaboo));
+        SpellDisposition disposition = player.getPendingSpellDisposition();
+        player.setPendingSpellDisposition(null);
+        // ★効果自身がこのカードの行き先を決めきったなら、もう動かさない(《スタンディングテント》)
+        if (disposition == SpellDisposition.KEPT_BY_EFFECT) {
+            return;
+        }
+        if (fromTaboo) {
+            // 禁忌由来のカードは行き先の置換(a5)を受けず、必ず消滅する(3-6)。
+            // 【還元】も機能しない —— 墓地を経由しないためである
+            actions.disposeUsedCard(room, player, master, true, false);
+            return;
+        }
+        if (disposition == null) {
+            // ★【還元】は賢魂としての姿が持つものだけを見る(マスター裁定 B1)
+            boolean restoration = CardTextKeywords.soulKeywords(master.text())
+                    .contains(Keyword.RESTORATION);
+            actions.disposeUsedCard(room, player, master, false, restoration);
+            return;
+        }
+        switch (disposition) {
+            case TO_HAND -> {
+                player.getHand().add(master.id());
+                room.addLog("【%s】は墓地に置かれる代わりに手札へ戻りました".formatted(master.name()));
+            }
+            case TO_DECK_BOTTOM -> {
+                player.getDeck().addLast(master.id());
+                room.addLog("【%s】は山札の一番下に置かれました".formatted(master.name()));
+            }
+            // KEPT_BY_EFFECT は上で return 済みである
+            default -> throw new IllegalStateException("未知の行き先です: " + disposition);
+        }
+    }
+
     private void playMinion(GameRoom room, GameState state, PlayerState player,
             int handIndex, CardMaster master, List<TargetChoice> choices) {
         requirePhase(state, TurnPhase.MAIN);
@@ -695,6 +827,29 @@ public class GameService {
 
     public void playTabooCard(GameRoom room, String playerId, int tabooIndex,
             List<Integer> manaIndexes, List<TargetChoice> choices, List<String> materialIds) {
+        playTabooCard(room, playerId, tabooIndex, manaIndexes, choices, materialIds, false);
+    }
+
+    /**
+     * 禁忌デッキのカードを【賢魂：n】として使う(★Batch 54。マスター裁定 A6)。
+     *
+     * <b>退けるマナは n 枚である。</b> 禁忌の支払いは「そのカードのコストの枚数」であり、
+     * 賢魂として使うならコストは n だからである(裁定152)。
+     *
+     * ★<b>使い終わったカードは必ず消滅する</b>(総合ルール3-6)。
+     * 【還元】も行き先の置換(a5)も効かない —— どちらも墓地を経由する仕組みだからである。
+     * ★ただし《スタンディングテント》のように<b>効果自身が場に出す</b>場合は場に残り、
+     * その後<b>禁忌由来のミニオンとして</b>場を離れるときに消滅する
+     * ({@code EffectContext.fromTaboo} が印を運ぶ)。
+     */
+    public void playTabooSoulCard(GameRoom room, String playerId, int tabooIndex,
+            List<Integer> manaIndexes, List<TargetChoice> choices) {
+        playTabooCard(room, playerId, tabooIndex, manaIndexes, choices, List.of(), true);
+    }
+
+    private void playTabooCard(GameRoom room, String playerId, int tabooIndex,
+            List<Integer> manaIndexes, List<TargetChoice> choices, List<String> materialIds,
+            boolean asSoul) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -707,6 +862,22 @@ public class GameService {
             throw new IllegalArgumentException("不正な禁忌カードの指定です");
         }
         CardMaster master = cards.findById(player.getTabooDeck().get(tabooIndex));
+
+        // ★Batch 54: 賢魂としての使用は、種別に関係なくスペルの使用として進む(裁定152)。
+        // 進化素材も場の空きも要らない —— 場に出るわけではないからである
+        if (asSoul) {
+            SoulSpellSpec soul = requireSoul(state, player, master);
+            ValidatedTargets soulTargets = validateTargets(state, player, -1, soul.targets(), choices);
+            validateTabooCost(player, soulCostOf(master), manaIndexes);
+            payTabooCost(room, player, manaIndexes);
+            ResolvedTargets soulResolved = removePlayedAndTargets(player, -1, soulTargets);
+            player.getTabooDeck().remove(tabooIndex);
+            player.setPlayedCardThisTurn(true);
+            room.addLog("%sが禁忌カード【%s】を使用".formatted(player.getDisplayName(), master.name()));
+            resolveSoulSpell(room, state, player, master, soul, soulResolved, true);
+            afterCardUsed(room, state, player, true);
+            return;
+        }
 
         // ★進化は素材を必ず1体消費するので、場が満杯でも枠は空く
         if (master.type() == CardType.MINION && player.isMinionZoneFull()) {

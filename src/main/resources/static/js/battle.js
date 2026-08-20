@@ -182,6 +182,18 @@ function onHandCardClick(index) {
     }
     const card = latestView.you.hand[index];
 
+    // ★Batch 54:【賢魂：n】を持つカードは2つの姿を持つ(裁定152)。
+    // どちらで使うかは<b>プレイヤーの宣言</b>なので、まずそれを尋ねる ——
+    // 進化素材の選択より前でなければならない(賢魂として使うなら素材は要らない)。
+    // ★サーバが soulCost を送ってきたときだけ導線を出す。
+    //   テキストを解析して自分で判断しない(規則はクライアントに置かない。裁定234)
+    if (card.soulCost != null) {
+        if (confirm(soulPrompt(card))) {
+            beginSelection('play-soul', index, card.soulTargets, {});
+            return;
+        }
+    }
+
     // 特殊召喚が可能なら通常召喚とどちらにするか確認する
     let action = 'play-card';
     let specs = card.targets;
@@ -203,6 +215,19 @@ function onHandCardClick(index) {
         return;
     }
     beginSelection(action, index, specs, extra);
+}
+
+/**
+ * ★Batch 54:【賢魂】の確認ダイアログの文言。
+ * 実効コストが n と違うとき(コスト軽減・増加)は両方を出す ——
+ * 押す前に何マナ払うかが分かるようにするためである。
+ */
+function soulPrompt(card) {
+    const eff = card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost;
+    const cost = eff === card.soulCost ? `コスト${card.soulCost}`
+        : `コスト${card.soulCost} → 実効${eff}`;
+    return `【賢魂：${card.soulCost}】${card.soulText || ''}\n\n`
+        + `OK = スペルとして使う(${cost}) / キャンセル = ミニオンとして出す`;
 }
 
 /**
@@ -545,14 +570,25 @@ function onTabooCardClick(index) {
         return;
     }
     const card = latestView.you.taboo[index];
+    // ★Batch 54: 禁忌デッキからも【賢魂】として使える(マスター裁定 A6)。
+    // ★<b>退けるマナは n 枚</b>である —— 賢魂として使うならコストは n だからである。
+    //   禁忌の支払いはコスト軽減を受けない(マナ枚数で払う)ので、印刷値の n をそのまま使う
+    let action = 'play-taboo';
+    let cost = card.cost;
+    let specs = card.targets;
+    if (card.soulCost != null && confirm(soulPrompt(card))) {
+        action = 'play-taboo-soul';
+        cost = card.soulCost;
+        specs = card.soulTargets;
+    }
     // 支払いに使えるマナ(ピュア・エレメントの一時マナは禁忌コストに使えない)
     const payable = latestView.you.manaZone.filter(m => !m.temporary).length;
-    if (payable < card.cost) {
-        showMessage(`禁忌コストの支払いに使えるマナが足りません(必要${card.cost}枚)`);
+    if (payable < cost) {
+        showMessage(`禁忌コストの支払いに使えるマナが足りません(必要${cost}枚)`);
         return;
     }
-    tabooPay = { tabooIndex: index, cost: card.cost, manaIndexes: [], specs: card.targets };
-    if (card.cost === 0) {
+    tabooPay = { tabooIndex: index, cost, manaIndexes: [], specs, action };
+    if (cost === 0) {
         finishTabooPayment();
         return;
     }
@@ -576,9 +612,9 @@ function pickTabooMana(index) {
 }
 
 function finishTabooPayment() {
-    const { tabooIndex, manaIndexes, specs } = tabooPay;
+    const { tabooIndex, manaIndexes, specs, action } = tabooPay;
     tabooPay = null;
-    beginSelection('play-taboo', null, specs, { tabooIndex, manaIndexes });
+    beginSelection(action || 'play-taboo', null, specs, { tabooIndex, manaIndexes });
 }
 
 function cancelTabooPayment() {
@@ -646,11 +682,15 @@ function hasAvailableActions(view) {
         case 'MAIN': {
             const abilityUsable = you.leaderAbility && you.leaderAbility.usable;
             if (you.cannotUseCards) return abilityUsable; // 起動能力はカードの使用ではない
+            const soulCostOf = c => (c.soulEffectiveCost != null ? c.soulEffectiveCost : c.soulCost);
             const playable = you.hand.some(c => c.type !== 'LEADER'
-                && (costOf(c) <= you.availableMp || c.canSpecialSummon));
+                && (costOf(c) <= you.availableMp || c.canSpecialSummon
+                    || (c.soulCost != null && soulCostOf(c) <= you.availableMp)));
             // 禁忌はMPではなくマナ枚数で支払う(一時マナは使えない)
             const payableMana = you.manaZone.filter(m => !m.temporary).length;
-            const tabooPlayable = (you.taboo || []).some(c => c.cost <= payableMana);
+            // ★Batch 54: 禁忌の賢魂は n 枚で払える(マスター裁定 A6)
+            const tabooPlayable = (you.taboo || []).some(c => c.cost <= payableMana
+                || (c.soulCost != null && c.soulCost <= payableMana));
             return playable || abilityUsable || tabooPlayable;
         }
         case 'BATTLE':
@@ -1667,12 +1707,15 @@ function createTabooCardEl(card, index, view) {
     const el = document.createElement('div');
     el.className = 'auto-card auto-card-hand';
     const payable = view.you.manaZone.filter(m => !m.temporary).length;
-    if (!pending && !tabooPay && view.myTurn && view.phase === 'MAIN' && payable >= card.cost) {
+    // ★Batch 54: 禁忌の【賢魂】は n 枚で払える(マスター裁定 A6)
+    const cheapest = card.soulCost != null ? Math.min(card.cost, card.soulCost) : card.cost;
+    if (!pending && !tabooPay && view.myTurn && view.phase === 'MAIN' && payable >= cheapest) {
         el.classList.add('playable');
     }
     if (tabooPay && tabooPay.tabooIndex === index) el.classList.add('selected-attacker');
     el.appendChild(cardFace(faceDataFromCardView(card), 'full'));
     const badges = newBadgeBox();
+    if (card.soulCost != null) addBadge(badges, '★賢魂:' + card.soulCost);
     addUnimplementedBadge(badges, card);
     attachBadges(el, badges);
     attachZoom(el, () => faceDataFromCardView(card));
@@ -1782,12 +1825,17 @@ function createHandCardEl(card, index, view) {
     } else if (!pending && !evolution) {
         const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
         const affordable = cost <= view.you.availableMp;
+        // ★Batch 54: 賢魂として使えるなら、ミニオンとして払えなくても光らせる。
+        // 賢魂はスペルの使用なのでサブフェイズでも使える(裁定152・マスター裁定 A4)
+        const soulAffordable = card.soulCost != null
+            && (card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost)
+                <= view.you.availableMp;
         // ミニオン・スペル・ウェポンはメインフェイズにプレイ可能(ウェポンの光り漏れバグを修正)
         const playable = view.myTurn && (
             view.phase === 'MANA_CHARGE' ||
             (view.phase === 'MAIN' && card.type !== 'LEADER'
-                && (affordable || card.canSpecialSummon)) ||
-            (view.phase === 'SUB' && card.type === 'SPELL' && affordable));
+                && (affordable || card.canSpecialSummon || soulAffordable)) ||
+            (view.phase === 'SUB' && (card.type === 'SPELL' ? affordable : soulAffordable)));
         if (playable) el.classList.add('playable');
     }
     // ★実効コストが違うときはコストの宝石に実効値を出し、印で分かるようにする
@@ -1801,6 +1849,7 @@ function createHandCardEl(card, index, view) {
     el.appendChild(face);
     const badges = newBadgeBox();
     if (card.canSpecialSummon) addBadge(badges, '★特殊召喚可');
+    if (card.soulCost != null) addBadge(badges, '★賢魂:' + card.soulCost);
     addUnimplementedBadge(badges, card);
     attachBadges(el, badges);
     attachZoom(el, () => faceDataFromCardView(card));

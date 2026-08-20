@@ -64,12 +64,36 @@ public class GameWsController {
                 request.materialIds()));
     }
 
+    /**
+     * 手札のミニオンを【賢魂：n】として使う(★Batch 54。裁定152)。
+     *
+     * ★<b>{@code play-card} と別の宛先にしている。</b> どちらの姿で使うかは
+     * カードの種別ではなく<b>プレイヤーの宣言</b>であり、宛先そのものが宣言になる。
+     * 素材も強化コストも伴わないので {@code materialIds} / {@code enhanced} は読まない。
+     */
+    @MessageMapping("/room/{roomId}/play-soul")
+    public void playSoul(@DestinationVariable String roomId, PlayCardRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.playSoulCard(
+                room, request.playerId(), request.handIndex(), request.targets()));
+    }
+
     /** 禁忌カードの使用(メインフェイズのみ・マナで直接コストを支払う) */
     @MessageMapping("/room/{roomId}/play-taboo")
     public void playTaboo(@DestinationVariable String roomId, TabooRequest request) {
         execute(roomId, request.playerId(), room -> gameService.playTabooCard(
                 room, request.playerId(), request.tabooIndex(),
                 request.manaIndexes(), request.targets(), request.materialIds()));
+    }
+
+    /**
+     * 禁忌カードを【賢魂：n】として使う(★Batch 54。マスター裁定 A6)。
+     * 退けるマナは n 枚である —— 賢魂として使うならコストは n だからである。
+     */
+    @MessageMapping("/room/{roomId}/play-taboo-soul")
+    public void playTabooSoul(@DestinationVariable String roomId, TabooRequest request) {
+        execute(roomId, request.playerId(), room -> gameService.playTabooSoulCard(
+                room, request.playerId(), request.tabooIndex(),
+                request.manaIndexes(), request.targets()));
     }
 
     /** 【特殊召喚】(条件・代替コストによる代替召喚) */

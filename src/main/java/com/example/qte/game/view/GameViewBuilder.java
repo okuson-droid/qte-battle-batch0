@@ -18,6 +18,7 @@ import com.example.qte.game.MinionInstance;
 import com.example.qte.game.PlayerState;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
+import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.Keyword;
 import com.example.qte.room.GameRoom;
 
@@ -284,6 +285,15 @@ public class GameViewBuilder {
         EvolutionSpec evolution = effects.evolutionOf(master.id());
         TargetSpec spec = effects.targetSpecOf(master.id());
         com.example.qte.effect.EnhancedCostSpec enhanced = effects.enhancedCostOf(master.id());
+        // ★Batch 54:【賢魂：n】としての姿(裁定152)。
+        // ★<b>2つの条件がそろって初めて導線を出す</b> —— テキストに【賢魂：n】があり、
+        //   かつエンジンがその効果を持っていること。片方だけだと
+        //   「押せるのに『未実装です』と言われるボタン」になる。
+        // ★n の出どころはテキスト1つである(CardTextKeywords)。ビューは計算しない
+        Integer soulCost = effects.soulSpellOf(master.id()) == null
+                ? null : CardTextKeywords.soulCost(master.text());
+        com.example.qte.effect.SoulSpellSpec soul = soulCost == null
+                ? null : effects.soulSpellOf(master.id());
         return new CardView(
                 master.id(),
                 master.name(),
@@ -307,7 +317,11 @@ public class GameViewBuilder {
                 evolution == null ? 0 : evolution.minMaterials(),
                 evolutionMax(player, evolution),
                 evolution == null ? null : evolution.description(),
-                canSpecialFromGrave);
+                canSpecialFromGrave,
+                soulCost,
+                soulCost == null ? null : stats.effectiveSoulCost(state, player, master, soulCost),
+                soul == null ? List.of() : toReqViews(soul.targets()),
+                soulCost == null ? null : CardTextKeywords.soulText(master.text()));
     }
 
     /**

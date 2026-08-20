@@ -5346,6 +5346,112 @@ async function clearZoom(page) {
       && JSON.stringify(graveSent.body.materialIds) === JSON.stringify(['g1']),
     JSON.stringify({ graveSelecting, graveSent }));
 
+  // ---- 54-1〜54-3. ★【賢魂】の2導線(★Batch 54。裁定152) ----
+  //
+  // ★<b>クライアントはテキストを1文字も割らない。</b> n も効果の文も対象要求も、
+  //   サーバが読んで {@code soulCost / soulText / soulTargets} で送る(裁定234)。
+  //   したがってここで測るのは3つだけである ——
+  //   (1) soulCost が来たカードにだけ確認が出るか、
+  //   (2) OK なら play-soul・キャンセルなら通常の使用へ落ちるか、
+  //   (3) 禁忌からは n 枚のマナで play-taboo-soul へ飛ぶか。
+  const soulCard = autoCard('QTE-M-DARK-37', 'グレイヴガールズファン', {
+    type: 'MINION', civilization: 'DARK', cost: 5, attack: 2, hp: 4, keywords: ['守護'],
+    text: '【守護】【賢魂：１】カードを1枚引く。その後自分の山札の上から1枚目を墓地に置く',
+    soulCost: 1, soulEffectiveCost: 1, soulTargets: [],
+    soulText: 'カードを1枚引く。その後自分の山札の上から1枚目を墓地に置く',
+  });
+  const plainHandCard = autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2, text: '' });
+  const soulView = autoView({
+    you: autoPlayer({
+      availableMp: 5, handCount: 2, hand: [soulCard, plainHandCard],
+      tabooCount: 1, taboo: [soulCard],
+      // ★禁忌は MP ではなくマナ枚数で払う。3枚置いておく
+      //   (印刷コスト5 では足りず、賢魂の1なら足りる ——
+      //    「n 枚で払っている」ことが枚数そのもので現れる)
+      manaZone: Array.from({ length: 3 }, () => ({
+        name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10',
+        tapped: false, faceUp: true, temporary: false,
+      })),
+      totalMana: 3,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(soulView);
+  const soulBadges = await autoPage.evaluate(() =>
+    [...document.querySelectorAll('#my-hand .auto-card')]
+      .map((el) => [...el.querySelectorAll('.auto-badge')].map((b) => b.textContent).join(',')));
+  check('★★【賢魂】を持つ手札にだけ n がバッジで出る(54・裁定152)',
+    soulBadges.length === 2 && soulBadges[0].includes('★賢魂:1') && soulBadges[1] === '',
+    JSON.stringify(soulBadges));
+
+  // ★OK を押すと play-soul へ飛ぶ。★確認の文言に n と効果の文が入っていること
+  await autoPage.evaluate(() => {
+    window.__confirms = [];
+    window.confirm = (msg) => { window.__confirms.push(String(msg)); return true; };
+    window.__sent.length = 0;
+  });
+  const soulHandBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(soulHandBox.x + soulHandBox.width / 2,
+    soulHandBox.y + soulHandBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const soulSent = await autoPage.evaluate(() => ({
+    sent: window.__sent[window.__sent.length - 1] || null,
+    confirms: window.__confirms,
+  }));
+  check('★★★【賢魂】でOKを押すと play-soul へ飛ぶ(54)',
+    !!soulSent.sent && soulSent.sent.destination.endsWith('/play-soul')
+      && soulSent.sent.body.handIndex === 0
+      && soulSent.confirms.length === 1
+      && soulSent.confirms[0].includes('【賢魂：1】')
+      && soulSent.confirms[0].includes('山札の上から1枚目を墓地に置く'),
+    JSON.stringify(soulSent));
+
+  // ★<b>キャンセルなら通常の使用に落ちる</b>(そうでない側。裁定181) ——
+  //   これが無いと「賢魂を持つカードは賢魂でしか使えない」実装でも上の項目は通る。
+  //   ★賢魂を持たないカードでは確認そのものが出ないことも同時に測る
+  await autoDeliver(soulView);
+  await autoPage.evaluate(() => {
+    window.__confirms = [];
+    window.confirm = (msg) => { window.__confirms.push(String(msg)); return false; };
+    window.__sent.length = 0;
+  });
+  await autoPage.mouse.click(soulHandBox.x + soulHandBox.width / 2,
+    soulHandBox.y + soulHandBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const plainHandBox = await autoPage.locator('#my-hand .auto-card').nth(1).boundingBox();
+  await autoPage.mouse.click(plainHandBox.x + plainHandBox.width / 2,
+    plainHandBox.y + plainHandBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const soulFallback = await autoPage.evaluate(() => ({
+    destinations: window.__sent.map((s) => s.destination.split('/').pop()),
+    confirms: window.__confirms.length,
+  }));
+  check('★★★【賢魂】をキャンセルすると通常の使用になり、持たないカードは確認すら出ない(54)',
+    JSON.stringify(soulFallback.destinations) === JSON.stringify(['play-card', 'play-card'])
+      && soulFallback.confirms === 1,
+    JSON.stringify(soulFallback));
+
+  // ★禁忌デッキからも賢魂として使える(マスター裁定 A6)。★退けるマナは n 枚である ——
+  //   印刷コストの5枚を要求する実装なら、1枚選んだ時点では送信が起きない
+  await autoDeliver(soulView);
+  await autoPage.evaluate(() => {
+    window.confirm = () => true;
+    window.__sent.length = 0;
+    toggleTabooRow();
+    document.querySelector('#my-taboo .auto-card').click();
+  });
+  await autoPage.waitForTimeout(60);
+  const tabooManaBox = await autoPage.locator('#my-mana-row .mana-tile').first().boundingBox();
+  await autoPage.mouse.click(tabooManaBox.x + tabooManaBox.width / 2,
+    tabooManaBox.y + tabooManaBox.height / 2);
+  await autoPage.waitForTimeout(60);
+  const tabooSoulSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★禁忌の【賢魂】は n 枚のマナを退けて play-taboo-soul へ飛ぶ(54・マスター裁定 A6)',
+    !!tabooSoulSent && tabooSoulSent.destination.endsWith('/play-taboo-soul')
+      && tabooSoulSent.body.tabooIndex === 0
+      && tabooSoulSent.body.manaIndexes.length === 1,
+    JSON.stringify(tabooSoulSent));
+
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
   await autoPage.close();
 

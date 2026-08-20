@@ -69,9 +69,13 @@ BRACKET = re.compile(r'【[^】]*】')
 NOISE = re.compile(r'[\s。、,\.]+')
 
 # CardEffectRegistry が持つ「カードID → 効果」の表。ここに載っていない表が現れたら止める。
+# ★Batch 54: soulSpells(【賢魂：n】としての効果)を足した。
+#   進化の素材条件(evolutions)と違い、これは「そのカードの効果そのもの」なので
+#   Java 側の isRegistered() も数える(裁定233 との線引き)。
 REGISTRY_MAPS = [
     'spellEffects', 'triggers', 'targetSpecs', 'specialSummons', 'leaderAbilities',
     'minionAbilities', 'enhancedCosts', 'ownMinionDestroyedWatchers', 'playConditions',
+    'soulSpells',
 ]
 
 CIV_ORDER = ['FIRE', 'WATER', 'WIND', 'LIGHT', 'DARK', 'EARTH', 'NONE']

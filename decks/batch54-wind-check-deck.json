@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "name": "賢魂・風確認用(Batch54)",
+  "leaderCardId": "QTE-M-WIND-1",
+  "main": [
+    {
+      "cardId": "QTE-M-WIND-30",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-31",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-2",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-3",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-5",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-17",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-9",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-10",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-WIND-25",
+      "count": 4
+    }
+  ],
+  "taboo": [
+    "QTE-M-EARTH-30",
+    "QTE-M-EARTH-36",
+    "QTE-M-LIGHT-2",
+    "QTE-M-LIGHT-17",
+    "QTE-M-DARK-33",
+    "QTE-M-DARK-37",
+    "QTE-M-FIRE-2",
+    "QTE-M-WATER-2"
+  ]
+}

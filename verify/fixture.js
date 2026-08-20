@@ -296,6 +296,9 @@ function autoCard(cardId, name, overrides = {}) {
     // ★Batch 53: 墓地からの【特殊召喚】(《サモナーポップ・エンラ》)。
     //   「今それができるか」を知っているのはサーバだけなので、真偽値だけを送る
     canSpecialSummonFromGrave: false,
+    // ★Batch 54:【賢魂：n】としての姿(裁定152)。
+    //   n も効果の文もサーバが読んで送る —— クライアントはテキストを割らない(裁定234)
+    soulCost: null, soulEffectiveCost: null, soulTargets: [], soulText: null,
     ...overrides,
   };
 }

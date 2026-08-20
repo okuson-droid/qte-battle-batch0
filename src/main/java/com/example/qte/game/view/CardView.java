@@ -38,6 +38,13 @@ import com.example.qte.master.Keyword;
  *                          ★{@link #canSpecialSummon} と分けたのは、出どころが違えば
  *                          クライアントが送る操作も違う(play/special-summon ではなく
  *                          special-summon-from-grave)ためである
+ * @param soulCost          ★Batch 54。【賢魂：n】の n(印刷値)。賢魂を持たないカードは null。
+ *                          <b>これが「手札に2つ目の導線を出すか」の唯一の根拠</b>である ——
+ *                          クライアントはテキストを解析しない(裁定234)
+ * @param soulEffectiveCost 賢魂として使う場合の現在コスト(コスト軽減・増加を反映済み)。
+ *                          賢魂を持たないカードは null
+ * @param soulTargets       賢魂として使うときの対象選択。ミニオンとしての {@link #targets} とは別物である
+ * @param soulText          賢魂の効果の文(確認ダイアログに出す)。賢魂を持たないカードは null
  */
 public record CardView(
         String cardId,
@@ -62,7 +69,11 @@ public record CardView(
         int evolutionMin,
         int evolutionMax,
         String evolutionText,
-        boolean canSpecialSummonFromGrave) {
+        boolean canSpecialSummonFromGrave,
+        Integer soulCost,
+        Integer soulEffectiveCost,
+        List<TargetReqView> soulTargets,
+        String soulText) {
 
     public static List<String> keywordNames(CardMaster master) {
         return master.keywords().stream().map(Keyword::getDisplayName).toList();

@@ -90,6 +90,16 @@ public class CardEffectRegistry {
      */
     private final Map<String, EvolutionSpec> evolutions = new HashMap<>();
 
+    /**
+     * 【賢魂：n】としての使用の仕様(★Batch 54。裁定152)。
+     *
+     * ★<b>この表は {@link #isRegistered(String)} が見る。</b>
+     * {@link #evolutions} と違い、賢魂は<b>そのカードの効果そのもの</b>だからである
+     * (素材条件は「場に出す手段」であって効果ではない。裁定233)。
+     * ★n はここに持たない —— テキストが正である({@link SoulSpellSpec} の説明を参照)。
+     */
+    private final Map<String, SoulSpellSpec> soulSpells = new HashMap<>();
+
     // ---------------------------------------------------------------
     // ★Batch 47: 表に登録せず、このクラスのコードに直接書かれているカード。
     // 表に載らないので {@link #isRegistered(String)} では拾えない。
@@ -113,6 +123,9 @@ public class CardEffectRegistry {
 
     /** 乱戦鉄機狼(★Batch 51): この値以下なら自傷が相手への1ダメージに置き換わる */
     private static final int IRON_WOLF_LP_THRESHOLD = 10;
+
+    /** 勝阿外の【賢魂：2】(★Batch 54): 「自分のマナが3枚以下のとき」1枚引く */
+    private static final int KATSUAGE_DRAW_MANA_LIMIT = 3;
 
     /**
      * 海淵獣シラーカ(★Batch 52)。効果の文が<b>進化の素材条件だけ</b>のカードである。
@@ -182,6 +195,7 @@ public class CardEffectRegistry {
         registerEvolutionMaterials();
         registerEvolutionCards();
         registerEvolutionEffectCards();
+        registerSoulCards();
     }
 
     // ---------------------------------------------------------------
@@ -3136,6 +3150,51 @@ public class CardEffectRegistry {
             }
             // 英術・スケアロック(QTE-M-LIGHT-39): 素材を確定させて進化ミニオンを場に出す。★Batch 53
             case SCARELOCK_MATERIAL -> resolveScarelockMaterials(ctx, chosen);
+            // 白ノ霊知者(QTE-M-WIND-31): 【召喚時】に破壊するミニオンを確定させる。★Batch 54。
+            // ★候補は両者の場から作ってあるので、どちら側に居るかを探し直す
+            case HAKUNO_REICHISHA_DESTROY -> {
+                for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                    MinionInstance victim = side.getMinionZone().stream()
+                            .filter(m -> m.getInstanceId().equals(chosen.get(0)))
+                            .findFirst().orElse(null);
+                    if (victim != null) {
+                        ctx.actions().destroyMinion(ctx.room(), side, victim);
+                        break;
+                    }
+                }
+            }
+            // 愚乱怒土地(QTE-M-EARTH-30): 見た2枚のうち、裏向きでマナに置く1枚を確定させる。★Batch 54
+            case GURANDORANDO_MANA -> resolveGurandorandoChoice(ctx, chosen);
+        }
+    }
+
+    /**
+     * 《愚乱怒土地》の【賢魂：3】の後始末(★Batch 54)。
+     *
+     * 選んだ1枚は裏向きでマナへ、残りは手札へ入る。
+     * ★<b>マナが上限で置けなかった1枚は山札の上に戻す</b>(マスター裁定)。
+     * 墓地に落とすと「山札から墓地へ」という経路が1つ増えてしまう。
+     * ★公開領域は必ず空にする —— 残すと本人のビューに出たままになる。
+     */
+    private void resolveGurandorandoChoice(EffectContext ctx, List<String> chosen) {
+        List<String> revealed = new ArrayList<>(ctx.owner().getRevealedZone());
+        ctx.owner().getRevealedZone().clear();
+        int toMana = chosen.isEmpty() ? -1 : Integer.parseInt(chosen.get(0));
+        for (int i = 0; i < revealed.size(); i++) {
+            String cardId = revealed.get(i);
+            if (i != toMana) {
+                ctx.owner().getHand().add(cardId);
+                ctx.room().addLog("【愚乱怒土地】: 見た1枚を手札に加えました");
+                continue;
+            }
+            if (!ctx.actions().placeCardInManaFaceDown(ctx.room(), ctx.owner(), cardId)) {
+                // 置けなかったぶんは山札の上へ戻す(見ただけの状態に戻る)
+                ctx.owner().getDeck().addFirst(cardId);
+                ctx.room().addLog("【愚乱怒土地】: マナが上限のため、1枚は山札の上に戻りました");
+                continue;
+            }
+            ctx.room().addLog("【愚乱怒土地】: 見た1枚を裏向きでマナに置きました(マナ%d枚)"
+                    .formatted(ctx.owner().getManaZone().size()));
         }
     }
 
@@ -3573,6 +3632,218 @@ public class CardEffectRegistry {
     }
 
     /**
+     * 【賢魂】を持つ7枚(★Batch 54。裁定152)。P4 でエンジンと同時に入れる。
+     *
+     * <h2>1枚のカードに2つの姿がある</h2>
+     *
+     * <ul>
+     * <li><b>ミニオンとしての姿</b>は、これまでどおり {@code triggers} / {@code targetSpecs} に載る。
+     *     ★<b>ミニオンとして召喚した場合、賢魂の効果は発動しない</b>(裁定152)ので、
+     *     ここで賢魂の効果をトリガーに登録してはいけない。</li>
+     * <li><b>スペルとしての姿</b>は {@link #soulSpells} に載る。
+     *     コスト n はカードテキストが持つ({@code CardTextKeywords.soulCost})。</li>
+     * </ul>
+     *
+     * ★<b>進化4枚の素材条件は 52 で登録済みである</b>({@code registerEvolutionMaterials})。
+     * 54 が足すのは効果だけである。
+     *
+     * ★<b>《勝阿外》はこの表に賢魂しか載せない。</b>【常在】の2つ
+     * (相手はスペルを唱えられない / 相手の手札の枚数だけ Attack+1)は
+     * {@link RuleGuards} と {@link StatCalculator} の判定点にある ——
+     * あの2つのクラスの {@code IMPLEMENTED_CARDS} には<b>足していない</b>。
+     * この表に載った時点で {@link #isRegistered(String)} が真を返すので、
+     * 足しても<b>外して何も落ちない宣言</b>が増えるだけである(53 のノアと同じ理由)。
+     */
+    private void registerSoulCards() {
+
+        // ---- グレイヴガールズファン(QTE-M-DARK-37) ----
+        // 「【守護】【賢魂：１】カードを1枚引く。その後自分の山札の上から1枚目を墓地に置く」
+        //
+        // ★ミニオンとしての姿は【守護】だけで、効果の文を持たない(登録は賢魂だけ)。
+        // ★このカードだけ n が全角の「１」で書かれている(マスター確認済み・データは直さない)。
+        //   読む側の CardTextKeywords が全角も半角も取る
+        soulSpells.put("QTE-M-DARK-37", SoulSpellSpec.of(ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            // 「山札の上から1枚目を墓地に置く」= ミル。場を経由しない墓地送りである(裁定207)
+            ctx.actions().mill(ctx.room(), ctx.owner(), 1);
+        }));
+
+        // ---- スタンディングテント(QTE-M-DARK-38) ----
+        // 「【守護】【召喚時】カードを2枚引く。
+        //   【賢魂：2】このミニオンを場に出す。そのミニオンの【召喚時】は使えない。そのミニオンに2ダメージ。」
+        //
+        // ★★<b>賢魂の効果が、使用しているカード自身を場に出す唯一の例</b>である。
+        //   6コスト 1/6【守護】が、2コストで【召喚時】の2ドロー抜き・2ダメージ入りで出る。
+        // ★本文の「そのミニオンの【召喚時】は使えない」は、
+        //   効果による「場に出す」は【召喚時】を発動しない(裁定245)という既定と一致する ——
+        //   <b>本文が念を押しているだけで、例外を作ってはいない。</b>
+        register("QTE-M-DARK-38", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2));
+        soulSpells.put("QTE-M-DARK-38", SoulSpellSpec.of(ctx -> {
+            // ★「出せるか」を呼ぶ前に自分で見る(神の福音と同じ)。
+            //   putIntoFieldByEffect の null には2つの意味があり(50 の教訓)、
+            //   ここで見分けないと<b>カードが2枚に増えるか、宙に浮いて消える</b>。
+            // ★出せない場合、このカードは通常のスペルと同じく墓地へ行く(マスター裁定 B6-2)。
+            //   行き先を書き込まずに戻れば、GameService がそうしてくれる
+            if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
+                ctx.room().addLog("【スタンディングテント】: 場に出せないため、墓地に置かれます");
+                return;
+            }
+            MinionInstance placed = ctx.actions().putIntoFieldByEffect(
+                    ctx.room(), ctx.owner(), "QTE-M-DARK-38", List.of(), ctx.fromTaboo());
+            // ここまで来たら行き先はもう決まっている ——
+            // 場に出た(placed != null)か、《光霊・モアニール》が山札の下(禁忌なら消滅)へ置いたかである。
+            // どちらにせよ、使用後の処理でもう一度動かしてはいけない
+            ctx.owner().setPendingSpellDisposition(SpellDisposition.KEPT_BY_EFFECT);
+            if (placed != null) {
+                // ★2ダメージは<b>場に出た後</b>である(登場時の効果がすべて解決してから。マスター裁定 B6-3)
+                ctx.actions().damageMinion(ctx.room(), ctx.owner(), placed, 2);
+            }
+        }));
+
+        // ---- 英霊・タイガラム(QTE-M-LIGHT-32・進化) ----
+        // 「【進化】（自分の守護を持つ光文明のミニオン1体）
+        //   【召喚時】自分の手札から守護を持つ進化ではないミニオンを1体場に出す。
+        //   【守護】【賢魂：3】カードを2枚引く。」
+        //
+        // ★<b>賢魂を持つ進化で、唯一【召喚時】も持つ</b>。
+        //   これにより《英術・スケアロック》で効果から出したときに
+        //   <b>【召喚時】が発動しないこと</b>が本物の入口から観測できる(53 設計解説 6-1 の宿題)。
+        // ★「進化ではない」は Filter.MINION_CARD がそのまま表す
+        //   (種別 EVOLUTION は MINION ではない)。走査を伴う判定ではないので
+        //   クライアントへ送ってよい(裁定234 の線引き)。
+        // ★候補が手札に無くても召喚できる(マスター裁定 B4-1)ので upTo である
+        targetSpecs.put("QTE-M-LIGHT-32", TargetSpec.of(Requirement.upTo(Kind.HAND, Side.SELF, 1,
+                "場に出す【守護】を持つ進化ではないミニオンを1体選んでください(選ばなくてもよい)",
+                Filter.GUARD, Filter.MINION_CARD)));
+        register("QTE-M-LIGHT-32", TriggerType.ON_SUMMON, ctx -> {
+            for (String id : ctx.targets().get(0).handCardIds()) {
+                if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
+                    ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す(神の福音と同じ)
+                    continue;
+                }
+                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+            }
+        });
+        soulSpells.put("QTE-M-LIGHT-32",
+                SoulSpellSpec.of(ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2)));
+
+        // ---- 黒ノ霊導者(QTE-M-WIND-30・進化) ----
+        // 「【進化】（風文明のミニオン1体）【守護】
+        //   【賢魂：1】自分のミニオンを1体破壊、そうしたら相手のミニオン1体に3ダメージ与える。」
+        //
+        // ★ミニオンとしての姿は【守護】だけで、効果の文を持たない。
+        // ★<b>自分のミニオンが1体も居なくても使用できる</b>(マスター裁定 B3-1)。
+        //   その場合は何も起こらない —— だから前半も upTo である。
+        // ★<b>「そうしたら」は実際に破壊できたことを指す</b>(マスター裁定 B3-3)。
+        //   《大天使ミカエル》《聖光の守護聖》の置換で場に残ったなら、3ダメージは与えない。
+        //   destroyMinion は成否を返さないので、破壊の前後で場に居るかを見る(2種のオニと同じ形)。
+        // ★対象は2つとも<b>使用宣言時にまとめて選ぶ</b>(マスター裁定 B3-4)。
+        //   割り込み(PendingChoice)を1つ増やさずに済む
+        soulSpells.put("QTE-M-WIND-30", SoulSpellSpec.of(
+                TargetSpec.of(
+                        Requirement.upTo(Kind.MINION, Side.SELF, 1, "破壊する自分のミニオンを1体選んでください"),
+                        Requirement.upTo(Kind.MINION, Side.OPPONENT, 1,
+                                "3ダメージを与える相手のミニオンを1体選んでください")),
+                ctx -> {
+                    List<ResolvedTargets.TargetedMinion> sacrifices = ctx.targets().get(0).minions();
+                    if (sacrifices.isEmpty()) {
+                        ctx.room().addLog("【黒ノ霊導者】: 破壊する自分のミニオンが居ないため、何も起こりませんでした");
+                        return;
+                    }
+                    ResolvedTargets.TargetedMinion sacrifice = sacrifices.get(0);
+                    ctx.actions().destroyMinion(ctx.room(), sacrifice.owner(), sacrifice.minion());
+                    if (sacrifice.owner().getMinionZone().contains(sacrifice.minion())) {
+                        ctx.room().addLog("【黒ノ霊導者】: 破壊されなかったため、3ダメージは与えられません");
+                        return;
+                    }
+                    for (ResolvedTargets.TargetedMinion victim : ctx.targets().get(1).minions()) {
+                        ctx.actions().damageMinion(ctx.room(), victim.owner(), victim.minion(), 3);
+                    }
+                }));
+
+        // ---- 白ノ霊知者(QTE-M-WIND-31・進化) ----
+        // 「【進化】（風文明のミニオン1体）【召喚時】カードを2枚引く。ミニオンを1体選び破壊する。
+        //   【賢魂：2】自分のミニオン1体の攻撃力+1する。【還元】」
+        //
+        // ★★<b>末尾の【還元】は賢魂としての姿にだけ付いている</b>(マスター裁定 B1)。
+        //   スペルとして使い終われば裏向きでマナへ、ミニオンとして破壊されれば墓地へ行く。
+        //   この分岐は CardTextKeywords が【賢魂：n】でテキストを割ることで表している ——
+        //   <b>ここに書くことは何も無い</b>(規則はテキストの読み方の側にある)。
+        // ★【召喚時】の破壊は<b>割り込み</b>である。TargetSpec にすると、
+        //   進化の素材にした自分のミニオンを対象に選べてしまう(検証は召喚より前に走る)し、
+        //   候補ゼロで召喚そのものが弾かれる(48 の落とし穴)。
+        // ★側の限定が無いので<b>両者の場</b>を候補にする(裁定156(2)・マスター裁定 B2-1)。
+        //   進化した自身も場に居るので、候補が0体になることは無い
+        register("QTE-M-WIND-31", TriggerType.ON_SUMMON, ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+            List<String> candidates = new ArrayList<>();
+            for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+                side.getMinionZone().forEach(m -> candidates.add(m.getInstanceId()));
+            }
+            if (candidates.isEmpty()) {
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MINION, candidates, ResumePoint.HAKUNO_REICHISHA_DESTROY,
+                    "【白ノ霊知者】: 破壊するミニオンを1体選んでください"));
+        });
+        soulSpells.put("QTE-M-WIND-31", SoulSpellSpec.of(
+                TargetSpec.of(Requirement.of(Kind.MINION, Side.SELF, 1, false,
+                        "攻撃力+1する自分のミニオンを1体選んでください")),
+                ctx -> {
+                    ResolvedTargets.TargetedMinion target = ctx.targets().get(0).minions().get(0);
+                    target.minion().addModifier(new StatModifier(StatModifier.Stat.ATTACK,
+                            StatModifier.Operation.ADD, 1, StatModifier.Duration.PERMANENT,
+                            "QTE-M-WIND-31"));
+                    ctx.room().addLog("【白ノ霊知者】: 【%s】の攻撃力が+1されました"
+                            .formatted(target.minion().getMaster().name()));
+                }));
+
+        // ---- 愚乱怒土地(グランドランド)(QTE-M-EARTH-30・進化) ----
+        // 「【進化】（土文明のミニオン1体）【威圧】
+        //   【賢魂：3】自分の山札の上から2枚見て1枚を裏向きでマナに1枚を手札へ相手に見せず加える。」
+        //
+        // ★ミニオンとしての姿は【威圧】だけで、効果の文を持たない。
+        // ★<b>「見る」だけなので相手には見せない。</b>公開領域(revealedZone)は本人のビューにしか
+        //   出ない(GameViewBuilder が isSelf で絞る)ので、既存の器がそのまま使える。
+        // ★山札が1枚しかないときは「マナへ置くか、手札に加えるか」を選ばせる(マスター裁定 B7-1)。
+        //   そのため min は候補が2枚あるときだけ1になる —— 0枚なら何も起こらない
+        soulSpells.put("QTE-M-EARTH-30", SoulSpellSpec.of(ctx -> {
+            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 2);
+            if (revealed.isEmpty()) {
+                ctx.room().addLog("【愚乱怒土地】: 山札が空のため、何も起こりませんでした");
+                return;
+            }
+            ctx.owner().getRevealedZone().addAll(revealed);
+            List<String> positions = new ArrayList<>();
+            for (int i = 0; i < revealed.size(); i++) {
+                positions.add(String.valueOf(i));
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+                    PendingChoice.Kind.REVEALED, positions,
+                    revealed.size() >= 2 ? 1 : 0, 1, ResumePoint.GURANDORANDO_MANA,
+                    "【愚乱怒土地】: 裏向きでマナに置く1枚を選んでください(残りは手札に加わります)"));
+        }));
+
+        // ---- 勝阿外(カツアゲ)(QTE-M-EARTH-36) ----
+        // 「【常在】相手はスペルを唱えられない。相手の手札の枚数このミニオンの攻撃力+1
+        //   【賢魂：2】山札の上からカードを1枚マナゾーンに裏向きで置く。
+        //   自分のマナが3枚以下のときカードを1枚引く。」
+        //
+        // ★【常在】2つはルール側の判定点にある(RuleGuards / StatCalculator)。
+        // ★「3枚以下」は<b>1枚置いた後</b>の枚数で見る(マスター裁定 B8-4。文の順序どおり)。
+        // ★マナ上限・山札切れで置けなかった場合も<b>ドローの判定は行う</b>
+        //   (マスター裁定 B8-5。前半と後半が「そうしたら」で繋がっていない)
+        soulSpells.put("QTE-M-EARTH-36", SoulSpellSpec.of(ctx -> {
+            ctx.actions().placeTopOfDeckInManaFaceDown(ctx.room(), ctx.owner());
+            if (ctx.owner().getManaZone().size() <= KATSUAGE_DRAW_MANA_LIMIT) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            }
+        }));
+    }
+
+    /**
      * 《英術・スケアロック》の後半 —— 手札の【進化】光文明ミニオンを1体選ばせる(★Batch 53)。
      *
      * ★<b>候補は「今この瞬間、素材を確保できるもの」だけである</b>(マスター裁定)。
@@ -3716,7 +3987,13 @@ public class CardEffectRegistry {
                 || minionAbilities.containsKey(cardId)
                 || enhancedCosts.containsKey(cardId)
                 || ownMinionDestroyedWatchers.containsKey(cardId)
-                || playConditions.containsKey(cardId);
+                || playConditions.containsKey(cardId)
+                || soulSpells.containsKey(cardId);
+    }
+
+    /** このカードの【賢魂：n】としての仕様(★Batch 54)。持たない・未実装なら null */
+    public SoulSpellSpec soulSpellOf(String cardId) {
+        return soulSpells.get(cardId);
     }
 
     /**

@@ -387,7 +387,27 @@ public class GameActions {
 
     /** 使用し終わったスペルの後処理(通常は墓地、【還元】ならマナへ、禁忌由来なら消滅) */
     public void disposeUsedSpell(GameRoom room, PlayerState player, CardMaster spell, boolean fromTaboo) {
-        sendToTrashOrRestore(room, player, spell, fromTaboo);
+        disposeUsedCard(room, player, spell, fromTaboo, spell.hasKeyword(Keyword.RESTORATION));
+    }
+
+    /**
+     * 使用し終わったカードの後処理(★Batch 54。賢魂として使った場合の入口)。
+     *
+     * <b>なぜ【還元】を引数で受けるのか。</b>【賢魂：n】を持つカードは
+     * <b>2つの姿</b>を持ち、キーワードは姿ごとに違う(裁定152・マスター裁定 B1)。
+     * 《白ノ霊知者》の【還元】は<b>賢魂としての姿</b>にだけ付いており、
+     * ミニオンとして破壊されたときは墓地へ行く。
+     * {@code spell.hasKeyword(...)} を直に見ると、姿の区別が消える。
+     *
+     * ★<b>還元の判定を呼び出し側で計算しないこと。</b>
+     * 出どころは {@link com.example.qte.master.CardTextKeywords} の2つのメソッド
+     * ({@code extract} / {@code soulKeywords})だけである。
+     *
+     * @param restoration このカードが今の姿で【還元】を持つか
+     */
+    public void disposeUsedCard(GameRoom room, PlayerState player, CardMaster card,
+            boolean fromTaboo, boolean restoration) {
+        sendToTrashOrRestore(room, player, card, fromTaboo, restoration);
     }
 
     /**
@@ -396,12 +416,18 @@ public class GameActions {
      * 禁忌由来のカードは墓地に行かないため、還元は構造的に機能しない(ルール3-6からの導出)。
      */
     private boolean sendToTrashOrRestore(GameRoom room, PlayerState owner, CardMaster card, boolean fromTaboo) {
+        return sendToTrashOrRestore(room, owner, card, fromTaboo, card.hasKeyword(Keyword.RESTORATION));
+    }
+
+    /** 上の版に「今の姿が【還元】を持つか」を明示して渡す形(★Batch 54。賢魂の2つの姿のため) */
+    private boolean sendToTrashOrRestore(GameRoom room, PlayerState owner, CardMaster card,
+            boolean fromTaboo, boolean restoration) {
         if (fromTaboo) {
             owner.getLostZone().add(card.id());
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(card.name()));
             return false;
         }
-        if (card.hasKeyword(Keyword.RESTORATION) && owner.getManaZone().size() < PlayerState.MAX_MANA) {
+        if (restoration && owner.getManaZone().size() < PlayerState.MAX_MANA) {
             ManaCard mana = new ManaCard(card.id(), false);
             mana.turnFaceDown();
             owner.getManaZone().add(mana); // アンタップ状態で置かれる(キーワード定義通り)
@@ -531,6 +557,25 @@ public class GameActions {
      */
     public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId,
             java.util.List<MinionInstance> materials) {
+        return putIntoFieldByEffect(room, owner, cardId, materials, false);
+    }
+
+    /**
+     * 効果によって、<b>禁忌デッキ由来のカード</b>を場に出す(★Batch 54)。
+     *
+     * <h2>なぜこの版が要るのか</h2>
+     *
+     * 【賢魂】の使用は禁忌デッキからも行える(マスター裁定 A6)。
+     * 《スタンディングテント》の【賢魂：2】は<b>使用したカード自身を場に出す</b>ので、
+     * 禁忌由来のまま場に立つミニオンが初めて「効果による出す」から生まれる。
+     * ★<b>印を持たせないと、場を離れたときに墓地へ行ってしまう</b> ——
+     * 禁忌カードは消滅しなければならない(総合ルール3-6)。
+     *
+     * ★他のすべての「効果で出す」は手札・墓地・マナ・山札から来るため、
+     * 禁忌由来でありえない({@code fromTaboo=false} の版でよい)。
+     */
+    public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId,
+            java.util.List<MinionInstance> materials, boolean fromTaboo) {
         boolean evolution = materials != null && !materials.isEmpty();
         GameState state = room.getGameState();
         if (NO_CHEAT_INTO_FIELD.contains(cardId)) {
@@ -550,12 +595,20 @@ public class GameActions {
         // 呼ぶ前に isFieldEntryBlocked() を自分で見る形に揃えてある。
         // ★進化の素材はまだ場に居る —— 出られないなら下にも置かれない(裁定232)
         if (guards.isEntryToDeckBottom(state, owner, master)) {
-            owner.getDeck().addLast(cardId);
-            room.addLog("【光霊・モアニール】: 【%s】は場に出る代わりに山札の下へ置かれました"
-                    .formatted(master.name()));
+            // ★禁忌由来のカードは山札に戻せない(3-6)。消滅ゾーンへ送る
+            // (GameService.summonToField のモアニール分岐と同じ判断である)
+            if (fromTaboo) {
+                owner.getLostZone().add(cardId);
+                room.addLog("【光霊・モアニール】: 【%s】は場に出られず、禁忌カードのため消滅しました"
+                        .formatted(master.name()));
+            } else {
+                owner.getDeck().addLast(cardId);
+                room.addLog("【光霊・モアニール】: 【%s】は場に出る代わりに山札の下へ置かれました"
+                        .formatted(master.name()));
+            }
             return null;
         }
-        MinionInstance minion = new MinionInstance(master, state.getTurnNumber());
+        MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
         attachEvolutionMaterials(room, owner, minion, materials);
         owner.getMinionZone().add(minion);
         room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));
@@ -964,6 +1017,52 @@ public class GameActions {
                     .formatted(owner.getDisplayName(), owner.getManaZone().size()));
         } else {
             // マナ上限で置けなかった場合、引いてしまったカードを山札の上へ戻す
+            owner.getDeck().addFirst(cardId);
+        }
+        return placed;
+    }
+
+    /**
+     * カード1枚を裏向き・アンタップでマナゾーンに置く(★Batch 54)。
+     *
+     * {@link #placeCardInManaFaceUp} の裏向き版である。
+     * ★<b>裏向きの経路は {@code fireManaPlaced} を発火しない</b> ——
+     * 51 以前からの非対称をそのまま踏襲している(《豊穣の地霊主》は表向きの配置しか見ていない)。
+     * 揃えるかどうかは裁定を仰いでおらず、P5 の宿題である。
+     *
+     * @return 置けたらtrue、マナ上限で置けなければfalse
+     */
+    public boolean placeCardInManaFaceDown(GameRoom room, PlayerState owner, String cardId) {
+        if (owner.getManaZone().size() >= PlayerState.MAX_MANA) {
+            room.addLog("マナが15枚のため、これ以上マナに置けません");
+            return false;
+        }
+        ManaCard mana = new ManaCard(cardId, false);
+        mana.turnFaceDown();
+        owner.getManaZone().add(mana);
+        return true;
+    }
+
+    /**
+     * 自分の山札の上から1枚を裏向きでマナゾーンに置く(★Batch 54。《勝阿外》の【賢魂：2】)。
+     *
+     * ★<b>マナ上限で置けなかったときは、そのカードを山札の上に戻す</b>
+     * (マスター裁定 B7-2「山札の上のまま」)。
+     * {@link #placeTopOfDeckInManaFaceUp} が既にこの形であり、規則を2つ作っていない。
+     *
+     * @return 置けたらtrue
+     */
+    public boolean placeTopOfDeckInManaFaceDown(GameRoom room, PlayerState owner) {
+        String cardId = owner.getDeck().pollFirst();
+        if (cardId == null) {
+            room.addLog("%sの山札が空のため、マナに置けませんでした".formatted(owner.getDisplayName()));
+            return false;
+        }
+        boolean placed = placeCardInManaFaceDown(room, owner, cardId);
+        if (placed) {
+            room.addLog("%sが山札の上から1枚を裏向きでマナに置きました(マナ%d枚)"
+                    .formatted(owner.getDisplayName(), owner.getManaZone().size()));
+        } else {
             owner.getDeck().addFirst(cardId);
         }
         return placed;

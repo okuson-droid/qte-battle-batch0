@@ -63,6 +63,16 @@ public class RuleGuards {
     private static final String TEMPLE_KNIGHT = "QTE-M-LIGHT-6";   // 戒律の聖堂騎士(相手はサブフェイズ不可)
     private static final String KOREKI = "QTE-M-LIGHT-31";         // 英霊・コレキ(相手は1ターンに1体しか出せない・★Batch 53)
 
+    /**
+     * 勝阿外(★Batch 54)。【常在】「相手はスペルを唱えられない」をここに書いている。
+     *
+     * <p>★<b>それでも {@link #IMPLEMENTED_CARDS} には入れない。</b>
+     * このカードは【賢魂：2】のほうで {@code CardEffectRegistry.soulSpells} に載っており、
+     * {@code isRegistered(String)} が既に真を返すからである。
+     * 入れると、外しても何も落ちない宣言が1つ増える(53 のノアと同じ理由。裁定176 の正しい読み方)。
+     */
+    private static final String KATSUAGE = "QTE-M-EARTH-36";
+
     /** 英霊・コレキが許すミニオンの登場数(「1度しか」) */
     private static final int KOREKI_ENTRY_LIMIT = 1;
 
@@ -319,10 +329,30 @@ public class RuleGuards {
     // 行動の禁止
     // ---------------------------------------------------------------
 
-    /** スペルを唱えられない理由(断罪の聖導者)。唱えられるならnull */
+    /**
+     * スペルを唱えられない理由。唱えられるなら null。
+     *
+     * <h2>★Batch 54: 賢魂としての使用もここを通る(裁定152)</h2>
+     *
+     * 「その使用はルール上『スペルの使用』として扱う」以上、
+     * <b>スペルを封じるものは賢魂も封じる</b>(マスター裁定 A2(3))。
+     * 判定を1箇所に置いてあるので、呼ぶ側が姿を区別する必要はない。
+     *
+     * <h2>2枚の封じ方は違う</h2>
+     *
+     * <ul>
+     * <li>《断罪の聖導者》は<b>ターンの刻印</b>である。効果を受けたそのターンだけ封じられる。</li>
+     * <li>★《勝阿外》は<b>【常在】</b>である。場に居るあいだ、相手はずっと唱えられない
+     *     (マスター裁定 B8-1)。状態として保存せず、問われるたびに場を見る ——
+     *     保存すると、場を離れたときに解除し忘れる(落とし穴「【常在】は保存しない」)。</li>
+     * </ul>
+     */
     public String spellDenial(GameState state, PlayerState player) {
         if (player.getSpellSealedOnTurn() == state.getTurnNumber()) {
             return "【断罪の聖導者】の効果でこのターンはスペルを唱えられません";
+        }
+        if (hasOnField(state.opponentOf(player.getPlayerId()), KATSUAGE)) {
+            return "相手の【勝阿外】の効果でスペルを唱えられません";
         }
         return null;
     }

@@ -64,6 +64,15 @@ public class StatCalculator {
     private static final String BOULDER_BARRAGE = "QTE-M-EARTH-19";     // 連撃の巨岩
     private static final String GALE_RAPIER = "QTE-M-WIND-14";          // 疾風のレイピア(ウェポン)
     private static final String DREAMY = "QTE-M-DARK-39";               // 1stL「NEMれぬ夜のドリーミー」(★Batch 50)
+
+    /**
+     * 勝阿外(★Batch 54)。【常在】「相手の手札の枚数このミニオンの攻撃力+1」。
+     *
+     * <p>★<b>{@link #IMPLEMENTED_CARDS} には入れない。</b>【賢魂：2】のほうで
+     * {@code CardEffectRegistry.soulSpells} に載っており、{@code isRegistered} が既に真を返す。
+     * 入れると、外しても何も落ちない宣言が増えるだけである(53 のノアと同じ理由)。
+     */
+    private static final String KATSUAGE = "QTE-M-EARTH-36";
     private static final String RENTA = "QTE-M-FIRE-31";                // 追撃鉄人連太(★Batch 52)
     private static final String MERINA = "QTE-M-DARK-32";               // サービスブレイク・メリィナ(★Batch 52)
 
@@ -122,11 +131,43 @@ public class StatCalculator {
      * 例: 双流の幻術師「場に居る知識の数Cost-1」(両者の場を参照: 発注者確認済み)
      */
     public int effectiveCost(GameState state, PlayerState owner, CardMaster card) {
-        int cost = card.cost();
+        return effectiveCost(state, owner, card, card.cost(), card.type());
+    }
+
+    /**
+     * 【賢魂：n】として使う場合の現在コスト(★Batch 54。裁定152)。
+     *
+     * <blockquote>スペルとして使う場合は<b>スペルのコスト軽減などの影響を受ける</b>
+     * (= ルール上「スペルの使用」として扱う)。</blockquote>
+     *
+     * ★<b>軽減・増加の規則を書き写していない。</b> 基準コストを n に、種別をスペルに
+     * 差し替えて<b>同じ計算</b>へ流す。写すと、次にスペルのコスト軽減が増えたときに
+     * 片方だけが直される(裁定163)。
+     *
+     * ★<b>キーワードによる軽減はそのまま乗る</b>(マスター裁定 A3)。
+     * 《戒律のガーディアン》の「【守護】を持つカードのコスト-1」は、
+     * 《グレイヴガールズファン》を賢魂として使うときにも効く ——
+     * キーワードはカードが持つものであって、使い方で消えたりしない。
+     *
+     * @param soulCost カードテキストが持つ n({@code CardTextKeywords.soulCost})
+     */
+    public int effectiveSoulCost(GameState state, PlayerState owner, CardMaster card, int soulCost) {
+        return effectiveCost(state, owner, card, soulCost, CardType.SPELL);
+    }
+
+    /**
+     * コスト計算の本体。
+     *
+     * @param baseCost 基準となるコスト(通常は印刷コスト、賢魂として使うなら n)
+     * @param asType   この使用をどの種別として扱うか(賢魂として使うなら SPELL)
+     */
+    private int effectiveCost(GameState state, PlayerState owner, CardMaster card,
+            int baseCost, CardType asType) {
+        int cost = baseCost;
 
         // 【剛火の将】の起動能力: 次に手札から使用する火文明ミニオンのコスト-1(0にはならない)
         if (owner.getPendingFireMinionDiscount() > 0
-                && card.type() == com.example.qte.master.CardType.MINION
+                && asType == CardType.MINION
                 && card.civilization() == com.example.qte.master.Civilization.FIRE) {
             cost = Math.max(1, cost - 1);
         }
@@ -161,7 +202,7 @@ public class StatCalculator {
             cost = Math.max(MERINA_MIN_COST, cost - owner.getMinionZone().size());
         }
         // 悪夢: このターン中、ミニオンの召喚コストを-4する(サブフェイズに使用したときのみ付与される)
-        if (card.type() == CardType.MINION && owner.getThisTurnAuras().contains(NIGHTMARE)) {
+        if (asType == CardType.MINION && owner.getThisTurnAuras().contains(NIGHTMARE)) {
             cost -= 4;
         }
         // ---- 光文明: 場のミニオンによる常在のコスト軽減(累積する。下限は0) ----
@@ -171,7 +212,7 @@ public class StatCalculator {
         for (MinionInstance minion : owner.getMinionZone()) {
             String id = minion.getMaster().id();
             boolean spellDiscounter = CHANT_PALADIN.equals(id) || PRECEPT_GUARDIAN.equals(id);
-            if (spellDiscounter && card.type() == CardType.SPELL) {
+            if (spellDiscounter && asType == CardType.SPELL) {
                 cost -= 1;
             }
             if (WISDOM_CRYSTAL.equals(id) && card.keywords().contains(Keyword.KNOWLEDGE)) {
@@ -182,7 +223,7 @@ public class StatCalculator {
             }
         }
         // 詠唱の宝珠: 破壊された後、次に唱えるスペルのコスト-1(ターンをまたいで持続)
-        if (card.type() == CardType.SPELL && owner.getPersistentAuras().stream()
+        if (asType == CardType.SPELL && owner.getPersistentAuras().stream()
                 .anyMatch(aura -> CHANT_ORB.equals(aura.cardId()))) {
             cost -= 1;
         }
@@ -218,7 +259,7 @@ public class StatCalculator {
         // 詠唱の風詠士(リーダー): そのターン中3枚目に使うミニオンかスペルのコスト-1。
         // 使用カウンタは自身を含まない(裁定1)ため、「3枚目」はcardsUsedThisTurn==2の瞬間に一致する
         if (WIND_CHANTER_LEADER.equals(owner.getLeader().id())
-                && (card.type() == CardType.MINION || card.type() == CardType.SPELL)
+                && (asType == CardType.MINION || asType == CardType.SPELL)
                 && owner.getCardsUsedThisTurn() == 2) {
             cost -= 1;
         }
@@ -239,7 +280,7 @@ public class StatCalculator {
         // ★複数体並べば累積する —— 唱導の聖騎士(自分のスペル-1)が体数ぶん重なるのと対称であり、
         //   テキストにも「1体につき」を否定する語が無い。
         // ★封印されし禁忌魔人(コスト+1)以来2枚目のコスト増加である
-        if (card.type() == CardType.SPELL) {
+        if (asType == CardType.SPELL) {
             PlayerState across = state.opponentOf(owner.getPlayerId());
             cost += (int) across.getMinionZone().stream()
                     .filter(m -> TENGSUN.equals(m.getMaster().id()))
@@ -395,6 +436,16 @@ public class StatCalculator {
             if (MERINA.equals(other.getMaster().id()) && other != minion) {
                 attack += 1;
             }
+        }
+        // ★Batch 54: 勝阿外「【常在】…相手の手札の枚数このミニオンの攻撃力+1」。
+        // ★《英霊・ニュウキロ》(相手のスペルのコスト + 自分の手札の数)と<b>同じ書き方</b>であり、
+        //   「相手の手札1枚につき Attack +1」と読む(マスター裁定 B8-3)。
+        // ★数えるのは<b>このミニオンの持ち主から見た相手</b>の手札である。
+        //   ニュウキロの owner は「カードを使おうとしている側」だったが、
+        //   こちらの owner は「このミニオンの持ち主」なので、素直に opponentOf でよい。
+        // ★【常在】は保存しない —— 評価するたびに相手の手札を数える(裁定4 の形)
+        if (KATSUAGE.equals(cardId)) {
+            attack += state.opponentOf(owner.getPlayerId()).getHand().size();
         }
 
         // ---- 動的ADD(オーラ) ----

@@ -1,0 +1,57 @@
+{
+  "formatVersion": 1,
+  "name": "賢魂・闇確認用(Batch54)",
+  "leaderCardId": "QTE-M-DARK-29",
+  "main": [
+    {
+      "cardId": "QTE-M-DARK-37",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-38",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-33",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-16",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-17",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-34",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-35",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-6",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-19",
+      "count": 4
+    },
+    {
+      "cardId": "QTE-M-DARK-26",
+      "count": 4
+    }
+  ],
+  "taboo": [
+    "QTE-M-EARTH-36",
+    "QTE-M-LIGHT-2",
+    "QTE-M-LIGHT-17",
+    "QTE-M-WIND-2",
+    "QTE-M-WIND-3",
+    "QTE-M-WIND-16",
+    "QTE-M-FIRE-2",
+    "QTE-M-WATER-2"
+  ]
+}

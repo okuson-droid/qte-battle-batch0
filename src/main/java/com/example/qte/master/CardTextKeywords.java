@@ -46,6 +46,29 @@ import java.util.regex.Pattern;
  * <b>扱わない語彙。</b>【常在】【進化】【賢魂：n】【起動：n】【召喚時】【破壊時】は
  * キーワード能力ではなく、エンジン側の別の仕組みに対応する。ここでは
  * {@link #vocabulary(String)} が語彙として数え上げるだけで、{@link Keyword} には変換しない。
+ *
+ * <h2>★Batch 54: テキストは【賢魂：n】で2つに割れる(裁定152)</h2>
+ *
+ * 裁定152 は「スペルとして使う場合のコストは n。<b>効果は【賢魂：n】に続くテキスト</b>」と
+ * 定めている。つまり1枚のカードのテキストは、<b>【賢魂：n】を境に2つの姿へ分かれる</b> ——
+ * 前半がミニオンとしての姿、後半がスペルとしての姿である。
+ *
+ * <pre>
+ *   《白ノ霊知者》
+ *   【進化】（風文明のミニオン1体）【召喚時】カードを2枚引く。ミニオンを1体選び破壊する。
+ *     ↑ ここまでがミニオンの姿(extract が読む)
+ *   【賢魂：2】自分のミニオン1体の攻撃力+1する。【還元】
+ *     ↑ ここから先がスペルの姿(soulKeywords が読む)
+ * </pre>
+ *
+ * ★<b>境目を無視すると《白ノ霊知者》の【還元】が本体に付く。</b>
+ * マスター裁定(2026-08-20)により、あの【還元】は<b>賢魂の効果の一部</b>である ——
+ * スペルとして使えばマナへ置かれ、ミニオンとして破壊されれば墓地へ行く。
+ * したがって {@link #extract(String)} は<b>賢魂の直前まで</b>しか読まない。
+ *
+ * ★<b>コストの正もテキストである。</b> {@link #soulCost(String)} が唯一の出どころであり、
+ * {@code CardEffectRegistry} は効果と対象要求だけを持つ。数値を両方に書くと、
+ * カードデータとコードのどちらが正なのかが分からなくなる(裁定158 の延長)。
  */
 public final class CardTextKeywords {
 
@@ -71,6 +94,16 @@ public final class CardTextKeywords {
     private static final Pattern PARAMETER = Pattern.compile("[：:].*$");
 
     /**
+     * 【賢魂：n】の表記(★Batch 54)。
+     *
+     * ★<b>数字は全角も半角も取る。</b>《グレイヴガールズファン》だけが全角の「１」で書かれており、
+     * 残る6枚は半角である(マスター確認済み・カードデータは書き換えない)。
+     * 表記ゆれを読む側で吸収するのは、カードデータを唯一の正に保つためである。
+     * ★コロンも全角「：」と半角「:」の両方を取る({@link #PARAMETER} と同じ扱い)。
+     */
+    private static final Pattern SOUL = Pattern.compile("【賢魂[：:]\\s*([0-9０-９]+)】");
+
+    /**
      * キーワード表記の直後に続く丸括弧(注釈)。
      * 「【威圧】(相手の攻撃対象にならない)」の括弧はキーワードの意味を言い換えているだけで、
      * そのカード固有の効果ではない。
@@ -93,6 +126,87 @@ public final class CardTextKeywords {
      * @param text カードの効果テキスト。null・空文字は空集合を返す(リーダーや無能力カード)
      */
     public static Set<Keyword> extract(String text) {
+        if (text == null || text.isBlank()) {
+            return Set.of();
+        }
+        // ★Batch 54: 【賢魂：n】から先はスペルとしての姿である(裁定152)。
+        // ミニオンが持つキーワードを問われているので、境目の手前までしか読まない
+        return keywordsIn(minionFace(text));
+    }
+
+    /**
+     * 賢魂としての姿が持つキーワード(★Batch 54)。賢魂を持たないカードは空集合を返す。
+     *
+     * 現在の使い手は《白ノ霊知者》の【還元】1枚だけである ——
+     * スペルとして使い終わったこのカードは、墓地ではなく裏向きでマナに置かれる。
+     * ★{@link #extract(String)} と<b>同じ規則を境目の反対側に当てているだけ</b>であり、
+     * 参照・条件付き付与の除外もそのまま効く。
+     */
+    public static Set<Keyword> soulKeywords(String text) {
+        String face = soulFace(text);
+        return face == null ? Set.of() : keywordsIn(face);
+    }
+
+    /**
+     * 【賢魂：n】のコスト n(★Batch 54)。賢魂を持たないカードは null を返す。
+     *
+     * ★<b>これが n の唯一の出どころである。</b>
+     * {@code CardEffectRegistry} は効果と対象要求だけを登録し、数値は持たない。
+     */
+    public static Integer soulCost(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher m = SOUL.matcher(text);
+        if (!m.find()) {
+            return null;
+        }
+        return Integer.parseInt(toHalfWidthDigits(m.group(1)));
+    }
+
+    /** 【賢魂：n】を持つか(★Batch 54) */
+    public static boolean hasSoul(String text) {
+        return soulCost(text) != null;
+    }
+
+    /**
+     * 【賢魂：n】に続くテキスト(★Batch 54)。賢魂を持たないカードは null を返す。
+     *
+     * 手札の確認ダイアログに「スペルとして使うと何が起きるか」を出すための文である。
+     * ★<b>クライアントが自分でテキストを割らないため</b>にサーバが送る ——
+     * 割り方の規則を両側に置けば、片方だけが直される日が来る(裁定234)。
+     */
+    public static String soulText(String text) {
+        String face = soulFace(text);
+        return face == null ? null : face.trim();
+    }
+
+    /** テキストのうち、ミニオンとしての姿にあたる部分(賢魂を持たなければ全文) */
+    private static String minionFace(String text) {
+        Matcher m = SOUL.matcher(text);
+        return m.find() ? text.substring(0, m.start()) : text;
+    }
+
+    /** テキストのうち、賢魂としての姿にあたる部分(【賢魂：n】の直後から末尾まで)。無ければ null */
+    private static String soulFace(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher m = SOUL.matcher(text);
+        return m.find() ? text.substring(m.end()) : null;
+    }
+
+    /** 全角数字を半角に直す(【賢魂：１】のような表記ゆれのため) */
+    private static String toHalfWidthDigits(String digits) {
+        StringBuilder out = new StringBuilder(digits.length());
+        for (char c : digits.toCharArray()) {
+            out.append(c >= '０' && c <= '９' ? (char) (c - '０' + '0') : c);
+        }
+        return out.toString();
+    }
+
+    /** 与えられたテキスト片が「自身が持つ」と主張しているキーワード */
+    private static Set<Keyword> keywordsIn(String text) {
         if (text == null || text.isBlank()) {
             return Set.of();
         }
