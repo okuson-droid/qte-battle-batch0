@@ -80,13 +80,27 @@ class EffectImplementationTest {
      * 素材条件は「効果」ではなく<b>場に出す手段</b>だからである
      * ({@code CardEffectRegistry.evolutions} は {@code isRegistered} が見ない)。
      */
+    /**
+     * ★Batch 55 でこの不変条件は一時的に崩れる。
+     *
+     * <p>《剛火の将》(QTE-M-FIRE-1)は Ver1.1 で起動能力が本文から丸ごと消えたのに、
+     * コードには古い起動能力の登録が残っていた(rework-triage.md 2章の食い違い)。
+     * 55 はその死んだ登録を削除した —— このカードが持たない能力のボタンを
+     * 盤面に出さないためである。結果、新本文の常在効果(【速攻】を持つカードのHP+2)は
+     * まだ実装されていないため、このカード<b>だけ</b>が「効果未実装」の印を持つ。
+     *
+     * <p>rework-triage.md の仕分けでは《剛火の将》は区分5(ほぼ書き直し)であり、
+     * <b>Batch 57 で実装される</b>。それまではこの1枚だけが未実装であることを、
+     * 名指しで測っておく(裁定165 の親戚: 印は「持っている処理が古い」ことを表せない。
+     * ここは逆に「処理が無くなった」ケースなので、印が付くのが正しい)。
+     */
     @Test
-    void 効果未実装のカードは1枚も無い() {
+    void 効果未実装のカードは剛火の将だけである() {
         var marked = cards.getAllCards().stream().filter(implementation::isUnimplemented)
                 .map(CardMaster::name).toList();
         assertThat(marked)
-                .as("効果の文があるのにエンジンが処理を持たないカード")
-                .isEmpty();
+                .as("効果の文があるのにエンジンが処理を持たないカード(Batch57で解消予定)")
+                .containsExactly("剛火の将");
     }
 
     /**

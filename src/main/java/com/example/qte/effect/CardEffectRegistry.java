@@ -203,10 +203,11 @@ public class CardEffectRegistry {
     // ---------------------------------------------------------------
 
     private void registerSpells() {
-        // アクア・サーチ: カードを2枚引く。その後手札のカードを1枚捨てる。
-        // Ver.0.4 で 1ドロー から「2ドロー+1枚捨て」に変わった。捨てる対象は引いた後の手札から
+        // アクア・サーチ: カードを2枚引く。その後手札のカードを2枚捨てる。
+        // ★Batch 55(区分3a): 捨て 1→2枚(rework-triage.md)。捨てる対象は引いた後の手札から
         // 選ぶため、使用宣言時に選び終える TargetSpec では表現できない。解決を中断して
-        // 問い合わせる a9(割り込み選択)を使う。捨てるのは必須なので one(min=1)である
+        // 問い合わせる a9(割り込み選択)を使う。捨てるのは必須なので min=max とし、
+        // 手札が2枚に満たない場合(山札切れ等)は、あるだけ全部を捨てさせる
         spellEffects.put("QTE-M-WATER-25", ctx -> {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
             if (ctx.owner().getHand().isEmpty()) {
@@ -217,9 +218,11 @@ public class CardEffectRegistry {
             for (int i = 0; i < ctx.owner().getHand().size(); i++) {
                 handPositions.add(String.valueOf(i));
             }
-            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
-                    PendingChoice.Kind.HAND, handPositions, ResumePoint.AQUA_SEARCH_DISCARD,
-                    "【アクア・サーチ】: 捨てる手札を1枚選んでください"));
+            int discardCount = Math.min(2, handPositions.size());
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+                    PendingChoice.Kind.HAND, handPositions, discardCount, discardCount,
+                    ResumePoint.AQUA_SEARCH_DISCARD,
+                    "【アクア・サーチ】: 捨てる手札を2枚選んでください"));
         });
 
         spellEffects.put("QTE-M-WATER-9", // スプラッシュ・ドロー: カードを2枚引く
@@ -349,16 +352,17 @@ public class CardEffectRegistry {
 
     private void registerSpecialSummons() {
 
-        // 深海神 プレサージュ: 自分の知識を持つカードを手札から5枚山札の下に置いて0コストで出せる
+        // 深海神 プレサージュ: 自分の知識を持つカードを手札から3枚山札の下に置いて0コストで出せる
+        // ★Batch 55(区分3a): 山下送り 5→3枚(rework-triage.md)。【知識】はテキストから自動で付く
         specialSummons.put("QTE-M-WATER-24", SpecialSummonSpec.of(
-                (state, player, handIndex) -> countKnowledgeInHandExcluding(player, handIndex) >= 5,
-                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 5, false, false, List.of(Filter.KNOWLEDGE),
-                        "山札の下に置く【知識】カードを5枚選んでください")),
+                (state, player, handIndex) -> countKnowledgeInHandExcluding(player, handIndex) >= 3,
+                TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, false, List.of(Filter.KNOWLEDGE),
+                        "山札の下に置く【知識】カードを3枚選んでください")),
                 ctx -> {
                     ctx.targets().get(0).handCardIds().forEach(id -> ctx.owner().getDeck().addLast(id));
-                    ctx.room().addLog("%sが手札5枚を山札の下に置きました".formatted(ctx.owner().getDisplayName()));
+                    ctx.room().addLog("%sが手札3枚を山札の下に置きました".formatted(ctx.owner().getDisplayName()));
                 },
-                "手札の【知識】カード5枚を山札の下に置き、0コストで召喚します"));
+                "手札の【知識】カード3枚を山札の下に置き、0コストで召喚します"));
 
         // 知恵の双翼: 自分の【知識】を持つミニオンを2体手札に戻して0コストで出せる
         specialSummons.put("QTE-M-WATER-22", SpecialSummonSpec.of(
@@ -405,8 +409,10 @@ public class CardEffectRegistry {
     // ---------------------------------------------------------------
 
     private void registerLeaderAbilities() {
-        // 蒼海の賢者: 自分の手札を1枚デッキの一番下に戻す。自分のリーダーの体力を2回復
-        leaderAbilities.put("QTE-M-WATER-1", LeaderAbilitySpec.of(0,
+        // 蒼海の賢者: 【起動：1】自分の手札を1枚デッキの一番下に戻す。自分のリーダーの体力を2回復
+        // ★Batch 55: 旧本文はコストを書いておらず、実装は0マナと決め打ちしていた。
+        // Ver1.1の【起動：1】で初めて値が定まった(rework-triage.md 2章の食い違い)。
+        leaderAbilities.put("QTE-M-WATER-1", LeaderAbilitySpec.of(1,
                 TargetSpec.of(new TargetSpec.Requirement(TargetSpec.Kind.HAND, TargetSpec.Side.SELF,
                         1, false, false, List.of(), "山札の一番下に戻すカードを選んでください")),
                 ctx -> {
@@ -801,11 +807,12 @@ public class CardEffectRegistry {
             }
         });
 
-        // 相打ちの咎人: 以下を2回行う。自分のリーダーに1ダメージ、相手のリーダーに1ダメージ
+        // 相打ちの咎人: 以下を2回行う。自分のリーダーに2ダメージ、相手のリーダーに2ダメージ
+        // ★Batch 55(区分3a): 相互ダメージ 1→2(rework-triage.md)
         register("QTE-M-FIRE-19", TriggerType.ON_SUMMON, ctx -> {
             for (int i = 0; i < 2; i++) {
-                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-19");
-                ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-FIRE-19");
+                ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-M-FIRE-19");
+                ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 2, "QTE-M-FIRE-19");
             }
         });
 
@@ -873,7 +880,8 @@ public class CardEffectRegistry {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
         });
 
-        // 再起の炎陣: 1枚捨てる。そうしたら1枚引く。【還元】
+        // 再起の炎陣: 1枚捨てる。そうしたら2枚引く。【還元】
+        // ★Batch 55(区分3a): ドロー 1→2(rework-triage.md)。【還元】はテキストから自動で付く
         targetSpecs.put("QTE-M-FIRE-26", TargetSpec.of(Requirement.of(
                 Kind.HAND, Side.SELF, 1, true, "捨てるカードを選んでください")));
         spellEffects.put("QTE-M-FIRE-26", ctx -> {
@@ -883,10 +891,11 @@ public class CardEffectRegistry {
             }
             selection.handCardIds().forEach(
                     id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
-            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
         });
 
-        // 血の対価: 手札を1枚捨てる。そうしたら3回復
+        // 血の対価: 手札を1枚捨てる。そうしたら4回復
+        // ★Batch 55(区分3a): 回復 3→4(rework-triage.md)
         targetSpecs.put("QTE-M-FIRE-25", TargetSpec.of(Requirement.of(
                 Kind.HAND, Side.SELF, 1, true, "捨てるカードを選んでください")));
         spellEffects.put("QTE-M-FIRE-25", ctx -> {
@@ -896,7 +905,7 @@ public class CardEffectRegistry {
             }
             selection.handCardIds().forEach(
                     id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
-            ctx.actions().healLeader(ctx.room(), ctx.owner(), 3, "QTE-M-FIRE-25");
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 4, "QTE-M-FIRE-25");
         });
 
         // 捨て身の猛進: このターン中、自分のミニオンすべての攻撃力+1、および【突進】付与
@@ -917,16 +926,18 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-FIRE-23", ctx -> ctx.targets().get(0).minions().forEach(
                 t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion())));
 
-        // 命を削る烈火: 自分のリーダーに3ダメージ。相手の場のミニオンすべてに2ダメージ
+        // 命を削る烈火: 自分のリーダーに3ダメージ。相手の場のミニオンすべてに3ダメージ
+        // ★Batch 55(区分3a): 全体ダメージ 2→3(rework-triage.md)
         spellEffects.put("QTE-M-FIRE-11", ctx -> {
             ctx.actions().damageLeader(ctx.room(), ctx.owner(), 3, "QTE-M-FIRE-11");
             List.copyOf(ctx.opponent().getMinionZone()).forEach(
-                    m -> ctx.actions().damageMinion(ctx.room(), ctx.opponent(), m, 2));
+                    m -> ctx.actions().damageMinion(ctx.room(), ctx.opponent(), m, 3));
         });
 
-        // 命喰いの火種: 自分のリーダーに3ダメージ。その後カードを2枚引く。【還元】
+        // 命喰いの火種: 自分のリーダーに4ダメージ。その後カードを2枚引く。【還元】
+        // ★Batch 55(区分3a): 自傷 3→4(rework-triage.md)。【還元】はテキストから自動で付く
         spellEffects.put("QTE-M-FIRE-27", ctx -> {
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 3, "QTE-M-FIRE-27");
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 4, "QTE-M-FIRE-27");
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
         });
 
@@ -953,13 +964,14 @@ public class CardEffectRegistry {
                 },
                 "このターン4回以上ダメージを受けている: コスト1で召喚します"));
 
-        // 背水の炎壁: ターン中3回以上ダメージを受けていた場合0コストで出せる。これで出したとき1回復
+        // 背水の炎壁: ターン中3回以上ダメージを受けていた場合1コストで出せる。これで出したとき1回復
+        // ★Batch 55(区分3a): 特殊召喚コスト 0→1(rework-triage.md)。【守護】はテキストから自動で付く
         specialSummons.put("QTE-M-FIRE-21", new SpecialSummonSpec(
                 (state, player, handIndex) -> player.getLeaderDamagedCountThisTurn() >= 3,
-                0, TargetSpec.of(), ctx -> {
+                1, TargetSpec.of(), ctx -> {
                 },
                 ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-21"),
-                "このターン3回以上ダメージを受けている: 0コストで召喚し、追加で1回復します"));
+                "このターン3回以上ダメージを受けている: 1コストで召喚し、追加で1回復します"));
 
         // 鳳凰神 ヴォルカニクスレヴォ: このターン、火文明のカードで累計5以上回復したとき0コストで出せる。
         // Ver.0.4 で判定基準が「回復した回数」から「累計回復量」に変わり、
@@ -981,19 +993,21 @@ public class CardEffectRegistry {
 
         // ---- リーダー起動能力 ----
 
-        // 傷痕の闘帝: 自分のリーダーに1ダメージ。そうしたら1枚ドローする
-        leaderAbilities.put("QTE-M-FIRE-15", LeaderAbilitySpec.of(0, TargetSpec.of(), ctx -> {
+        // 傷痕の闘帝: 【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする
+        // ★Batch 55: 旧本文は「起動能力(1ターンに1回):」としかコストを書いておらず、
+        // 実装は0マナと決め打ちしていた。Ver1.1の【起動：1】で初めて値が定まった
+        // (rework-triage.md 2章の食い違い)。
+        leaderAbilities.put("QTE-M-FIRE-15", LeaderAbilitySpec.of(1, TargetSpec.of(), ctx -> {
             ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-15");
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
         }, "自分のリーダーに1ダメージ、1枚ドロー"));
 
-        // 剛火の将: 自分のライフを2減らす(ダメージ扱い: 発注者確認済み)。
-        // このターン中、次に手札から使用する火文明ミニオンのコストを-1する(0にはならない)
-        leaderAbilities.put("QTE-M-FIRE-1", LeaderAbilitySpec.of(0, TargetSpec.of(), ctx -> {
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-M-FIRE-1");
-            ctx.owner().setPendingFireMinionDiscount(1);
-            ctx.room().addLog("次に使う火文明ミニオンのコストが1下がる(このターン中)");
-        }, "ライフを2減らし、次の火文明ミニオンのコストを-1"));
+        // ★Batch 55: 剛火の将(QTE-M-FIRE-1)の起動能力は Ver1.1 で本文から丸ごと消えた
+        // (rework-triage.md 2章の食い違い)。新本文は「場にある【速攻】を持つカードのHP+2」
+        // という常在効果だけを持つ。旧起動能力の登録をここに残すと、カードが持たない能力の
+        // ボタンが盤面に押せてしまうため削除した。
+        // ★常在効果(HP+2)の新規実装と、pendingFireMinionDiscount 関連の死んだコード
+        // (PlayerState / GameService / StatCalculator に残る)の掃除は Batch 57(区分5)の範囲。
     }
 
     /**
@@ -1011,7 +1025,8 @@ public class CardEffectRegistry {
                         StatModifier.Operation.ADD, 2, StatModifier.Duration.PERMANENT, FLAME_FANATIC)));
 
         // 反転の炎鏡: 自分のターン中、このカード以外の「効果で」ダメージを受けたとき
-        // 自分のリーダーに1ダメージ、その後1回復。
+        // 自分のリーダーに2ダメージ、その後1回復。
+        // ★Batch 55(区分3a): 自傷 1→2(rework-triage.md)。回復量は据え置き
         // 自己誘発を除外しないと無限ループになるため、発生源が炎鏡自身なら発動しない
         var weapon = ctx.owner().getEquippedWeapon();
         boolean mirrorEquipped = weapon != null && FLAME_MIRROR.equals(weapon.id());
@@ -1019,7 +1034,7 @@ public class CardEffectRegistry {
         boolean byOtherCard = sourceCardId != null && !FLAME_MIRROR.equals(sourceCardId);
         if (mirrorEquipped && ownTurn && byOtherCard) {
             ctx.room().addLog("【反転の炎鏡】が反応した");
-            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, FLAME_MIRROR);
+            ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, FLAME_MIRROR);
             ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, FLAME_MIRROR);
         }
     }
@@ -1036,9 +1051,10 @@ public class CardEffectRegistry {
 
         // ---- リーダー ----
 
-        // 冥府の禁皇: 裏向きのマナ1枚を手札に戻し、2枚引く。
+        // 冥府の禁皇: 【起動：1】裏向きのマナ1枚を手札に戻し、2枚引く。
         // 裏向きマナが無ければ使用できないため、状態を変える前に条件で弾く
-        leaderAbilities.put("QTE-M-DARK-1", new LeaderAbilitySpec(0, TargetSpec.of(),
+        // ★55: コストのみ0→1(旧本文が未記載だった食い違い)。効果の参照ゾーン変更は56へ残す
+        leaderAbilities.put("QTE-M-DARK-1", new LeaderAbilitySpec(1, TargetSpec.of(),
                 ctx -> {
                     if (ctx.actions().returnFaceDownManaToHand(ctx.room(), ctx.owner())) {
                         ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
@@ -1154,13 +1170,14 @@ public class CardEffectRegistry {
             }
         });
 
-        // 裏切りの魔女: 【召喚時】裏向きマナが2枚以上なら、相手のコスト3以下のミニオン1体を破壊
+        // 裏切りの魔女: 【召喚時】裏向きマナが1枚以上なら、相手のコスト3以下のミニオン1体を破壊
+        // ★55(区分3a): 裏向きマナ 2枚以上→1枚以上
         targetSpecs.put("QTE-M-DARK-4", TargetSpec.of(
                 new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(Filter.COST_3_OR_LESS),
-                        "破壊する相手のコスト3以下のミニオンを選んでください(裏向きマナ2枚以上が必要)")));
+                        "破壊する相手のコスト3以下のミニオンを選んでください(裏向きマナ1枚以上が必要)")));
         register("QTE-M-DARK-4", TriggerType.ON_SUMMON, ctx -> {
-            if (ctx.owner().getFaceDownManaCount() < 2) {
-                ctx.room().addLog("裏向きのマナが2枚未満のため【裏切りの魔女】の効果は発動しません");
+            if (ctx.owner().getFaceDownManaCount() < 1) {
+                ctx.room().addLog("裏向きのマナが無いため【裏切りの魔女】の効果は発動しません");
                 return;
             }
             ctx.targets().get(0).minions()
@@ -1211,10 +1228,10 @@ public class CardEffectRegistry {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
         });
 
-        // 墓穴の呪い: 山札の上から3枚を墓地に置く。墓地の枚数以下のHPを持つミニオンを全て破壊。
-        // 枚数の判定は3枚を置いた後に行う(発注者確認済み)。自分のミニオンも巻き込む
+        // 墓穴の呪い: 山札の上から2枚を墓地に置く。墓地の枚数以下のHPを持つミニオンを全て破壊。
+        // ★55(区分3a): セルフミル 3→2枚。判定は2枚を置いた後(発注者確認済み)。自分も巻き込む
         spellEffects.put("QTE-M-DARK-24", ctx -> {
-            ctx.actions().mill(ctx.room(), ctx.owner(), 3);
+            ctx.actions().mill(ctx.room(), ctx.owner(), 2);
             int threshold = ctx.owner().getTrash().size();
             ctx.room().addLog("【墓穴の呪い】: HP%d以下のミニオンを全て破壊します".formatted(threshold));
             for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
@@ -1226,12 +1243,14 @@ public class CardEffectRegistry {
             }
         });
 
-        // 冥府への道: 相手のミニオンを1体選び破壊する
+        // 冥府への道: 相手のミニオンを2体選び破壊する
+        // ★55(区分3a): 破壊 1体→2体。playConditionsも2体以上へ揃える(1体なら使用不可。
+        // 既存の「N体選ぶ」系スペルと同じ、要求数=最小要求の形)
         playConditions.put("QTE-M-DARK-26",
-                (state, player) -> !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
+                (state, player) -> state.opponentOf(player.getPlayerId()).getMinionZone().size() >= 2);
         targetSpecs.put("QTE-M-DARK-26", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(),
-                        "破壊する相手のミニオンを選んでください")));
+                new Requirement(Kind.MINION, Side.OPPONENT, 2, false, false, List.of(),
+                        "破壊する相手のミニオンを2体選んでください")));
         spellEffects.put("QTE-M-DARK-26", ctx -> ctx.targets().get(0).minions()
                 .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion())));
 
@@ -3018,13 +3037,18 @@ public class CardEffectRegistry {
                 ctx.actions().returnManaToHandAt(ctx.room(), ctx.owner(), idx);
             }
             // アクア・サーチ(QTE-M-WATER-25): 2枚引いた後に捨てる手札を確定させる。
-            // TAILWIND_DISCARD と違い必須(min=1)のため、chosen が空になることはない
+            // ★Batch 55(区分3a): 捨て 1→2枚(rework-triage.md)。min=max=2 のため必ず2枚選ばれる。
+            // 位置がずれないよう、削除は降順で行う(詠唱の疾風騎士と同じ形)
             case AQUA_SEARCH_DISCARD -> {
-                int idx = Integer.parseInt(chosen.get(0));
-                String cardId = ctx.owner().getHand().remove(idx);
-                ctx.room().addLog("【アクア・サーチ】: 【%s】を捨てました"
-                        .formatted(cards.findById(cardId).name()));
-                ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
+                List<Integer> positions = new ArrayList<>();
+                chosen.forEach(s -> positions.add(Integer.parseInt(s)));
+                positions.sort(java.util.Comparator.reverseOrder());
+                for (int pos : positions) {
+                    String cardId = ctx.owner().getHand().remove(pos);
+                    ctx.room().addLog("【アクア・サーチ】: 【%s】を捨てました"
+                            .formatted(cards.findById(cardId).name()));
+                    ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), cardId);
+                }
             }
             // 喚ビ集ウ・アヤカシ(QTE-M-WIND-36): 【召喚時】に破壊する自分のミニオンを確定させる。★Batch 48。
             // 「そうしたらカードを2枚引く」なので、破壊が実際に起きたときだけ引く。

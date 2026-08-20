@@ -10,7 +10,9 @@ import com.example.qte.game.PlayerState;
  * リーダーの起動能力の仕様。使用はメインフェイズ中・1ターンに1回
  * (発注者確認済みルール + 現行リーダーカードの記載)。
  *
- * @param mpCost      使用に必要なMP(流転の智者=2、蒼海の賢者=0)
+ * @param mpCost      使用に必要なMP(流転の智者=2、蒼海の賢者=1)。
+ *                    ★Batch 55: テキストの【起動：n】と一致することを
+ *                    {@code tools/check_leader_abilities.py} が機械で照合する
  * @param targets     使用時に選ばせるもの
  * @param effect      能力の処理
  * @param condition   使用可能かの判定。冥府の禁皇のように「代償を払えなければ使えない」

@@ -317,8 +317,10 @@ class DarkLightVer11EffectTest {
         AutoGameFixture f = newGame();
         f.giveMana(f.me(), 5);
         MinionInstance keeper = f.putOnField(f.you(), KEEPER);
+        // ★Batch 55(区分3a): 冥府への道は破壊数が1体→2体になったため、相手の場にもう1体添える
+        MinionInstance other = f.putOnField(f.you(), PLAIN_MINION);
         game.playCard(f.room(), "me", f.giveHand(f.me(), UNDERWORLD_ROAD),
-                List.of(minions(keeper.getInstanceId())), false);
+                List.of(minions(keeper.getInstanceId(), other.getInstanceId())), false);
 
         assertThat(f.you().getMinionZone()).isEmpty();
         assertThat(f.you().getTrash()).as("墓地に留まる").contains(KEEPER);

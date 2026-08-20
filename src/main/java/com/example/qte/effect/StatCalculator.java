@@ -302,8 +302,9 @@ public class StatCalculator {
         }
         // ---- 土文明: 自分のマナ枚数を参照する動的コスト(条件を満たすと固定値まで下がる) ----
         // 減算型ではなく固定値セット型。土カードは他文明の軽減対象ではないため競合しない。
-        if (EARTH_BERSERKER.equals(card.id()) && owner.getManaZone().size() >= 7) {
-            cost = 1; // 大地の狂戦士: マナ7枚以上でコスト1
+        // ★Batch 55(区分3a): マナ条件 7→6枚(rework-triage.md)。【突進】【還元】はテキストから自動で付く
+        if (EARTH_BERSERKER.equals(card.id()) && owner.getManaZone().size() >= 6) {
+            cost = 1; // 大地の狂戦士: マナ6枚以上でコスト1
         }
         // 地脈の覚醒(QTE-M-EARTH-27)の「マナ7枚以上でコスト2」は Ver.0.4 で撤廃された。
         // 基礎コストそのものが2に下がったため、条件を残すと常に真の分岐(=死んだコード)になる。
