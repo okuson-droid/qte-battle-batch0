@@ -31,6 +31,10 @@
         <span class="auto-header-spacer"></span>
         <button id="btn-auto-mode" class="btn btn-sm btn-outline-light"
                 onclick="toggleAutoMode()">進行: 手動</button>
+        <!-- ★★Batch 62: 音の設定(裁定67・289)。★手動モードの [♪] の複製である。
+             片方だけ直さないこと(裁定111 と同じ落とし穴) -->
+        <button id="btn-sound" class="btn btn-sm btn-outline-info"
+                onclick="openSoundModal()" title="音の設定(ミュート・音量)">♪</button>
         <span id="phase-indicator" class="fs-5"></span>
     </div>
 
@@ -177,12 +181,60 @@
     </div>
 </div>
 
+<!--
+  ★★Batch 62: 音の設定(裁定289)。
+
+  ★★★これは manual-battle.html の #sound-modal の<b>複製である</b>。
+    裁定111(確認モーダルの複製)と同じ落とし穴が1つ増えた ——<b>片方だけ直さないこと。</b>
+    共有の JS / テンプレートにしなかったのは、版数の系統が5つ目になるためである
+    (音声ファイルで4つ目になった)。★落とし穴は notes/qte-pitfalls.md にも書いてある。
+  ★手動モードとの違いは<b>2つだけ</b>である ——
+    (1) 閉じる操作が通常モードの流儀(onclick の直書き)である
+    (2) 案内文に「攻撃」が入っている(通常モードにしかない音・裁定288)
+  ★localStorage のキーは<b>手動モードと共有する</b>(qte-manual-sound・裁定289)。
+    音量は人の性質であり、モードごとに合わせ直させるものではない(裁定31 の筋)。
+-->
+<div id="sound-modal" class="info-modal d-none" onclick="closeSoundModal()">
+    <div class="info-modal-body" role="dialog" aria-modal="true"
+         aria-labelledby="sound-modal-title" style="max-width:420px;"
+         onclick="event.stopPropagation()">
+        <div class="info-modal-head">
+            <h6 id="sound-modal-title">音の設定</h6>
+            <button type="button" id="sound-modal-x"
+                    class="btn btn-sm btn-outline-light info-modal-x"
+                    onclick="closeSoundModal()"
+                    aria-label="閉じる" title="閉じる">&times;</button>
+        </div>
+        <div class="sound-row mb-2">
+            <input type="checkbox" id="sound-mute">
+            <label for="sound-mute" class="small mb-0">ミュートする</label>
+        </div>
+        <div class="sound-row mb-1">
+            <label for="sound-volume" class="small mb-0">音量</label>
+            <input type="range" id="sound-volume" class="sound-range"
+                   min="0" max="100" step="5">
+            <span id="sound-volume-value" class="small sound-volume-value">30</span>
+        </div>
+        <p id="sound-modal-status" class="small sound-status mb-2"></p>
+        <p class="small sound-note mb-3">
+            鳴るのは効果音だけである(ドロー・配置・タップ・攻撃・LPの増減・決着・
+            ターンの受け渡し)。BGM は鳴らない。通話に重なるため、初期音量は控えめにしてある。
+            ★音量とミュートの設定は手動モードと共有である。
+        </p>
+        <div class="d-flex justify-content-end">
+            <button type="button" id="sound-modal-close"
+                    class="btn btn-sm btn-outline-light"
+                    onclick="closeSoundModal()">閉じる</button>
+        </div>
+    </div>
+</div>
+
 <script th:inline="javascript">
     const ROOM_ID = /*[[${roomId}]]*/ '';
     const PLAYER_ID = /*[[${playerId}]]*/ '';
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=26)}"></script>
+<script th:src="@{/js/battle.js(v=27)}"></script>
 </body>
 </html>

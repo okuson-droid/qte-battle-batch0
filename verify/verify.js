@@ -41,6 +41,15 @@ const RES = path.join(ROOT, 'src/main/resources');
 const ZONE_RESPONSE = { status: 200, body: { seat: 'A', zone: 'DECK', cards: [] }, delayMs: 0 };
 
 /**
+ * ★★Batch 62: 効果音の配信の応答(裁定283)。
+ *
+ * ファイル化で引き受けた失敗経路(404・読み込み失敗)を<b>実際に起こして</b>測るための口である。
+ * 200 以外にすると `/sounds/` の全要求が失敗し、「失敗した音は鳴らない」
+ * 「理由が状態行に出る」を本物の経路で確かめられる。
+ */
+const SOUND_RESPONSE = { status: 200 };
+
+/**
  * ★★Batch 39: カード定義の口(`/manual/api/card-library`)の応答。
  *
  * 盤面の検証では<b>空</b>でよい(テキスト表示はセクション26が applyCardLibrary で
@@ -137,14 +146,30 @@ function startServer() {
     else if (url === '/' || url === '/harness.html') file = path.join(__dirname, 'harness.html');
     else if (url.startsWith('/css/')) file = path.join(RES, 'static', url);
     else if (url.startsWith('/js/')) file = path.join(RES, 'static', url);
-    else {
+    // ★★Batch 62: 効果音(裁定283)。★本物のファイルを返す ——
+    //   ここをスタブにすると「読み込みに成功したか」を測れなくなる。
+    //   ★SOUND_RESPONSE で失敗を再現できる(ZONE_RESPONSE と同じ形)
+    else if (url.startsWith('/sounds/')) {
+      if (SOUND_RESPONSE.status !== 200) {
+        res.writeHead(SOUND_RESPONSE.status);
+        res.end('nf');
+        return;
+      }
+      file = path.join(RES, 'static', url);
+    } else {
+      res.writeHead(404);
+      res.end('nf');
+      return;
+    }
+    if (!fs.existsSync(file)) {
       res.writeHead(404);
       res.end('nf');
       return;
     }
     const body = fs.readFileSync(file);
     const type = file.endsWith('.css') ? 'text/css'
-      : file.endsWith('.js') ? 'application/javascript' : 'text/html; charset=utf-8';
+      : file.endsWith('.js') ? 'application/javascript'
+        : file.endsWith('.mp3') ? 'audio/mpeg' : 'text/html; charset=utf-8';
     res.writeHead(200, { 'Content-Type': type });
     res.end(body);
   });
@@ -4072,6 +4097,156 @@ async function clearZoom(page) {
     (await snd.locator('#sound-modal-status').textContent()).includes('ミュート')
       && (await snd.locator('#sound-modal-status').getAttribute('class'))
         .includes('sound-status-warn'));
+
+  // =====================================================================
+  // ★★★Batch 62: 音響のファイル化(裁定283〜289)
+  //
+  // ★★<b>37 の「音源はコードで合成する」(旧裁定74)が失効した。</b>
+  //   ここで測るのは、ファイル化で<b>引き受けた失敗経路</b>への手当てである ——
+  //   読み込み失敗・キャッシュ版数・出所の記録の3つ。
+  //   ★★上の23件は1件も作り替えていない。{@code createBufferSource} を数える形を
+  //   保ったまま中身だけがファイル再生に変わったためである(設計解説 4章)。
+  // =====================================================================
+
+  // ---- 62-1. 出所の記録(裁定285)。★CC0 以外が紛れ込む経路を塞ぐ ----
+  // ★★リポジトリが公開である以上、「組み込んでよい」では足りず
+  //   「再配布してよい」素材でなければならない。だから出所を1件残らず書き留める
+  const soundDir = path.join(RES, 'static/sounds');
+  const soundFiles = fs.readdirSync(soundDir).filter((f) => f.endsWith('.mp3'));
+  const creditsText = fs.readFileSync(path.join(soundDir, 'CREDITS.md'), 'utf8');
+  const uncredited = soundFiles.filter((f) => !creditsText.includes(f));
+  check('★★★static/sounds のファイルは全部 CREDITS.md に載っている(62・裁定285)',
+    soundFiles.length > 0 && uncredited.length === 0,
+    JSON.stringify({ files: soundFiles.length, uncredited }));
+  check('★CREDITS.md は CC0 限定であることを明記している(62・裁定285)',
+    creditsText.includes('CC0') && creditsText.includes('再配布'));
+
+  // ---- 62-2. 表に載っているファイルが実在する(★404 を仕込まないための番人)----
+  const specFilesOf = (src) => {
+    const body = src.slice(src.indexOf('const SFX_SPECS = {'));
+    return [...body.slice(0, body.indexOf('\n};')).matchAll(/'([^']+\.mp3)'/g)]
+      .map((m) => m[1]);
+  };
+  const autoSrc = fs.readFileSync(path.join(RES, 'static/js/battle.js'), 'utf8');
+  const manualSpecFiles = specFilesOf(jsSrc);
+  const autoSpecFiles = specFilesOf(autoSrc);
+  const missingFiles = [...new Set([...manualSpecFiles, ...autoSpecFiles])]
+    .filter((f) => !soundFiles.includes(f));
+  check('★★SFX_SPECS が名指すファイルは全部 static/sounds に在る(62)',
+    manualSpecFiles.length >= 11 && autoSpecFiles.length >= 9 && missingFiles.length === 0,
+    JSON.stringify({ missingFiles }));
+
+  // ---- 62-3. ★★両モードの表がずれていない(裁定289 の複製に対する番人)----
+  // ★★設定UIごと複製したので、正が2箇所にある(裁定111 と同じ落とし穴)。
+  //   ★測るのは<b>共通部分の一致</b>である —— 片方にしか無い音(attack / flip・dice・deal)は
+  //   モードの違いであって、ずれではない
+  const specMapOf = async (target) => target.evaluate(() => {
+    const out = {};
+    // eslint-disable-next-line no-undef
+    for (const [name, spec] of Object.entries(SFX_SPECS)) {
+      out[name] = { files: spec.files.slice().sort(), gain: spec.gain };
+    }
+    return out;
+  });
+  const manualSpecs = await specMapOf(page);
+  const autoSpecPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await autoSpecPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await autoSpecPage.waitForTimeout(120);
+  const autoSpecs = await specMapOf(autoSpecPage);
+  const shared = Object.keys(manualSpecs).filter((k) => autoSpecs[k]);
+  const drifted = shared.filter((k) =>
+    JSON.stringify(manualSpecs[k]) !== JSON.stringify(autoSpecs[k]));
+  check('★★★両モードに共通する音は同じファイル・同じ gain である(62・裁定289 の番人)',
+    shared.length >= 8 && drifted.length === 0, JSON.stringify({ shared, drifted }));
+  // ★優先順位の相対順序も揃っている。片方だけ並べ替えると音の意味が2つに割れる
+  const priorityOf = async (target) => target.evaluate(() =>
+    // eslint-disable-next-line no-undef
+    SFX_PRIORITY.slice());
+  const manualPriority = await priorityOf(page);
+  const autoPriority = await priorityOf(autoSpecPage);
+  const manualShared = manualPriority.filter((n) => autoPriority.includes(n));
+  const autoShared = autoPriority.filter((n) => manualPriority.includes(n));
+  check('★★珍しさの順序は両モードで同じである(62・裁定71)',
+    manualShared.length >= 6 && JSON.stringify(manualShared) === JSON.stringify(autoShared),
+    JSON.stringify({ manualShared, autoShared }));
+  await autoSpecPage.close();
+
+  // ---- 62-4. 版数(裁定284)。★JS の版数と同じ数字を使い回していない ----
+  const sfxVersion = await page.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    version: SFX_VERSION, base: SFX_BASE,
+    // eslint-disable-next-line no-undef
+    url: sfxUrl('x.mp3'),
+  }));
+  const manualJsVersion = (fs.readFileSync(
+    path.join(RES, 'templates/manual-battle.html'), 'utf8')
+    .match(/manual-battle\.js\(v=(\d+)\)/) || [])[1];
+  check('★★音声ファイルの版数は独立した1つの定数である(62・裁定284)',
+    sfxVersion.url === '/sounds/x.mp3?v=' + sfxVersion.version
+      && String(sfxVersion.version) !== String(manualJsVersion),
+    JSON.stringify({ sfx: sfxVersion.version, js: manualJsVersion }));
+
+  // ---- 62-5. 散らし(裁定286)。★回数の多い2つだけが複数を持つ ----
+  const spread = await page.evaluate(() => {
+    const out = {};
+    // eslint-disable-next-line no-undef
+    for (const [name, spec] of Object.entries(SFX_SPECS)) out[name] = spec.files.length;
+    return out;
+  });
+  const many = Object.keys(spread).filter((k) => spread[k] > 1).sort();
+  check('★★散らすのは tap と place だけである(62・裁定286)',
+    JSON.stringify(many) === JSON.stringify(['place', 'tap']), JSON.stringify(spread));
+  // ★★珍しい音は同一であることが情報である。決着やダイスを散らしていないことを名指しで測る
+  check('★★決着とダイスは散らしていない(62・裁定286 の理由の側)',
+    spread.decisive === 1 && spread.dice === 1 && spread.shuffle === 1);
+  // ★2連続で同じものを鳴らさない。★buffer は読み込み済みなので実際に選ばせて確かめる
+  const picked = await snd.evaluate(() => {
+    const seen = [];
+    for (let i = 0; i < 12; i++) {
+      // eslint-disable-next-line no-undef
+      const buf = sfxPickBuffer('tap');
+      // eslint-disable-next-line no-undef
+      seen.push(sfxBuffers.tap.indexOf(buf));
+    }
+    return seen;
+  });
+  const repeated = picked.filter((v, i) => i > 0 && v === picked[i - 1]).length;
+  check('★★散らした音は2連続で同じものを鳴らさない(62・裁定286)',
+    picked.length === 12 && picked.every((v) => v >= 0) && repeated === 0,
+    JSON.stringify(picked));
+
+  // ---- 62-6. ★★★読み込み失敗(裁定283)。合成へは戻らず、理由を状態行に出す ----
+  // ★★本物の経路で失敗させる。fetch をスタブすると「404 のとき何が起きるか」ではなく
+  //   「スタブが何を返すか」を測ることになる
+  SOUND_RESPONSE.status = 404;
+  const deaf = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+  await deaf.addInitScript(audioSpy);
+  await deaf.goto(`http://127.0.0.1:${port}/harness.html`);
+  await deaf.waitForTimeout(400);
+  await deaf.locator('#btn-sound').click();   // ★このクリックが unlock も兼ねる
+  await deaf.waitForTimeout(120);
+  const deafStatus = await deaf.locator('#sound-modal-status').textContent();
+  check('★★★読み込みに失敗したら理由が状態行に出る(62・裁定283 の (c))',
+    deafStatus.includes('読み込め'), deafStatus);
+  check('★読み込みに失敗した状態行は警告色である(62・裁定76)',
+    (await deaf.locator('#sound-modal-status').getAttribute('class'))
+      .includes('sound-status-warn'));
+  await deaf.keyboard.press('Escape');
+  await deaf.waitForTimeout(60);
+  await deaf.evaluate(() => { window.__audio.nodes = []; });
+  const deafPlayed = await deaf.evaluate(() =>
+    // eslint-disable-next-line no-undef
+    sfxPlay('place'));
+  check('★★★読み込めなかった音は鳴らない(合成へ戻らない・62・裁定283 の (a))',
+    deafPlayed === false
+      && (await deaf.evaluate(() => window.__audio.nodes.length)) === 0);
+  // ★★合成のコードが撤去されていること自体を測る。残っていると「保険」が復活しうる
+  check('★★★合成のコードは撤去されている(62・裁定283)',
+    !/function sfxTone\(|function sfxNoiseSweep\(|function sfxRattle\(/.test(jsSrc)
+      && !/createOscillator/.test(jsSrc), '合成関数が残っている');
+  await deaf.close();
+  SOUND_RESPONSE.status = 200;
+
   // =====================================================================
   // ★★Batch 38: 開始シーケンスの一括演出(レビュー B-1・裁定77 / 81)
   //
@@ -5460,6 +5635,184 @@ async function clearZoom(page) {
     JSON.stringify(tabooSoulSent));
 
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
+
+  // =====================================================================
+  // ★★★Batch 62: 通常モードの音(裁定287・288)
+  //
+  // ★★<b>61 まで通常モードには音が1つも無かった。</b>
+  //   ここで測るのは、手動モードと同じ決めごとが<b>別の構造の上でも守れているか</b>である。
+  //   ★測り方は 37 と同じ2本立て(純関数 + WebAudio の境界)。形を変えない。
+  // =====================================================================
+  const bsnd = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const bsndErrors = [];
+  bsnd.on('pageerror', (e) => bsndErrors.push(String(e)));
+  bsnd.on('console', (m) => { if (m.type() === 'error') bsndErrors.push(m.text()); });
+  await bsnd.addInitScript(audioSpy);
+  await bsnd.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await bsnd.waitForTimeout(400);
+
+  const bAudio = () => bsnd.evaluate(() => window.__audio.nodes.length);
+  const bClear = () => bsnd.evaluate(() => { window.__audio.nodes = []; });
+  /**
+   * 配信を1つ届ける。
+   * ★★<b>onMessage を通す。</b>ここだけが「サーバから来た出来事」の入口である
+   */
+  const bDeliver = async (v) => {
+    await bsnd.evaluate((view) => {
+      // eslint-disable-next-line no-undef
+      onMessage({ body: JSON.stringify({ view: view }) });
+    }, v);
+    await bsnd.waitForTimeout(40);
+  };
+  const bView = (overrides) => autoView(overrides);
+
+  // ---- 62-7. 自動再生ポリシー。★手動モードと同じ決まりである(裁定73)----
+  await bDeliver(bView({}));
+  check('★★通常モードも最初のユーザー操作まで AudioContext を作らない(62・裁定73)',
+    (await bsnd.evaluate(() => window.__audio.contexts)) === 0
+      && (await bAudio()) === 0);
+  await bsnd.locator('#btn-sound').click();   // ★このクリックが unlock を兼ねる
+  await bsnd.waitForTimeout(200);
+  check('★通常モードの [♪] で音の設定が開く(62・裁定289)',
+    !(await bsnd.locator('#sound-modal').getAttribute('class')).includes('d-none'));
+  check('★★初期音量は手動モードと同じ 30 である(62・裁定67)',
+    (await bsnd.locator('#sound-volume').inputValue()) === '30');
+  check('★★設定の保存先は手動モードと共有である(62・裁定289 = a-1)',
+    (await bsnd.evaluate(() =>
+      // eslint-disable-next-line no-undef
+      SFX_STORAGE_KEY)) === 'qte-manual-sound');
+  await bsnd.keyboard.press('Escape');
+  await bsnd.waitForTimeout(80);
+  check('★通常モードの音の設定も Esc で閉じる(62)',
+    (await bsnd.locator('#sound-modal').getAttribute('class')).includes('d-none'));
+  check('★★通常モードでも音は使えるようになっている(62・裁定73)',
+    (await bsnd.evaluate(() => window.__audio.contexts)) === 1
+      && (await bsnd.evaluate(() =>
+        // eslint-disable-next-line no-undef
+        sfxReady())) === true);
+
+  // ---- 62-8. ★★★取り付け点は onMessage であって render ではない ----
+  // ★★これが 287 の核心である。render(latestView) は<b>画面の操作のたびにも走る</b>ので、
+  //   あそこで差分を採ると「配信」と「再描画」を区別できない
+  const bLpView = bView({ you: autoPlayer({ lp: 17 }) });
+  await bClear();
+  await bDeliver(bLpView);
+  check('★★★通常モードは配信で音が鳴る(62・裁定287)', (await bAudio()) === 1,
+    JSON.stringify(await bsnd.evaluate(() => window.__audio.nodes)));
+  await bClear();
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    render(latestView);
+    // eslint-disable-next-line no-undef
+    render(latestView);
+  });
+  await bsnd.waitForTimeout(60);
+  check('★★★描き直しただけでは鳴らない(取り付け点は onMessage である・62)',
+    (await bAudio()) === 0);
+  // ★同じ盤面が再配信されても鳴らない(差分が0件である)
+  await bClear();
+  await bDeliver(bLpView);
+  check('★★同じ盤面の再配信では鳴らない(62・差分が0件)', (await bAudio()) === 0);
+
+  // ---- 62-9. 1配信1音と、珍しさの優先(裁定70・71)----
+  const bBusy = bView({
+    you: autoPlayer({ lp: 12, handCount: 3, minions: [autoMinion('n1', '新入り')] }),
+  });
+  await bClear();
+  await bDeliver(bBusy);
+  check('★★LP・ドロー・出現が同じ配信で起きても鳴るのは1音である(62・裁定70)',
+    (await bAudio()) === 1,
+    JSON.stringify(await bsnd.evaluate(() => window.__audio.nodes)));
+  const bPick = (effects) => bsnd.evaluate((list) =>
+    // eslint-disable-next-line no-undef
+    sfxChoose(list), effects);
+  check('★★通常モードでもLPは増と減で別の音である(62)',
+    (await bPick([{ kind: 'lp', delta: -3 }])) === 'lpDown'
+      && (await bPick([{ kind: 'lp', delta: 2 }])) === 'lpUp');
+  check('★★珍しい出来事ほど優先する(62・裁定71)',
+    (await bPick([{ kind: 'appear' }, { kind: 'tap' }, { kind: 'lp', delta: -1 }]))
+        === 'lpDown'
+      && (await bPick([{ kind: 'appear' }, { kind: 'declare' }])) === 'decisive'
+      && (await bPick([{ kind: 'tap' }, { kind: 'appear' }])) === 'tap');
+  check('★★通常モードの差分の種類はすべて音の表に載っている(62・裁定72 の番人)',
+    (await bsnd.evaluate(() => ['draw', 'appear', 'vanish', 'tap', 'declare', 'mulligan']
+      // eslint-disable-next-line no-undef
+      .filter((k) => !sfxNameFor({ kind: k })))).length === 0);
+
+  // ---- 62-10. ★裁定8 の通常モード版。盤面が大きく動いた配信は音では語れない ----
+  const bMany = bView({
+    you: autoPlayer({
+      minions: [autoMinion('n1', '新入り'), autoMinion('b1', '兵1'), autoMinion('b2', '兵2'),
+        autoMinion('b3', '兵3'), autoMinion('b4', '兵4'), autoMinion('b5', '兵5'),
+        autoMinion('b6', '兵6'), autoMinion('b7', '兵7'), autoMinion('b8', '兵8'),
+        autoMinion('b9', '兵9')],
+    }),
+  });
+  await bClear();
+  await bDeliver(bMany);
+  check('★★差分が上限(8件)を超えると音も鳴らない(62・裁定8 の通常モード版)',
+    (await bAudio()) === 0,
+    JSON.stringify(await bsnd.evaluate(() => window.__audio.nodes)));
+
+  // ---- 62-11. ★★差分に現れない操作は send() から鳴る(裁定288)----
+  // ★★攻撃は view の差分に現れない —— 現れるのはHPの減少という<b>結果</b>だけである
+  await bClear();
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    send('attack', { attackerInstanceId: 'n1', targetInstanceId: null });
+  });
+  await bsnd.waitForTimeout(60);
+  check('★★★攻撃の宣言で音が鳴る(62・裁定288)', (await bAudio()) === 1,
+    JSON.stringify(await bsnd.evaluate(() => window.__audio.nodes)));
+  await bClear();
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    send('leader-attack', { targetInstanceId: null });
+  });
+  await bsnd.waitForTimeout(60);
+  check('★リーダーの攻撃も同じ音である(62・裁定72: 攻撃は攻撃である)',
+    (await bAudio()) === 1);
+  // ★★カードのプレイは<b>鳴らさない</b>。配信の差分が appear として語るので、
+  //   ここでも鳴らすと1つの操作で2音になる
+  await bClear();
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    send('play-card', { handIndex: 0 });
+    // eslint-disable-next-line no-undef
+    send('charge-mana', { handIndex: 0 });
+    // eslint-disable-next-line no-undef
+    send('next-phase', {});
+  });
+  await bsnd.waitForTimeout(60);
+  check('★★★差分が語る操作は send では鳴らさない(1操作2音にしない・62・裁定70)',
+    (await bAudio()) === 0,
+    JSON.stringify(await bsnd.evaluate(() => window.__audio.nodes)));
+  await bClear();
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    send('end-turn', {});
+  });
+  await bsnd.waitForTimeout(60);
+  check('★ターンの受け渡しには手応えがある(62・差分に現れないため)',
+    (await bAudio()) === 1);
+
+  // ---- 62-12. ミュートは両モードで同じ効き方をする ----
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    sfxSettings.muted = true;
+    // eslint-disable-next-line no-undef
+    applySfxVolume();
+  });
+  await bClear();
+  await bDeliver(bView({ you: autoPlayer({ lp: 3 }) }));
+  await bsnd.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    send('attack', {});
+  });
+  await bsnd.waitForTimeout(60);
+  check('★★ミュート中は配信でも攻撃でも鳴らない(62・裁定289)', (await bAudio()) === 0);
+  check('通常モードの音でJSエラーが出ない', bsndErrors.length === 0, bsndErrors.join(' | '));
+  await bsnd.close();
   await autoPage.close();
 
   // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----

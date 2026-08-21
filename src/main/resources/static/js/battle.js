@@ -116,6 +116,13 @@ document.addEventListener('keydown', (e) => {
         closeZoom();
         return;
     }
+    // ★Batch 62: 音の設定も Esc で閉じる(手動モードと同じ流儀)
+    const soundModal = document.getElementById('sound-modal');
+    if (soundModal && !soundModal.classList.contains('d-none')) {
+        e.preventDefault();
+        closeSoundModal();
+        return;
+    }
     const logPanel = document.getElementById('log-panel');
     if (logPanel && !logPanel.classList.contains('d-none')) {
         e.preventDefault();
@@ -127,15 +134,485 @@ function setConnectionStatus(text) {
     document.getElementById('connection-status').textContent = text;
 }
 
+// ===============================================================
+// ★★★1-5) 効果音(Batch 62・裁定283〜289)
+//
+// ★★<b>通常モードには 61 まで音が1つも無かった。</b>手動モードには 37・38 で
+//   11種の音があり、そちらは<b>盤面の差分</b>を材料にしていた。
+//   通常モードには差分層が無く、{@code render(view)} が毎回まるごと描き直すだけである。
+//
+// ★★★<b>差分の採取層をこちらにも作る</b>(裁定287 = A)。
+//   {@code send()} に音を載せる道(B)もあったが、それは
+//   「通常モードにいずれ演出を入れる」ときに<b>捨てることになる投資</b>である。
+//   裁定68 が守ろうとしていたのは「発火点を増やさないこと」であって
+//   「安く済ませること」ではない。
+//   ★<b>ただし今回作るのは差分の採取までである</b> ——
+//   fx 層(ゴースト・遷移)は作らない。音はここが出す列を読むだけであり、
+//   演出を乗せる土台は次のバッチに残る。
+//
+// ★★★<b>取り付け点は {@link onMessage} である。{@code render()} ではない。</b>
+//   {@code render(latestView)} は<b>画面の操作のたびにも呼ばれる</b>(15箇所)。
+//   あそこで差分を採ると「配信」と「再描画」を区別できない。
+//   <b>サーバから来た出来事の入口は {@code onMessage} の1箇所だけ</b>であり、
+//   手動モードで {@code fxSpawn} が「盤面で起きたことは全部1つの列に集まっている」を
+//   利用したのと、これは同じ形の利用である。
+//
+// ★★<b>差分に現れない出来事は {@code send()} から鳴らす</b>(2箇所目)。
+//   {@code attack} は「攻撃した」という出来事が view の差分に現れない ——
+//   現れるのはHPの減少や消滅という<b>結果</b>だけである。
+//   ★これは手動モードの {@code commit}(確認モーダルの [実行])とまったく同じ形であり、
+//   裁定68 の「取り付けは2箇所」がそのまま通常モードでも成り立っている。
+//
+// ★★★<b>ここから下は manual-battle.js の複製である</b>(裁定289 = a)。
+//   共有の JS ファイルにしなかったのは、版数の系統が5つ目になるためである
+//   (音声ファイルで4つ目になった。裁定111 が共有 JS を退けたのと同じ理由)。
+//   ★★<b>片方だけ直さないこと。</b>番人が verify にあり、
+//   「両モードに共通して載っている音は同じ内容である」を測っている。
+// ===============================================================
+
+/** ★設定の保存先。★★手動モードと<b>共有する</b>(裁定289)。音量は人の性質である(裁定31) */
+const SFX_STORAGE_KEY = 'qte-manual-sound';
+
+/** ★初期音量は控えめである(裁定67)。通話の音声と干渉させない */
+const SFX_DEFAULT_VOLUME = 30;
+
+/** ★音声ファイルの置き場所と版数(裁定284)。★JS の版数(?v=)とは別の数字である */
+const SFX_BASE = '/sounds/';
+const SFX_VERSION = 1;
+
+/**
+ * 音の仕様。★ファイルの対応表である(合成の数値表ではない)。
+ *
+ * ★★<b>9種である。手動モードの11種と同じものではない。</b>
+ * この表は「<b>このモードで鳴る音</b>」の一覧であり、鳴らない音を載せると表が嘘をつく。
+ * <ul>
+ *   <li>手動モードにあって<b>ここに無い</b>もの: {@code flip} / {@code dice} / {@code deal}
+ *       —— 通常モードに「めくり」「先後のダイス」「ひと配り」という出来事が無いためである
+ *       (先後は {@code chooseOrder} の選択であって振るものではない。
+ *       初期ドローは手札が増えるので {@code draw} が語る)</li>
+ *   <li>ここにあって<b>手動モードに無い</b>もの: {@code attack}(裁定288)</li>
+ * </ul>
+ * ★共通する音は<b>ファイル名も gain も手動モードと同じ</b>でなければならない(番人あり)。
+ * ★出典・ライセンスは {@code static/sounds/CREDITS.md} にある(裁定285)。
+ */
+const SFX_SPECS = {
+    // ドロー(0.60秒)
+    draw: { files: ['card-slide-1.mp3'], gain: 0.55 },
+    // 場に出る・場を去る・マナに置く。★毎手鳴るので散らす(裁定286)
+    place: {
+        files: ['card-place-1.mp3', 'card-place-2.mp3', 'card-place-3.mp3',
+            'card-place-4.mp3'],
+        gain: 0.80,
+    },
+    // タップ。★いちばん回数が多いので、いちばん軽く・いちばん多く散らす
+    tap: {
+        files: ['select_001.mp3', 'select_002.mp3', 'select_007.mp3', 'select_008.mp3'],
+        gain: 0.30,
+    },
+    // ★★LPが減る(0.26秒)。★{@code error_} を当ててはいけない —— LPが減るのは失敗ではない
+    lpDown: { files: ['minimize_001.mp3'], gain: 0.60 },
+    // LPが増える(0.26秒)。★上の対である
+    lpUp: { files: ['maximize_001.mp3'], gain: 0.50 },
+    // 決着(1.00秒)。★1試合に1回しか鳴らない
+    decisive: { files: ['jingles_PIZZI01.mp3'], gain: 0.55 },
+    // ★ターンの受け渡し。★差分に現れないので send() から鳴らす
+    commit: { files: ['confirmation_001.mp3'], gain: 0.45 },
+    // マリガンの確定。★手動モードと同じ音である
+    shuffle: { files: ['card-shuffle.mp3'], gain: 0.50 },
+    // ★★Batch 62: 攻撃(裁定288)。★通常モードにしかない音である。
+    //   通常モードは<b>攻撃で勝敗が決まるゲーム</b>であり、攻撃が「置く」と同じ音では
+    //   盤面でいちばん起きることが語られない。★{@code leader-attack} は別音にしない(裁定72)
+    attack: { files: ['impactMetal_medium_000.mp3'], gain: 0.65 },
+};
+
+/**
+ * 差分の種類 → 音。★手動モードの表と<b>共通部分は同じ</b>でなければならない(番人あり)。
+ * ★{@code lp} だけはここに無い。増と減で意味が逆であり、表では決まらないためである。
+ */
+const SFX_FOR_KIND = {
+    draw: 'draw',
+    appear: 'place',
+    vanish: 'place',
+    tap: 'tap',
+    declare: 'decisive',
+    mulligan: 'shuffle',
+};
+
+/**
+ * 1配信で1つだけ鳴らすときの優先順位(前ほど強い)。
+ * ★★<b>珍しい出来事ほど優先する</b>(裁定71)。理由は「珍しさ」1本である。
+ * ★{@code commit} と {@code attack} はここに無い。差分から来ないので競合しない
+ * (手動モードの {@code commit} と同じ扱いである)。
+ */
+const SFX_PRIORITY = ['decisive', 'shuffle', 'lpDown', 'lpUp', 'draw', 'tap', 'place'];
+
+/** 音量スライダーを動かしたときの試聴音 */
+const SFX_PREVIEW = 'place';
+
+/** unlock の入口。★特定の操作を名指ししない(裁定73) */
+const SFX_UNLOCK_EVENTS = ['pointerdown', 'keydown'];
+
+/** ★1配信で採る差分の上限(裁定8 の通常モード版)。超えたら何も鳴らさない */
+const SFX_DIFF_LIMIT = 8;
+
+let sfxCtx = null;
+let sfxMaster = null;
+/** 取得済みの原本。★取得(fetch)と復号(decode)を分ける理由は manual-battle.js に書いてある */
+const sfxRaw = {};
+/** 復号済み。★鳴らすときに見るのはこちらだけである */
+const sfxBuffers = {};
+/** 読み込みに失敗したファイル。★件数を状態行に出すために持つ(裁定283) */
+const sfxFailed = [];
+/** 直前に選んだ位置。★散らす音で2連続の同一を避けるために持つ */
+const sfxLastIndex = {};
+let sfxUnsupported = false;
+let sfxSettings = loadSfxSettings();
+
+function loadSfxSettings() {
+    const fallback = { muted: false, volume: SFX_DEFAULT_VOLUME };
+    try {
+        const raw = JSON.parse(localStorage.getItem(SFX_STORAGE_KEY) || 'null');
+        if (!raw || typeof raw !== 'object') return fallback;
+        const volume = Number(raw.volume);
+        return {
+            muted: raw.muted === true,
+            volume: Number.isFinite(volume) ? Math.min(100, Math.max(0, Math.round(volume)))
+                : SFX_DEFAULT_VOLUME,
+        };
+    } catch (e) {
+        return fallback;
+    }
+}
+
+function saveSfxSettings() {
+    try {
+        localStorage.setItem(SFX_STORAGE_KEY, JSON.stringify(sfxSettings));
+    } catch (e) {
+        // 記録できないだけで、今回の設定は効いている
+    }
+}
+
+/** 音を出せる状態か。★読み込み失敗はここに<b>含めない</b>(他の音は鳴るため) */
+function sfxReady() {
+    return !!sfxCtx && !sfxSettings.muted && sfxSettings.volume > 0;
+}
+
+/** パネルに出す状態。★上から順に「1つも鳴らない理由」であり、読み込み失敗だけが最後に来る */
+function sfxStatusText() {
+    if (sfxUnsupported) return 'この環境では音を出せない(ブラウザが対応していない)';
+    if (!sfxCtx) return '画面をどこか一度クリックすると音が使えるようになる';
+    if (sfxSettings.muted) return 'ミュート中';
+    if (sfxSettings.volume === 0) return '音量が 0 になっている';
+    if (sfxFailed.length > 0) {
+        return `音の一部を読み込めなかった(${sfxFailed.length}件)。その音だけが鳴らない`;
+    }
+    return '音は有効である';
+}
+
+/** 状態行を警告色にするか(裁定76)。★sfxReady と同じではない(読み込み失敗を含む) */
+function sfxStatusWarn() {
+    return !sfxReady() || sfxFailed.length > 0;
+}
+
+/** ★★最初のユーザー操作で音を使えるようにする(裁定73) */
+function sfxUnlock() {
+    if (sfxCtx || sfxUnsupported) return;
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    if (!Ctor) {
+        sfxUnsupported = true;
+        syncSoundPanel();
+        return;
+    }
+    try {
+        sfxCtx = new Ctor();
+        sfxMaster = sfxCtx.createGain();
+        sfxMaster.connect(sfxCtx.destination);
+        applySfxVolume();
+        if (sfxCtx.state === 'suspended') sfxCtx.resume();
+        sfxDecodeAll();
+    } catch (e) {
+        sfxCtx = null;
+        sfxMaster = null;
+        sfxUnsupported = true;
+    }
+    syncSoundPanel();
+}
+
+function sfxUnlockFromGesture() {
+    sfxUnlock();
+    for (const type of SFX_UNLOCK_EVENTS) {
+        document.removeEventListener(type, sfxUnlockFromGesture, true);
+    }
+}
+
+for (const type of SFX_UNLOCK_EVENTS) {
+    // ★capture で受ける。盤面のハンドラが stopPropagation しても unlock は通す
+    document.addEventListener(type, sfxUnlockFromGesture, true);
+}
+
+function applySfxVolume() {
+    if (!sfxMaster) return;
+    sfxMaster.gain.value = sfxSettings.muted ? 0 : sfxSettings.volume / 100;
+}
+
+function sfxUrl(file) {
+    return `${SFX_BASE}${file}?v=${SFX_VERSION}`;
+}
+
+/** 1ファイルを取得する。★失敗しても投げない。音は対戦を止める理由にならない */
+function sfxFetch(name, file) {
+    fetch(sfxUrl(file))
+        .then((res) => (res.ok ? res.arrayBuffer()
+            : Promise.reject(new Error(String(res.status)))))
+        .then((raw) => {
+            (sfxRaw[name] = sfxRaw[name] || []).push(raw);
+            if (sfxCtx) sfxDecode(name);
+        })
+        .catch(() => {
+            sfxFailed.push(file);
+            syncSoundPanel();
+        });
+}
+
+/** ★ページを開いた時点で全部取りに行く(裁定283 の (c))。★鳴らす直前に取りに行かない */
+function sfxPreload() {
+    for (const name of Object.keys(SFX_SPECS)) {
+        for (const file of SFX_SPECS[name].files) sfxFetch(name, file);
+    }
+}
+
+/** 取得済みの原本を復号する。★AudioContext が要るので unlock 後にしか動かない */
+function sfxDecode(name) {
+    const raws = sfxRaw[name];
+    if (!sfxCtx || !raws || raws.length === 0) return;
+    sfxRaw[name] = [];
+    for (const raw of raws) {
+        try {
+            sfxCtx.decodeAudioData(raw)
+                .then((buffer) => {
+                    (sfxBuffers[name] = sfxBuffers[name] || []).push(buffer);
+                })
+                .catch(() => {
+                    sfxFailed.push(name);
+                    syncSoundPanel();
+                });
+        } catch (e) {
+            sfxFailed.push(name);
+        }
+    }
+}
+
+function sfxDecodeAll() {
+    for (const name of Object.keys(SFX_SPECS)) sfxDecode(name);
+}
+
+/** 鳴らす1本を選ぶ。★2連続で同じものを鳴らさない(裁定286) */
+function sfxPickBuffer(name) {
+    const list = sfxBuffers[name];
+    if (!list || list.length === 0) return null;
+    if (list.length === 1) return list[0];
+    let i = Math.floor(Math.random() * list.length);
+    if (i === sfxLastIndex[name]) i = (i + 1) % list.length;
+    sfxLastIndex[name] = i;
+    return list[i];
+}
+
+/**
+ * 音を1つ鳴らす。
+ * @return 実際に鳴らしたか(ミュート中・unlock 前・★読み込めていない音は false)
+ */
+function sfxPlay(name) {
+    const spec = SFX_SPECS[name];
+    if (!spec || !sfxReady()) return false;
+    const buffer = sfxPickBuffer(name);
+    // ★★読み込めなかった音は<b>鳴らない</b>(裁定283)。合成へは戻らない
+    if (!buffer) return false;
+    try {
+        if (sfxCtx.state === 'suspended') sfxCtx.resume();
+        const src = sfxCtx.createBufferSource();
+        src.buffer = buffer;
+        const level = sfxCtx.createGain();
+        level.gain.value = spec.gain;
+        src.connect(level);
+        level.connect(sfxMaster);
+        src.start();
+    } catch (e) {
+        return false;
+    }
+    return true;
+}
+
+/** 差分1件に対応する音の名前。★{@code lp} だけは表では決まらない(増と減で逆) */
+function sfxNameFor(fx) {
+    if (!fx) return null;
+    if (fx.kind === 'lp') return fx.delta > 0 ? 'lpUp' : 'lpDown';
+    return SFX_FOR_KIND[fx.kind] || null;
+}
+
+/** ★★1配信で鳴らす1つを選ぶ(裁定70)。優先順位は SFX_PRIORITY の1箇所にある */
+function sfxChoose(effects) {
+    let best = null;
+    let bestRank = SFX_PRIORITY.length;
+    for (const fx of effects || []) {
+        const name = sfxNameFor(fx);
+        const rank = name ? SFX_PRIORITY.indexOf(name) : -1;
+        if (rank >= 0 && rank < bestRank) {
+            best = name;
+            bestRank = rank;
+        }
+    }
+    return best;
+}
+
+// ---- ★★差分の採取(裁定287 = A・範囲は採取まで)----
+
+/**
+ * 1つの席の差分を採る。
+ *
+ * ★★<b>手動モードのように全ゾーンのカードを instanceId で追うことはしない。</b>
+ * 通常モードのビューは、場のミニオンだけが {@code instanceId} を持ち、
+ * 手札・マナ・墓地は<b>枚数と中身の列</b>で来る。追えるものだけを追い、
+ * 残りは<b>枚数の増減</b>で採る —— 音が要るのは「何が起きたか」であって
+ * 「どのカードがどこへ動いたか」ではない(裁定72: 音の語彙は粗くてよい)。
+ *
+ * ★<b>相手の席も同じように採る。</b>差分層は誰の手かを区別しない ——
+ * 手動モードも差分由来なので相手の手で鳴っている。
+ */
+function fxDiffSeat(list, before, after) {
+    if (!before || !after) return;
+    // LP。★増と減で音が変わる唯一のもの
+    if (before.lp !== after.lp) list.push({ kind: 'lp', delta: after.lp - before.lp });
+    // 手札が増えた = ドロー。★減ったほうは場・墓地の側が語る
+    if (after.handCount > before.handCount) list.push({ kind: 'draw' });
+    // マナが増えた = 置いた
+    if (after.totalMana > before.totalMana) list.push({ kind: 'appear' });
+    // 場のミニオン。★instanceId を持つ唯一のゾーンである
+    const was = new Map((before.minions || []).map((m) => [m.instanceId, m]));
+    const now = new Map((after.minions || []).map((m) => [m.instanceId, m]));
+    for (const [id, m] of now) {
+        const old = was.get(id);
+        if (!old) {
+            list.push({ kind: 'appear' });
+        } else if (old.tapped !== m.tapped) {
+            // ★居場所が変わっていないミニオンだけ状態を見る(手動モード 32b と同じ切り分け)
+            list.push({ kind: 'tap' });
+        }
+    }
+    for (const id of was.keys()) {
+        if (!now.has(id)) list.push({ kind: 'vanish' });
+    }
+}
+
+/**
+ * 1配信ぶんの差分を採る。
+ * ★★<b>これは音のためだけの層ではない。</b>演出を乗せるならここが材料になる(裁定287)。
+ */
+function fxDiff(prev, next) {
+    const list = [];
+    if (!prev || !next) return list;
+    fxDiffSeat(list, prev.you, next.you);
+    fxDiffSeat(list, prev.opponent, next.opponent);
+    // ★決着。★status が FINISHED へ変わった配信でだけ出す(再配信で二度は出さない)
+    if (prev.status !== 'FINISHED' && next.status === 'FINISHED') {
+        list.push({ kind: 'declare' });
+    }
+    // ★マリガンが終わった
+    if (prev.mulligan && !next.mulligan) list.push({ kind: 'mulligan' });
+    return list;
+}
+
+/**
+ * ★★配信1つにつき音を1つ鳴らす(裁定70)。
+ * ★差分が上限を超えたら何も鳴らさない(裁定8 の通常モード版) ——
+ * 1手で盤面が大きく動いた配信は、音では語れない。
+ */
+function sfxForDelivery(prev, next) {
+    if (!sfxReady()) return;
+    const list = fxDiff(prev, next);
+    if (list.length === 0 || list.length > SFX_DIFF_LIMIT) return;
+    const name = sfxChoose(list);
+    if (name) sfxPlay(name);
+}
+
+// ---- 設定パネル(★手動モードの複製である。裁定289)----
+
+function syncSoundPanel() {
+    const mute = document.getElementById('sound-mute');
+    const volume = document.getElementById('sound-volume');
+    const status = document.getElementById('sound-modal-status');
+    if (!mute || !volume || !status) return;
+    mute.checked = sfxSettings.muted;
+    volume.value = String(sfxSettings.volume);
+    volume.disabled = sfxSettings.muted;
+    document.getElementById('sound-volume-value').textContent = String(sfxSettings.volume);
+    status.textContent = sfxStatusText();
+    // ★色が意味を持つのは「鳴らない理由がある」ときだけである(裁定76)
+    status.classList.toggle('sound-status-warn', sfxStatusWarn());
+}
+
+function openSoundModal() {
+    syncSoundPanel();
+    document.getElementById('sound-modal').classList.remove('d-none');
+}
+
+function closeSoundModal() {
+    document.getElementById('sound-modal').classList.add('d-none');
+}
+
+document.getElementById('sound-mute').addEventListener('change', (e) => {
+    sfxSettings.muted = e.target.checked;
+    saveSfxSettings();
+    applySfxVolume();
+    syncSoundPanel();
+    // ★ミュートを解除したときだけ鳴らす。切ったのに音が出るのは矛盾である
+    if (!sfxSettings.muted) sfxPlay(SFX_PREVIEW);
+});
+
+// ★値の反映は input(動かしている間)、試聴は change(離したとき)である
+document.getElementById('sound-volume').addEventListener('input', (e) => {
+    sfxSettings.volume = Number(e.target.value);
+    applySfxVolume();
+    syncSoundPanel();
+});
+document.getElementById('sound-volume').addEventListener('change', () => {
+    saveSfxSettings();
+    sfxPlay(SFX_PREVIEW);
+});
+
+sfxPreload();
+
 // ---------------------------------------------------------------
 // 2) 送信
 // ---------------------------------------------------------------
 
 function send(action, payload) {
+    // ★★Batch 62: 音の取り付け点の2つ目(裁定68・287)。
+    //   ここは<b>ユーザーの操作が全部通る1箇所</b>である
+    sfxForAction(action);
     client.publish({
         destination: `/app/room/${ROOM_ID}/${action}`,
         body: JSON.stringify({ playerId: PLAYER_ID, ...payload }),
     });
+}
+
+/**
+ * 操作の手応え(★Batch 62)。
+ *
+ * ★★<b>差分に現れない操作だけを鳴らす。</b>
+ * カードのプレイ・召喚・マナチャージは、配信の差分に {@code appear} として現れるので
+ * ここでは鳴らさない —— 鳴らすと<b>1つの操作で2音</b>になり、
+ * 裁定70 が守っているもの(1つの出来事に1つの音)が崩れる。
+ *
+ * ★{@code attack} が差分に現れないのは、view に載るのが
+ * HPの減少・消滅という<b>結果</b>だけだからである。「攻撃した」はどこにも書かれていない。
+ * ★{@code end-turn} も同じである。フェイズが変わるだけで、盤面には何も起きない。
+ */
+function sfxForAction(action) {
+    if (action === 'attack' || action === 'leader-attack') {
+        sfxPlay('attack');
+    } else if (action === 'end-turn') {
+        sfxPlay('commit');
+    }
 }
 
 function chooseOrder(goFirst) { send('choose-order', { goFirst }); }
@@ -1290,6 +1767,11 @@ function onMessage(frame) {
         render(latestView);
         return;
     }
+    // ★★★Batch 62: 音の取り付け点の1つ目(裁定287)。
+    //   ★<b>ここが「配信」の唯一の入口である。</b>render(latestView) は画面の操作でも
+    //   走るので、あちらで差分を採ると「配信」と「再描画」を区別できない。
+    //   ★差し替え前の latestView が「前回の盤面」そのものである
+    sfxForDelivery(latestView, message.view);
     latestView = message.view;
     // 盤面が変わったら選択状態は仕切り直す(対象が既にいない可能性があるため)
     if (!latestView.myTurn || latestView.phase !== 'BATTLE') {

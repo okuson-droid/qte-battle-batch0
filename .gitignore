@@ -14,3 +14,7 @@ Thumbs.db
 m2repo/
 m2repo.zip
 __pycache__/
+
+# 効果音の原本(Batch 62)。★リポジトリに要るのは変換後の mp3 だけである
+#   (src/main/resources/static/sounds/。出典は同フォルダの CREDITS.md にある)
+sound-src/

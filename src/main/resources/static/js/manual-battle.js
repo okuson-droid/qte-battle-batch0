@@ -890,11 +890,23 @@ function bindStartReset(button) {
 //   「何をしたか」ではなく「何件変わったか」になる。これは裁定8(差分が8件を超えたら
 //   演出を出さない)や「演出は1手を語る道具である」と同じ考え方の音側である。
 //
-// ★★<b>音源はコードで合成する</b>(2-3)。音声ファイルを同梱しない。
-//   理由は「失敗の広さ」(裁定27)である。ファイルにすると
-//   読み込み失敗・404・キャッシュ版数という失敗経路が3つ増えるが、
-//   合成にはどれも無い。あわせて、音の性格が<b>数値の表1つ</b>
-//   ({@link SFX_SPECS})に出るので、実機で聞いた印象から直接調整できる。
+// ★★★<b>音源は音声ファイルである</b>(Batch 62・裁定283〜285)。
+//   ★★<b>37 の「コードで合成する」(旧裁定74)は失効した。</b>
+//   旧裁定が誤っていたのではない —— 37 の時点では「版数の系統を4つ目にしない」ほうが
+//   正しかった。<b>前提(マスターがフリー素材を用意する)が変わったので結論が変わった</b>だけである。
+//   ★引き受けた失敗経路は3つ: 読み込み失敗・キャッシュ版数・ライセンス。手当ては
+//   (1) <b>失敗した音は鳴らない</b>(裁定283)。合成へのフォールバックは持たない ——
+//       「どちらが鳴るか」の分岐を1つ増やすと、音が語るものが1つ減るためである。
+//       ただし<b>鳴らない理由は状態行に出す</b>(裁定76 の場所をそのまま使う)。
+//   (2) 版数は {@link SFX_VERSION} の1つだけである(裁定284)。
+//       ★JS の版数と同じ数字を使い回さない。1つの数字に意味が2つ載る。
+//   (3) 素材は <b>CC0 に限る</b>(裁定285)。リポジトリが公開である以上、
+//       「組み込んでよい」では足りず「再配布してよい」でなければならない。
+//       出典は {@code static/sounds/CREDITS.md} に記録する(表記の義務ではなく<b>記録</b>である)。
+//   ★★変わったのは<b>音の作り</b>であって<b>音の設計</b>ではない。
+//   {@link SFX_FOR_KIND} / {@link SFX_PRIORITY} / {@link sfxChoose} / {@link sfxNameFor} は
+//   1文字も変えていない。{@link SFX_SPECS} の役割が
+//   「合成の数値表」から「<b>ファイルの対応表</b>」に変わっただけである。
 //
 // ★★<b>自動再生ポリシーの unlock は「最初のユーザー操作」で行う</b>(4章)。
 //   席選択ゲートの決定を入口にすると素直に見えるが、<b>復帰はゲートを通らない</b>ので
@@ -908,41 +920,83 @@ const SFX_STORAGE_KEY = 'qte-manual-sound';
 const SFX_DEFAULT_VOLUME = 30;
 
 /**
+ * ★★音声ファイルの置き場所と版数(裁定284)。
+ *
+ * ★★<b>{@code SFX_VERSION} は JS の版数({@code ?v=} に書く数字)とは別物である。</b>
+ * 音だけを差し替えたときに {@code manual-battle.js} の版数を上げると、
+ * 1つの数字に「JS が変わった」と「音が変わった」の2つの意味が載る。
+ * ★<b>音声ファイルを差し替えたら、この数字だけを上げること。</b>
+ *
+ * ★版数を持たない選択は採れなかった。このプロジェクトは {@code Cache-Control} を
+ * 1つも設定しておらず、ブラウザは {@code Last-Modified} から有効期限を勝手に推定する。
+ * 既存の js / css が {@code ?v=} を付けているのと同じ理由である。
+ */
+const SFX_BASE = '/sounds/';
+const SFX_VERSION = 1;
+
+/**
  * 音の仕様(★マスターが実機で聞いて調整するのはこの表だけである)。
  *
+ * ★★<b>Batch 62 で役割が変わった。</b>合成の数値表ではなく<b>ファイルの対応表</b>である。
+ *
  * <ul>
- *   <li>{@code gain} は音どうしの相対バランス(0〜1)。実出力は gain × 音量スライダー/100</li>
- *   <li>{@code ms} は長さ。{@code from}/{@code to} は周波数の始点と終点(Hz)</li>
- *   <li>{@code tone} = 楽音 / {@code noise} = 帯域を絞った雑音 / {@code chord} = 和音</li>
+ *   <li>{@code files} は音声ファイル名の<b>配列</b>。★1つしかない音も要素1の配列にする ——
+ *       表の形を2通りにしないためである(そうすれば「何通りあるか」が表の上で読める)</li>
+ *   <li>{@code gain} は音どうしの相対バランス(0〜1)。実出力は gain × 音量スライダー/100。
+ *       ★<b>素材ごとの録音レベルの差を吸収するのもここである</b></li>
  * </ul>
  *
- * ★8種である(裁定67 の「6〜8種」)。うち7種は盤面の差分から、
- * {@code commit} だけが確認モーダルの [実行] から鳴る。
+ * ★★<b>複数ファイルを持つのは {@code tap} と {@code place} だけである</b>(裁定286 = c)。
+ * この2つは毎手鳴るので<b>意味がすでに摩耗している</b> —— 散らしても情報は減らず、
+ * 耳の疲労だけが減る。逆に {@code decisive}(1試合1回)や {@code dice} を散らすと
+ * 「これは前と同じ出来事か?」という迷いが生まれる。
+ * <b>珍しい音は、珍しいからこそ同一であることが情報である。</b>
+ *
+ * ★11種である。うち10種は盤面の差分から、{@code commit} だけが確認モーダルの [実行] から鳴る。
+ * ★出典・ライセンスは {@code static/sounds/CREDITS.md} にある(裁定285)。
  */
 const SFX_SPECS = {
-    // 紙を引き抜く感じ。上へ抜ける短い擦過音
-    draw: { type: 'noise', ms: 150, from: 700, to: 2800, q: 5, gain: 0.55 },
-    // 置く・動かす。低く短い打音
-    place: { type: 'tone', ms: 110, from: 230, to: 110, wave: 'triangle', gain: 0.80 },
-    // タップ / アンタップ。いちばん回数が多いので、いちばん軽くしてある
-    tap: { type: 'tone', ms: 60, from: 660, to: 540, wave: 'square', gain: 0.30 },
-    // めくる。下へ抜ける短い擦過音(draw と逆向きにして聞き分けられるようにした)
-    flip: { type: 'noise', ms: 100, from: 2600, to: 800, q: 4, gain: 0.45 },
-    // LPが減る。下降する2次的な唸り
-    lpDown: { type: 'tone', ms: 280, from: 400, to: 140, wave: 'sawtooth', gain: 0.60 },
-    // LPが増える。上昇させて減少と対にする
-    lpUp: { type: 'tone', ms: 280, from: 330, to: 700, wave: 'triangle', gain: 0.50 },
-    // 決着。★1試合に1回しか鳴らない音なので、唯一の和音にしてある
-    decisive: { type: 'chord', ms: 900, notes: [392.0, 523.25, 659.25], wave: 'triangle', gain: 0.55 },
-    // 破壊的操作の実行(リセット・退室・席を立つ)。★「押した」の手応えである
-    commit: { type: 'tone', ms: 130, from: 300, to: 300, wave: 'square', gain: 0.45 },
+    // 紙を引き抜く感じ。上へ抜ける短い擦過音(0.60秒)
+    draw: { files: ['card-slide-1.mp3'], gain: 0.55 },
+    // 置く・動かす。★毎手鳴るので散らす(裁定286)。0.46〜0.88秒
+    place: {
+        files: ['card-place-1.mp3', 'card-place-2.mp3', 'card-place-3.mp3',
+            'card-place-4.mp3'],
+        gain: 0.80,
+    },
+    // タップ / アンタップ。★いちばん回数が多いので、いちばん軽く・いちばん多く散らす。
+    // ★★{@code click_} ではなく {@code select_} を当てた —— 実測すると
+    //   {@code click_002〜005} は<b>長さが 0.01 秒しかなく、ほとんど聞こえない</b>。
+    //   {@code select_001 / 002 / 007 / 008} は 0.043〜0.047 秒で<b>4つとも長さが揃っている</b>
+    tap: {
+        files: ['select_001.mp3', 'select_002.mp3', 'select_007.mp3', 'select_008.mp3'],
+        gain: 0.30,
+    },
+    // めくる(0.77秒)。★draw と別の素材にして聞き分けられるようにしてある
+    flip: { files: ['card-shove-1.mp3'], gain: 0.45 },
+    // ★★LPが減る(0.26秒)。★{@code error_} を当ててはいけない ——
+    //   LPが減るのは<b>失敗ではない</b>。相手のLPが減るのは自分の成功であり、
+    //   自分のLPが減るのも盤面の出来事である。
+    //   {@code minimize}(下降)/ {@code maximize}(上昇)は同じ作者が上下の対として作っており、
+    //   裁定80「増と減は意味が逆だから2種に分けた」の関係が音の側でも保たれる
+    lpDown: { files: ['minimize_001.mp3'], gain: 0.60 },
+    // LPが増える(0.26秒)。★上の対である。番号まで対応している
+    lpUp: { files: ['maximize_001.mp3'], gain: 0.50 },
+    // 決着(1.00秒)。★1試合に1回しか鳴らない音である。★楽器はピチカート
+    decisive: { files: ['jingles_PIZZI01.mp3'], gain: 0.55 },
+    // 破壊的操作の実行(リセット・退室・席を立つ)。★「押した」の手応えである(0.29秒)
+    commit: { files: ['confirmation_001.mp3'], gain: 0.45 },
     // ---- ★Batch 38: 開始シーケンスの3種(裁定77・81)。どれも1試合に数回しか鳴らない ----
-    // 先後判定のダイス。★転がって止まる。唯一の rattle 型である
-    dice: { type: 'rattle', ms: 620, hits: 5, from: 2600, to: 1100, q: 9, gain: 0.55 },
-    // 初期ドローの配り。★draw より低く長い。1枚ではなく<b>ひと配り</b>の音である
-    deal: { type: 'noise', ms: 300, from: 480, to: 1700, q: 2, gain: 0.60 },
-    // マリガンの切り直し。★いちばん長い擦過音で「束をまとめて混ぜた」を語る
-    shuffle: { type: 'noise', ms: 460, from: 1500, to: 850, q: 1.4, gain: 0.50 },
+    // 先後判定のダイス(0.63秒)。★転がって止まる
+    dice: { files: ['dice-throw-1.mp3'], gain: 0.55 },
+    // 初期ドローの配り(0.72秒)。★1枚ではなく<b>ひと配り</b>の音である
+    deal: { files: ['card-fan-1.mp3'], gain: 0.60 },
+    // マリガンの切り直し。★★<b>3.06秒あり、11種でいちばん長い</b>。
+    //   素材にこれ1つしかなく(名前もそのものである)、長さは実機で聞いてから判断する
+    shuffle: { files: ['card-shuffle.mp3'], gain: 0.50 },
+    // ★★{@code attack} はここに無い。手動モードに「攻撃」という概念が無いためである
+    //   (通常モードの表には12種目として載っている・裁定288)。
+    //   ★<b>この表は「このモードで鳴る音」の一覧である。</b>鳴らない音を載せると表が嘘をつく
 };
 
 /**
@@ -996,7 +1050,20 @@ const SFX_UNLOCK_EVENTS = ['pointerdown', 'keydown'];
 
 let sfxCtx = null;
 let sfxMaster = null;
-let sfxNoise = null;
+/**
+ * 取得済みの原本(音の名前 → ArrayBuffer の配列)。
+ * ★★<b>取得(fetch)と復号(decode)を分けているのは、unlock の決まりを守るためである。</b>
+ * 復号には {@code AudioContext} が要るが、それを最初のユーザー操作より前に作ってはいけない
+ * (裁定73)。そこで<b>取得はページを開いた時点で、復号は unlock の時点で</b>行う。
+ * ★この分割のおかげで、読み込み失敗を<b>操作より前に</b>検出して状態行に出せる。
+ */
+const sfxRaw = {};
+/** 復号済み(音の名前 → AudioBuffer の配列)。★鳴らすときに見るのはこちらだけである */
+const sfxBuffers = {};
+/** 読み込みに失敗したファイル。★件数を状態行に出すために持つ(裁定283 の (c)) */
+const sfxFailed = [];
+/** 直前に選んだ位置(音の名前 → 添字)。★散らす音で2連続の同一を避けるために持つ */
+const sfxLastIndex = {};
 /** この環境に AudioContext が無い(または生成に失敗した)。パネルに理由を出すために持つ */
 let sfxUnsupported = false;
 let sfxSettings = loadSfxSettings();
@@ -1036,13 +1103,32 @@ function sfxReady() {
     return !!sfxCtx && !sfxSettings.muted && sfxSettings.volume > 0;
 }
 
-/** パネルに出す状態。★unlock 前に開くことは実際には起きない(パネルを開く操作自体が unlock する) */
+/**
+ * パネルに出す状態。★unlock 前に開くことは実際には起きない(パネルを開く操作自体が unlock する)。
+ *
+ * ★★<b>並び順には理由がある。</b>上から順に「音が<b>1つも</b>鳴らない理由」であり、
+ * 読み込み失敗だけが<b>一部の音だけが鳴らない</b>理由なので最後に来る。
+ * 全部鳴らない人に「一部が読み込めなかった」と言っても、その人の困りごとは解けない。
+ */
 function sfxStatusText() {
     if (sfxUnsupported) return 'この環境では音を出せない(ブラウザが対応していない)';
     if (!sfxCtx) return '画面をどこか一度クリックすると音が使えるようになる';
     if (sfxSettings.muted) return 'ミュート中';
     if (sfxSettings.volume === 0) return '音量が 0 になっている';
+    // ★★Batch 62: ファイル化で引き受けた失敗経路。★鳴らない理由を出す場所は既にあった(裁定76)
+    if (sfxFailed.length > 0) {
+        return `音の一部を読み込めなかった(${sfxFailed.length}件)。その音だけが鳴らない`;
+    }
     return '音は有効である';
+}
+
+/**
+ * 状態行を警告色にするか(裁定76)。
+ * ★{@link sfxReady} と<b>同じではない</b> —— 読み込み失敗は<b>ゲートではない</b>
+ * (他の音は鳴る)が、<b>言うべき理由ではある</b>。
+ */
+function sfxStatusWarn() {
+    return !sfxReady() || sfxFailed.length > 0;
 }
 
 /**
@@ -1067,6 +1153,9 @@ function sfxUnlock() {
         sfxMaster.connect(sfxCtx.destination);
         applySfxVolume();
         if (sfxCtx.state === 'suspended') sfxCtx.resume();
+        // ★★Batch 62: ここまで取得できている原本をまとめて復号する。
+        //   取得がまだ終わっていないものは、終わった時点で自分で復号へ回る(sfxFetch)
+        sfxDecodeAll();
     } catch (e) {
         sfxCtx = null;
         sfxMaster = null;
@@ -1092,109 +1181,117 @@ function applySfxVolume() {
     sfxMaster.gain.value = sfxSettings.muted ? 0 : sfxSettings.volume / 100;
 }
 
-/** ホワイトノイズは1本だけ作って使い回す(擦過音の材料) */
-function sfxNoiseBuffer() {
-    if (sfxNoise) return sfxNoise;
-    const frames = Math.floor(sfxCtx.sampleRate * 0.5);
-    const buffer = sfxCtx.createBuffer(1, frames, sfxCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < frames; i++) {
-        data[i] = Math.random() * 2 - 1;
-    }
-    sfxNoise = buffer;
-    return buffer;
+// ---- ★★Batch 62: 音声ファイルの読み込み(裁定283・284)----
+//
+// ★★合成のコード(sfxTone / sfxNoiseSweep / sfxEnvelope / sfxRattle)は<b>撤去した</b>。
+//   保険として残す道もあったが、ファイルが無いときだけ別の音が鳴る状態は
+//   「同じ操作なのに人によって違う音が鳴る」ことを意味する。
+//   ★<b>「どちらが鳴るか」の分岐を1つ増やすと、音が語るものが1つ減る</b>(裁定283 = a)。
+
+/** ★版数は1つだけである(裁定284)。JS の版数とは別の数字を使う */
+function sfxUrl(file) {
+    return `${SFX_BASE}${file}?v=${SFX_VERSION}`;
 }
 
 /**
- * 立ち上がりと減衰。★どの音も同じ形の包絡線を通す。
- * 減衰を指数にしているのは、直線だと切れ際に「プツ」と鳴るためである。
+ * 1ファイルを取得する。★unlock 前でも走る(復号だけが unlock 後である)。
+ * ★失敗しても<b>投げない</b>。音は対戦を止める理由にならない。
  */
-function sfxEnvelope(at, seconds, gain) {
-    const env = sfxCtx.createGain();
-    env.gain.setValueAtTime(0.0001, at);
-    env.gain.linearRampToValueAtTime(gain, at + 0.006);
-    env.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
-    env.connect(sfxMaster);
-    return env;
+function sfxFetch(name, file) {
+    fetch(sfxUrl(file))
+        .then((res) => (res.ok ? res.arrayBuffer()
+            : Promise.reject(new Error(String(res.status)))))
+        .then((raw) => {
+            (sfxRaw[name] = sfxRaw[name] || []).push(raw);
+            // ★unlock が先に済んでいれば、その場で復号へ回す
+            if (sfxCtx) sfxDecode(name);
+        })
+        .catch(() => {
+            sfxFailed.push(file);
+            syncSoundPanel();
+        });
 }
 
-function sfxTone(at, seconds, wave, from, to, gain) {
-    const osc = sfxCtx.createOscillator();
-    osc.type = wave || 'triangle';
-    osc.frequency.setValueAtTime(from, at);
-    if (to !== from) {
-        osc.frequency.exponentialRampToValueAtTime(Math.max(1, to), at + seconds);
+/** ★ページを開いた時点で全部取りに行く(裁定283 の (c))。★鳴らす直前に取りに行かない */
+function sfxPreload() {
+    for (const name of Object.keys(SFX_SPECS)) {
+        for (const file of SFX_SPECS[name].files) sfxFetch(name, file);
     }
-    osc.connect(sfxEnvelope(at, seconds, gain));
-    osc.start(at);
-    osc.stop(at + seconds);
-}
-
-function sfxNoiseSweep(at, seconds, from, to, q, gain) {
-    const src = sfxCtx.createBufferSource();
-    src.buffer = sfxNoiseBuffer();
-    const band = sfxCtx.createBiquadFilter();
-    band.type = 'bandpass';
-    band.Q.value = q;
-    band.frequency.setValueAtTime(from, at);
-    band.frequency.exponentialRampToValueAtTime(Math.max(1, to), at + seconds);
-    src.connect(band);
-    band.connect(sfxEnvelope(at, seconds, gain));
-    src.start(at);
-    src.stop(at + seconds);
 }
 
 /**
- * ★★Batch 38: ダイスの転がり。短い雑音の粒を間隔を詰めながら並べ、最後の1粒だけ低く強くする。
- *
- * ★他の音と違い<b>粒が複数ある</b>。それでもこれは「1つの音」である ——
- * 裁定70 が数えているのは<b>出来事</b>であって音源ノードではない。
- * (だから検証も「何個ノードを作ったか」ではなく「鳴ったか」で見る。設計書7章)
+ * 取得済みの原本を復号する。★{@code AudioContext} が要るので unlock 後にしか動かない。
+ * ★{@code decodeAudioData} は渡された ArrayBuffer を切り離すので、原本は使い回せない ——
+ * だから復号したものは {@link sfxRaw} から取り出して捨てる。
  */
-function sfxRattle(at, seconds, hits, from, to, q, gain) {
-    const count = Math.max(2, hits || 4);
-    const grain = 0.024;
-    for (let i = 0; i < count; i++) {
-        // ★間隔を等分ではなく後半ほど詰める。等分だと機械のノイズに聞こえる
-        const ratio = Math.pow(i / (count - 1), 1.7);
-        const last = i === count - 1;
-        const hz = from + (to - from) * (i / (count - 1));
-        sfxNoiseSweep(at + ratio * (seconds - grain), grain, hz, hz * 0.8, q,
-            gain * (last ? 1 : 0.55));
+function sfxDecode(name) {
+    const raws = sfxRaw[name];
+    if (!sfxCtx || !raws || raws.length === 0) return;
+    sfxRaw[name] = [];
+    for (const raw of raws) {
+        try {
+            sfxCtx.decodeAudioData(raw)
+                .then((buffer) => {
+                    (sfxBuffers[name] = sfxBuffers[name] || []).push(buffer);
+                })
+                .catch(() => {
+                    sfxFailed.push(name);
+                    syncSoundPanel();
+                });
+        } catch (e) {
+            sfxFailed.push(name);
+        }
     }
+}
+
+function sfxDecodeAll() {
+    for (const name of Object.keys(SFX_SPECS)) sfxDecode(name);
+}
+
+/**
+ * 鳴らす1本を選ぶ。★複数あるのは {@code tap} と {@code place} だけである(裁定286)。
+ * ★2連続で同じものを鳴らさない —— 散らしておきながら同じ音が続くと、散らす意味が薄れる。
+ * @return AudioBuffer(まだ読めていない・失敗した音は null)
+ */
+function sfxPickBuffer(name) {
+    const list = sfxBuffers[name];
+    if (!list || list.length === 0) return null;
+    if (list.length === 1) return list[0];
+    let i = Math.floor(Math.random() * list.length);
+    if (i === sfxLastIndex[name]) i = (i + 1) % list.length;
+    sfxLastIndex[name] = i;
+    return list[i];
 }
 
 /**
  * 音を1つ鳴らす。
- * @return 実際に鳴らしたか(ミュート中・unlock 前は false)
+ * @return 実際に鳴らしたか(ミュート中・unlock 前・★読み込めていない音は false)
  */
 function sfxPlay(name) {
     const spec = SFX_SPECS[name];
     if (!spec || !sfxReady()) return false;
+    const buffer = sfxPickBuffer(name);
+    // ★★読み込めなかった音は<b>鳴らない</b>(裁定283)。合成へは戻らない
+    if (!buffer) return false;
     try {
         // ★タブを裏へ回すと suspended へ落ちるブラウザがある。鳴らす直前に起こす
         if (sfxCtx.state === 'suspended') sfxCtx.resume();
-        const at = sfxCtx.currentTime;
-        const seconds = spec.ms / 1000;
-        if (spec.type === 'noise') {
-            sfxNoiseSweep(at, seconds, spec.from, spec.to, spec.q, spec.gain);
-        } else if (spec.type === 'rattle') {
-            sfxRattle(at, seconds, spec.hits, spec.from, spec.to, spec.q, spec.gain);
-        } else if (spec.type === 'chord') {
-            // ★和音は少しずつずらして重ねる。同時に立ち上げると1つの濁った音になる
-            spec.notes.forEach((hz, i) => {
-                sfxTone(at + i * 0.07, seconds - i * 0.07, spec.wave, hz, hz,
-                    spec.gain / spec.notes.length);
-            });
-        } else {
-            sfxTone(at, seconds, spec.wave, spec.from, spec.to, spec.gain);
-        }
+        const src = sfxCtx.createBufferSource();
+        src.buffer = buffer;
+        // ★音どうしの相対バランス。★素材ごとの録音レベルの差もここで吸収する
+        const level = sfxCtx.createGain();
+        level.gain.value = spec.gain;
+        src.connect(level);
+        level.connect(sfxMaster);
+        src.start();
     } catch (e) {
         // ★音で対戦を止めない。鳴らせなかったことは盤面の正しさに影響しない
         return false;
     }
     return true;
 }
+
+sfxPreload();
 
 /** 差分1件に対応する音の名前。★{@code lp} だけは表では決まらない(増と減で逆) */
 function sfxNameFor(fx) {
@@ -1235,7 +1332,8 @@ function syncSoundPanel() {
     status.textContent = sfxStatusText();
     // ★色が意味を持つのは「鳴らない理由がある」ときだけである。
     //   正常時まで警告色にすると、色は何も言わなくなる
-    status.classList.toggle('sound-status-warn', !sfxReady());
+    // ★★Batch 62: 判定は sfxReady ではなく sfxStatusWarn である(読み込み失敗を含むため)
+    status.classList.toggle('sound-status-warn', sfxStatusWarn());
 }
 
 function openSoundModal() {
