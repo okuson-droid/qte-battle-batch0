@@ -42,6 +42,20 @@ import com.example.qte.master.Keyword;
 @Component
 public class CardEffectRegistry {
 
+    /**
+     * 《悪夢》(QTE-M-DARK-27)が張る「このターンの間【召喚時】は使えない」の印(★Batch 59)。
+     *
+     * <p>★<b>カードIDそのものを使わない理由。</b>《悪夢》は同じターン内に
+     * <b>2つの別々のオーラ</b>を張りうる —— コスト-4(サブフェイズのときだけ)と、
+     * この【召喚時】封じ(いつでも)である。同じ鍵を使うと、
+     * メインフェイズに撃った1枚が「コストも下がっている」ことになってしまう。
+     */
+    private static final String NIGHTMARE_SUMMON_LOCK = "QTE-M-DARK-27#SUMMON_LOCK";
+
+    /** 「ターンに n 回まで」の n(★Batch 59)。裁定264(冥魔剣=5)・裁定276(地脈の覚醒=1) */
+    private static final int MEIMA_SWORD_USES_PER_TURN = 5;
+    private static final int LEYLINE_AWAKENING_USES_PER_TURN = 1;
+
     /** スペルの解決時効果(カードID → 処理) */
     private final Map<String, Consumer<EffectContext>> spellEffects = new HashMap<>();
 
@@ -790,6 +804,29 @@ public class CardEffectRegistry {
      *            ctx.source() にはそのミニオンが入る(現行2枚は参照しないが、
      *            「出たミニオンのコスト分」のような効果に備えて渡している)
      */
+    /**
+     * 相手がカードを引いたときの発火(★Batch 59。《英知の水晶》)。
+     *
+     * <p>引いたプレイヤーから見た<b>相手の場</b>を回す。
+     * {@code ctx} は<b>反応する側(引かなかった側)</b>を owner とする文脈でなければならない ——
+     * 効果は「自分はカードを1枚引いても良い」であり、引くのは反応した側だからである。
+     *
+     * <p>★複数体並べれば累積する(「1体につき」を否定する語が無い。裁定236 と同じ読み)。
+     *
+     * @param ctx 反応する側を owner とする文脈。source は都度差し替えない ——
+     *            この効果は自身を参照しないためである
+     */
+    public void fireOpponentDrew(EffectContext ctx) {
+        for (MinionInstance minion : List.copyOf(ctx.owner().getMinionZone())) {
+            Consumer<EffectContext> effect = triggers
+                    .getOrDefault(minion.getMaster().id(), Map.of())
+                    .get(TriggerType.ON_OPPONENT_DRAW);
+            if (effect != null) {
+                effect.accept(ctx);
+            }
+        }
+    }
+
     public void fireAllyMinionEvent(TriggerType trigger, EffectContext ctx) {
         CardMaster weapon = ctx.owner().getEquippedWeapon();
         if (weapon == null) {
@@ -837,6 +874,14 @@ public class CardEffectRegistry {
         register("QTE-M-FIRE-3", TriggerType.ON_SUMMON,
                 ctx -> ctx.actions().damageLeader(ctx.room(), ctx.owner(), 2, "QTE-M-FIRE-3"));
 
+        // ★フレア・ポーン(QTE-M-FIRE-2)はここに登録を持たない(★Batch 59・区分5・裁定268)。
+        //   旧: 本文が<b>空欄</b> / 新: 「効果なし」とだけ明記された。
+        //   ★マスター裁定268(a): <b>効果の登録を一切行わない</b>のが正しい実装である。
+        //   {@code CardTextKeywords.hasEffectSentence} が「効果なし」の表記を
+        //   「効果の文が無い」と読むので、盤面の「効果未実装」の印も点かない。
+        //   ★<b>「書いてあるのに登録が無い」ことがこのカードの正しい姿である</b> ——
+        //   Batch 58 の《背水の烈火使い》(登録を消すのが実装だった)と同じ形である。
+
         // 赫灼の重戦士: 自分のリーダーの体力が10以下ならこれは【速攻】を得る
         register("QTE-M-FIRE-5", TriggerType.ON_SUMMON, ctx -> {
             if (ctx.owner().getLp() <= 10 && ctx.source() != null) {
@@ -845,8 +890,25 @@ public class CardEffectRegistry {
             }
         });
 
-        // 痛撃の炎術師: 自分のリーダーの体力が10以上なら自分のリーダーに1ダメージ
-        register("QTE-M-FIRE-18", TriggerType.ON_SUMMON, ctx -> {
+        // 痛撃の炎術師(QTE-M-FIRE-18): ★Batch 59(区分3b・裁定261)
+        //   旧: 「【召喚時】自分のリーダーの体力が10以上なら自分のリーダーに1ダメージ。」
+        //   新: 「【知識】自分のリーダーの体力が10以上なら自分のリーダーに1ダメージ。」
+        //
+        // ★<b>誘発の印が【召喚時】から【知識】へ変わった。</b>マスター裁定261(a) により、
+        //   これは<b>2段の効果</b>である —— 【知識】の標準効果(登場時に1枚ドロー)は
+        //   そのまま起き、続く文はそれに<b>加えて</b>起きる。
+        //   【知識】が「発動タイミングだけを表す印」でテキストが中身を置き換える、
+        //   という読み(b)は採らない。
+        //
+        // ★<b>実装の変更は ON_SUMMON → ON_ENTER の1点だけである。</b>
+        //   1ドローのほうは既にキーワードの共通処理(fire() の先頭)が行っている ——
+        //   キーワードの正は Ver1.1 のテキストなので(裁定158)、
+        //   【知識】は本文が書き換わった時点で既に付いていた。
+        // ★<b>ON_ENTER にしたことで経路を問わなくなる</b>(裁定193)。
+        //   効果で場に出した場合(《英術・スケアロック》)にも自傷が起きる。
+        //   これは【知識】が ON_ENTER 型のキーワードであることの当然の帰結である。
+        // ★<b>《悪夢》の【召喚時】封じでは止まらない</b>(裁定265)。【知識】は【召喚時】ではない。
+        register("QTE-M-FIRE-18", TriggerType.ON_ENTER, ctx -> {
             if (ctx.owner().getLp() >= 10) {
                 ctx.actions().damageLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-18");
             }
@@ -1169,6 +1231,27 @@ public class CardEffectRegistry {
                 }
             }
         });
+        // ★Batch 59(区分4・裁定267): Ver1.1 のゾンストライカー
+        //   旧: 「【召喚時】「ゾンストライカー」を墓地から全て出す。<b>このカードは4枚以上入れられる。</b>」
+        //   新: 「【召喚時】「ゾンストライカー」を墓地から全て出す。
+        //        <b>【突進】破壊されたとき自分の山札の上から1枚を墓地に置く。</b>」
+        //
+        // ★<b>構築特例(同名4枚超えを許す)は Ver1.1 で廃止された</b>(マスター裁定267(a))。
+        //   ★<b>この廃止のために書くコードは1行も無い。</b>特例の宣言は
+        //   コードではなくカード定義({@code manual-cards.json} の {@code unlimitedCopies})が
+        //   持っており、Ver1.1 のカード定義には<b>その項目がそもそも無い</b> ——
+        //   したがって同名4枚上限は既に効いている。
+        //   ★{@code ManualDeckImporter} に残っている {@code unlimitedCopies} の分岐は
+        //   これで完全に死んだ。掃除は Batch 60(引き継ぎ書の積み残し)。
+        //
+        // ★<b>実際に足す実装は「破壊されたとき1枚セルフミル」のほうである。</b>
+        //   「破壊されたとき」であって「戦闘で破壊されたとき」ではないので ON_DESTROYED を使う
+        //   (《ボーン・コレクター》の裁定266 と同じ読み)。
+        // ★<b>【召喚時】で墓地から出た仲間が破壊されても、その分だけ墓地が増える。</b>
+        //   自分の山札を削る効果が闇のスターターに4枚入ることになり、
+        //   《群がる死霊王》(墓地のゾンストライカー1枚につきコスト-2)との噛み合いが強くなる。
+        register("QTE-M-DARK-16", TriggerType.ON_DESTROYED,
+                ctx -> ctx.actions().mill(ctx.room(), ctx.owner(), 1));
 
         // 腐敗の投擲者: 【召喚時】相手のミニオン1体に1ダメージ
         targetSpecs.put("QTE-M-DARK-17", TargetSpec.of(
@@ -1212,8 +1295,18 @@ public class CardEffectRegistry {
             }
         });
 
-        // ボーン・コレクター: このミニオンが戦闘で破壊された時1枚引く(効果破壊では引かない)
-        register("QTE-M-DARK-6", TriggerType.ON_DESTROYED_BY_COMBAT,
+        // ボーン・コレクター(QTE-M-DARK-6): ★Batch 59(区分3b・裁定266)
+        //   旧: 「【突進】。このミニオンが<b>戦闘で</b>破壊された時、カードを1枚引く。」
+        //   新: 「【突進】。このミニオンが破壊された時、カードを1枚引く。」
+        //
+        // ★<b>「戦闘で」の限定が消えた。</b>マスター裁定266(a) により、
+        //   効果による破壊でも1ドローが発動する。
+        // ★実装は誘発の種類を1つ替えるだけである ——
+        //   ON_DESTROYED_BY_COMBAT(戦闘破壊のみ)→ ON_DESTROYED(経路を問わない)。
+        // ★<b>自分で破壊しても引ける。</b>《カース・ボーン》《神風の大号令》のように
+        //   自分のミニオンを食う闇・風のカードと組むと、損失が1ドローに変わる ——
+        //   Ver1.1 で闇文明が墓地を資源に寄せた流れと同じ向きの変更である。
+        register("QTE-M-DARK-6", TriggerType.ON_DESTROYED,
                 ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 1));
 
         // ★Batch 58(区分5): カース・ボーン(QTE-M-DARK-2)。
@@ -1335,12 +1428,42 @@ public class CardEffectRegistry {
 
         // ---- スペル ----
 
-        // マナを貪る怨霊: 表向きのマナ2枚を裏向きにする。3枚引く
-        playConditions.put("QTE-M-DARK-11",
-                (state, player) -> player.getManaZone().stream().anyMatch(ManaCard::isFaceUp));
+        // マナを貪る怨霊(QTE-M-DARK-11): ★Batch 59(区分5・裁定273)
+        //   旧: 「自分のマナゾーンの「表向きのカード」2枚を裏向きにする。そうしたらカードを2枚引く。」
+        //   新: 「自分の墓地にある闇文明のカードを2枚裏向きでマナに置く。その後置いた枚数カードを1枚引く。」
+        //
+        // ★<b>参照するゾーンがマナから墓地へ移った。</b>旧は「今あるマナの向きを変える」だけで
+        //   マナの枚数は増えなかったが、新は<b>墓地からマナを増やす</b>。
+        //   Ver1.1 が闇文明の資源を墓地へ寄せた流れ(《カース・ボーン》《禁忌の代償》)と同じ向きである。
+        //
+        // ★<b>引く枚数は「置いた枚数」である</b>(マスター裁定273(a))。
+        //   本文の「置いた枚数カードを1枚引く」は噛み合っていないが、
+        //   マスターは<b>置けた枚数だけ引く(最大2枚)</b>と決めた。
+        //   したがって墓地に闇文明が1枚しかなければ1枚置いて1枚引き、0枚なら何も起きない。
+        //
+        // ★<b>使用条件を持たない。</b>旧は「表向きのマナが1枚以上あること」を要求していたが、
+        //   新は「あるだけ置く」形なので、0枚でも使用できる
+        //   (《神風の大号令》の裁定269(b) と同じ扱いに揃えた)。
+        // ★<b>どの2枚を置くかは選ばせない。</b>本文に「選び」が無いためである(裁定211)。
+        //   墓地の古い順(墓地リストの先頭から)に取る —— 墓地は置かれた順のリストであり、
+        //   「先に死んだものから土に還る」が最も素直な並びである。
         spellEffects.put("QTE-M-DARK-11", ctx -> {
-            ctx.actions().turnManaFaceDown(ctx.room(), ctx.owner(), 2);
-            ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
+            List<String> candidates = ctx.owner().getTrash().stream()
+                    .filter(id -> cards.findById(id).civilization() == Civilization.DARK)
+                    .limit(2)
+                    .toList();
+            int placed = 0;
+            for (String id : candidates) {
+                if (ctx.actions().putTrashCardIntoManaFaceDown(ctx.room(), ctx.owner(), id)) {
+                    placed++;
+                }
+            }
+            if (placed <= 0) {
+                ctx.room().addLog("【マナを貪る怨霊】: 墓地に闇文明のカードが無いため、何も起きませんでした");
+                return;
+            }
+            ctx.room().addLog("【マナを貪る怨霊】: 墓地から%d枚を裏向きでマナに置きました".formatted(placed));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), placed);
         });
 
         // 墓穴の呪い: 山札の上から2枚を墓地に置く。墓地の枚数以下のHPを持つミニオンを全て破壊。
@@ -1371,9 +1494,20 @@ public class CardEffectRegistry {
 
         // 悪夢: コスト軽減はStatCalculatorが行う。本体効果はサブフェイズに使ったときのみ。
         // 「このターン、ミニオンの召喚コストを-4」はターン中オーラとして表現する
+        // ★Batch 59(区分3b・裁定265): Ver1.1 で「このターンの間【召喚時】は使えない」が付いた。
+        //   マスター裁定265: 封じる範囲は<b>自分だけ</b>、持続は<b>使用したターンの残り全体</b>。
+        //
+        // ★<b>この一文は本文の2行目にあり、サブフェイズの条件に掛かっていない。</b>
+        //   したがってコスト-4(サブフェイズのときだけ)とは<b>独立に</b>張られる ——
+        //   メインフェイズに撃つと「【召喚時】が死ぬだけで何の見返りも無い」ことになる。
+        //   本文どおりの読みであり、実装で和らげない(裁定211)。
+        // ★封じの判定そのものは fire() の入口にある(ON_SUMMON が必ず通る1点)。
         spellEffects.put("QTE-M-DARK-27", ctx -> {
+            ctx.owner().getThisTurnAuras().add(NIGHTMARE_SUMMON_LOCK);
+            ctx.room().addLog("このターン、%sの【召喚時】は発動しなくなりました"
+                    .formatted(ctx.owner().getDisplayName()));
             if (ctx.state().getPhase() != TurnPhase.SUB) {
-                ctx.room().addLog("【悪夢】はサブフェイズ以外で使用されたため、効果は発動しませんでした");
+                ctx.room().addLog("【悪夢】はサブフェイズ以外で使用されたため、コスト軽減は発動しませんでした");
                 return;
             }
             ctx.owner().getThisTurnAuras().add("QTE-M-DARK-27");
@@ -1489,8 +1623,28 @@ public class CardEffectRegistry {
         // 禁忌の冥魔剣(QTE-M-DARK-14): 自分のミニオンが場に出たとき、相手のリーダーに1ダメージ。
         // Ver.0.4 で旧効果(リーダー攻撃時に裏向きマナを表に戻して1ダメージ)を全面置換した。
         // 「場に出たとき」であって【召喚時】ではないため、蘇生や効果による「出す」でも発動する
-        register("QTE-M-DARK-14", TriggerType.ON_ALLY_MINION_ENTER,
-                ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-DARK-14"));
+        //
+        // ★Batch 59(区分3b・裁定264): Ver1.1 で
+        //   「(このカードの効果はターンに5回までしか発動しない)」が付いた。
+        //   マスターは<b>毎ターン5回にリセットされる</b>形と決めた(ゲーム通算5回ではない)。
+        //
+        // ★<b>回数の判定と記録は PlayerState.tryUseTurnLimited が1つのメソッドで行う。</b>
+        //   分けると「判定したが記録し忘れる」経路が生まれる ——
+        //   このカードは1ターンに何度も発火するので、必ず踏む。
+        // ★<b>《地脈の覚醒》(裁定276)と同じ道具を使う。</b>マスターが
+        //   「264 と 276 は同じ規則の2つの現れ方」として揃えて裁定したため、
+        //   実装も1本にしてある(裁定163)。違うのは回数(5 と 1)だけである。
+        // ★<b>止まるのは「発動」であって「登場」ではない。</b>6体目以降のミニオンは
+        //   普通に場に出る。剣が黙るだけである。
+        register("QTE-M-DARK-14", TriggerType.ON_ALLY_MINION_ENTER, ctx -> {
+            int turn = ctx.room().getGameState().getTurnNumber();
+            if (!ctx.owner().tryUseTurnLimited("QTE-M-DARK-14", turn, MEIMA_SWORD_USES_PER_TURN)) {
+                ctx.room().addLog("【禁忌の冥魔剣】はこのターン既に%d回発動しているため、発動しません"
+                        .formatted(MEIMA_SWORD_USES_PER_TURN));
+                return;
+            }
+            ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 1, "QTE-M-DARK-14");
+        });
 
         // 死神の大鎌(QTE-M-DARK-13)・死霊の収鎌(QTE-M-DARK-28)は「リーダーが攻撃した時」の効果であり、
         // GameService.leaderAttack内で解決する
@@ -1574,6 +1728,66 @@ public class CardEffectRegistry {
                 return;
             }
             selection.handCardIds().forEach(id -> ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id));
+        });
+
+        // 英知の水晶(QTE-M-LIGHT-19): ★Batch 59(区分5・裁定270)
+        //   旧: 「自分の【知識】カードのコスト-1。」(場に居るだけで効く静的なコスト軽減)
+        //   新: 「相手がカードを引いたとき自分はカードを1枚引いても良い」
+        //
+        // ★<b>カードの種類が変わった。</b>コスト軽減は StatCalculator が持つ「常在の計算」だったが、
+        //   新しい本文は<b>誘発</b>である。StatCalculator 側の分岐は削除した。
+        //
+        // ★<b>相手のドローに反応する発火口を新設した</b>(TriggerType.ON_OPPONENT_DRAW)。
+        //   通常ドロー(ターン開始時)と効果ドローの<b>両方</b>に反応する ——
+        //   本文が種類を限定していないためである(裁定211)。
+        //   したがって<b>相手のターンが始まるたびに必ず1回は誘発する</b>。
+        //
+        // ★★<b>「引いても良い」は自動判断で解く(AutoChoice)。</b>マスターは
+        //   「毎回問い合わせ(任意選択)」の形を承認したが、<b>実装できていない</b>。
+        //   割り込み選択(a9)は「効果の解決を中断し、再開点(ResumePoint)から続きを走らせる」
+        //   仕組みであり、<b>中断できるのは登録された再開点だけ</b>である。
+        //   ドローはこのエンジンのあらゆる場所から呼ばれる ——
+        //   ターン開始処理・スペルの解決の途中・【知識】の共通処理・破壊時の誘発……。
+        //   そのどこで中断しても、<b>中断された側の続き</b>を再開する術が無い。
+        //   ★したがって当面は AutoChoice に寄せ、<b>山札が空でなければ引く</b>とする
+        //   (《執念の暗殺者》の「引いてもよい」と同じ判断)。
+        //   ★AutoChoice のクラス説明どおり、割り込みが一般化できた日には
+        //   <b>ここの呼び出し1行を差し替えるだけ</b>で問い合わせ式に移れる。
+        //   ★この差はマスターへ報告済みである(引き継ぎ書 v66)。
+        register("QTE-M-LIGHT-19", TriggerType.ON_OPPONENT_DRAW, ctx -> {
+            if (!AutoChoice.shouldDrawOptional(ctx.owner())) {
+                return;
+            }
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            ctx.room().addLog("【英知の水晶】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));
+        });
+
+        // 創世神 ゾディアックアイリス(QTE-M-LIGHT-25): ★Batch 59(区分5・裁定271)
+        //   旧: 「【守護】【潜伏】【知識】リーダーを攻撃できない。」(キーワードと攻撃制限だけ)
+        //   新: 上に加えて「ターンの終わりにこのカードの現在の体力分自分のリーダーの体力を回復する」
+        //
+        // ★<b>回復量は「現在の体力」である</b>(マスター裁定271(a))。
+        //   最大体力ではなく、ターン中に受けたダメージが残った<b>今</b>の値を読む ——
+        //   11/11 が3ダメージを受けていれば8回復である。
+        //   ★このカードは【守護】を持つので殴られやすく、殴られるほど回復量が落ちる。
+        //
+        // ★<b>「ターンの終わり」は自分のターンに限らない。</b>本文に「自分の」が無いためである
+        //   (裁定156(2))。ON_TURN_END は両者の場を回すので、
+        //   <b>相手のターンの終わりにも回復する</b> —— 1巡につき2回である。
+        // ★<b>読む時点は ON_TURN_END の発火時</b>である。GameService.endTurn は
+        //   「このターン中」の修正を掃除する<b>より前</b>にこれを焚くので(a4)、
+        //   このターンに乗った体力修正も回復量に入る。
+        register("QTE-M-LIGHT-25", TriggerType.ON_TURN_END, ctx -> {
+            if (ctx.source() == null) {
+                return;
+            }
+            int amount = ctx.source().getCurrentHp();
+            if (amount <= 0) {
+                return;
+            }
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), amount, "QTE-M-LIGHT-25");
+            ctx.room().addLog("【創世神 ゾディアックアイリス】: %sのリーダーの体力が%d回復"
+                    .formatted(ctx.owner().getDisplayName(), amount));
         });
 
         // 降臨の伝道師: 【召喚時】山札の上から4枚を公開。【守護】ミニオンを1体場に出し
@@ -1757,12 +1971,36 @@ public class CardEffectRegistry {
 
         // ---- ミニオン ----
 
-        // ガイル・フォックス: 【召喚時】このターン中にカードを2枚以上使用しているなら【潜伏】。
-        // 使用カウンタは解決中に読むため自身を含まない(裁定1)
+        // ガイル・フォックス(QTE-M-WIND-6): ★Batch 59(区分3b・裁定262)
+        //   旧: 「【召喚時】このターン中にカードを3枚以上使用しているなら【潜伏】。」
+        //   新: 「このターン中にカードを3枚以上使用しているなら【潜伏】。」(誘発の印が消えた)
+        //
+        // ★<b>常在の再評価ではない。</b>印が消えたことで「毎ターン・毎瞬間に評価し直す常在」と
+        //   読むこともできたが、マスター裁定262 は
+        //   <b>「登場時、そのターン3枚以上カードをプレイしているなら永続的に潜伏を持つ」</b>
+        //   と決めた。したがって<b>得たら手放さない</b>(条件を失っても【潜伏】は残る)。
+        //   実装は今までどおり grantKeyword(=恒久の付与)1回でよい。
+        //
+        // ★<b>動いた軸は「召喚時」→「登場時」の1つだけである。</b>
+        //   【召喚時】の印が消えた以上、経路を問わない(裁定193・241)——
+        //   効果で場に出した場合にも判定する。
+        //
+        // ★★<b>閾値が経路で1違う理由。</b>使用カウンタ(cardsUsedThisTurn)は
+        //   解決中にはまだ自身を数えていない(裁定1)。
+        //   - 自身の<b>召喚</b>で登場した場合、このカードは今まさに「使用」されている最中なので、
+        //     カウンタが 2 のとき本文の言う「3枚以上使用している」を満たす。
+        //   - <b>効果</b>で場に出た場合、このカードは使用されていないので、
+        //     素直にカウンタが 3 以上であることを求める。
+        //   両方が発火する経路(通常召喚: ON_SUMMON → ON_ENTER の順)では
+        //   ゆるいほうが先に通るが、<b>【潜伏】の付与は冪等</b>なので二重付与にならない。
         register("QTE-M-WIND-6", TriggerType.ON_SUMMON, ctx -> {
-            if (ctx.owner().getCardsUsedThisTurn() >= 2 && ctx.source() != null) {
-                ctx.source().grantKeyword(Keyword.STEALTH);
-                ctx.room().addLog("【ガイル・フォックス】は【潜伏】を得ました");
+            if (ctx.owner().getCardsUsedThisTurn() >= 2) {
+                grantGaleFoxStealth(ctx);
+            }
+        });
+        register("QTE-M-WIND-6", TriggerType.ON_ENTER, ctx -> {
+            if (ctx.owner().getCardsUsedThisTurn() >= 3) {
+                grantGaleFoxStealth(ctx);
             }
         });
 
@@ -1892,24 +2130,77 @@ public class CardEffectRegistry {
         registerWindSpellsAndWeapons();
     }
 
+    /**
+     * 《ガイル・フォックス》に【潜伏】を与える(★Batch 59)。
+     * 2つの経路(ON_SUMMON / ON_ENTER)が同じことを行うため、条件だけを外に出して中身を1本にした。
+     * 付与は冪等なので、通常召喚で両方が通っても二重にはならない。
+     */
+    private void grantGaleFoxStealth(EffectContext ctx) {
+        if (ctx.source() == null || ctx.source().hasKeyword(Keyword.STEALTH)) {
+            return;
+        }
+        ctx.source().grantKeyword(Keyword.STEALTH);
+        ctx.room().addLog("【ガイル・フォックス】は【潜伏】を得ました");
+    }
+
     private void registerWindSpellsAndWeapons() {
 
         // ---- スペル ----
 
-        // 神風の大号令: このターン中に自分が使用したカードの枚数と同じだけ、
-        // 自分のミニオンすべての攻撃力を+1(このターン限定)。解決時点でのスナップショットであり、
-        // 自身は含まない(裁定1)。0の場合(このターン最初のカードだった場合)は何も起きない
+        // 神風の大号令(QTE-M-WIND-12): ★Batch 59(区分5・裁定269)
+        //   旧: 「このターン中に自分が使用したカードの枚数と同じだけ、自分のミニオンすべての攻撃力を+1。」
+        //   新: 「自分のミニオンを2体破壊する。破壊したミニオンの数自分のミニオンのAttackを+1する【還元】」
+        //
+        // ★<b>参照するものが「使用したカードの枚数」から「自分で壊した数」に変わった。</b>
+        //   支払いの無い全体強化から、盤面を削って残りを太らせるカードへ ——
+        //   同じ +1/体 でも遊び味は別物である。
+        //
+        // ★<b>自分のミニオンが2体未満のときも使用できる</b>(マスター裁定269(b))。
+        //   「いるだけ破壊し、破壊した数だけ強化する」。0体でも使用でき、
+        //   そのときは何も起こらず【還元】だけが残る。
+        //   ★《冥府への道》(2体<b>未満なら使用不可</b>)と扱いが割れているが、
+        //   あちらは<b>相手</b>のミニオンを対象に取る —— 相手の盤面は自分で用意できないので、
+        //   「候補が足りないなら撃たせない」が親切になる。こちらは自分の盤面であり、
+        //   撃つ側が数を承知している。
+        //
+        // ★★<b>破壊するミニオンは本人が選ぶ</b>(裁定192: 盤面に残るものを決める選択)。
+        //   要求は upTo(0〜2体)である —— Requirement の count は登録時に固定される値であり、
+        //   「min(2, 場のミニオン数)体ちょうど」という<b>盤面に依存する要求数</b>を
+        //   今の対象指定システムは表現できないためである。
+        //   ★結果として、2体居るのに1体だけ・0体だけ選ぶこともできてしまう。
+        //   ただし<b>破壊した数がそのまま強化量</b>なので、少なく選ぶのは自分が損をするだけである
+        //   (0体を選べば実質「コスト3でマナを1枚増やすだけのカード」になる)。
+        //   この穴を塞ぐべきかは裁定を仰いでいる(Batch 60 へ)。
+        //
+        // ★<b>強化を受けるのは破壊した「後」に場に残っているミニオンである。</b>
+        //   本文が「破壊する。……自分のミニオンのAttackを+1する」の順に書いており、
+        //   破壊されたミニオンはもう自分のミニオンではない。
+        //   ★したがって<b>2体しか居ない場で2体壊すと、強化先が居ない</b>。
+        //
+        // ★<b>強化の期限(THIS_TURN)は動かしていない。</b>旧本文にも新本文にも期限は書かれておらず、
+        //   Ver.0.4 の時点で「このターン」と決めてある。裁定269 が動かした軸ではないので据え置いた
+        //   (《突風の祝福》の体力+2 が PERMANENT なのと非対称のままである。Batch 60 で確認したい)。
+        targetSpecs.put("QTE-M-WIND-12", TargetSpec.of(
+                Requirement.upTo(Kind.MINION, Side.SELF, 2, "破壊する自分のミニオンを選んでください(最大2体)")));
         spellEffects.put("QTE-M-WIND-12", ctx -> {
-            int amount = ctx.owner().getCardsUsedThisTurn();
-            if (amount <= 0) {
-                ctx.room().addLog("【神風の大号令】: このターンまだ他のカードを使用していないため、効果はありません");
+            int destroyed = 0;
+            for (ResolvedTargets.TargetedMinion t : ctx.targets().get(0).minions()) {
+                if (!t.owner().getMinionZone().contains(t.minion())) {
+                    continue; // 先に選んだ1体の【破壊時】で場を離れていた場合
+                }
+                ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion());
+                destroyed++;
+            }
+            if (destroyed <= 0) {
+                ctx.room().addLog("【神風の大号令】: ミニオンを1体も破壊しなかったため、効果はありません");
                 return;
             }
             for (MinionInstance m : ctx.owner().getMinionZone()) {
-                m.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD, amount,
+                m.addModifier(new StatModifier(StatModifier.Stat.ATTACK, StatModifier.Operation.ADD, destroyed,
                         StatModifier.Duration.THIS_TURN, "QTE-M-WIND-12"));
             }
-            ctx.room().addLog("【神風の大号令】: 自分のミニオンすべての攻撃力が+%dされました".formatted(amount));
+            ctx.room().addLog("【神風の大号令】: %d体を破壊し、自分のミニオンすべての攻撃力が+%dされました"
+                    .formatted(destroyed, destroyed));
         });
 
         // 回帰の風穴: ミニオンを1体手札に戻す(対象は自分・相手の両方: 記法規約どおり)。
@@ -1973,6 +2264,13 @@ public class CardEffectRegistry {
                     t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3));
         });
 
+        // 突風の祝福(QTE-M-WIND-27): ★Batch 59(区分3b・裁定260)実装変更なし。
+        //   旧: 「自分のミニオン<b>1体</b>の体力を+2する。【還元】」
+        //   新: 「自分のミニオンの体力を+2する 【還元】」(「1体」が消えている)
+        // ★マスター裁定260(a): <b>「1体」が省略されただけであり、単体のままである。</b>
+        //   全体化ではない。したがって Requirement の count は 1 のままでよい。
+        // ★これで「本文は変わったが実装は変わらない」カードは4例目である
+        //   (《死者蘇生》《ガイア・ハンマー》《知恵の双翼》に続く)。
         // 突風の祝福: 自分のミニオン1体の体力を+2する。【還元】(還元の処理は共通)
         targetSpecs.put("QTE-M-WIND-27", TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false,
                 List.of(), "体力を+2するミニオンを選んでください")));
@@ -2992,6 +3290,11 @@ public class CardEffectRegistry {
 
         // 創世神ガイア(0138): 【召喚時】このミニオン以外の、お互いの場のミニオンをすべて破壊。
         // 【特殊召喚】自分のマナ最大値(マナゾーンの枚数)10以上でコスト0(代替コストなし)。
+        // ★Batch 59(区分3b・裁定263)実装変更なし: マスターは「マナ最大値」を
+        //   <b>マナゾーンの現在の枚数</b>({@code manaZone.size()})と決めた。
+        //   「これまでに置いた最大値」のような別の管理値を新設する必要はない ——
+        //   マナは減ることもある(《禁忌の代償》の裏向きマナ破壊)が、
+        //   条件はあくまで<b>今</b>の枚数を見る。
         specialSummons.put("QTE-M-EARTH-8", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getManaZone().size() >= 10,
                 TargetSpec.of(),
@@ -3143,14 +3446,23 @@ public class CardEffectRegistry {
         // ★<b>自分自身は候補に入らない。</b>【還元】でマナへ置かれるのは効果の解決より後なので、
         //   候補を作った時点ではまだマナゾーンに居ない。マナゾーンの末尾に足されるだけなので、
         //   選択待ちの間に既存の位置がずれることもない。
-        // ★<b>ターン1回制限は「発動」だけを止める。</b>2枚目を使用すること自体は止めない ——
-        //   本文は「効果は…発動しない」であって「使用できない」ではない。
-        //   2枚目は何も起きずに【還元】だけを残す(★裁定276 として確認を依頼中)。
+        // ★★<b>ターン1回制限は「発動」だけを止める</b>(★Batch 59・マスター裁定276 で確定)。
+        //   2枚目を使用すること自体は止めない —— 本文は「効果は…発動しない」であって
+        //   「使用できない」ではない。
+        //   ★★<b>ただし【還元】も発動しない。</b>58 は「【還元】はキーワードであって効果ではない」
+        //   と読んで2枚目をマナへ置いていたが、マスターはそれを<b>上書きした</b> ——
+        //   何も起こさなかったカードは、還元もせずに墓地へ行く。
+        //   したがって2枚目は「コスト2を払って何もしない」カードである。
+        //   実装は SpellDisposition.TO_TRASH(【還元】を働かせずに墓地へ)で表す。
         // ★制限はターン番号を刻んで持つ(裁定156(3)。PlayerState.recordManaPlacement と同じ考え方)。
+        // ★回数の器は《禁忌の冥魔剣》(ターンに5回・裁定264)と共有している ——
+        //   マスターが「264 と 276 は同じ規則の2つの現れ方」として揃えて裁定したためである。
         spellEffects.put("QTE-M-EARTH-27", ctx -> {
             int turn = ctx.room().getGameState().getTurnNumber();
-            if (!ctx.owner().tryUseLeylineAwakening(turn)) {
-                ctx.room().addLog("【地脈の覚醒】: このターンは既に発動しているため、効果は発動しません");
+            if (!ctx.owner().tryUseTurnLimited("QTE-M-EARTH-27", turn, LEYLINE_AWAKENING_USES_PER_TURN)) {
+                ctx.room().addLog("【地脈の覚醒】: このターンは既に発動しているため、"
+                        + "効果も【還元】も発動しません(墓地へ置かれます)");
+                ctx.owner().setPendingSpellDisposition(SpellDisposition.TO_TRASH);
                 return;
             }
             int size = ctx.owner().getManaZone().size();
@@ -4389,6 +4701,32 @@ public class CardEffectRegistry {
      * ON_ENTERのタイミングでは、キーワード【知識】(登場時1ドロー)も共通処理として発動する。
      */
     public void fire(TriggerType trigger, MinionInstance minion, EffectContext ctx) {
+        // ★Batch 59(裁定265): 《悪夢》「このターンの間【召喚時】は使えない」。
+        //
+        // ★<b>封じるのは自分の【召喚時】だけである</b>(マスター裁定265(a))。
+        // 《悪夢》は同じ本文で「このターン全てのミニオンの召喚コストを-4」も配る ——
+        // 安く並べる代わりに登場時の見返りを捨てる、という取引のカードになった。
+        //
+        // ★<b>判定を fire() の入口に置いた理由。</b>ON_SUMMON を焚く場所は
+        // 通常召喚・進化召喚・特殊召喚・禁忌からの使用と複数あり、呼び出し側で止めると
+        // <b>足し忘れた経路だけが素通りする</b>(裁定163)。ここは ON_SUMMON が
+        // 必ず通る1点である。
+        //
+        // ★★<b>【知識】は止まらない。</b>【知識】は ON_ENTER であって【召喚時】ではない
+        // (裁定261 で《痛撃の炎術師》が ON_ENTER へ移ったのも同じ区別による)。
+        // ★<b>この判定を【知識】の共通処理より前に置いてある。</b>順序に意味は無い
+        // (【知識】は ON_ENTER でしか動かないので、ON_SUMMON の判定とは元から交わらない)が、
+        // <b>2つを分けているものが「誘発の種類」ただ1つである</b>ことを構造で示すためである ——
+        // 後ろに置くと「順序のおかげで守られている」ようにも読めてしまい、
+        // 壊し検証でこの軸を狙えなくなる。
+        // ★<b>対象の選択は止まらない。</b>対象は使用を宣言した時点で選び終えており、
+        //   効果だけが発動しない形になる —— 《地脈の覚醒》の2枚目(裁定276)と同じ姿である。
+        if (trigger == TriggerType.ON_SUMMON
+                && ctx.owner().getThisTurnAuras().contains(NIGHTMARE_SUMMON_LOCK)) {
+            ctx.room().addLog("【悪夢】により、【%s】の【召喚時】は発動しませんでした"
+                    .formatted(minion.getMaster().name()));
+            return;
+        }
         if (trigger == TriggerType.ON_ENTER && minion.hasKeyword(Keyword.KNOWLEDGE)) {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
             ctx.room().addLog("【知識】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));

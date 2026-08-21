@@ -55,7 +55,7 @@ public class RuleGuards {
     private static final String KOKUREI = "QTE-M-WIND-35";         // コク霊(自身は攻撃不可・★Batch 48)
     private static final String SUPPORT_TANUKI = "QTE-M-FIRE-33";  // 支援盾機狸(自身は攻撃不可・★Batch 51)
     // 破壊・ダメージ・ドローを置換するカード
-    private static final String MICHAEL = "QTE-M-LIGHT-7";         // 大天使ミカエル(戦闘では破壊されない)
+    private static final String MICHAEL = "QTE-M-LIGHT-7";         // 大天使ミカエル(戦闘時ダメージを受けない・★Batch 59)
     private static final String HOLY_PROTECTOR_AURA = "QTE-M-LIGHT-1"; // 聖光の守護聖(相手の効果で破壊されない)
     private static final String JUSTICE_SHIELD = "QTE-M-LIGHT-13";  // 正義の御盾(リーダーへのダメージ-1)
     private static final String JUDGEMENT_ANGEL = "QTE-M-LIGHT-24"; // 断罪の大天使(3枚目以降のドローを置換)
@@ -295,10 +295,10 @@ public class RuleGuards {
      */
     public boolean isDestructionPrevented(GameState state, PlayerState owner, MinionInstance minion,
             DestructionCause cause) {
-        // 大天使ミカエル: 戦闘では破壊されない(ダメージは受けるためHPは0のまま場に残る)
-        if (cause == DestructionCause.COMBAT && MICHAEL.equals(minion.getMaster().id())) {
-            return true;
-        }
+        // ★Batch 59(区分5): 大天使ミカエルはここに居ない。
+        // 旧「【守護】戦闘では破壊されない(ダメージは受ける)」は<b>破壊の置換</b>だったが、
+        // 新「【守護】戦闘時ダメージを受けない」は<b>ダメージの置換</b>である
+        // (裁定272)。判定は preventsCombatDamage が持つ。
         // 聖光の守護聖: 相手のカードや能力の効果による破壊を防ぐ(戦闘破壊は防げない)
         if (cause == DestructionCause.EFFECT && hasPersistentAura(owner, HOLY_PROTECTOR_AURA)) {
             boolean causedByOpponent = !owner.getPlayerId().equals(state.getTurnPlayerId());
@@ -312,6 +312,34 @@ public class RuleGuards {
     // ---------------------------------------------------------------
 
     /** リーダーが実際に受けるダメージ量(正義の御盾による軽減後。下限0) */
+    /**
+     * このミニオンが戦闘ダメージを受けないか(★Batch 59・区分5)。
+     *
+     * <pre>
+     *   旧: 「【守護】戦闘では破壊されない(ダメージは受ける)。」
+     *   新: 「【守護】戦闘時ダメージを受けない。」
+     * </pre>
+     *
+     * ★<b>置換される層が破壊からダメージへ1段下がった。</b>結果として見た目は似ているが、
+     * 中身は別物である ——
+     * <ul>
+     *   <li>旧: HPは削れる。0以下のまま場に残り、<b>次の効果ダメージや効果破壊で落ちる</b>。</li>
+     *   <li>新: HPが<b>削れない</b>。何度戦闘しても満身のままである。</li>
+     * </ul>
+     *
+     * ★<b>「ダメージを受けたとき」に反応する誘発は発動しない</b>(マスター裁定272)。
+     * 受けるダメージが0になるのだから、ダメージを受けた事実そのものが無い ——
+     * 《獄門の裁定者》の【守護】被ダメージ誘発がその代表である。
+     * この読みを実装として保証するために、<b>ダメージの適用そのものを止める</b>形にしてある
+     * (量を0にして先へ進めると、適用側の {@code amount <= 0} で止まる作りに依存してしまう)。
+     *
+     * ★<b>効果ダメージは通る。</b>本文が「戦闘時」と限定しているためである(裁定211)。
+     * ★<b>攻撃側・防御側のどちらでも受けない。</b>本文はどちらかに限定していない。
+     */
+    public boolean preventsCombatDamage(MinionInstance minion) {
+        return MICHAEL.equals(minion.getMaster().id());
+    }
+
     public int reduceLeaderDamage(GameState state, PlayerState target, int amount) {
         if (target.getEquippedWeapon() != null
                 && JUSTICE_SHIELD.equals(target.getEquippedWeapon().id())) {

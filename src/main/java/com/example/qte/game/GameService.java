@@ -583,6 +583,10 @@ public class GameService {
                 player.getDeck().addLast(master.id());
                 room.addLog("【%s】は山札の一番下に置かれました".formatted(master.name()));
             }
+            // ★Batch 59(裁定276): 【還元】を働かせずに墓地へ。
+            // 賢魂の姿が持つ【還元】も同じく働かせない —— この指示は姿ではなく
+            // 「このカードは何も起こさなかった」という事実に掛かるものだからである
+            case TO_TRASH -> actions.disposeUsedCard(room, player, master, false, false);
             // KEPT_BY_EFFECT は上で return 済みである
             default -> throw new IllegalStateException("未知の行き先です: " + disposition);
         }
@@ -736,6 +740,12 @@ public class GameService {
                 case TO_DECK_BOTTOM -> {
                     player.getDeck().addLast(master.id());
                     room.addLog("【%s】は山札の一番下に置かれました".formatted(master.name()));
+                }
+                // ★Batch 59(裁定276): 【還元】を働かせずに墓地へ。
+                // restoration=false を渡すのが「還元しない」の言い方である
+                case TO_TRASH -> actions.disposeUsedCard(room, player, master, false, false);
+                // 効果自身が行き先を決めきった場合は何もしない(★Batch 54 からの挙動を据え置く)
+                case KEPT_BY_EFFECT -> {
                 }
             }
         }
@@ -1155,11 +1165,17 @@ public class GameService {
         // <b>500 で落ちる</b>。Ver.0.4 から潜っていた穴であり、闇のスターターは
         // 黄泉の召喚主と執念の暗殺者を同時に積むので実際に踏める。
         //
-        // ★Ver1.1 の新本文は「ミニオンを墓地から<b>手札にあるかのように</b>召喚してもよい」で
-        // あり、対象選択まで手札と同じにするのが本来の姿である可能性が高い。
-        // ただしその読みは<b>2通り以上に読める</b>(手札と同じなら【特殊召喚】や
-        // 「手札の」を参照する軽減も乗るのか)ため、裁定275 の回答を待つ(裁定184)。
-        // 回答が付くまでは、黙って壊れるのではなく理由を返して止める。
+        // ★Batch 59(裁定275 確定): マスターは<b>狭い読み</b>を採った ——
+        // 「手札にあるかのように」は「効果で場に出すのではなく<b>召喚</b>である」の念押しにすぎず、
+        // 墓地を手札と同じゾーンとして扱う(【特殊召喚】の代替コストや「手札の」を参照する軽減が
+        // 乗る)という意味ではない。したがって<b>実装は変えない</b>。
+        // このガードは暫定ではなく<b>恒久のルール</b>である。
+        //
+        // ★残っている問い: 対象を読む【召喚時】を「選ばせずに自動決定(AutoChoice)で通す」
+        // 形にするかどうかは、まだ決まっていない(Batch 60 へ)。今は止める側を採る ——
+        // 黙って壊れる(NullPointerException で 500)よりは理由を返すほうがよく、
+        // 自動決定は「本人に選ばせる」原則(裁定192)から外れる選択なので、
+        // 実装で決めずに裁定を仰ぐ(裁定184)。
         if (!effects.targetSpecOf(master.id()).requirements().isEmpty()) {
             throw new IllegalStateException(
                     "【%s】は召喚時に対象を選ぶため、墓地からは召喚できません".formatted(master.name()));
@@ -1381,11 +1397,7 @@ public class GameService {
                         .forEach(m -> m.heal(2));
                 room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が2回復しました");
             }
-            case QUAKE_HAMMER -> { // 地響きの槌: 攻撃時、相手のミニオン全てに2ダメージ
-                List.copyOf(opponent.getMinionZone()).forEach(
-                        m -> actions.damageMinion(room, opponent, m, 2));
-                room.addLog("【地響きの槌】: 相手のミニオン全てに2ダメージ");
-            }
+            case QUAKE_HAMMER -> resolveQuakeHammerAttack(room, player, opponent);
             default -> {
             }
         }
@@ -1396,6 +1408,59 @@ public class GameService {
         if (GUARD_STAFF.equals(weapon.id())) {
             resolveGuardStaffAttack(room, player);
         }
+    }
+
+    /**
+     * 地響きの槌(QTE-M-EARTH-28)の攻撃時効果(★Batch 59・区分5)。
+     *
+     * <pre>
+     *   旧: 「攻撃時相手のミニオン全てに5ダメージ。」
+     *   新: 「攻撃時ミニオン全てに2ダメージ与える。この効果で破壊したミニオンの数
+     *        山札の上から裏向きでマナを1枚増やす。」
+     * </pre>
+     *
+     * ★<b>「相手の」の限定が消えた。</b>マスター裁定274 により本文どおり
+     * <b>自分のミニオンも巻き込む</b>。巻き込んで破壊した分もマナ加速の数に含める ——
+     * 本文が「この効果で破壊したミニオンの数」としか書いておらず、
+     * どちらの側かを問うていないためである(裁定211: 書かれていない限定を足さない)。
+     *
+     * <p>★<b>破壊の数え方は「ダメージの前後で場から消えた数」ではない。</b>
+     * ダメージを与えてから破壊判定を回し、<b>その判定で実際に場を離れた数</b>を数える。
+     * 前後の差で数えると、ダメージとは無関係に場を離れたミニオン
+     * (被ダメージ誘発《獄門の裁定者》の巻き添えなど)まで数に入ってしまう。
+     *
+     * <p>★<b>ダメージの適用と破壊判定を1体ずつ回す</b>(既存の全体ダメージ効果
+     * 《墓穴の呪い》《天変地異のタイタン》と同じ形。{@code GameActions.damageMinion} が
+     * 適用と判定を1組で持っているためである)。巻き込む順は自分→相手だが、
+     * <b>順序に意味は無い</b> —— どちらから数えても破壊された総数は変わらない。
+     *
+     * <p>★<b>解決の途中で場に出たミニオンは巻き込まない。</b>
+     * 対象はダメージを与え始める前の盤面のスナップショットで確定する。
+     */
+    private void resolveQuakeHammerAttack(GameRoom room, PlayerState player, PlayerState opponent) {
+        room.addLog("【地響きの槌】: ミニオン全てに2ダメージ");
+        int destroyed = 0;
+        for (PlayerState side : List.of(player, opponent)) {
+            for (MinionInstance minion : List.copyOf(side.getMinionZone())) {
+                if (!side.getMinionZone().contains(minion)) {
+                    continue; // 直前の解決で既に場を離れていた
+                }
+                actions.damageMinion(room, side, minion, 2);
+                if (!side.getMinionZone().contains(minion)) {
+                    destroyed++;
+                }
+            }
+        }
+        if (destroyed == 0) {
+            return;
+        }
+        for (int i = 0; i < destroyed; i++) {
+            if (!actions.placeTopOfDeckInManaFaceDown(room, player)) {
+                break; // 山札切れ・マナ上限。置けなかった分は諦める(既存のマナ加速と同じ)
+            }
+        }
+        room.addLog("【地響きの槌】: %d体を破壊し、山札の上から裏向きでマナを増やしました"
+                .formatted(destroyed));
     }
 
     /**

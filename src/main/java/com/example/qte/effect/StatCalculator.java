@@ -41,7 +41,6 @@ public class StatCalculator {
     private static final String RAISE_DEAD = "QTE-M-DARK-12";           // 死者蘇生
     private static final String CHANT_PALADIN = "QTE-M-LIGHT-18";       // 唱導の聖騎士
     private static final String PRECEPT_GUARDIAN = "QTE-M-LIGHT-20";    // 戒律のガーディアン
-    private static final String WISDOM_CRYSTAL = "QTE-M-LIGHT-19";      // 英知の水晶
     private static final String CHANT_ORB = "QTE-M-LIGHT-28";           // 詠唱の宝珠
     private static final String TWIN_ILLUSIONIST = "QTE-M-WATER-21";    // 双流の幻術師
     private static final String GALE_KNIGHT = "QTE-M-WIND-18";          // 詠唱の疾風騎士
@@ -107,7 +106,7 @@ public class StatCalculator {
      */
     public static final Set<String> IMPLEMENTED_CARDS = Set.of(
             NIGHTMARE, SWARM_LICH, SEALED_TABOO_DEMON, RAISE_DEAD,
-            CHANT_PALADIN, PRECEPT_GUARDIAN, WISDOM_CRYSTAL, CHANT_ORB,
+            CHANT_PALADIN, PRECEPT_GUARDIAN, CHANT_ORB,
             TWIN_ILLUSIONIST, GALE_KNIGHT, GATHERING_SYLPH, WIND_CHANTER_LEADER,
             EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE, TENGSUN, NYUKIRO,
             SHADOW_ASSASSIN, ARKINTIS, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
@@ -227,16 +226,16 @@ public class StatCalculator {
         // ---- 光文明: 場のミニオンによる常在のコスト軽減(累積する。下限は0) ----
         // 唱導の聖騎士(QTE-M-LIGHT-18): 自分のリーダーが光文明なら自分のスペルのコスト-1
         //   ★Batch 56(区分4): Ver1.1 で「自分のリーダーが光文明なら」の条件が付いた
-        // 英知の水晶(QTE-M-LIGHT-19): 自分の【知識】カードのコスト-1
+        // ★Batch 59(区分5): 英知の水晶(QTE-M-LIGHT-19)の「自分の【知識】カードのコスト-1」は
+        //   ここにあったが、Ver1.1 で本文が「相手がカードを引いたとき自分はカードを1枚引いても良い」に
+        //   丸ごと置き換わったため削除した。コスト軽減のカードではなくなっている。
+        //   新しい実装は CardEffectRegistry の TriggerType.ON_OPPONENT_DRAW にある。
         // 戒律のガーディアン(QTE-M-LIGHT-20): 自分の光文明スペル・自分の光文明【守護】のコスト-1
         //   ★Batch 56(区分4): Ver1.1 で両方とも「光文明」限定になった(rework-triage.md 区分4)
         boolean leaderIsLight = owner.getLeader().civilization() == Civilization.LIGHT;
         for (MinionInstance minion : owner.getMinionZone()) {
             String id = minion.getMaster().id();
             if (CHANT_PALADIN.equals(id) && asType == CardType.SPELL && leaderIsLight) {
-                cost -= 1;
-            }
-            if (WISDOM_CRYSTAL.equals(id) && card.keywords().contains(Keyword.KNOWLEDGE)) {
                 cost -= 1;
             }
             if (PRECEPT_GUARDIAN.equals(id) && card.civilization() == Civilization.LIGHT) {

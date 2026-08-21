@@ -145,28 +145,46 @@ public class PlayerState {
      * 数え直す。豊穣の地霊主(L012)の「2回目のマナ配置」の判定に用いる。
      */
     /**
-     * 《地脈の覚醒》(QTE-M-EARTH-27)の効果を最後に発動したターン番号(★Batch 58)。
-     * 初期値 -1 はどのターンとも一致しない番兵。
+     * 「このカードの効果はターンに n 回まで」の使用回数(★Batch 59)。
+     * 鍵は制限を持つカードのID、値はそのターンに発動した回数である。
      *
-     * <b>真偽値ではなくターン番号で持つ理由。</b>「ターンに1回」は毎ターンリセットされる
-     * (裁定156(3))が、{@link #startTurnReset()} が走るのはターンプレイヤーだけである。
-     * ターン番号を刻んでおけば、リセットという操作そのものが要らない
-     * ({@link #recordManaPlacement(int)} と同じ考え方)。
+     * <b>真偽値や個別のフィールドではなく1つの表で持つ理由。</b>
+     * 同じ規則を持つカードが Ver1.1 で2枚になった ——
+     * 《地脈の覚醒》(ターンに1回・裁定276)と《禁忌の冥魔剣》(ターンに5回・裁定264)である。
+     * <b>裁定264 と 276 は同じ規則の2つの現れ方である</b>とマスターが決めたので、
+     * 規則の実装も1本にしてある(裁定163)。
+     *
+     * <b>なぜターン番号を1つだけ持つのか。</b>ターン番号は両プレイヤーで共有された1本の数であり、
+     * 「今が何ターン目か」は制限の鍵ごとに違わない。したがって刻印は1つでよく、
+     * ターンが変わった最初の問い合わせで表ごと捨てれば数え直しになる ——
+     * {@link #startTurnReset()} に頼らないのは、それが走るのがターンプレイヤーだけだからである
+     * (《禁忌の冥魔剣》は相手のターンには発動しないが、規則をその偶然に寄りかからせない)。
      */
-    private int leylineAwakeningTurn = -1;
+    private final java.util.Map<String, Integer> turnLimitedUses = new java.util.HashMap<>();
+
+    /** {@link #turnLimitedUses} が数えているターン番号。-1 はどのターンとも一致しない番兵 */
+    private int turnLimitedUsesTurn = -1;
 
     /**
-     * 《地脈の覚醒》の効果をこのターンに発動してよいか判定し、よければ記録する(★Batch 58)。
+     * 「ターンに n 回まで」の制限を1回消費してよいか判定し、よければ記録する(★Batch 59)。
      * ★<b>判定と記録を1つのメソッドにしてある。</b>分けると「判定したが記録し忘れる」
-     * 経路が生まれる —— このカードは同じターンに2枚目を使えるので、実際に踏める。
+     * 経路が生まれる —— どちらのカードも同じターンに2回目を撃てるので、実際に踏める。
      *
+     * @param key         制限を持つカードのID
+     * @param currentTurn 現在のターン番号
+     * @param maxPerTurn  1ターンに発動してよい回数
      * @return 発動してよければ true(このとき記録も済んでいる)
      */
-    public boolean tryUseLeylineAwakening(int currentTurn) {
-        if (leylineAwakeningTurn == currentTurn) {
+    public boolean tryUseTurnLimited(String key, int currentTurn, int maxPerTurn) {
+        if (turnLimitedUsesTurn != currentTurn) {
+            turnLimitedUsesTurn = currentTurn;
+            turnLimitedUses.clear();
+        }
+        int used = turnLimitedUses.getOrDefault(key, 0);
+        if (used >= maxPerTurn) {
             return false;
         }
-        leylineAwakeningTurn = currentTurn;
+        turnLimitedUses.put(key, used + 1);
         return true;
     }
 

@@ -468,7 +468,12 @@ class Batch58ReworkTest {
     /**
      * ★「効果はターンに1回のみ発動する」。2枚目は<b>使用できる</b>が効果は発動しない ——
      * 本文は「効果は…発動しない」であって「使用できない」ではないためである。
-     * 【還元】は効果ではないので、2枚目もマナへ行く。
+     *
+     * <p>★★<b>Batch 59(裁定276)で行き先を書き換えた。</b>
+     * 58 は「【還元】はキーワードであって効果ではない」と読んで2枚目をマナへ置いていたが、
+     * マスターは<b>「還元も発動しない」</b>と裁定した ——
+     * 何も起こさなかったカードは、還元もせずに<b>墓地</b>へ行く。
+     * 2枚目は「コスト2を払って何もしない」カードである。
      */
     @Test
     void 地脈の覚醒は同じターンに2枚目を使っても効果は発動しない() {
@@ -489,8 +494,12 @@ class Batch58ReworkTest {
         assertThat(f.me().getPendingChoice()).as("問い合わせ自体が起きない").isNull();
         assertThat(f.me().getHand()).as("手札は増えない(効果が発動していない)")
                 .containsExactly(PLAIN_MINION);
+        // ★Batch 59(裁定276): 効果が発動しなかった2枚目は【還元】もせず墓地へ行く
         assertThat(f.me().getManaZone().stream().map(ManaCard::getCardId))
-                .as("【還元】は効くので2枚目もマナへ").endsWith(LEYLINE, LEYLINE);
+                .as("2枚目は【還元】しないので、マナに入っているのは1枚目だけ").endsWith(LEYLINE);
+        assertThat(f.me().getManaZone().stream().map(ManaCard::getCardId).filter(LEYLINE::equals))
+                .as("マナに入った《地脈の覚醒》は1枚だけ").hasSize(1);
+        assertThat(f.me().getTrash()).as("2枚目は墓地へ").containsExactly(LEYLINE);
     }
 
     /** ★ターンが変われば また発動できる(裁定156(3)。ターン番号を刻んで持っている) */

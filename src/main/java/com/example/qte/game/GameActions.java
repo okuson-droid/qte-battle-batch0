@@ -85,9 +85,26 @@ public class GameActions {
         return minion;
     }
 
+    /**
+     * 「相手が引いたとき」の誘発(《英知の水晶》)を今は焚かない、という印(★Batch 59)。
+     *
+     * <p><b>なぜ要るのか。</b>両者が《英知の水晶》を場に出していると、
+     * A のドローが B に引かせ、その B のドローが A に引かせ……と<b>互いに終わらない</b>。
+     * 本文には書かれていない制限だが、書かれたとおりに実装すると
+     * <b>ゲームが停止しない</b>ため、規則として足さざるを得ない。
+     *
+     * <p>★<b>「誘発によるドローは数えない」を再入ガードで表している。</b>
+     * 「1ターンに1回まで」のような回数制限にしなかったのは、
+     * それだと<b>誰が引いた分なのか</b>を数える器がもう1つ要るうえ、
+     * 制限に達するまでの数往復は依然として起きるからである。
+     * ★この読みはマスターに確認を依頼している(Batch 60)。
+     */
+    private boolean firingOpponentDrawWatchers = false;
+
     /** ドロー。山札が空の状態で引こうとしたら敗北(発注者確認済み: デュエマ準拠) */
     public void drawCards(GameRoom room, PlayerState player, int count) {
         GameState state = room.getGameState();
+        int drawnIntoHand = 0;
         for (int i = 0; i < count; i++) {
             String cardId = player.getDeck().pollFirst();
             if (cardId == null) {
@@ -106,6 +123,37 @@ public class GameActions {
                 continue;
             }
             player.getHand().add(cardId);
+            drawnIntoHand++;
+        }
+        fireOpponentDrawWatchers(room, state, player, drawnIntoHand);
+    }
+
+    /**
+     * 「相手がカードを引いたとき」の誘発を焚く(★Batch 59。《英知の水晶》)。
+     *
+     * <p>★<b>実際に手札へ入った枚数だけ焚く。</b>《断罪の大天使》に置換されて墓地へ行った分は
+     * 数えない —— 「引いた」の結果が手札に無いなら、それは引けていない。
+     * ★<b>山札が尽きて敗北した経路では焚かない</b>(上の {@code return} を通るため)。
+     * 決着した後に誘発を走らせる意味が無い。
+     *
+     * <p>★<b>反応するのは引かなかった側の場である。</b>渡す文脈の owner も反応する側であり、
+     * 効果(「自分はカードを1枚引いても良い」)はその側が引く。
+     */
+    private void fireOpponentDrawWatchers(GameRoom room, GameState state, PlayerState drawer, int drawn) {
+        if (drawn <= 0 || firingOpponentDrawWatchers || state.getStatus() != GameStatus.PLAYING) {
+            return;
+        }
+        PlayerState watcher = state.opponentOf(drawer.getPlayerId());
+        if (watcher.getMinionZone().isEmpty()) {
+            return;
+        }
+        firingOpponentDrawWatchers = true;
+        try {
+            for (int i = 0; i < drawn; i++) {
+                effects.fireOpponentDrew(contextOf(room, watcher, null));
+            }
+        } finally {
+            firingOpponentDrawWatchers = false;
         }
     }
 
@@ -327,6 +375,13 @@ public class GameActions {
      * 適用と判定を呼び出し側(GameService.attack)が分けて呼べるように分離している。
      */
     public void dealCombatDamage(GameRoom room, PlayerState owner, MinionInstance minion, int amount) {
+        // ★Batch 59(裁定272): 大天使ミカエルは戦闘時ダメージを受けない。
+        // 量を0にするのではなく適用そのものを行わない ——
+        // 「ダメージを受けたとき」の誘発(獄門の裁定者)が発動しないことを構造で保証するためである
+        if (guards.preventsCombatDamage(minion)) {
+            room.addLog("【%s】は戦闘時ダメージを受けない".formatted(minion.getMaster().name()));
+            return;
+        }
         applyDamageToMinion(room, owner, minion, amount);
     }
 
