@@ -241,15 +241,12 @@ public class CardEffectRegistry {
         // 「最初」は海皇ポセイドン(0038)の【特殊召喚】条件と同じ近似で表す。すなわち
         // 「メインフェイズであり、かつこのターンまだ1枚もカードを使っていない」である。
         // playedCardThisTurn は解決後に立つため、このカード自身の使用では条件が壊れない
+        // ★Batch 56(区分4): Ver1.1 でドロー 3→2、「このターンカードを使用できない」の
+        // 制限が撤廃された(rework-triage.md 区分4)。「最初にしか使えない」制限は据え置き
         playConditions.put("QTE-M-WATER-26",
                 (state, player) -> state.getPhase() == TurnPhase.MAIN && !player.isPlayedCardThisTurn());
-        spellEffects.put("QTE-M-WATER-26", // 静寂の瞑想: 3枚引く。このターンカードを使用できない
-                ctx -> {
-                    ctx.actions().drawCards(ctx.room(), ctx.owner(), 3);
-                    ctx.owner().setCannotUseCardsThisTurn(true);
-                    ctx.room().addLog("%sはこのターンカードを使用できません"
-                            .formatted(ctx.owner().getDisplayName()));
-                });
+        spellEffects.put("QTE-M-WATER-26", // 静寂の瞑想: 2枚引く
+                ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2));
 
         // 溢れ出る英知: 2枚引く。ターン中、手札枚数分だけ自分の「水文明」ミニオンの攻撃+1。
         // Ver.0.4 でドローが 3 → 2 に減り、バフ対象が自分の全ミニオンから水文明に限定された。
@@ -374,20 +371,27 @@ public class CardEffectRegistry {
                         t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion())),
                 "自分の【知識】ミニオン2体を手札に戻し、0コストで召喚します"));
 
-        // 智将 ポセイドン・コア: 自分の【知識】ミニオンの合計体力が12以上なら0コストで出せる
+        // 智将 ポセイドン・コア: 自分の【知識】ミニオンの合計体力が9以上なら0コストで出せる
+        // ★Batch 56(区分4): Ver1.1 で条件が12→9に緩和(rework-triage.md 区分4)
         specialSummons.put("QTE-M-WATER-23", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE))
-                        .mapToInt(MinionInstance::getCurrentHp).sum() >= 12,
+                        .mapToInt(MinionInstance::getCurrentHp).sum() >= 9,
                 TargetSpec.of(),
                 ctx -> {
                 },
-                "【知識】ミニオンの合計体力12以上: 代替コストなしで0コスト召喚します"));
-        // ポセイドン・コアの【召喚時】: 自分のミニオンは【突進】を得る
-        // (召喚時点で場にいるミニオンにのみ永続付与: 発注者確認済み。自身も場にいるため含まれる)
+                "【知識】ミニオンの合計体力9以上: 代替コストなしで0コスト召喚します"));
+        // ポセイドン・コアの【召喚時】: 自分の【知識】ミニオン2体につきカードを1枚引く
+        // ★Batch 56(区分4): 旧効果「自分のミニオンは【突進】を得る」が別物に置き換わった。
+        // 端数切り捨て(2体で1枚・3体でも1枚・4体で2枚)。自身も【知識】を持つため場に出た
+        // 時点で数に含まれる(旧効果の「自身も場にいるため含まれる」という扱いを踏襲)
         register("QTE-M-WATER-23", TriggerType.ON_SUMMON, ctx -> {
-            ctx.owner().getMinionZone().forEach(m -> m.grantKeyword(Keyword.RUSH));
-            ctx.room().addLog("%sのミニオンは【突進】を得ました".formatted(ctx.owner().getDisplayName()));
+            long knowledgeMinions = ctx.owner().getMinionZone().stream()
+                    .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE)).count();
+            int drawn = (int) (knowledgeMinions / 2);
+            if (drawn > 0) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), drawn);
+            }
         });
 
         // 海皇 ポセイドン: メインフェーズ開始時、手札7枚以上なら手札3枚を捨ててコストなしで出せる
@@ -857,9 +861,17 @@ public class CardEffectRegistry {
 
         // ---- スペル ----
 
-        // 武具昇華の炎: 自分のウェポンを1枚破壊する。そうしたら自分のリーダーを2回復
+        // 武具昇華の炎: ウェポンを1枚破壊する。そうしたら自分のリーダーを2回復
+        // ★Batch 56(区分3b): 旧本文の「自分の」が消えた。裁定156(2)(「自分の」の
+        // 省略は両者を見る)により相手のウェポンも対象にする(聖光の武装解除と同じ形)。
+        targetSpecs.put("QTE-M-FIRE-24", TargetSpec.of(
+                Requirement.upTo(Kind.WEAPON, Side.ANY, 1, "破壊するウェポンを選んでください(いなければ確定)")));
         spellEffects.put("QTE-M-FIRE-24", ctx -> {
-            if (ctx.actions().destroyOwnWeapon(ctx.room(), ctx.owner())) {
+            boolean destroyed = false;
+            for (var owner : ctx.targets().get(0).weapons()) {
+                destroyed |= ctx.actions().destroyOwnWeapon(ctx.room(), owner);
+            }
+            if (destroyed) {
                 ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-M-FIRE-24");
             } else {
                 ctx.room().addLog("破壊するウェポンがなかった");
@@ -973,23 +985,31 @@ public class CardEffectRegistry {
                 ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-21"),
                 "このターン3回以上ダメージを受けている: 1コストで召喚し、追加で1回復します"));
 
-        // 鳳凰神 ヴォルカニクスレヴォ: このターン、火文明のカードで累計5以上回復したとき0コストで出せる。
+        // 鳳凰神 ヴォルカニクスレヴォ: このターン、火文明のカードで累計5以上回復したとき1コストで出せる。
         // Ver.0.4 で判定基準が「回復した回数」から「累計回復量」に変わり、
         // さらに発生源が火文明のカードに限定された(発注者確認済み)。
         // 火文明は自傷でLPを削る文明であり、回復の上限20に頭打ちされにくいため、
         // 「実際に回復した量」を数える方式(GameActions.healLeader)と噛み合う
-        specialSummons.put("QTE-M-FIRE-22", SpecialSummonSpec.of(
+        // ★Batch 56(区分4): Ver1.1で代替コスト 0→1。【速攻】が明記されたが、これは
+        // CardTextKeywords がテキストから自動で拾うのでコード側の変更は不要
+        specialSummons.put("QTE-M-FIRE-22", new SpecialSummonSpec(
                 (state, player, handIndex) -> player.getHealedAmountThisTurn(Civilization.FIRE) >= 5,
-                TargetSpec.of(), ctx -> {
+                1, TargetSpec.of(), ctx -> {
+                }, ctx -> {
                 },
-                "このターン火文明のカードで累計5以上回復している: 0コストで召喚します"));
+                "このターン火文明のカードで累計5以上回復している: 1コストで召喚します"));
 
-        // 覚醒の炎童: 自分のリーダーの体力が10以下のときコスト0にする
+        // 覚醒の炎童: 自分のリーダーの体力が10以下のときコスト0にする。【召喚時】1回復
+        // ★Batch 56(区分4): Ver1.1で「【召喚時】自分のリーダーの体力を1回復する」が追加。
+        // 【知識】は本カード自身のキーワードとして別枠(fire()のON_ENTER自動処理が1ドローする)。
+        // 【召喚時】は特殊召喚(この代替コスト)でも通常召喚でも発動する(ON_SUMMON。GameService参照)
         specialSummons.put("QTE-M-FIRE-20", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getLp() <= 10,
                 TargetSpec.of(), ctx -> {
                 },
                 "体力10以下: 0コストで召喚します"));
+        register("QTE-M-FIRE-20", TriggerType.ON_SUMMON,
+                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 1, "QTE-M-FIRE-20"));
 
         // ---- リーダー起動能力 ----
 
@@ -1376,14 +1396,38 @@ public class CardEffectRegistry {
 
         // ---- ミニオン ----
 
-        // 聖域の案内人: 【知識】自分の場に【守護】を持つミニオンがいるなら、もう一度【知識】を行う。
+        // 聖域の案内人: 【知識】自分の場に「他の」【守護】を持つミニオンがいるなら、もう一度【知識】を行う。
         // 1回目のドローはfire()が自動処理する(自身がKNOWLEDGEを持つため)。ここでは2回目だけを扱う。
         // 守護の有無は「登場時」(ON_ENTER)に判定し、召喚か効果で出したかを問わない(発注者確認済み)
+        // ★Batch 56(区分3b): Ver1.1 でこのカード自身に【守護】が付き、「他の」が明記された
+        // (rework-triage.md 区分3b)。自身を除外しないと常に真になってしまうため、
+        // ctx.source()(自身)を除いて数える
         register("QTE-M-LIGHT-3", TriggerType.ON_ENTER, ctx -> {
-            boolean hasGuard = ctx.owner().getMinionZone().stream().anyMatch(m -> m.hasKeyword(Keyword.GUARD));
-            if (hasGuard) {
+            boolean hasOtherGuard = ctx.owner().getMinionZone().stream()
+                    .filter(m -> m != ctx.source())
+                    .anyMatch(m -> m.hasKeyword(Keyword.GUARD));
+            if (hasOtherGuard) {
                 ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
-                ctx.room().addLog("【聖域の案内人】: 【守護】がいるためもう一度【知識】");
+                ctx.room().addLog("【聖域の案内人】: 他に【守護】がいるためもう一度【知識】");
+            }
+        });
+
+        // 天界の守護神 ゾディアック: 【召喚時】相手のウェポンを1つ選び破壊する。【守護】。
+        // このミニオンが場にいる限り、相手のリーダーは攻撃できない。
+        // ★Batch 56(区分4): Ver1.1 で【召喚時】のウェポン破壊が追加された
+        // (rework-triage.md 区分4)。「相手のリーダーは攻撃できない」の常在部分は
+        // 既にRuleGuards.minionAttackDenial/leaderAttackDenialのZODIAC判定として
+        // 実装済みであり、こちらは触らない。相手がウェポンを装備していなければ空撃ち
+        targetSpecs.put("QTE-M-LIGHT-8", TargetSpec.of(
+                Requirement.upTo(Kind.WEAPON, Side.OPPONENT, 1,
+                        "破壊する相手のウェポンを選んでください(いなければ確定)")));
+        register("QTE-M-LIGHT-8", TriggerType.ON_SUMMON, ctx -> {
+            boolean destroyed = false;
+            for (var owner : ctx.targets().get(0).weapons()) {
+                destroyed |= ctx.actions().destroyOwnWeapon(ctx.room(), owner);
+            }
+            if (!destroyed) {
+                ctx.room().addLog("破壊する相手のウェポンがなかった");
             }
         });
 
@@ -1447,24 +1491,56 @@ public class CardEffectRegistry {
             ctx.actions().drawCards(ctx.room(), ctx.opponent(), opponentCount);
         });
 
-        // ホーリー・シグナル: 相手の場で最も攻撃力の高いミニオン1体を破壊。
-        // 対象はプレイヤーが選ばず盤面から自動決定する除去で、タイのときだけ実質選択になる。
+        // ホーリー・シグナル: 相手の場で最も攻撃力の高いミニオン1体と最も体力の低いミニオン1体を破壊。
+        // ★Batch 56(区分4): Ver1.1 で「最も体力の低いミニオン1体」の同時破壊が追加された
+        // (rework-triage.md 区分4)。
+        // ★最低体力側はTargetSpec.Requirementにせず、AutoChoice.lowestCurrentHpで自動決定する
+        // (AutoChoice.javaのJavadoc参照)。理由: GameService.validateTargetsは1枚のカードの
+        // 検証中、Requirementをまたいでusedひとつの Set<String> usedMinionIds を使い回すため、
+        // 2つのRequirementにすると「同じミニオンが両方の条件を満たす」ケース
+        // (例: 相手の場が1体しかいない)で「同じミニオンを重複して選べません」の例外になり、
+        // カードが使用不能になってしまう。最高攻撃力側だけはタイのとき実質選択の意味があるため
+        // (同値が複数いれば選ばせる)、引き続きプレイヤーが選ぶRequirementのまま残した。
         // 【潜伏】持ちであっても破壊できる(発注者確認済み。IGNORES_STEALTHで潜伏の対象化禁止を上書き)
         playConditions.put("QTE-M-LIGHT-10",
                 (state, player) -> !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
-        targetSpecs.put("QTE-M-LIGHT-10", TargetSpec.of(new Requirement(
-                Kind.MINION, Side.OPPONENT, 1, false, false,
-                List.of(Filter.HIGHEST_ATTACK_OPPONENT, Filter.IGNORES_STEALTH),
-                "相手の場で最も攻撃力の高いミニオンを選んでください")));
-        spellEffects.put("QTE-M-LIGHT-10", ctx -> ctx.targets().get(0).minions()
-                .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion())));
+        targetSpecs.put("QTE-M-LIGHT-10", TargetSpec.of(
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false,
+                        List.of(Filter.HIGHEST_ATTACK_OPPONENT, Filter.IGNORES_STEALTH),
+                        "相手の場で最も攻撃力の高いミニオンを選んでください")));
+        spellEffects.put("QTE-M-LIGHT-10", ctx -> {
+            // 両方の対象を、効果解決前(=まだ何も壊れていない)盤面で先に確定してから破壊する。
+            // 片方の破壊で盤面が変わり、もう片方の判定が狂うのを防ぐため
+            List<MinionInstance> beforeOpp = new ArrayList<>(ctx.opponent().getMinionZone());
+            MinionInstance lowestHp = AutoChoice.lowestCurrentHp(beforeOpp);
 
-        // 聖光の武装解除: ウェポンを1枚破壊する。【還元】。自分のウェポンも選べ、
-        // 誰も装備していなければ空撃ちになる(発注者確認済み)
+            List<MinionInstance> toDestroy = new ArrayList<>();
+            ctx.targets().get(0).minions().forEach(t -> toDestroy.add(t.minion()));
+            // 同じミニオンが両方の条件を満たす場合は1回だけ破壊する(重複して足さない)
+            if (lowestHp != null && toDestroy.stream()
+                    .noneMatch(m -> m.getInstanceId().equals(lowestHp.getInstanceId()))) {
+                toDestroy.add(lowestHp);
+            }
+            toDestroy.forEach(m -> ctx.actions().destroyMinion(ctx.room(), ctx.opponent(), m));
+        });
+
+        // 聖光の武装解除: ウェポンを1枚破壊する。そうしたらカードを1枚引く。【還元】。
+        // 自分のウェポンも選べ、誰も装備していなければ空撃ちになる(発注者確認済み)
+        // ★Batch 56(区分3b): Ver1.1 で「そうしたらカードを1枚引く」が追加された。
+        // 武具昇華の炎(QTE-M-FIRE-24)と同じ「破壊できたら」の条件付き形
         targetSpecs.put("QTE-M-LIGHT-26", TargetSpec.of(
                 Requirement.upTo(Kind.WEAPON, Side.ANY, 1, "破壊するウェポンを選んでください(いなければ確定)")));
-        spellEffects.put("QTE-M-LIGHT-26", ctx -> ctx.targets().get(0).weapons()
-                .forEach(owner -> ctx.actions().destroyOwnWeapon(ctx.room(), owner)));
+        spellEffects.put("QTE-M-LIGHT-26", ctx -> {
+            boolean destroyed = false;
+            for (var owner : ctx.targets().get(0).weapons()) {
+                destroyed |= ctx.actions().destroyOwnWeapon(ctx.room(), owner);
+            }
+            if (destroyed) {
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            } else {
+                ctx.room().addLog("破壊するウェポンがなかった");
+            }
+        });
 
         // 神の福音: 手札から光文明の【守護】ミニオンを最大2体、コストを支払わず場に出す。
         // 出した数だけ引く。ゾーンの空きが足りなければ出せた数だけ出し、その数だけ引く(発注者確認済み)
@@ -1559,28 +1635,35 @@ public class CardEffectRegistry {
             }
         });
 
-        // 風神ヴァーユ: 【特殊召喚】自分の墓地に【守護】を持つカードが4枚以上のとき、
+        // 風神ヴァーユ: 【特殊召喚】自分の墓地に風文明を持つカードが6枚以上のとき、
         // このカードを手札から1コストで出せる(代替コストなし。条件のみ)
+        // ★Batch 56(区分4): Ver1.1 で条件が「【守護】持ちが4枚以上」から
+        // 「風文明のカードが6枚以上」に変わった(rework-triage.md 区分4)
         specialSummons.put("QTE-M-WIND-21", new SpecialSummonSpec(
                 (state, player, handIndex) -> player.getTrash().stream()
-                        .filter(id -> cards.findById(id).hasKeyword(Keyword.GUARD)).count() >= 4,
+                        .filter(id -> cards.findById(id).civilization() == Civilization.WIND).count() >= 6,
                 1,
                 TargetSpec.of(),
                 ctx -> {
                 },
                 ctx -> {
                 },
-                "自分の墓地に【守護】を持つカードが4枚以上: コスト1で召喚します"));
+                "自分の墓地に風文明のカードが6枚以上: コスト1で召喚します"));
 
-        // 嵐の守り手: 【特殊召喚】自分の場に体力3以上のミニオンが3体以上のとき、
-        // このカードを手札から0コストで出せる
-        specialSummons.put("QTE-M-WIND-19", SpecialSummonSpec.of(
+        // 嵐の守り手: 【守護】【特殊召喚】自分の場に体力3以下のミニオンがちょうど3体のとき、
+        // このカードを手札から1コストで出せる
+        // ★Batch 56(区分3b): Ver1.1 でコスト 0→1、条件が「体力3以上が3体以上」から
+        // 「体力3以下がちょうど3体」に反転した(rework-triage.md 区分3b)。【守護】が付いた
+        specialSummons.put("QTE-M-WIND-19", new SpecialSummonSpec(
                 (state, player, handIndex) -> player.getMinionZone().stream()
-                        .filter(m -> m.getCurrentHp() >= 3).count() >= 3,
+                        .filter(m -> m.getCurrentHp() <= 3).count() == 3,
+                1,
                 TargetSpec.of(),
                 ctx -> {
                 },
-                "自分の場に体力3以上のミニオンが3体以上: コスト0で召喚します"));
+                ctx -> {
+                },
+                "自分の場に体力3以下のミニオンがちょうど3体: コスト1で召喚します"));
 
         // ストーム・カイザー: 【特殊召喚】このターン中に自分がカードを4枚以上使用している時、
         // コストを支払わずに場に出せる
@@ -1736,23 +1819,23 @@ public class CardEffectRegistry {
             t.minion().grantKeyword(Keyword.GUARD);
         }));
 
-        // 選択の追い風: カードを1枚引く。その後守護を持つカードを1枚捨てても良い。
+        // 選択の追い風: カードを1枚引く。その後カードを1枚捨てても良い。
         // そうしたら追加でカードを1枚引く(候補が無ければ問い合わせ自体を出さない)
+        // ★Batch 56(区分4): Ver1.1 で捨てるカードの「守護を持つ」限定が外れ、
+        // 手札のどのカードでも良くなった(rework-triage.md 区分4)
         spellEffects.put("QTE-M-WIND-25", ctx -> {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
-            List<String> guardPositions = new ArrayList<>();
+            List<String> handPositions = new ArrayList<>();
             List<String> hand = ctx.owner().getHand();
             for (int i = 0; i < hand.size(); i++) {
-                if (cards.findById(hand.get(i)).hasKeyword(Keyword.GUARD)) {
-                    guardPositions.add(String.valueOf(i));
-                }
+                handPositions.add(String.valueOf(i));
             }
-            if (guardPositions.isEmpty()) {
+            if (handPositions.isEmpty()) {
                 return;
             }
             ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.upTo(
-                    PendingChoice.Kind.HAND, guardPositions, 1, ResumePoint.TAILWIND_DISCARD,
-                    "【選択の追い風】: 守護を持つカードを1枚捨てて、もう1枚引きますか？(任意)"));
+                    PendingChoice.Kind.HAND, handPositions, 1, ResumePoint.TAILWIND_DISCARD,
+                    "【選択の追い風】: カードを1枚捨てて、もう1枚引きますか？(任意)"));
         });
 
         // 風のマナ変換: 自分の表向きのマナを1枚手札に戻す。その後自分の手札から1枚を裏向きでマナに置く

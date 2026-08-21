@@ -206,36 +206,47 @@ public class StatCalculator {
             cost -= 4;
         }
         // ---- 光文明: 場のミニオンによる常在のコスト軽減(累積する。下限は0) ----
-        // 唱導の聖騎士(QTE-M-LIGHT-18)・戒律のガーディアン(QTE-M-LIGHT-20): 自分のスペルのコスト-1
+        // 唱導の聖騎士(QTE-M-LIGHT-18): 自分のリーダーが光文明なら自分のスペルのコスト-1
+        //   ★Batch 56(区分4): Ver1.1 で「自分のリーダーが光文明なら」の条件が付いた
         // 英知の水晶(QTE-M-LIGHT-19): 自分の【知識】カードのコスト-1
-        // 戒律のガーディアン(QTE-M-LIGHT-20): 【守護】を持つカードのコスト-1
+        // 戒律のガーディアン(QTE-M-LIGHT-20): 自分の光文明スペル・自分の光文明【守護】のコスト-1
+        //   ★Batch 56(区分4): Ver1.1 で両方とも「光文明」限定になった(rework-triage.md 区分4)
+        boolean leaderIsLight = owner.getLeader().civilization() == Civilization.LIGHT;
         for (MinionInstance minion : owner.getMinionZone()) {
             String id = minion.getMaster().id();
-            boolean spellDiscounter = CHANT_PALADIN.equals(id) || PRECEPT_GUARDIAN.equals(id);
-            if (spellDiscounter && asType == CardType.SPELL) {
+            if (CHANT_PALADIN.equals(id) && asType == CardType.SPELL && leaderIsLight) {
                 cost -= 1;
             }
             if (WISDOM_CRYSTAL.equals(id) && card.keywords().contains(Keyword.KNOWLEDGE)) {
                 cost -= 1;
             }
-            if (PRECEPT_GUARDIAN.equals(id) && card.keywords().contains(Keyword.GUARD)) {
-                cost -= 1;
+            if (PRECEPT_GUARDIAN.equals(id) && card.civilization() == Civilization.LIGHT) {
+                if (asType == CardType.SPELL) {
+                    cost -= 1;
+                }
+                if (card.keywords().contains(Keyword.GUARD)) {
+                    cost -= 1;
+                }
             }
         }
-        // 詠唱の宝珠: 破壊された後、次に唱えるスペルのコスト-1(ターンをまたいで持続)
-        if (asType == CardType.SPELL && owner.getPersistentAuras().stream()
+        // 詠唱の宝珠: 破壊された後、次に唱える光文明スペルのコスト-1(ターンをまたいで持続)
+        // ★Batch 56(区分3b): Ver1.1 で「スペルすべて」から「光のスペル」に限定された
+        if (asType == CardType.SPELL && card.civilization() == Civilization.LIGHT
+                && owner.getPersistentAuras().stream()
                 .anyMatch(aura -> CHANT_ORB.equals(aura.cardId()))) {
             cost -= 1;
         }
-        // 双流の幻術師: 場に居るミニオンの数だけコスト-1。
-        // Ver.0.4 で参照が「【知識】を持つミニオンの数」から「ミニオンの数」全体に広がった。
+        // 双流の幻術師: 場に居る【知識】を持つミニオンの数だけコスト-1。
+        // ★Batch 56(区分3b): Ver1.1 で参照が「ミニオンの数」全体から
+        // 「【知識】を持つミニオンの数」に戻った(旧台帳と同じ参照に復帰)。
         // 側の限定が無いため両者の場を数える(記法規約。従来と同じ)
         if (TWIN_ILLUSIONIST.equals(card.id())) {
-            long minionsOnBoard = java.util.stream.Stream
+            long knowledgeMinionsOnBoard = java.util.stream.Stream
                     .of(state.getPlayer1(), state.getPlayer2())
-                    .mapToLong(p -> p.getMinionZone().size())
-                    .sum();
-            cost -= (int) minionsOnBoard;
+                    .flatMap(p -> p.getMinionZone().stream())
+                    .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE))
+                    .count();
+            cost -= (int) knowledgeMinionsOnBoard;
         }
         // ---- 風文明: ターン内カウンタ・盤面参照による動的コスト ----
         // 詠唱の疾風騎士: 自分がこのターン中にスペルを唱えるたびコスト-1(このターン限定・下限0)
@@ -256,10 +267,11 @@ public class StatCalculator {
                 .anyMatch(m -> m.getMaster().cost() != null && m.getMaster().cost() >= 2)) {
             cost = 0;
         }
-        // 詠唱の風詠士(リーダー): そのターン中3枚目に使うミニオンかスペルのコスト-1。
+        // 詠唱の風詠士(リーダー): そのターン中3枚目に使うカードのコスト-1。
+        // ★Batch 56(区分4): Ver1.1 で対象が「ミニオンかスペル」から「カード」全種別
+        // (ウェポン・進化も含む)に広がった(rework-triage.md 区分4)。
         // 使用カウンタは自身を含まない(裁定1)ため、「3枚目」はcardsUsedThisTurn==2の瞬間に一致する
         if (WIND_CHANTER_LEADER.equals(owner.getLeader().id())
-                && (asType == CardType.MINION || asType == CardType.SPELL)
                 && owner.getCardsUsedThisTurn() == 2) {
             cost -= 1;
         }

@@ -98,4 +98,24 @@ public final class AutoChoice {
                         m.getMaster().attack() == null ? 0 : m.getMaster().attack()))
                 .orElse(null);
     }
+
+    /**
+     * 相手のミニオン1体を自動で選ぶ(ホーリー・シグナル QTE-M-LIGHT-10)。
+     * 現在HPが最も低いものを選ぶ。
+     *
+     * この効果は「最も攻撃力の高いミニオン」(プレイヤーが選ぶ、同値ならタイブレークUIあり)
+     * と「最も体力の低いミニオン」を同時に破壊する。後者をTargetSpec側のRequirementに
+     * せず、ここで自動決定するのは、両方をRequirementにすると
+     * GameService.validateTargetsが1枚のカードにつき使い回すusedMinionIds
+     * (Requirementをまたいだ重複選択の防止)に引っかかり、
+     * 「同じミニオンが両方の条件を満たす」ケース(相手の場が1体しかいない、など)で
+     * カードが使用不能になってしまうため。同値のタイブレークが要らない側だけを
+     * こちらに寄せることで、その衝突を避けている。
+     * 同値なら盤面の並び順(先に出た方)で安定させる。
+     */
+    public static MinionInstance lowestCurrentHp(List<MinionInstance> candidates) {
+        return candidates.stream()
+                .min(Comparator.comparingInt(MinionInstance::getCurrentHp))
+                .orElse(null);
+    }
 }

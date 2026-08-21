@@ -237,7 +237,11 @@ class SoulSpellTest {
      */
     @Test
     void 賢魂はスペルのコスト軽減を受ける() {
-        AutoGameFixture f = newGame();
+        // ★Batch 56(区分4): 唱導の聖騎士は「自分のリーダーが光文明なら」の条件が付いた
+        // (rework-triage.md 区分4)。条件を満たすためリーダーを光文明にする(裁定187の含意)
+        AutoGameFixture f = new AutoGameFixture(cards, "QTE-M-LIGHT-1", PLAIN_LEADER);
+        f.fillDeck(f.me(), 40);
+        f.fillDeck(f.you(), 40);
         f.putOnField(f.me(), CHANT_PALADIN);
         int printed = com.example.qte.master.CardTextKeywords.soulCost(cards.findById(TAIGARAMU).text());
         assertThat(printed).isEqualTo(3);
