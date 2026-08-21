@@ -1674,6 +1674,13 @@ async function clearZoom(page) {
   await page.waitForTimeout(60);
   check('★拡大パネルの大フェイスにも効果テキストが出る(25)',
     (await page.locator('#zoom-panel .mcard-large .mcard-text').textContent()) === '検証用の効果テキスト');
+  // ★★61: 盤面のカードフェイスも本文の改行を生かす(battle.css の .mcard-text)。
+  //   デッキメーカー側(.t-text)は別の宣言なので、両方に番人が要る ——
+  //   片方だけ直された日を捕まえるのがこの2件である(裁定130)。
+  const boardWrap = await page.evaluate(
+    () => getComputedStyle(document.querySelector('#zoom-panel .mcard-text')).whiteSpace);
+  check('★★盤面のカード本文は改行を生かす(61・pre-wrap)',
+    boardWrap === 'pre-wrap', boardWrap);
   await page.evaluate(() => {
     // ★以降のセクションに影響を残さない(ライブラリ未取得状態へ戻す)
     // eslint-disable-next-line no-undef
@@ -5623,6 +5630,20 @@ async function clearZoom(page) {
   check('★★デッキメーカーの質感も transform / filter を使わない(41・強調に巻き込まれない)',
     deckFaceFx.hits.length === 0 && deckFaceFx.seen.length >= 5,
     JSON.stringify(deckFaceFx));
+
+  // ---- ★★61-1. カード本文の改行が生きている(pre-wrap) ----
+  //
+  // ★カード定義の text は改行を持っている(235枚中28枚)。HTML は既定でそれを空白1つに畳むので、
+  //   60 まではカード画像では2行のものが画面では1行につながって出ていた。
+  //   61 で .t-text / .bc-text / .mcard-text に white-space: pre-wrap を当てて直した。
+  // ★<b>測るのは computed style である。</b>CSS に文字列があることではなく、
+  //   その要素に実際に効いていることを見る(裁定: クラスが付いたかを見る検証は検証にならない)。
+  const deckWrap = await deckPage.evaluate(() => {
+    const t = document.querySelector('#pool-grid .tile .t-text');
+    return { tile: t ? getComputedStyle(t).whiteSpace : null };
+  });
+  check('★★デッキメーカーのカード本文は改行を生かす(61・pre-wrap)',
+    deckWrap.tile === 'pre-wrap', JSON.stringify(deckWrap));
 
   // ---- 39-3. トースト ----
   await deckPage.evaluate(() => toast('試験のトースト'));

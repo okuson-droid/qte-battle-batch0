@@ -25,13 +25,18 @@ import tools.jackson.databind.ObjectMapper;
  * classpath 上の JSON を起動時に一度だけ読み、以後は Map の表引きで返す。
  * JSON が壊れていれば起動そのものが失敗する(実行時まで問題を持ち越さない)。
  *
- * ★読むのは {@code cards/manual-cards.json} であり、台帳 {@code qte-cards.json} とは
- * 別ファイルである。台帳には統合しない(設計書 3-1)。両者は
- * {@link ManualCardMaster#ledgerCardId()} でゆるく対応づくだけである。
+ * ★読むのは {@code cards/manual-cards.json}(全235枚・Ver1.1)であり、
+ * これは<b>全モード共通の正</b>である(7章)。
+ * {@link com.example.qte.master.CardMasterRepository} も同じファイルを読む ——
+ * 別々のリポジトリが同じファイルを読むのは重複ではなく、
+ * <b>正が1つであることの現れ</b>である(設計判断28)。
  *
- * ★JSON は {@code tools/convert_manual_cards.py} が CSV から生成した成果物であり、
- * 手で編集しない。ただしピュア・エレメントの画像IDの修正のように1行で済むものは、
- * スクリプト側の定数を直してから再生成する。
+ * <p>★<b>Batch 61: この JSON は手で編集する対象になった。</b>
+ * 46b までは {@code tools/convert_manual_cards.py} が CSV から生成する成果物だったが、
+ * あのスクリプトは Batch 60 で退役している(再実行すると全235枚の本文が消える)。
+ * 表記の統一(Batch 61)も本文の校正も、今はこのファイルを直接直す。
+ * 番人は {@code CardTextKeywordsTest}(169枚のキーワード照合)と
+ * {@code EffectImplementationTest}(効果の印)である。
  */
 @Repository
 public class ManualCardRepository {
@@ -135,6 +140,7 @@ public class ManualCardRepository {
             Integer cost,
             Integer attack,
             Integer hp,
+            String text,
             String imageId,
             String ledgerCardId) {
         // ★Batch 60: unlimitedCopies を受ける口も外した。manual-cards.json に
@@ -145,7 +151,7 @@ public class ManualCardRepository {
             return new ManualCardMaster(id, name,
                     ManualCardType.valueOf(type),
                     ManualCivilization.valueOf(civilization),
-                    cost, attack, hp, imageId, ledgerCardId);
+                    cost, attack, hp, text == null ? "" : text, imageId, ledgerCardId);
         }
     }
 }

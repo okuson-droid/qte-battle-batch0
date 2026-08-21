@@ -4,21 +4,24 @@
     <!-- ★Batch 34: <html> の data-bs-theme="dark" はロビーと同じ理由である(下の <style> と対) -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>カード確認(手動モード) — クイン・タブーエレメント</title>
+    <title>カード一覧(手動モード) — クイン・タブーエレメント</title>
     <!-- ★Batch 33 2-3: アイコンとメタ情報。favicon が無いと全ページで
          ブラウザ既定アイコン+毎ロード404になる。theme-color と description は
          リンクを貼った先・ブックマーク・検索結果での見え方に効く -->
-    <meta name="description" content="手動モードのカード一覧。台帳(manual-cards.json)の内容をそのまま表示します。">
+    <meta name="description" content="手動モードのカード一覧。カード定義(manual-cards.json)の全235枚をカードの形で表示します。">
     <meta name="theme-color" content="#212529">
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}">
     <link rel="alternate icon" th:href="@{/favicon-32.png}">
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
+    <!-- ★★Batch 61: カードフェイスの見た目の正は battle.css である(裁定60・裁定130) -->
+    <link th:href="@{/css/battle.css(v=47)}" rel="stylesheet">
+    <th:block th:replace="~{fragments/card-face :: styles}"></th:block>
     <style>
-        /* 目視確認のためだけの画面なので、CSSはここに閉じる(battle.css を汚さない)。 */
+        /* 目視確認のためだけの画面なので、CSSはここに閉じる(battle.css を汚さない)。
 
-        /* ★★Batch 34: ロビーを黒にしたので、ロビーから1クリックで来るこの画面も黒に揃える。
+           ★★Batch 34: ロビーを黒にしたので、ロビーから1クリックで来るこの画面も黒に揃える。
            ここを白のまま残すと、消したはずの白→黒のフラッシュが経路を変えて戻る。
            色の値はロビー・盤面と同一(#212529 / #f8f9fa)である。 */
         :root { color-scheme: dark; }
@@ -27,38 +30,22 @@
         .card-header { background-color: #343a40; border-bottom-color: #495057; }
         .text-muted { color: #adb5bd !important; }
 
-        .card-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: .75rem;
-        }
-        .card-cell img {
-            width: 100%;
-            aspect-ratio: 5 / 7;
-            object-fit: contain;
-            /* ★Batch 34: 透過部分の下地。黒背景に合わせて暗い側へ寄せる */
-            background: #343a40;
-            border-radius: .25rem;
-        }
-        .card-cell .cap {
-            font-size: .7rem;
-            line-height: 1.25;
-            word-break: break-all;
-        }
-        .card-cell .imgid {
-            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-            font-size: .6rem;
-            /* ★Batch 34: #6c757d は黒地で 3.4:1 しかない */
-            color: #adb5bd;
+        .back-face { width: 160px; aspect-ratio: 5 / 7; }
+        .back-face img {
+            width: 100%; height: 100%; object-fit: contain;
+            background: #343a40; border-radius: .25rem;
         }
     </style>
 </head>
 <body class="bg-dark text-light">
-<div class="container-fluid py-4" style="max-width: 1400px">
+<div class="container-fluid py-4" style="max-width: 1500px">
 
-    <h1 class="mb-1 h3">手動モード カード確認</h1>
+    <h1 class="mb-1 h3">カード一覧(手動モード)</h1>
     <p class="text-muted mb-3">
-        Batch 17a の目視確認用。<strong>画像の欠け</strong>と<strong>ピュア・エレメントの画像</strong>だけを見る画面である。
+        ★<strong>Batch 61 で作り替えた。</strong>
+        60 まではカード画像のグリッドで、<b>本文が1文字も出ていなかった</b> ——
+        手動モードのカード定義がテキストを持たないという Ver0.4 時代の前提の名残である。
+        今はデッキメーカー・盤面と同じカードフェイスで、全235枚の本文を出す。
     </p>
 
     <!-- 検算。設計書 1-2 の表と突き合わせる -->
@@ -73,20 +60,21 @@
                     <span th:text="${entry.value}">0</span>
                 </span>
                 <span class="badge text-bg-info">
-                    台帳と対応 <span th:text="${linkedCount}">0</span> 枚
+                    Ver0.4 由来 <span th:text="${linkedCount}">0</span> 枚
                 </span>
             </div>
             <div class="small text-muted mt-2">
                 期待値: 合計 235 / LEADER 18 / MINION 119 / EVOLUTION 18 / SPELL 61(60 + ピュア・エレメント) /
-                WEAPON 19 / 台帳と対応 169
-            </div>
-            <div class="small text-muted mt-1">
-                裏面画像ID: <code th:text="${backImageId}">-</code>
+                WEAPON 19 / Ver0.4 由来 169
             </div>
         </div>
     </div>
 
-    <!-- 画像が実在しないカード。0件が正常 -->
+    <!--
+      画像が実在しない画像IDの検査。0件が正常。
+      ★Batch 61: セルからカード画像を外したので、画像の欠けを目で見ることはできなくなった。
+        代わりにこの検査が唯一の番人である —— サーバがファイルの実在を確かめて名指しする。
+    -->
     <div th:if="${!#sets.isEmpty(missingImageIds)}" class="alert alert-danger">
         <strong>★画像ファイルが見つからない画像IDがある</strong>
         <ul class="mb-0 small">
@@ -94,7 +82,7 @@
         </ul>
         <div class="small mt-2">
             画像IDは内容ハッシュである。カードを作り直すと必ず変わるため、
-            CSV を新しい画像IDに更新して <code>tools/convert_manual_cards.py</code> を再実行すること。
+            カード定義の <code>imageId</code> を新しい値に直すこと。
         </div>
     </div>
     <div th:if="${#sets.isEmpty(missingImageIds)}" class="alert alert-success py-2">
@@ -106,51 +94,23 @@
             <strong th:text="${entry.key.displayName} + '文明'">文明</strong>
             <span class="badge bg-secondary" th:text="${#lists.size(entry.value)} + '枚'">0枚</span>
             <span th:if="${entry.key.name() == 'NONE'}" class="badge text-bg-warning">
-                ★ピュア・エレメント。画像がこのカードで正しいかを目視すること
+                ★ピュア・エレメント。デッキ外から後攻に配られる1枚
             </span>
         </div>
         <div class="card-body">
-            <div class="card-grid">
-                <div th:each="card : ${entry.value}" class="card-cell">
-                    <img th:src="@{'/cards/' + ${card.imageId} + '.png'}"
-                         th:alt="${card.name}" loading="lazy">
-                    <div class="cap mt-1">
-                        <span th:text="${card.id}">QTE-M-XXXX-0</span>
-                        <span class="text-muted" th:text="'/ ' + ${card.type}">/ MINION</span>
-                        <br>
-                        <span th:text="${card.name}">名前</span>
-                        <br>
-                        <span class="text-muted">
-                            C<span th:text="${card.cost}">0</span>
-                            <span th:if="${card.attack != null}">
-                                / A<span th:text="${card.attack}">0</span>
-                            </span>
-                            <span th:if="${card.hp != null}">
-                                / H<span th:text="${card.hp}">0</span>
-                            </span>
-                        </span>
-                        <span th:if="${card.ledgerCardId != null}" class="text-muted"
-                              th:text="'/ ' + ${card.ledgerCardId}">/ QTE-0000</span>
-                        <span th:if="${card.ledgerCardId == null}" class="badge text-bg-light">新</span>
-                        <br>
-                        <span class="imgid" th:text="${#strings.substring(card.imageId, 0, 16)} + '…'">img</span>
-                    </div>
-                </div>
-            </div>
+            <div th:replace="~{fragments/card-face :: grid(${entry.value})}"></div>
         </div>
     </div>
 
     <div class="card mb-4">
         <div class="card-header"><strong>裏面</strong></div>
         <div class="card-body">
-            <div class="card-grid">
-                <div class="card-cell" style="max-width: 200px">
-                    <img th:src="@{'/cards/' + ${backImageId} + '.png'}" alt="裏面" loading="lazy">
-                    <div class="cap mt-1">
-                        裏面(全カード共通)<br>
-                        <span class="imgid" th:text="${#strings.substring(backImageId, 0, 16)} + '…'">img</span>
-                    </div>
-                </div>
+            <div class="back-face">
+                <img th:src="@{'/cards/' + ${backImageId} + '.png'}" alt="裏面" loading="lazy">
+            </div>
+            <div class="small text-muted mt-2">
+                裏面(全カード共通)。<code th:text="${backImageId}">-</code>
+                <br>★裏面はカードフェイスを持たない(表の面ではない)ので、ここだけ画像のままである。
             </div>
         </div>
     </div>

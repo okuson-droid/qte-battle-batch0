@@ -945,9 +945,21 @@ body.manual-drag-active .manual-band {
         linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0, rgba(255, 255, 255, 0) 1px),
         linear-gradient(180deg, rgba(0, 0, 0, 0.36), rgba(0, 0, 0, 0.14));
 }
+/* ★★Batch 61: カード本文の改行を生かす(white-space)。
+   カード定義の text は改行を持っている(235枚中28枚)。例:
+
+       【守護】
+       このミニオンの攻撃力は、自分の手札の枚数と同じになる。
+
+   HTML は既定で改行を空白1つに畳むため、59 まではこれが1行につながって出ていた ——
+   ★<b>カード画像では2行に分かれている</b>ので、実物と見比べると形が違って見える。
+   pre-wrap にすると改行はそのまま、行内の折り返しは今までどおり効く
+   (pre だと折り返しが止まり、長い1行が横にはみ出す)。
+   ★同じ直しをデッキメーカーの .t-text / .bc-text にも当ててある(裁定130: 規則を2箇所に分けない)。 */
 .mcard-text {
     flex: 1; min-height: 0; padding: 3px 4px; font-size: 9.5px; line-height: 1.5;
     color: #cfc9e4; overflow-y: auto; scrollbar-width: thin; text-align: left;
+    white-space: pre-wrap;
 }
 .mcard-spacer { flex: 1; }
 .mcard-foot {

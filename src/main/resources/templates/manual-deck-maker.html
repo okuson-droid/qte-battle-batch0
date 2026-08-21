@@ -31,7 +31,7 @@
     したがって `bg-dark` / `text-light` は<b>印であって実装ではない</b>——
     色は下の <style> が持つ(ロビーが同じ理由で色を自分で書いているのと同じ形である)。
 -->
-<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">
+<link th:href="@{/css/battle.css(v=47)}" rel="stylesheet">
 <style>
 /* ★★★Batch 39(裁定60・レビュー B-2): 独自パレットを捨て、手動モードと<b>同じ値</b>にした。
    38 まではここに紫と金の16色があり、ロビー・カード一覧・盤面のどれとも違っていた。
@@ -280,7 +280,8 @@ input[type=file]{display:none;}
     linear-gradient(180deg, rgba(0,0,0,.36), rgba(0,0,0,.14));
 }
 .t-body{flex:1;padding:4px 5px;display:flex;flex-direction:column;gap:3px;overflow:hidden;}
-.t-text{font-size:9.5px;line-height:1.5;color:#cfc9e4;overflow:hidden;}
+/* ★Batch 61: 本文の改行を生かす(盤面 .mcard-text と同じ理由・同じ値) */
+.t-text{font-size:9.5px;line-height:1.5;color:#cfc9e4;overflow:hidden;white-space:pre-wrap;}
 .t-foot{
   display:flex;justify-content:space-between;padding:3px 6px;min-height:19px;
   --mc-sheen:.07;
@@ -375,7 +376,8 @@ input[type=file]{display:none;}
     linear-gradient(180deg, rgba(0,0,0,.36), rgba(0,0,0,.14));
 }
 .bc-body{flex:1;padding:9px;display:flex;flex-direction:column;gap:6px;min-height:0;}
-.bc-text{font-size:13px;line-height:1.7;color:#e2ddf2;overflow-y:auto;flex:1;scrollbar-width:thin;}
+/* ★Batch 61: 本文の改行を生かす(盤面 .mcard-large .mcard-text と同じ理由・同じ値) */
+.bc-text{font-size:13px;line-height:1.7;color:#e2ddf2;overflow-y:auto;flex:1;scrollbar-width:thin;white-space:pre-wrap;}
 .bc-foot{
   display:flex;justify-content:space-between;align-items:center;padding:7px 10px;min-height:30px;
   --mc-sheen:.07;

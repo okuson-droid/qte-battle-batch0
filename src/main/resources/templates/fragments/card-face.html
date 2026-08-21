@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<!--
+  ★★Batch 61: カード一覧のカードフェイス(通常モードと手動モードの共通部品)。
+
+  <h2>なぜ部品にしたか</h2>
+
+  61 まで、カード一覧は2つとも「独自の見せ方」を持っていた ——
+  通常モード(/cards)は7列の表、手動モード(/manual/cards)は画像のグリッドで
+  本文は1文字も出ていなかった。同じ235枚を見る画面が2つあって、
+  どちらもデッキメーカーや盤面とは別の形だった。
+
+  マスターの指示は「両方のカード一覧をデッキメーカーの形式に統一」である。
+  そこで<b>デッキメーカーと同じカードフェイス</b>で描き、その markup をここ1箇所に置く。
+
+  <h2>★見た目の正は battle.css の .mcard 系である(裁定60・裁定130)</h2>
+
+  デッキメーカーは同じ見た目を .tile / .t-* という<b>自前のコピー</b>で持っている
+  (値まで一致しており、あちらのコメントにも「盤面 .mcard-cost と同じ」と書いてある)。
+  ここで3つ目のコピーを作らないため、この部品は battle.css の .mcard 系をそのまま使う。
+  ★デッキメーカーの .tile を .mcard へ寄せて1本化するのは別の作業である ——
+  機械検証543件のうち28件が .tile / .t-* を名指しで見ており、
+  今それを触ると検証のほうが先に壊れる。
+
+  <h2>★文明色の値はここに書かない</h2>
+
+  --mc に入れるのは var(--civ-<文明の小文字>) であり、値の正は battle.css の :root である
+  (裁定60。battle.js の civColor が同じ変数を読んでいる)。
+
+  <h2>★2つの型を同じ部品で描ける理由</h2>
+
+  通常モードは CardMaster、手動モードは ManualCardMaster を渡す。型は別系統だが
+  (設計書 2-1)、この部品が触る名前 —— id / name / type / civilization / cost /
+  attack / hp / text —— は両方が同じ名前で持っている。
+  列挙体の定数名(LEADER…WEAPON / WATER…NONE)も一致しているので、
+  {@code type.name()} と {@code civilization.name()} で分岐できる。
+-->
+<head>
+<!--
+  グリッドとセルの寸法。★カードの中身の見た目は1行も書かない(battle.css が持つ)。
+  ここが持つのは「カードをどう並べるか」だけである。
+-->
+<style th:fragment="styles">
+    .qcard-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(186px, 1fr));
+        gap: 14px 12px;
+        align-items: start;
+    }
+    /* ★カードの縦横比 5:7 はデッキメーカーの .tile / .bigcard と同じ値である */
+    .qcard-cell { display: flex; flex-direction: column; gap: 4px; }
+    .qcard-face { aspect-ratio: 5 / 7; }
+    .qcard-id {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: .62rem; line-height: 1.2; color: #adb5bd; word-break: break-all;
+    }
+    /* ★進化ミニオンの斜め縞。デッキメーカーの .tile.evo と同じ意味・同じ角度 */
+    .qcard-face.is-evolution .mcard {
+        background:
+            repeating-linear-gradient(135deg,
+                rgba(255, 255, 255, 0.10) 0 2px, transparent 2px 8px),
+            var(--mc-gloss),
+            linear-gradient(180deg,
+                rgba(255, 255, 255, 0.22) 0, rgba(255, 255, 255, 0) 2px),
+            linear-gradient(160deg,
+                color-mix(in srgb, var(--mc) 88%, #fff 16%) 0%,
+                color-mix(in srgb, var(--mc) 58%, #000 26%) 46%,
+                color-mix(in srgb, var(--mc) 70%, #000 50%) 100%);
+    }
+</style>
+</head>
+<body>
+
+<!-- カード1枚。cards.html / manual-cards.html の両方から呼ばれる -->
+<div th:fragment="cell(card)" class="qcard-cell">
+    <div class="qcard-face"
+         th:classappend="${card.type.name() == 'EVOLUTION'} ? 'is-evolution' : ''">
+        <div class="mcard mcard-large"
+             th:style="'--mc: var(--civ-' + ${#strings.toLowerCase(card.civilization.name())} + ')'">
+            <div class="mcard-inner">
+                <div class="mcard-head">
+                    <span class="mcard-cost"
+                          th:if="${card.type.name() != 'LEADER' and card.cost != null}"
+                          th:text="${card.cost}">0</span>
+                    <span class="mcard-name" th:text="${card.name}">カード名</span>
+                </div>
+                <!-- 種別の日本語表記。★battle.js の FACE_TYPE_LABELS と同じ語である -->
+                <div class="mcard-type" th:switch="${card.type.name()}">
+                    <span th:case="'LEADER'">リーダー</span>
+                    <span th:case="'MINION'">ミニオン</span>
+                    <span th:case="'EVOLUTION'">進化ミニオン</span>
+                    <span th:case="'SPELL'">スペル</span>
+                    <span th:case="'WEAPON'">ウェポン</span>
+                </div>
+                <!--
+                  ★本文は th:text でそのまま出す。改行はデータが持っており、
+                    battle.css の .mcard-text が white-space: pre-wrap で生かす(★Batch 61)。
+                  ★キーワードを別に並べない —— キーワードはテキストから作るもので(裁定158)、
+                    並べると同じものが2度出る。盤面の faceText と同じ考え方である。
+                -->
+                <div class="mcard-text" th:text="${card.text}"></div>
+                <div class="mcard-foot mcard-foot-leader"
+                     th:if="${card.type.name() == 'LEADER'}">LEADER</div>
+                <div class="mcard-foot"
+                     th:if="${card.type.name() != 'LEADER' and (card.attack != null or card.hp != null)}">
+                    <span class="mcard-atk" th:if="${card.attack != null}"
+                          th:text="'⚔' + ${card.attack}">⚔0</span>
+                    <span th:unless="${card.attack != null}"></span>
+                    <span class="mcard-hp" th:if="${card.hp != null}"
+                          th:text="'♥' + ${card.hp}">♥0</span>
+                    <span th:unless="${card.hp != null}"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="qcard-id" th:text="${card.id}">QTE-M-XXXX-0</div>
+</div>
+
+<!--
+  文明1つぶんのグリッド。
+
+  ★<b>th:each と th:replace を同じタグに書いてはいけない。</b>
+    Thymeleaf の優先順位は th:replace(100)が th:each(200)より<b>先</b>であり、
+    同じタグに書くと差し込みのほうが先に走って、まだ存在しない card を渡すことになる
+    (「Property or field 'type' cannot be found on null」で落ちる)。
+    th:each は外側の th:block に置き、差し込みは内側でやる。
+-->
+<div th:fragment="grid(cards)" class="qcard-grid">
+    <th:block th:each="card : ${cards}">
+        <div th:replace="~{fragments/card-face :: cell(${card})}"></div>
+    </th:block>
+</div>
+
+</body>
+</html>

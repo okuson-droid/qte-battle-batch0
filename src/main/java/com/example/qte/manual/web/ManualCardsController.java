@@ -26,15 +26,28 @@ import com.example.qte.manual.ManualCardType;
 import lombok.RequiredArgsConstructor;
 
 /**
- * 手動モードのカード確認画面(Batch 17a)。
+ * 手動モードのカード一覧(Batch 17a・★Batch 61 で作り替えた)。
  *
- * ★これは目視確認のための画面である。作り込まない。
- * 見たいものは2つだけである。
+ * <h2>17a 当時の役目(終わった)</h2>
  *
- * 1. 235枚(234 + ピュア・エレメント)の画像がすべて表示され、欠けが無いこと。
- * 2. ピュア・エレメントの画像IDが正しいこと(設計書 9章-1 の未決事項)。
+ * もとは<b>目視確認のためだけの画面</b>だった。見たいものは2つで、
+ * 「235枚の画像に欠けが無いこと」と「ピュア・エレメントの画像IDが正しいこと」である。
+ * どちらも Batch 17a の未決事項であり、とうに片付いている。
  *
- * 画像は Spring Boot が {@code classpath:/static/} を自動配信するため、
+ * <h2>★Batch 61: 「カード一覧」になった</h2>
+ *
+ * ロビーはこの画面を「カード一覧」と呼んでいるのに、60 まで<b>本文が1文字も出ていなかった</b> ——
+ * 手動モードのカード定義がテキストを持たない、という Ver0.4 時代の前提の名残である
+ * ({@link com.example.qte.manual.ManualCardMaster} の Javadoc を参照)。
+ * 61 で {@code ManualCardMaster} が本文を持つようになり、
+ * 表示も<b>デッキメーカー・盤面と同じカードフェイス</b>に揃えた
+ * (markup の正は {@code templates/fragments/card-face.html} 1つである)。
+ *
+ * <p>★<b>カード画像はセルから外した</b>(マスター判断)。画像の欠けは
+ * {@link #missingImageIds} が名指しで報告するので、目で見る必要が無くなったためである。
+ * 裏面だけは「表の面」を持たないので画像のまま残してある。
+ *
+ * <p>画像は Spring Boot が {@code classpath:/static/} を自動配信するため、
  * {@code /cards/<imageId>.png} でそのまま出る。配信用の設定もコードも要らない。
  */
 @Controller

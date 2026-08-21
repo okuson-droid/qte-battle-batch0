@@ -354,6 +354,63 @@ class CardTextKeywordsTest {
         assertThat(withSentence).isEqualTo(215);
     }
 
+    // ------------------------------------------------------------------
+    // ★★表記の統一(Batch 61)
+    //
+    //   61 で 235枚の本文の表記を「新カードの書き方」に揃えた(76枚が対象)。
+    //   ★<b>揃えたことより、揃ったままでいることのほうが難しい。</b>
+    //   カードを1枚足すたびに、書き方は元のばらつきへ戻ろうとする。
+    //   ここに置くのは、その戻りをその場で止める番人である。
+    //
+    //   ★これは「読み方」の規則ではなく「書き方」の規則である。
+    //   エンジンの挙動には影響しない —— どちらの書き方でも抽出は同じ結果を出す
+    //   (だからこそ、試験が無ければ誰も気づかないままばらついていく)。
+    // ------------------------------------------------------------------
+
+    /** 行末が「文の途中ではない」ことを示す文字。ここで終わる行に句点は要らない */
+    private static final String CLOSERS = "。）】」』］";
+
+    @Test
+    void 本文の丸括弧は全角に揃っている() {
+        assertThat(violations(t -> t.contains("(") || t.contains(")")))
+                .as("半角の丸括弧を使っている本文")
+                .isEmpty();
+    }
+
+    @Test
+    void 本文の数字は半角に揃っている() {
+        assertThat(violations(t -> t.chars().anyMatch(ch -> ch >= '０' && ch <= '９')))
+                .as("全角数字を使っている本文")
+                .isEmpty();
+    }
+
+    @Test
+    void 本文の各行は句点か閉じ記号で終わっている() {
+        assertThat(violations(t -> java.util.Arrays.stream(t.split("\n"))
+                .anyMatch(line -> !line.isEmpty()
+                        && CLOSERS.indexOf(line.charAt(line.length() - 1)) < 0)))
+                .as("行末が句点でも閉じ記号でもない本文")
+                .isEmpty();
+    }
+
+    @Test
+    void 本文に余分な空白が無い() {
+        assertThat(violations(t -> t.contains("　") || t.contains("  ")
+                || t.matches("(?s).*】[ \t].*") || t.matches("(?s).*[ \t]】.*")
+                || t.matches("(?s).*【[ \t].*")))
+                .as("全角スペース・連続空白・【】まわりの空白がある本文")
+                .isEmpty();
+    }
+
+    /** 条件に当たったカードを「ID 名前」で並べる。空でなければ、その一覧がそのまま直す対象になる */
+    private List<String> violations(java.util.function.Predicate<String> broken) {
+        return ver11Cards().stream()
+                .filter(c -> c.text() != null && !c.text().isBlank())
+                .filter(c -> broken.test(c.text()))
+                .map(c -> c.id() + " " + c.name())
+                .toList();
+    }
+
     private static List<String> sorted(Set<Keyword> keywords) {
         return keywords.stream().map(Keyword::getDisplayName).sorted().toList();
     }

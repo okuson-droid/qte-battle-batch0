@@ -3,9 +3,20 @@ package com.example.qte.manual;
 /**
  * 手動モードのカード定義1件。試合中に変化しない不変データ。
  *
- * ★text と keywords を持たない(設計書 3-1)。効果は拡大画像で人間が読む。
- * 新カード66枚にはテキストデータが存在せず、既存168枚ぶんも Ver.0.4 以降の変更で
- * 信用できない。半分だけ値があるフィールドは「値がある方だけ使ってしまう」不具合を生む。
+ * <h2>★Batch 61: text を持つようになった(keywords は今も持たない)</h2>
+ *
+ * 設計書 3-1 は「text と keywords を持たない」と決めていた。理由はこうだった ——
+ * <b>新カード66枚にはテキストデータが存在せず、既存168枚ぶんも Ver.0.4 以降の変更で
+ * 信用できない。半分だけ値があるフィールドは「値がある方だけ使ってしまう」不具合を生む。</b>
+ *
+ * <p>★<b>その理由はもう成り立たない。</b>Ver1.1 移行(Batch 46b)で
+ * {@code manual-cards.json} は<b>全235枚に本文を持つ</b>ようになり、しかもそれが
+ * 全モード共通の正である(7章)。「半分だけ値がある」状態ではない。
+ * カード一覧(/manual/cards)が本文を1文字も出せなかったのは、この古い前提の名残である。
+ *
+ * <p><b>keywords は今も持たない。</b>こちらの理由は生きている ——
+ * キーワードは<b>テキストから作る</b>のであって、データが持つものではない(裁定158)。
+ * 持たせた瞬間に「テキスト」と「フィールド」という2つの正ができる。
  *
  * @param id           {@code QTE-M-<文明>-<CSV行番号>}。画像IDは内容ハッシュであり
  *                     カードを作り直すと変わるため、識別子には使わない(設計書 3-2)
@@ -13,6 +24,7 @@ package com.example.qte.manual;
  * @param cost         全種別が持つ。リーダーは 0
  * @param attack       ミニオン・進化ミニオン・ウェポンのみ。他は null
  * @param hp           ミニオン・進化ミニオンのみ。他は null
+ * @param text         カード本文(★Batch 61)。効果の文が無いカードは空文字である
  * @param imageId      表面画像の SHA256。{@code /cards/<imageId>.png} で配信される
  * @param ledgerCardId 退役した Ver0.4 台帳の対応カードID。新カード66枚は null。
  *                     ★台帳({@code qte-cards.json})そのものは Batch 60 で削除した。
@@ -26,6 +38,7 @@ public record ManualCardMaster(
         Integer cost,
         Integer attack,
         Integer hp,
+        String text,
         String imageId,
         String ledgerCardId) {
 
