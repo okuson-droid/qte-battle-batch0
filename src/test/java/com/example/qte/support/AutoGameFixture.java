@@ -2,6 +2,7 @@ package com.example.qte.support;
 
 import java.util.List;
 
+import com.example.qte.effect.StatCalculator;
 import com.example.qte.game.GameState;
 import com.example.qte.game.GameStatus;
 import com.example.qte.game.ManaCard;
@@ -97,6 +98,11 @@ public final class AutoGameFixture {
      */
     public MinionInstance putOnField(PlayerState player, String cardId) {
         MinionInstance minion = new MinionInstance(cards.findById(cardId), 1);
+        // ★Batch 58: 本物の入口(GameActions.newFieldMinion)が場に出るミニオンへ写している
+        // 常在の値を、この足場も同じように写す。写さないと《剛火の将》の常在(【速攻】持ちのHP+2)が
+        // 「召喚したときだけ効いて、最初から置いたミニオンには効かない」という
+        // 盤面には存在しない状態を試験が作ってしまう
+        minion.setRushHpBonus(new StatCalculator(cards).rushHpBonus(state));
         player.getMinionZone().add(minion);
         return minion;
     }

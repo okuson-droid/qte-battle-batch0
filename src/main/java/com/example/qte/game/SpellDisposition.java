@@ -13,7 +13,7 @@ package com.example.qte.game;
  *
  * 効果側が {@code PlayerState.pendingSpellDisposition} に書き込み、
  * 呼び出し元(GameService.playSpell)が読んで消費する。
- * これは pendingFireMinionDiscount(剛火の将)・pendingSacrificeCount(死者蘇生)と同じ、
+ * これは pendingSacrificeCount(死者蘇生)と同じ、
  * 「効果と呼び出し元のあいだで値を1個受け渡す」既存の型であり、新しい流儀を持ち込んでいない。
  */
 public enum SpellDisposition {

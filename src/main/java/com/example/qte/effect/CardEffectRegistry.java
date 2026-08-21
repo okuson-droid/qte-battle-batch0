@@ -329,20 +329,22 @@ public class CardEffectRegistry {
                     t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
         });
 
-        // 英知の継承者: 【召喚時】【知識】を持つカードを1枚手札から捨てても良い。そうしたら【知識】を行う
-        targetSpecs.put("QTE-M-WATER-19", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, true, false, List.of(Filter.KNOWLEDGE),
-                        "捨てる【知識】カードを選んでください(任意)")));
+        // ★Batch 58(区分5): 英知の継承者(QTE-M-WATER-19)。
+        // 旧: 「【召喚時】【知識】を持つカードを1枚手札から捨てても良い。そうしたら【知識】を行う。」
+        //     (任意の捨て → 1ドロー。差し引き手札は増減なし)
+        // 新: 「【召喚時】カードを4枚引く。その後カードを3枚捨てる」
+        //     (必須。手札は差し引き+1だが、山札を4枚掘って要らない3枚を選べる)
+        // ★<b>使用宣言時の対象指定(TargetSpec)を消した。</b>捨てるのは<b>引いた後の</b>手札から
+        //   であり、宣言時に選び終える TargetSpec では表現できない ——
+        //   《海淵獣ラカブ》(3枚引いて1枚捨てる)と同じ割り込み(a9)に移す。
+        // ★手札が3枚に満たなければ、あるだけ捨てる(裁定191・217 と同じ形)。
+        //   4枚引いた直後なので実際には必ず3枚以上あるが、
+        //   《断罪の大天使》のドロー置換で引けなかった場合に効いてくる。
         register("QTE-M-WATER-19", TriggerType.ON_SUMMON, ctx -> {
-            var selection = ctx.targets().get(0);
-            if (selection.isEmpty()) {
-                return; // 「〜してもよい」なので捨てなくてもよい
-            }
-            selection.handCardIds().forEach(
-                    id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
-            // 「【知識】を行う」= 知識のキーワードアクション(1ドロー)を実行する
-            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
-            ctx.room().addLog("【知識】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), 4);
+            int count = Math.min(3, ctx.owner().getHand().size());
+            requestDiscard(ctx, count, count, ResumePoint.WISDOM_HEIR_DISCARD,
+                    "【英知の継承者】: 捨てる手札を%d枚選んでください".formatted(count));
         });
 
         // 双流の幻術師: 場に居るミニオンの数Cost-1。【召喚時】ミニオンを3体選び持ち主の手札に戻す
@@ -374,6 +376,16 @@ public class CardEffectRegistry {
                 "手札の【知識】カード3枚を山札の下に置き、0コストで召喚します"));
 
         // 知恵の双翼: 自分の【知識】を持つミニオンを2体手札に戻して0コストで出せる
+        // ★Batch 58(区分5)実装変更なし: Ver1.1 で変わったのは<b>書き方だけ</b>である。
+        //   旧「【特殊召喚】自分の【知識】を持つミニオンを2体手札に戻した手札から0コストとして出せる。」
+        //     (旧台帳の注記にも「原文ママ」とあり、日本語として壊れていた)
+        //   新「【知識】【守護】【特殊召喚】(自分の【知識】を持つミニオンを2体手札に戻したとき
+        //       手札から0コストとして出せる。)」
+        //   増えた【知識】【守護】は旧台帳の keywords にも入っていたものが本文に現れただけであり、
+        //   キーワードはテキストから付く(裁定158)ので実装は要らない。
+        //   条件・代替コスト・コストのいずれも動いていない。
+        //   ★<b>区分5(ほぼ書き直し)に仕分けられていたが、実際は区分2(記法だけ)であった。</b>
+        //     《死者蘇生》《ガイア・ハンマー》に続く3例目である(rework-triage.md 1-1)。
         specialSummons.put("QTE-M-WATER-22", SpecialSummonSpec.of(
                 (state, player, handIndex) -> player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.KNOWLEDGE)).count() >= 2,
@@ -849,17 +861,12 @@ public class CardEffectRegistry {
             }
         });
 
-        // 背水の烈火使い: 手札をすべて捨てる。
-        // ★手札を先に空にしてから墓地へ移す(★Batch 50)。1枚ずつ「場以外から墓地へ」の入口を
-        // 通すため、その途中で走る効果(カムバックキーパーの復帰)から見える手札が
-        // 中途半端な状態にならないようにする
-        register("QTE-M-FIRE-7", TriggerType.ON_SUMMON, ctx -> {
-            List<String> discarded = List.copyOf(ctx.owner().getHand());
-            ctx.owner().getHand().clear();
-            ctx.room().addLog("%sは手札%d枚をすべて捨てた"
-                    .formatted(ctx.owner().getDisplayName(), discarded.size()));
-            discarded.forEach(id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
-        });
+        // ★Batch 58(区分5): 背水の烈火使い(QTE-M-FIRE-7)。
+        // 旧: 「【召喚時】手札をすべて捨てる。」(【守護】持ちの4/3/5に重いデメリット)
+        // 新: 「【守護】」のみ —— 誘発効果が丸ごと消え、素の【守護】ミニオンになった。
+        // ★<b>登録を消すのが実装である。</b>【守護】はテキストから付く(裁定158)ので、
+        //   ここに何も書かないことがそのまま新本文の姿になる。
+        //   report_effects.py も「効果の文が無いカード」として数えるため未実装には計上されない。
 
         // 背水の炎壁: 【召喚時】2回復(特殊召喚で出した場合の追加1回復は下のspecで別途)。
         // Ver.0.4 で【召喚時】の回復量が 1 → 2 に増えた。特殊召喚の追加分(1)は据え置きのため、
@@ -1055,8 +1062,9 @@ public class CardEffectRegistry {
         // (rework-triage.md 2章の食い違い)。新本文は「場にある【速攻】を持つカードのHP+2」
         // という常在効果だけを持つ。旧起動能力の登録をここに残すと、カードが持たない能力の
         // ボタンが盤面に押せてしまうため削除した。
-        // ★常在効果(HP+2)の新規実装と、pendingFireMinionDiscount 関連の死んだコード
-        // (PlayerState / GameService / StatCalculator に残る)の掃除は Batch 57(区分5)の範囲。
+        // ★Batch 58(区分5): 常在効果(HP+2)を実装し、割引の死んだコードを掃除した。
+        // 常在の規則は StatCalculator.rushHpBonus、加算は MinionInstance.getMaxHp にある
+        // (この表には載らない —— 誘発ではなく常在だからである)。
     }
 
     /**
@@ -1208,12 +1216,34 @@ public class CardEffectRegistry {
         register("QTE-M-DARK-6", TriggerType.ON_DESTROYED_BY_COMBAT,
                 ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 1));
 
-        // カース・ボーン: 【召喚時】表向きマナ1枚を裏向きにする。できなければ自身を破壊する
+        // ★Batch 58(区分5): カース・ボーン(QTE-M-DARK-2)。
+        // 旧: 「【召喚時】自分のマナゾーンの表向きのカード1枚を、裏向きにする。
+        //      裏向きにできなかったとき破壊する。」(裏向きマナを能動的に作る1/2/1)
+        // 新: 「【召喚時】自分のミニオンを1体破壊する。破壊したミニオンのコストと同じ数
+        //      山札の上から墓地に置く。【還元】」(2/1/1)
+        // ★<b>参照するゾーンが裏向きマナ → 自分の場に変わり、産物が裏向きマナ → 墓地に変わった。</b>
+        //   闇文明の資源が「裏向きマナ」から「墓地」へ寄った Ver1.1 全体の流れと同じ向きである
+        //   (《冥府の禁皇》《マナを貪る怨霊》も同じ方向に書き換わっている)。
+        // ★破壊する1体は<b>本人が選ぶ</b>(裁定192)。候補には自分自身が含まれる ——
+        //   解決の時点でカース・ボーンは場に居るので、他に何も居なければ自分を破壊する。
+        // ★数えるのは<b>印刷コスト</b>である。場のミニオンには動的コストの概念が無い
+        //   (コストが動くのは手札にある間だけ。StatCalculator の《透キ通ル・アヤカシ》の注)。
+        // ★【還元】はテキストから付く(裁定158)。自分を破壊した場合、
+        //   カース・ボーン自身は墓地ではなく裏向きでマナへ行く。
         register("QTE-M-DARK-2", TriggerType.ON_SUMMON, ctx -> {
-            if (ctx.actions().turnManaFaceDown(ctx.room(), ctx.owner(), 1) == 0) {
-                ctx.room().addLog("表向きのマナが無いため【カース・ボーン】は破壊されます");
-                ctx.actions().destroyMinion(ctx.room(), ctx.owner(), ctx.source());
+            List<MinionInstance> candidates = ctx.owner().getMinionZone();
+            if (candidates.isEmpty()) {
+                return; // 構造上ここには来ない(自身が場に居る)が、入口の前提を書き残す
             }
+            if (candidates.size() == 1) {
+                resolveCurseBoneSacrifice(ctx, candidates.get(0));
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MINION,
+                    candidates.stream().map(MinionInstance::getInstanceId).toList(),
+                    ResumePoint.CURSE_BONE_SACRIFICE,
+                    "【カース・ボーン】: 破壊する自分のミニオンを1体選んでください"));
         });
 
         // 冥界神ハデス: 【召喚時】ハデス以外の全ミニオンを破壊し、その後
@@ -1766,14 +1796,25 @@ public class CardEffectRegistry {
                 },
                 "自分の場に体力3以下のミニオンがちょうど3体: コスト1で召喚します"));
 
-        // ストーム・カイザー: 【特殊召喚】このターン中に自分がカードを4枚以上使用している時、
-        // コストを支払わずに場に出せる
-        specialSummons.put("QTE-M-WIND-8", SpecialSummonSpec.of(
-                (state, player, handIndex) -> player.getCardsUsedThisTurn() >= 4,
+        // ★Batch 58(区分5): ストーム・カイザー(QTE-M-WIND-8)。
+        // 旧: 「このターン中に自分がカードを4枚以上使用している時、コストを支払わずに場に出せる。」
+        // 新: 「【速攻】/【特殊召喚】(このターン中に自分がカードを5枚以上使用している時、
+        //       コストを1払って場に出せる)」
+        // 変わったのは3点 —— 条件が 4枚 → <b>5枚</b>、代替コストが 0 → <b>1</b>、
+        // そして【速攻】が付いた(印刷コストも 5 → 7 に上がっている)。
+        // ★【速攻】はテキストから付く(裁定158)のでここには書かない。
+        // ★使用枚数の数え上げは自身を含まない(裁定1)ため、「5枚以上」はそのまま >= 5 である。
+        // ★代替コストが0でない先例は《極炎竜 ヴォルカニクス》(mpCost=1)であり、
+        //   SpecialSummonSpec は最初からその形を持っている(新しい仕組みは要らない)。
+        specialSummons.put("QTE-M-WIND-8", new SpecialSummonSpec(
+                (state, player, handIndex) -> player.getCardsUsedThisTurn() >= 5,
+                1,
                 TargetSpec.of(),
                 ctx -> {
                 },
-                "このターン中に自分がカードを4枚以上使用: コストを支払わず召喚します"));
+                ctx -> {
+                },
+                "このターン中に自分がカードを5枚以上使用: コスト1で召喚します"));
 
         // 嵐の呼び手: 【召喚時】このターン中にカードを3枚以上使用しているなら、
         // 相手のミニオン1体を持ち主の手札に戻す(a1のカウンタのみで完結。対象は自動選択)
@@ -1845,6 +1886,14 @@ public class CardEffectRegistry {
                 ctx -> ctx.actions().untapMana(ctx.room(), ctx.owner(), 1),
                 "タップして、自分のマナを1枚アンタップします"));
 
+        // ★Batch 58: スペルとウェポンは registerWindSpellsAndWeapons() へ分けた。
+        // 《風弾の跳弾》の書き換えでこのメソッドが 300 行を超え、check_structure.py が
+        // △要確認を出したためである(Batch 57 の闇文明と同じ処置。中身は動かしていない)。
+        registerWindSpellsAndWeapons();
+    }
+
+    private void registerWindSpellsAndWeapons() {
+
         // ---- スペル ----
 
         // 神風の大号令: このターン中に自分が使用したカードの枚数と同じだけ、
@@ -1887,21 +1936,41 @@ public class CardEffectRegistry {
                 t -> t.minion().addModifier(new StatModifier(StatModifier.Stat.EXTRA_ATTACKS,
                         StatModifier.Operation.ADD, 1, StatModifier.Duration.THIS_TURN, "QTE-M-WIND-11"))));
 
-        // 風弾の跳弾: 自分のミニオンを1体手札に戻す。そうしたら相手のミニオン1体に2ダメージ。
-        // コストを+3してもよい。そうした場合、墓地に置く代わりに手札に戻す(使い回せる)
+        // ★Batch 58(区分5): 風弾の跳弾(QTE-M-WIND-24)。
+        // 旧: 「自分のミニオンを1体<b>手札に戻す</b>。そうしたら相手のミニオン1体に<b>2</b>ダメージ。
+        //      このカードのコストを<b>+3</b>してもよい。そうした場合このカードを墓地に置く代わりに手札に戻す。」
+        // 新: 「このカードのコストを<b>+2</b>してもよい。そうした場合このカードを墓地に置く代わり手札に戻す。
+        //      自分のミニオンを1枚<b>破壊する</b>。そうしたら相手のミニオン1体に<b>3</b>ダメージ。」
+        // 変わったのは3点 —— 自分側のコストが<b>バウンス → 破壊</b>(取り返しがつかなくなった)、
+        // ダメージが 2 → 3、使い回しの追加コストが +3 → +2(安くなった)。
+        // ★<b>本文の順序が入れ替わっているが、解決の順序は変わらない。</b>
+        //   追加コストは使用宣言に付随する二者択一であり(EnhancedCostSpec の説明)、
+        //   支払いは効果の解決より前に必ず終わっている。本文のどこに書かれていても同じである。
+        // ★「そうしたら」は破壊が<b>実際に起きたか</b>を見る。《大天使 ミカエル》の
+        //   「戦闘では破壊されない」は効果破壊を止めないが、《聖光の守護聖》の
+        //   「相手の効果では破壊されない」は自分のミニオンには掛からない ——
+        //   それでも条件として書いておくのは、本文が「そうしたら」と書いているからである
+        //   (裁定217 の系。行える保証がないなら、行えたかを見る)。
         targetSpecs.put("QTE-M-WIND-24", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(), "手札に戻す自分のミニオンを選んでください"),
-                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(), "2ダメージを与える相手のミニオンを選んでください")));
-        enhancedCosts.put("QTE-M-WIND-24", new EnhancedCostSpec(3,
-                "コストを+3して、このカードを墓地に置く代わりに手札に戻しますか？"));
+                new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(), "破壊する自分のミニオンを選んでください"),
+                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(), "3ダメージを与える相手のミニオンを選んでください")));
+        enhancedCosts.put("QTE-M-WIND-24", new EnhancedCostSpec(2,
+                "コストを+2して、このカードを墓地に置く代わりに手札に戻しますか？"));
         spellEffects.put("QTE-M-WIND-24", ctx -> {
-            ctx.targets().get(0).minions().forEach(
-                    t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
-            ctx.targets().get(1).minions().forEach(
-                    t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 2));
             if (ctx.enhanced()) {
                 ctx.owner().setPendingSpellDisposition(SpellDisposition.TO_HAND);
             }
+            boolean destroyed = false;
+            for (var t : ctx.targets().get(0).minions()) {
+                ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion());
+                destroyed |= !t.owner().getMinionZone().contains(t.minion());
+            }
+            if (!destroyed) {
+                ctx.room().addLog("【風弾の跳弾】: 自分のミニオンを破壊できなかったため、ダメージは与えません");
+                return;
+            }
+            ctx.targets().get(1).minions().forEach(
+                    t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3));
         });
 
         // 突風の祝福: 自分のミニオン1体の体力を+2する。【還元】(還元の処理は共通)
@@ -3063,11 +3132,43 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-EARTH-26",
                 ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
 
-        // 地脈の覚醒(0015): マナ7枚以上でコスト2(effectiveCost=StatCalculator)。【還元】。
-        // 解決時の固有処理はなく、還元によるマナ加速が本体(GameActions 側で共通処理)。
-        // isSpellImplemented を true にするため、空の効果を登録しておく。
+        // ★Batch 58(区分5): 地脈の覚醒(QTE-M-EARTH-27)。
+        // 旧: 本文が<b>空欄</b>。【還元】だけを持ち、解決時の固有処理は無かった
+        //     (唱えた後に自身が裏向きでマナへ行くマナ加速が本体)。
+        // 新: 「自分のマナからカードを1枚手札に加える【還元】
+        //      (「地脈の覚醒」の効果はターンに1回のみ発動する)」
+        // ★<b>実質の新規実装である。</b>マナから手札への回収 + ターン1回制限の2つが増えた。
+        // ★候補は<b>表向き・裏向きの両方</b>である。本文が向きを限定していないためである
+        //   (裁定211。《地砕きの突撃兵》と同じ扱い)。
+        // ★<b>自分自身は候補に入らない。</b>【還元】でマナへ置かれるのは効果の解決より後なので、
+        //   候補を作った時点ではまだマナゾーンに居ない。マナゾーンの末尾に足されるだけなので、
+        //   選択待ちの間に既存の位置がずれることもない。
+        // ★<b>ターン1回制限は「発動」だけを止める。</b>2枚目を使用すること自体は止めない ——
+        //   本文は「効果は…発動しない」であって「使用できない」ではない。
+        //   2枚目は何も起きずに【還元】だけを残す(★裁定276 として確認を依頼中)。
+        // ★制限はターン番号を刻んで持つ(裁定156(3)。PlayerState.recordManaPlacement と同じ考え方)。
         spellEffects.put("QTE-M-EARTH-27", ctx -> {
-            // 固有の解決処理なし(マナ加速は【還元】が担う)
+            int turn = ctx.room().getGameState().getTurnNumber();
+            if (!ctx.owner().tryUseLeylineAwakening(turn)) {
+                ctx.room().addLog("【地脈の覚醒】: このターンは既に発動しているため、効果は発動しません");
+                return;
+            }
+            int size = ctx.owner().getManaZone().size();
+            if (size == 0) {
+                ctx.room().addLog("【地脈の覚醒】: マナが無いため、手札に加えられませんでした");
+                return;
+            }
+            if (size == 1) {
+                ctx.actions().returnManaToHandAt(ctx.room(), ctx.owner(), 0);
+                return;
+            }
+            List<String> positions = new ArrayList<>();
+            for (int i = 0; i < size; i++) {
+                positions.add(String.valueOf(i));
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MANA, positions, ResumePoint.LEYLINE_AWAKENING_TO_HAND,
+                    "【地脈の覚醒】: 手札に加えるマナを1枚選んでください"));
         });
     }
 
@@ -3333,6 +3434,24 @@ public class CardEffectRegistry {
                     Integer.parseInt(chosen.get(0)));
             // 海淵獣ラカブ(QTE-M-WATER-31): 3枚引いた後に捨てる手札を確定させる。★Batch 53
             case RAKABU_DISCARD -> discardChosenHandCards(ctx, chosen, "海淵獣ラカブ");
+            // 英知の継承者(QTE-M-WATER-19): 4枚引いた後に捨てる3枚を確定させる。★Batch 58
+            case WISDOM_HEIR_DISCARD -> discardChosenHandCards(ctx, chosen, "英知の継承者");
+            // 地脈の覚醒(QTE-M-EARTH-27): 手札に加えるマナを確定させる。★Batch 58
+            case LEYLINE_AWAKENING_TO_HAND -> ctx.actions().returnManaToHandAt(
+                    ctx.room(), ctx.owner(), Integer.parseInt(chosen.get(0)));
+            // カース・ボーン(QTE-M-DARK-2): 破壊する自分のミニオンを確定させる。★Batch 58。
+            // 選択中に盤面が変わって候補が場から消えている場合は何も起きない
+            // (《サモナーポップ・エンラ》と同じく instanceId で照合する)
+            case CURSE_BONE_SACRIFICE -> {
+                MinionInstance victim = ctx.owner().getMinionZone().stream()
+                        .filter(m -> m.getInstanceId().equals(chosen.get(0)))
+                        .findFirst().orElse(null);
+                if (victim == null) {
+                    ctx.room().addLog("【カース・ボーン】: 選んだミニオンが場に居ないため、何も起こりませんでした");
+                    break;
+                }
+                resolveCurseBoneSacrifice(ctx, victim);
+            }
             // 海淵獣ゾクシム(QTE-M-WATER-32): 【破壊時】に捨てる手札を確定させる。★Batch 53。
             // ★相手のターン中にも通る経路である(裁定214)
             case ZOKUSHIMU_DISCARD -> discardChosenHandCards(ctx, chosen, "海淵獣ゾクシム");
@@ -3438,6 +3557,27 @@ public class CardEffectRegistry {
     }
 
     /** 選ばれた手札を捨てる(★Batch 53。ラカブ・ゾクシム共通の後始末) */
+    /**
+     * カース・ボーン(QTE-M-DARK-2)の【召喚時】の後半(★Batch 58)。
+     * 選ばれた自分のミニオンを破壊し、<b>その印刷コストと同じ枚数</b>だけ山札の上を墓地に置く。
+     *
+     * ★<b>コストは破壊する前に読む。</b>破壊した後では場から居なくなっており、
+     * 「破壊したミニオンのコスト」を数えようがない(裁定216 の「置換される事象が起きる前の値」と
+     * 同じ向きの読み方である)。
+     * ★リーダーはミニオンではないのでコストが null になることはないが、
+     * 印刷コストが未設定のカードが将来入っても落ちないように 0 として扱う。
+     */
+    private void resolveCurseBoneSacrifice(EffectContext ctx, MinionInstance victim) {
+        Integer printedCost = victim.getMaster().cost();
+        int millCount = printedCost == null ? 0 : printedCost;
+        ctx.room().addLog("【カース・ボーン】: 【%s】(コスト%d)を破壊します"
+                .formatted(victim.getMaster().name(), millCount));
+        ctx.actions().destroyMinion(ctx.room(), ctx.owner(), victim);
+        if (millCount > 0) {
+            ctx.actions().mill(ctx.room(), ctx.owner(), millCount);
+        }
+    }
+
     private void discardChosenHandCards(EffectContext ctx, List<String> chosen, String cardName) {
         for (String cardId : takeHandCardsAt(ctx.owner(), chosen)) {
             ctx.room().addLog("【%s】: 【%s】を捨てました"

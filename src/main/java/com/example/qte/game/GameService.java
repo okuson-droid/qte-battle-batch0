@@ -600,11 +600,8 @@ public class GameService {
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.targetSpecOf(master.id()), choices);
         payCost(player, stats.effectiveCost(state, player, master));
-        // 【剛火の将】の割引は「次に使う火文明ミニオン」1体で消費される
-        if (player.getPendingFireMinionDiscount() > 0
-                && master.civilization() == com.example.qte.master.Civilization.FIRE) {
-            player.setPendingFireMinionDiscount(player.getPendingFireMinionDiscount() - 1);
-        }
+        // ★Batch 58: ここにあった【剛火の将】の割引の消費は、Ver1.1 で起動能力そのものが
+        // 本文から消えたため削除した(rework-triage.md 区分5)
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
 
         summonToField(room, state, player, master, resolved, false);
@@ -1217,7 +1214,9 @@ public class GameService {
             }
             return null;
         }
-        MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
+        // ★Batch 58: 実体を作る入口は GameActions.newFieldMinion 1本である
+        // (《剛火の将》の常在の加算量を場に出る瞬間に写すため)
+        MinionInstance minion = actions.newFieldMinion(state, master, fromTaboo);
         // ★Batch 52: 進化の素材を下に置き、付与されていた効果だけを引き継ぐ。
         // ★Batch 53: その処理そのものを GameActions へ移した ——
         //   効果による「出す」(《英術・スケアロック》)でも同じ束を作る必要があり、

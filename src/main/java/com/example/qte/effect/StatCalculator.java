@@ -73,6 +73,17 @@ public class StatCalculator {
      * 入れると、外しても何も落ちない宣言が増えるだけである(53 のノアと同じ理由)。
      */
     private static final String KATSUAGE = "QTE-M-EARTH-36";
+    /**
+     * 剛火の将(★Batch 58)。Ver1.1 の本文は
+     * 「場にある【速攻】を持つカードのHPを+2する」の1行だけである
+     * (Ver0.4 が持っていた起動能力は本文から丸ごと消えた。Batch 55 で登録を削除済み)。
+     *
+     * <p>★<b>加算そのものは {@code MinionInstance.getMaxHp} が行う。</b>
+     * このクラスは「誰に何点付くか」の規則だけを持ち、{@code GameActions.newFieldMinion} が
+     * 場に出るミニオンへ写す。HP の出どころを {@code MinionInstance} 1箇所に保つための
+     * 分担であり、Batch 12 からの非対称(Attack はここ・HP はあちら)を増やさない。
+     */
+    private static final String FIRE_GENERAL = "QTE-M-FIRE-1";
     private static final String RENTA = "QTE-M-FIRE-31";                // 追撃鉄人連太(★Batch 52)
     private static final String MERINA = "QTE-M-DARK-32";               // サービスブレイク・メリィナ(★Batch 52)
 
@@ -101,7 +112,7 @@ public class StatCalculator {
             EARTH_BERSERKER, SHEER_AYAKASHI, GIGAMOUSE_BITE, TENGSUN, NYUKIRO,
             SHADOW_ASSASSIN, ARKINTIS, KNOWLEDGE_GUARDIAN, ENDLESS_TITAN,
             GRAVE_WRAITH_MASS, OVERFLOWING_WISDOM, CYCLONE_FENCER, BOULDER_BARRAGE,
-            GALE_RAPIER, DREAMY, RENTA, MERINA);
+            GALE_RAPIER, DREAMY, RENTA, MERINA, FIRE_GENERAL);
 
     /** 墓地のカードの種別(スペルか否か)を判定するために参照する */
     private final CardMasterRepository cards;
@@ -165,12 +176,10 @@ public class StatCalculator {
             int baseCost, CardType asType) {
         int cost = baseCost;
 
-        // 【剛火の将】の起動能力: 次に手札から使用する火文明ミニオンのコスト-1(0にはならない)
-        if (owner.getPendingFireMinionDiscount() > 0
-                && asType == CardType.MINION
-                && card.civilization() == com.example.qte.master.Civilization.FIRE) {
-            cost = Math.max(1, cost - 1);
-        }
+        // ★Batch 58: 《剛火の将》の起動能力によるコスト軽減はここにあったが、
+        // Ver1.1 で起動能力そのものが本文から消えたため削除した
+        // (登録は Batch 55 で、支払い側の消費は GameService で、
+        //  保持していた PlayerState.pendingFireMinionDiscount も 58 で落とした)。
         // ---- 闇文明: 墓地・禁忌デッキ・生贄を参照する動的コスト ----
         // 悪夢: 墓地にあるスペル以外のカード1枚につきコスト-1
         if (NIGHTMARE.equals(card.id())) {
@@ -408,6 +417,27 @@ public class StatCalculator {
             return 2;
         }
         return 1;
+    }
+
+    /**
+     * 場に出るミニオンが【速攻】を持つ場合に加算される体力(★Batch 58。《剛火の将》)。
+     *
+     * <p>本文は「場にある【速攻】を持つカードのHPを+2する」。側の限定が無いので
+     * <b>両者の場</b>に効く(裁定156(2))。両者のリーダーが《剛火の将》なら
+     * 常在が2つ重なって +4 になる —— 常在の既定の累積であり、ここだけの特例ではない。
+     *
+     * <p>★<b>戻り値は「場に出る瞬間の値」でよい。</b>リーダーは対戦中に変わらないため、
+     * 何度読み直しても同じ値になる。動くのは【速攻】を持つかどうかだけであり、
+     * そちらは {@code MinionInstance.getMaxHp} が読むたびに見る。
+     */
+    public int rushHpBonus(GameState state) {
+        int bonus = 0;
+        for (PlayerState side : new PlayerState[] { state.getPlayer1(), state.getPlayer2() }) {
+            if (FIRE_GENERAL.equals(side.getLeader().id())) {
+                bonus += 2;
+            }
+        }
+        return bonus;
     }
 
     public int effectiveAttack(GameState state, PlayerState owner, MinionInstance minion) {

@@ -7,6 +7,7 @@ import com.example.qte.effect.EffectContext;
 import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
 import com.example.qte.effect.RuleGuards;
+import com.example.qte.effect.StatCalculator;
 import com.example.qte.effect.TriggerType;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
@@ -61,6 +62,28 @@ public class GameActions {
 
     /** 「できる/できない」「起きる/起きない」の判定層(光文明の置換・禁止効果) */
     private final RuleGuards guards;
+
+    /**
+     * 場に出るミニオンへ写す常在の値を問い合わせるために参照する(★Batch 58。《剛火の将》)。
+     * 評価器そのものであって循環はしない —— {@link StatCalculator} は
+     * カードマスタしか見ない。
+     */
+    private final StatCalculator stats;
+
+    /**
+     * 場に出るミニオンの実体を作る唯一の入口(★Batch 58)。
+     *
+     * <b>なぜ入口を1つにしたか。</b>《剛火の将》の常在(場にある【速攻】を持つカードのHP+2)は
+     * 場に出る瞬間に加算量を写す形で実装されている({@code MinionInstance.rushHpBonus})。
+     * {@code new MinionInstance(...)} は召喚({@code GameService.summonToField})と
+     * 効果による登場({@link #putIntoField})の2箇所にあり、両方で写すのを忘れないためには
+     * <b>作る場所を1つにするしかない</b>(裁定163)。
+     */
+    public MinionInstance newFieldMinion(GameState state, CardMaster master, boolean fromTaboo) {
+        MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
+        minion.setRushHpBonus(stats.rushHpBonus(state));
+        return minion;
+    }
 
     /** ドロー。山札が空の状態で引こうとしたら敗北(発注者確認済み: デュエマ準拠) */
     public void drawCards(GameRoom room, PlayerState player, int count) {
@@ -608,7 +631,7 @@ public class GameActions {
             }
             return null;
         }
-        MinionInstance minion = new MinionInstance(master, state.getTurnNumber(), fromTaboo);
+        MinionInstance minion = newFieldMinion(state, master, fromTaboo);
         attachEvolutionMaterials(room, owner, minion, materials);
         owner.getMinionZone().add(minion);
         room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));

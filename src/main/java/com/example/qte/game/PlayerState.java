@@ -144,6 +144,32 @@ public class PlayerState {
      * 記録中のターンと {@code currentTurn} が異なれば、まずカウンタを 0 に戻してから
      * 数え直す。豊穣の地霊主(L012)の「2回目のマナ配置」の判定に用いる。
      */
+    /**
+     * 《地脈の覚醒》(QTE-M-EARTH-27)の効果を最後に発動したターン番号(★Batch 58)。
+     * 初期値 -1 はどのターンとも一致しない番兵。
+     *
+     * <b>真偽値ではなくターン番号で持つ理由。</b>「ターンに1回」は毎ターンリセットされる
+     * (裁定156(3))が、{@link #startTurnReset()} が走るのはターンプレイヤーだけである。
+     * ターン番号を刻んでおけば、リセットという操作そのものが要らない
+     * ({@link #recordManaPlacement(int)} と同じ考え方)。
+     */
+    private int leylineAwakeningTurn = -1;
+
+    /**
+     * 《地脈の覚醒》の効果をこのターンに発動してよいか判定し、よければ記録する(★Batch 58)。
+     * ★<b>判定と記録を1つのメソッドにしてある。</b>分けると「判定したが記録し忘れる」
+     * 経路が生まれる —— このカードは同じターンに2枚目を使えるので、実際に踏める。
+     *
+     * @return 発動してよければ true(このとき記録も済んでいる)
+     */
+    public boolean tryUseLeylineAwakening(int currentTurn) {
+        if (leylineAwakeningTurn == currentTurn) {
+            return false;
+        }
+        leylineAwakeningTurn = currentTurn;
+        return true;
+    }
+
     public int recordManaPlacement(int currentTurn) {
         if (manaPlacedCountTurn != currentTurn) {
             manaPlacedCountTurn = currentTurn;
@@ -283,13 +309,6 @@ public class PlayerState {
     }
 
     /**
-     * 【剛火の将】の起動能力で得た割引の残り回数。
-     * 「次に手札から使用する火文明ミニオン」1体にのみ適用され、消費される。
-     */
-    @Setter
-    private int pendingFireMinionDiscount = 0;
-
-    /**
      * このターン中に自分のミニオンが破壊されたか。
      * 【這い寄る生霊】の特殊召喚条件が参照する。
      * 破壊の「瞬間」に割り込むのではなく、破壊が起きた事実をターン内フラグとして残し、
@@ -308,7 +327,9 @@ public class PlayerState {
     /**
      * 【死者蘇生】の使用宣言時に生贄として破壊した自分のミニオンの数。
      * コストの評価はStatCalculatorが行うため、選択結果をここに置いて参照させる
-     * (剛火の将の割引 pendingFireMinionDiscount と同じ方式)。
+     * (使用宣言時に決まった値を状態に置き、評価器に読ませる方式)。
+     * ★Batch 58 まで同じ方式の先例として【剛火の将】の割引があったが、
+     * Ver1.1 で起動能力が本文から消えたため削除した。
      */
     @Setter
     private int pendingSacrificeCount = 0;
@@ -501,7 +522,6 @@ public class PlayerState {
         // ここで戻すのは、ターン内フラグは自ターン開始時に必ず初期状態へ揃えるという
         // このメソッドの約束を、ウェポンだけ例外にしないためである
         weaponAttackedThisTurn = false;
-        pendingFireMinionDiscount = 0;
         leaderAbilityUsedThisTurn = false;
         leaderAttacksUsedThisTurn = 0;
         // 攻撃宣言の回数(★Batch 50。英術・バンユー)。制限そのもの(minionAttackLimitedOnTurn)は

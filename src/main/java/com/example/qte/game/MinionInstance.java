@@ -104,6 +104,27 @@ public class MinionInstance {
     @lombok.Setter
     private int statPerUnderCard = 0;
 
+    /**
+     * 【速攻】を持つ場合に加算される体力(★Batch 58。《剛火の将》
+     * 「場にある【速攻】を持つカードのHPを+2する」)。
+     *
+     * <b>なぜ場に出るときに1度だけ写すのか。</b> この加算の有無を決めるのは
+     * <b>どちらかのリーダーが《剛火の将》か</b>であり、リーダーは対戦の途中で変わらない。
+     * 一方、【速攻】は効果で後から付くことがある(《赫灼の重戦士》の【召喚時】、
+     * 《1stL「NEMれぬ夜のドリーミー」》の条件付き獲得)。したがって
+     * <b>値は写し、キーワードの有無は読むたびに見る</b>のが正しい形になる
+     * ({@link #getMaxHp()} が毎回 {@code hasKeyword(Keyword.HASTE)} を見ている)。
+     * ★<b>【速攻】は HASTE であって RUSH(=【突進】)ではない。</b>この2語は別のキーワードである。
+     * {@link #statPerUnderCard} と同じ流儀である ——
+     * 規則そのものの正は {@code StatCalculator.rushHpBonus} が持つ。
+     *
+     * <p>★<b>「自分の」と書いていないので両者の場に効く</b>(裁定156(2))。
+     * 両者のリーダーが《剛火の将》なら常在が2つ重なるため +4 になる
+     * (常在の既定の累積。《サービスブレイク・メリィナ》と同じ扱い)。
+     */
+    @lombok.Setter
+    private int rushHpBonus = 0;
+
     public MinionInstance(CardMaster master, int enteredTurn) {
         this(master, enteredTurn, false);
     }
@@ -138,6 +159,12 @@ public class MinionInstance {
             }
         }
         hp += statPerUnderCard * under.size();
+        // ★Batch 58: 《剛火の将》の常在(場にある【速攻】を持つカードのHP+2)。
+        // 加算量は場に出るときに写してあるが、【速攻】を持つかは<b>読むたびに</b>見る ——
+        // 効果で後から【速攻】を得たミニオンにも、失ったミニオンにも正しく追随する
+        if (rushHpBonus > 0 && hasKeyword(Keyword.HASTE)) {
+            hp += rushHpBonus;
+        }
         return Math.max(0, hp);
     }
 

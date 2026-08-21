@@ -37,11 +37,11 @@ public class DeckFactory {
         WATER_STARTER.put("QTE-M-WATER-4", 2); // 手札を喰らう大蟹 3/3/2 守護・召喚時:手札1枚捨て+バウンス(両者)
         WATER_STARTER.put("QTE-M-WATER-6", 2); // ディープシー・シャーク 4/4/3 突進・威圧
         WATER_STARTER.put("QTE-M-WATER-5", 2); // 知識の守護者 4/0+/5 守護・攻撃力=手札枚数
-        WATER_STARTER.put("QTE-M-WATER-19", 2); // 英知の継承者 4/2/2 知識・守護・召喚時:任意捨てドロー
+        WATER_STARTER.put("QTE-M-WATER-19", 2); // 英知の継承者 4/2/2 召喚時:4枚引いて3枚捨てる(★58)
         WATER_STARTER.put("QTE-M-WATER-7", 2); // 水鏡の幻術師 5/5/3 突進・守護・召喚時2ドロー
         WATER_STARTER.put("QTE-M-WATER-20", 1); // 黄泉還る水龍 5/4/4 突進・潜伏(墓地トリガーはBatch 4)
         WATER_STARTER.put("QTE-M-WATER-21", 1); // 双流の幻術師 7/3/2 知識・動的コスト・召喚時3体バウンス
-        WATER_STARTER.put("QTE-M-WATER-22", 1); // 知恵の双翼 8/4/4 知識・守護・特殊召喚
+        WATER_STARTER.put("QTE-M-WATER-22", 1); // 知恵の双翼 8/4/4 知識・守護・特殊召喚(知識2体を手札へ)
         WATER_STARTER.put("QTE-M-WATER-8", 1); // 海皇 ポセイドン 8/6/5 特殊召喚
         WATER_STARTER.put("QTE-M-WATER-23", 1); // 智将 ポセイドン・コア 9/5/5 知識・守護・特殊召喚・突進付与
         WATER_STARTER.put("QTE-M-WATER-24", 1); // 深海神 プレサージュ 10/6/6 知識・特殊召喚
@@ -74,7 +74,7 @@ public class DeckFactory {
         FIRE_STARTER.put("QTE-M-FIRE-5", 2); // 赫灼の重戦士 4/4/4 召喚時:条件で速攻
         FIRE_STARTER.put("QTE-M-FIRE-19", 2); // 相打ちの咎人 4/2/2 召喚時:相互2ダメージ
         FIRE_STARTER.put("QTE-M-FIRE-20", 1); // 覚醒の炎童 4/1/1 知識・特殊召喚
-        FIRE_STARTER.put("QTE-M-FIRE-7", 1); // 背水の烈火使い 4/3/5 守護・召喚時:手札全捨て
+        FIRE_STARTER.put("QTE-M-FIRE-7", 1); // 背水の烈火使い 4/3/5 守護のみ(★58で召喚時効果が消えた)
         FIRE_STARTER.put("QTE-M-FIRE-21", 1); // 背水の炎壁 7/5/3 守護・特殊召喚
         FIRE_STARTER.put("QTE-M-FIRE-8", 1); // 極炎竜 ヴォルカニクス 7/6/2 速攻・特殊召喚
         FIRE_STARTER.put("QTE-M-FIRE-22", 1); // 鳳凰神 ヴォルカニクスレヴォ 13/3/8 速攻・特殊召喚
@@ -97,7 +97,7 @@ public class DeckFactory {
 
     static {
         // ミニオン28枚
-        DARK_STARTER.put("QTE-M-DARK-2", 4); // カース・ボーン 1/2/1 召喚時:マナを裏向きに(できねば自壊)
+        DARK_STARTER.put("QTE-M-DARK-2", 4); // カース・ボーン 2/1/1 召喚時:自分のミニオン1体破壊+コスト分ミル(★58)
         // ★Batch 46b: 5枚 → 4枚。Ver1.1 の本文から「このカードは4枚以上入れられる」が消え、
         //   同名4枚の例外そのものが無くなったため。減らした1枚は腐敗の投擲者に振り替えている
         //   (ミニオン28枚・スペル9枚という構成は保つ)。
@@ -175,7 +175,7 @@ public class DeckFactory {
         WIND_STARTER.put("QTE-M-WIND-6", 2); // ガイル・フォックス 3/2/2 召喚時:条件で潜伏
         WIND_STARTER.put("QTE-M-WIND-7", 2); // 突風のまとめ役 3/1/3 使用のたび全体+1(このターン)
         WIND_STARTER.put("QTE-M-WIND-17", 1); // 静空の風使い 4/1/1 潜伏・守護・タップでマナ加速
-        WIND_STARTER.put("QTE-M-WIND-8", 1); // ストーム・カイザー 5/3/4 速攻・特殊召喚
+        WIND_STARTER.put("QTE-M-WIND-8", 1); // ストーム・カイザー 7/3/2 速攻・特殊召喚(5枚使用でコスト1。★58)
         WIND_STARTER.put("QTE-M-WIND-18", 1); // 詠唱の疾風騎士 6/3/3 突進・スペルで軽減
         WIND_STARTER.put("QTE-M-WIND-19", 1); // 嵐の守り手 7/1/4 守護・特殊召喚
         WIND_STARTER.put("QTE-M-WIND-20", 1); // 結集する風の精 8/4/4 知識・還元・動的コスト軽減
@@ -187,7 +187,7 @@ public class DeckFactory {
         // スペル13枚
         WIND_STARTER.put("QTE-M-WIND-10", 2); // そよ風の加護 (1) 体力+1・守護付与
         WIND_STARTER.put("QTE-M-WIND-9", 2); // 追い風 (1) 攻撃力+1・1ドロー
-        WIND_STARTER.put("QTE-M-WIND-24", 1); // 風弾の跳弾 (1) バウンス+2ダメージ・強化使用可
+        WIND_STARTER.put("QTE-M-WIND-24", 1); // 風弾の跳弾 (1) 自壊+3ダメージ・強化使用+2(★58)
         WIND_STARTER.put("QTE-M-WIND-23", 1); // 風のマナ変換 (1) 表向き→裏向きマナ入れ替え
         WIND_STARTER.put("QTE-M-WIND-22", 1); // サイクロン・リフレッシュ (1) 2枚デッキ戻し+2ドロー
         WIND_STARTER.put("QTE-M-WIND-25", 2); // 選択の追い風 (2) 1ドロー+任意で守護を捨てて追加ドロー
@@ -229,7 +229,7 @@ public class DeckFactory {
         EARTH_STARTER.put("QTE-M-EARTH-10", 1); // 落石の罠 (3) 相手ミニオン1体に5ダメージ
         EARTH_STARTER.put("QTE-M-EARTH-26", 1); // ガイア・リソース (4) 山札からマナ加速・還元
         EARTH_STARTER.put("QTE-M-EARTH-11", 1); // 大地震 (4) お互いのコスト3以下を全破壊
-        EARTH_STARTER.put("QTE-M-EARTH-27", 1); // 地脈の覚醒 (5) 動的コスト・還元(マナ加速本体)
+        EARTH_STARTER.put("QTE-M-EARTH-27", 1); // 地脈の覚醒 (2) マナ1枚を手札へ・還元・ターン1回(★58)
         EARTH_STARTER.put("QTE-M-EARTH-12", 1); // 豊穣の祈り (5) 山札からマナ加速+2ドロー
     }
 
