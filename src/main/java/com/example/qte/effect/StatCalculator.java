@@ -176,9 +176,19 @@ public class StatCalculator {
         if (NIGHTMARE.equals(card.id())) {
             cost -= nonSpellCountInTrash(owner);
         }
-        // 群がる死霊王: 墓地にある「ゾンストライカー」の数だけコスト-1
+        // 群がる死霊王: 墓地にある「ゾンストライカー」の数だけコスト-2
+        // ★Batch 57(区分3b): Ver1.1 で1枚あたりの軽減量が 1 → 2 になった
+        //   (印刷コストも 6 → 8 に上がっているので、素の重さは据え置きに近い。
+        //    ゾンストライカーを墓地に積むほど急に軽くなる形へ寄せた変更である)。
         if (SWARM_LICH.equals(card.id())) {
-            cost -= countInTrash(owner, ZOMB_STRIKER);
+            cost -= countInTrash(owner, ZOMB_STRIKER) * 2;
+        }
+        // 墓場の怨念集合体: 自分の墓地にあるスペル以外のカード1枚につきコスト-1
+        // ★Batch 57(区分3b): Ver1.1 で「Attack+1」に加えて「Cost-1」が付いた。
+        //   Attack 側は effectiveAttack にあり、<b>同じ数を2箇所で読む</b>形になる ——
+        //   数え方(nonSpellCountInTrash)を共有しているので規則は1箇所のままである(裁定163)。
+        if (GRAVE_WRAITH_MASS.equals(card.id())) {
+            cost -= nonSpellCountInTrash(owner);
         }
         // 封印されし禁忌魔人: 禁忌デッキの残り枚数だけコスト+1(唯一のコスト増加カード)
         if (SEALED_TABOO_DEMON.equals(card.id())) {

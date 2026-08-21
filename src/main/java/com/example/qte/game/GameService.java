@@ -1150,6 +1150,23 @@ public class GameService {
         if (player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
+        // ★Batch 57: 【召喚時】に対象を選ぶミニオンは、墓地からは召喚できない。
+        //
+        // この入口は対象の選択(TargetChoice)を受け取らないため、
+        // {@code summonToField} に null を渡している。対象を読む ON_SUMMON
+        // (執念の暗殺者・腐敗の投擲者など)がそこで発火すると NullPointerException になり、
+        // <b>500 で落ちる</b>。Ver.0.4 から潜っていた穴であり、闇のスターターは
+        // 黄泉の召喚主と執念の暗殺者を同時に積むので実際に踏める。
+        //
+        // ★Ver1.1 の新本文は「ミニオンを墓地から<b>手札にあるかのように</b>召喚してもよい」で
+        // あり、対象選択まで手札と同じにするのが本来の姿である可能性が高い。
+        // ただしその読みは<b>2通り以上に読める</b>(手札と同じなら【特殊召喚】や
+        // 「手札の」を参照する軽減も乗るのか)ため、裁定275 の回答を待つ(裁定184)。
+        // 回答が付くまでは、黙って壊れるのではなく理由を返して止める。
+        if (!effects.targetSpecOf(master.id()).requirements().isEmpty()) {
+            throw new IllegalStateException(
+                    "【%s】は召喚時に対象を選ぶため、墓地からは召喚できません".formatted(master.name()));
+        }
         requireCanEnterField(state, player);
         payCost(player, stats.effectiveCost(state, player, master));
         player.getTrash().remove(trashIndex);
@@ -1854,6 +1871,21 @@ public class GameService {
                             case "OPPONENT" -> state.opponentOf(player.getPlayerId());
                             default -> throw new IllegalArgumentException("不正なウェポンの指定です");
                         };
+                        // ★Batch 57: 要求が指定した側と一致しているかを<b>サーバが</b>検証する。
+                        // ここが抜けていたため、Kind.WEAPON だけは Requirement.side() が
+                        // クライアントへの助言にしかなっていなかった(TargetSpec の Javadoc が謳う
+                        // 「サーバはこれに照らして選択の正当性を検証する」が守られていない状態)。
+                        // 実害として、Side.OPPONENT の《天界の守護神 ゾディアック》で
+                        // 自分のウェポンを破壊させることが細工したクライアントから可能だった。
+                        // ★壊し検証(tools/batch56_break_check.py ケース1)が見つけた穴である。
+                        boolean sideMismatch = switch (req.side()) {
+                            case SELF -> target != player;
+                            case OPPONENT -> target == player;
+                            case ANY -> false;
+                        };
+                        if (sideMismatch) {
+                            throw new IllegalArgumentException("このカードでは選べない側のウェポンです");
+                        }
                         if (target.getEquippedWeapon() == null) {
                             throw new IllegalArgumentException("装備中のウェポンがありません");
                         }

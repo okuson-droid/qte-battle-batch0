@@ -73,6 +73,18 @@ public class CardEffectRegistry {
     private final Map<String, BiConsumer<EffectContext, String>> ownMinionDestroyedWatchers = new HashMap<>();
 
     /**
+     * 「<b>どちらの</b>ミニオンが破壊された」にも反応する監視効果(★Batch 57。カードID → 処理)。
+     *
+     * <p>{@link #ownMinionDestroyedWatchers} との違いは<b>数える範囲</b>だけである。
+     * Ver1.1 の《執念の暗殺者》は本文から「自分の」が消えたため、裁定156(2)により
+     * 両者のミニオンの破壊に反応する。
+     *
+     * <p>相手の場で起きた破壊に反応するとき、文脈は
+     * {@link EffectContext#swapSides()} で持ち主側に向け直してから渡す。
+     */
+    private final Map<String, BiConsumer<EffectContext, String>> anyMinionDestroyedWatchers = new HashMap<>();
+
+    /**
      * 使用条件(カードID → 判定)。「代償を払えないなら使用できない」カードのための仕組み。
      *
      * 対象指定(TargetSpec)では表現できない条件をここに置く。判定は
@@ -531,10 +543,27 @@ public class CardEffectRegistry {
         for (MinionInstance watcher : List.copyOf(ctx.owner().getMinionZone())) {
             BiConsumer<EffectContext, String> effect =
                     ownMinionDestroyedWatchers.get(watcher.getMaster().id());
+            if (effect == null) {
+                effect = anyMinionDestroyedWatchers.get(watcher.getMaster().id());
+            }
             if (effect == null || !ctx.owner().getMinionZone().contains(watcher)) {
                 continue;
             }
             effect.accept(ctx, destroyedCardId);
+        }
+        // ★Batch 57: 「自分の」と書かれていない監視効果(執念の暗殺者)は、
+        // 破壊されたミニオンの<b>持ち主でない側</b>の場でも発火する(裁定156(2))。
+        // 文脈は swapSides で反応する側へ向け直す —— そうしないとドローが相手に飛ぶ。
+        // 上のループと2本に分けているのは、「自分の」限定の監視効果(不滅のネクロマンサー・
+        // 妖ノ長・ストク)をこちら側で発火させてはならないためである。
+        EffectContext otherSide = ctx.swapSides();
+        for (MinionInstance watcher : List.copyOf(otherSide.owner().getMinionZone())) {
+            BiConsumer<EffectContext, String> effect =
+                    anyMinionDestroyedWatchers.get(watcher.getMaster().id());
+            if (effect == null || !otherSide.owner().getMinionZone().contains(watcher)) {
+                continue;
+            }
+            effect.accept(otherSide, destroyedCardId);
         }
     }
 
@@ -1071,30 +1100,49 @@ public class CardEffectRegistry {
 
         // ---- リーダー ----
 
-        // 冥府の禁皇: 【起動：1】裏向きのマナ1枚を手札に戻し、2枚引く。
-        // 裏向きマナが無ければ使用できないため、状態を変える前に条件で弾く
-        // ★55: コストのみ0→1(旧本文が未記載だった食い違い)。効果の参照ゾーン変更は56へ残す
-        leaderAbilities.put("QTE-M-DARK-1", new LeaderAbilitySpec(1, TargetSpec.of(),
+        // 冥府の禁皇: 【起動：1】自分の墓地のカードを1枚選び手札に戻す。
+        //             そうした場合、山札の上から2枚を墓地に置く。
+        // ★Batch 57(区分4): Ver1.1 で<b>参照ゾーンが「裏向きのマナ」から「墓地」へ変わり</b>、
+        //   後半も「2枚引く」から「山札の上から2枚を墓地に置く」(セルフミル)へ変わった。
+        //   資源を増やす能力から、墓地を回して墓地を肥やす能力へ性格が入れ替わっている。
+        //   ★コストは 55 で 0→1 に直し済みで、ここでは触らない(同じカードを二度触る形)。
+        // ★「1枚選び」なので対象指定を伴う起動能力である —— LeaderAbilitySpec は
+        //   もともと TargetSpec を運べる(GameService.useLeaderAbility が validateTargets を通す)。
+        //   これまで使い手が居なかっただけで、新しい仕組みは要らない。
+        // ★墓地が空なら使用できない(状態を変える前に条件で弾く)。
+        leaderAbilities.put("QTE-M-DARK-1", new LeaderAbilitySpec(1,
+                TargetSpec.of(new Requirement(Kind.TRASH, Side.SELF, 1, false, false, List.of(),
+                        "手札に戻すカードを墓地から選んでください")),
                 ctx -> {
-                    if (ctx.actions().returnFaceDownManaToHand(ctx.room(), ctx.owner())) {
-                        ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
+                    boolean returned = false;
+                    for (String cardId : ctx.targets().get(0).trashCardIds()) {
+                        returned |= ctx.actions().returnFromTrashToHand(ctx.room(), ctx.owner(), cardId);
+                    }
+                    // 「そうした場合」= 実際に手札へ戻せたときだけミルする
+                    if (returned) {
+                        ctx.actions().mill(ctx.room(), ctx.owner(), 2);
                     }
                 },
-                (state, player) -> player.getFaceDownManaCount() > 0,
-                "裏向きのマナ1枚を手札に戻し、カードを2枚引く"));
+                (state, player) -> !player.getTrash().isEmpty(),
+                "墓地のカード1枚を手札に戻し、山札の上から2枚を墓地に置く"));
 
         // 黄泉の召喚主(QTE-M-DARK-15)は起動能力ではなく常在能力(サブフェイズの墓地召喚)。
         // ルールそのものを書き換えるため GameService.summonFromGrave が担当する
 
         // ---- ミニオン ----
 
-        // 執念の暗殺者: 【召喚時】ミニオン1体に3ダメージ。自分のミニオンが破壊されるたび1枚引いてもよい
+        // 執念の暗殺者: 【召喚時】ミニオン1体に3ダメージ。【常在】ミニオンが破壊されるたび1枚引いてもよい
+        // ★Batch 57(区分3b): Ver1.1 で監視の本文から「自分の」が消えた。
+        // 裁定156(2)(「自分の」の省略は両者を見る)により、<b>相手のミニオンの破壊でも</b>
+        // 1枚引けるようになった。watchOwnMinionDestroyed → watchAnyMinionDestroyed へ移す。
+        // 【常在】の印が付いたが、これは「誘発ではなく置かれている間ずっと効く」ことの明示で
+        // あり、監視という形そのものは変わらない(印刷上の整理)。
         targetSpecs.put("QTE-M-DARK-20", TargetSpec.of(
                 new Requirement(Kind.MINION, Side.ANY, 1, true, false, List.of(),
                         "3ダメージを与えるミニオンを選んでください(自分のミニオンも選べます)")));
         register("QTE-M-DARK-20", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
                 .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3)));
-        watchOwnMinionDestroyed("QTE-M-DARK-20", (ctx, destroyedCardId) -> {
+        watchAnyMinionDestroyed("QTE-M-DARK-20", (ctx, destroyedCardId) -> {
             // 「引いてもよい」= 山札が空でなければ引く(AutoChoice)
             if (AutoChoice.shouldDrawOptional(ctx.owner())) {
                 ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
@@ -1121,7 +1169,10 @@ public class CardEffectRegistry {
         register("QTE-M-DARK-17", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
                 .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 1)));
 
-        // 墓場の怨念集合体: 【召喚時】墓地のスペルを1枚手札に加える(攻撃力の加算はStatCalculator)
+        // 墓場の怨念集合体: 【守護】【召喚時】墓地のスペルを1枚手札に加える。
+        // 墓地のスペル以外1枚につき Cost-1 / Attack+1(どちらも StatCalculator)。
+        // ★Batch 57(区分3b): Ver1.1 で【守護】(テキストから自動抽出)と Cost-1 が付いた。
+        //   ここ(ON_SUMMON)の実装は無変更である。
         targetSpecs.put("QTE-M-DARK-22", TargetSpec.of(
                 new Requirement(Kind.TRASH, Side.SELF, 1, true, false, List.of(Filter.SPELL_CARD),
                         "手札に加えるスペルを墓地から選んでください")));
@@ -1204,7 +1255,11 @@ public class CardEffectRegistry {
                     .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
         });
 
-        // 獄門の裁定者: 【守護】このミニオンがダメージを受けた時、相手のリーダーに2ダメージ
+        // 獄門の裁定者: 【守護】このミニオンがダメージを受けた時、相手のリーダーに2ダメージ。
+        // ★Batch 57(区分4): Ver1.1 で「このミニオンはリーダーを攻撃できない」が追加された。
+        // 9/9/9(旧 9/5/7)という破格の体格を、リーダーを殴れない壁に閉じ込めるための制約である。
+        // 攻撃の可否は RuleGuards.minionAttackDenial にある(不動の絶対神ガイア・
+        // 創世神 ゾディアックアイリスと同じ形) —— ここには登録を持たない。
         register("QTE-M-DARK-23", TriggerType.ON_MINION_DAMAGED,
                 ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 2, "QTE-M-DARK-23"));
 
@@ -1237,6 +1292,16 @@ public class CardEffectRegistry {
             }
             sacrifice.forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
         });
+
+        // ★Batch 57: スペルとウェポンは registerDarkSpellsAndWeapons() へ分けた。
+        // 闇文明の登録が1メソッドで300行を超え、tools/check_structure.py の
+        // 「飲み込みの兆候」の閾値に触れたためである。区切りは元からあった
+        // 「---- スペル ----」の見出しそのままで、中身は動かしていない。
+        registerDarkSpellsAndWeapons();
+    }
+
+    /** 闇文明のスペルとウェポン(★Batch 57 で registerDarkCards から切り出した) */
+    private void registerDarkSpellsAndWeapons() {
 
         // ---- スペル ----
 
@@ -1286,20 +1351,35 @@ public class CardEffectRegistry {
                     .formatted(ctx.owner().getDisplayName()));
         });
 
-        // 禁忌の代償: 裏向きマナ1枚を破壊する。相手のミニオン1体を破壊する
+        // 禁忌の代償: 裏向きマナ1枚を破壊する。その後、自分の墓地からコスト4以下のミニオンを
+        //             1体選び場に出す。
+        // ★Batch 57(区分4): Ver1.1 で後半が「相手のミニオン1体を破壊」から
+        //   <b>自分の墓地からの蘇生</b>へ丸ごと置き換わった(除去から展開へ)。
+        // ★使用条件も対象も入れ替わる。「代償を払えなければ使用できない」の形は据え置きで、
+        //   裏向きマナに加えて<b>蘇生先が墓地に居ること</b>も条件に加える ——
+        //   対象指定が必須(optional=false)である以上、候補0では選び切れないためである
+        //   (旧本文が「相手のミニオンが居ること」を条件にしていたのと同じ理屈)。
+        // ★「場に出す」は召喚ではないため reviveFromGrave を通す(【召喚時】は発動しない)。
         playConditions.put("QTE-M-DARK-10", (state, player) -> player.getFaceDownManaCount() > 0
-                && !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
+                && player.getTrash().stream().anyMatch(id -> {
+                    CardMaster m = cards.findById(id);
+                    return m.type() == CardType.MINION && m.cost() != null && m.cost() <= 4;
+                }));
         targetSpecs.put("QTE-M-DARK-10", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.OPPONENT, 1, false, false, List.of(),
-                        "破壊する相手のミニオンを選んでください")));
+                new Requirement(Kind.TRASH, Side.SELF, 1, false, false,
+                        List.of(Filter.MINION_CARD, Filter.COST_4_OR_LESS),
+                        "場に出すコスト4以下のミニオンを墓地から選んでください")));
         spellEffects.put("QTE-M-DARK-10", ctx -> {
             ctx.actions().destroyFaceDownMana(ctx.room(), ctx.owner(), 1);
-            ctx.targets().get(0).minions()
-                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            ctx.targets().get(0).trashCardIds()
+                    .forEach(id -> ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), id));
         });
 
         // 死者蘇生: 好きな数の自分のミニオンを破壊してもよい(その数だけコスト-1)。
         // 墓地からミニオン1体を【突進】付きで蘇生する。
+        // ★Batch 57(区分3b)実装変更なし: Ver1.1 の差は「好きな数<b>の</b>」「破壊した数<b>だけ</b>」の
+        //   送りがなと読点が落ちただけであり、条件も数量も同じである(区分の境目の誤りの実例。
+        //   rework-triage.md 1-2「仕分けの境目には数枚の誤りが混じる」)。
         // 生贄はコスト計算に影響するためGameServiceが支払い前に数を読む
         playConditions.put("QTE-M-DARK-12", (state, player) -> !player.getMinionZone().isEmpty()
                 || player.getTrash().stream().anyMatch(id -> cards.findById(id).type() == CardType.MINION));
@@ -1329,7 +1409,17 @@ public class CardEffectRegistry {
             }
         });
 
-        // 絶望の連鎖: 自分のミニオン1体を破壊する。相手のミニオン1体を破壊する
+        // 絶望の連鎖: 自分のミニオン1体を破壊する。そうしたら相手のミニオン1体を破壊する。
+        //             このターンミニオンが3体以上破壊されていたならカードを1枚引く。
+        // ★Batch 57(区分4): Ver1.1 で2つ足された。
+        //   (1) 「そうしたら」—— 相手側の破壊は<b>自分側の破壊が成立したときだけ</b>行う。
+        //       自分の破壊は必須の対象なので普段は必ず成立するが、【守護】や置換で
+        //       場を離れないことがありうる以上、条件は本文どおり書いておく。
+        //   (2) 「このターンミニオンが3体以上破壊されていたなら1ドロー」——
+        //       「自分の」と書いていないので<b>両者の合計</b>を数える(裁定156(2))。
+        //       数える先は GameState のターン内カウンタである
+        //       (裁定185・裁定205。NEMれぬ夜のドリーミーと同じ値を読む)。
+        //       ★このスペル自身が破壊した2体も当然その中に入る —— 判定は解決の最後に行う。
         playConditions.put("QTE-M-DARK-9", (state, player) -> !player.getMinionZone().isEmpty());
         targetSpecs.put("QTE-M-DARK-9", TargetSpec.of(
                 new Requirement(Kind.MINION, Side.SELF, 1, false, false, List.of(),
@@ -1337,10 +1427,21 @@ public class CardEffectRegistry {
                 new Requirement(Kind.MINION, Side.OPPONENT, 1, true, false, List.of(),
                         "破壊する相手のミニオンを選んでください")));
         spellEffects.put("QTE-M-DARK-9", ctx -> {
-            ctx.targets().get(0).minions()
-                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
-            ctx.targets().get(1).minions()
-                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            boolean destroyedOwn = false;
+            for (ResolvedTargets.TargetedMinion t : ctx.targets().get(0).minions()) {
+                ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion());
+                destroyedOwn |= !t.owner().getMinionZone().contains(t.minion());
+            }
+            if (destroyedOwn) {
+                ctx.targets().get(1).minions()
+                        .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            } else {
+                ctx.room().addLog("【絶望の連鎖】: 自分のミニオンが破壊されなかったため相手のミニオンは破壊しません");
+            }
+            if (ctx.state().getMinionsDestroyedThisTurn() >= 3) {
+                ctx.room().addLog("【絶望の連鎖】: このターン3体以上のミニオンが破壊されているため1枚ドロー");
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            }
         });
 
         // 禁忌の墓地利用: 墓地のスペルを2枚選び、マナゾーンに裏向きで置く。
@@ -2806,10 +2907,14 @@ public class CardEffectRegistry {
         // ---- ミニオン: 召喚時(ON_SUMMON) ----
 
         // 大地の精霊グラン(0137): 【召喚時】山札の上から1枚を表向きでマナに置く
+        // ★Batch 57(区分3b/4)実装変更なし: Ver1.1 の差は【召喚時】の印が明記されたことと
+        //   数値(5/3/3 → 4/4/3)だけであり、数値は manual-cards.json から読まれる。
+        //   旧本文は印を持たなかったが実装は当初から ON_SUMMON である(55 で確認済み)。
         register("QTE-M-EARTH-3", TriggerType.ON_SUMMON,
                 ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
 
         // 苗木植えの精霊(0156): 【召喚時】手札を1枚表向きでマナに置く(手札は選択)
+        // ★Batch 57(区分3b)実装変更なし: 差は【召喚時】の明記と HP 1→2 だけである
         targetSpecs.put("QTE-M-EARTH-16", TargetSpec.of(Requirement.of(
                 Kind.HAND, Side.SELF, 1, false, "マナに置く手札を選んでください")));
         register("QTE-M-EARTH-16", TriggerType.ON_SUMMON, ctx ->
@@ -2837,6 +2942,7 @@ public class CardEffectRegistry {
         });
 
         // 天変地異のタイタン(0145): 【召喚時】相手の場すべてに7ダメージ。カードを2枚引く
+        // ★Batch 57(区分3b)実装変更なし: 差は【召喚時】の明記だけである
         register("QTE-M-EARTH-21", TriggerType.ON_SUMMON, ctx -> {
             List.copyOf(ctx.opponent().getMinionZone()).forEach(
                     m -> ctx.actions().damageMinion(ctx.room(), ctx.opponent(), m, 7));
@@ -2844,16 +2950,30 @@ public class CardEffectRegistry {
         });
 
         // アースクエイクジャイアント(0153): 【召喚時】相手の場の【守護】ミニオンをすべて破壊
+        // ★Batch 57(区分3b)実装変更なし: 差は【召喚時】の明記だけである
         register("QTE-M-EARTH-4", TriggerType.ON_SUMMON, ctx ->
                 List.copyOf(ctx.opponent().getMinionZone()).stream()
                         .filter(m -> m.hasKeyword(Keyword.GUARD))
                         .forEach(m -> ctx.actions().destroyMinion(ctx.room(), ctx.opponent(), m)));
 
-        // 安らぎのガーディアン(0152): 【召喚時】リーダーを2回復。【ターンエンド時】リーダーを4回復
+        // 安らぎのガーディアン(0152): 【守護】【召喚時】リーダーを2回復。
+        //                              <b>自分の</b>ターンエンド時にリーダーを4回復
+        // ★Batch 57(区分3b): Ver1.1 で2つ変わった。
+        //   (1) 【守護】が付いた —— テキストから CardTextKeywords が自動で拾うのでコード変更は不要。
+        //   (2) 回復の誘発が「ターンエンド時」から「<b>自分の</b>ターンエンド時」に限定された。
+        //       ON_TURN_END は<b>両者の場を回す</b>(GameService.endTurn)ため、
+        //       これまでは相手のターンの終わりにも4回復していた。1ターンあたり8回復である。
+        //       Ver1.1 はこれを半分にした。ターンプレイヤーが持ち主のときだけ回復する。
+        // ★ここで判定するのが正しい —— ON_TURN_END が両者を回すのは意図した設計であり
+        //   (TriggerType の Javadoc)、「自分のターンだけ」はこのカード固有の条件である。
         register("QTE-M-EARTH-20", TriggerType.ON_SUMMON,
                 ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 2, "QTE-M-EARTH-20"));
-        register("QTE-M-EARTH-20", TriggerType.ON_TURN_END,
-                ctx -> ctx.actions().healLeader(ctx.room(), ctx.owner(), 4, "QTE-M-EARTH-20"));
+        register("QTE-M-EARTH-20", TriggerType.ON_TURN_END, ctx -> {
+            if (ctx.state().turnPlayer() != ctx.owner()) {
+                return;
+            }
+            ctx.actions().healLeader(ctx.room(), ctx.owner(), 4, "QTE-M-EARTH-20");
+        });
 
         // ---- ミニオン: その他トリガー ----
 
@@ -2882,7 +3002,10 @@ public class CardEffectRegistry {
 
         // ---- ウェポン: 装備時(ON_EQUIP=13a) ----
 
-        // ガイア・ハンマー(0142): 装備時、山札の上から1枚を表向きでマナに置く
+        // ガイア・ハンマー(0142): 【召喚時】山札の上から1枚を表向きでマナに置く
+        // ★Batch 57(区分4)実装変更なし: Ver1.1 で【召喚時】の印が付いた。
+        //   ウェポンにとって「場に出る」は装備であり、ON_EQUIP がその発火口である
+        //   (ウェポンは召喚されない)。印の追加は実装の裏付けであって変更ではない。
         register("QTE-M-EARTH-14", TriggerType.ON_EQUIP,
                 ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
         // 地響きの槌(0009)の攻撃時効果(相手ミニオン全体2ダメージ)は GameService.leaderAttack の
@@ -2923,9 +3046,18 @@ public class CardEffectRegistry {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), 2);
         });
 
-        // 大地の恵み(0158): 山札の上から1枚を表向きでマナに置く
-        spellEffects.put("QTE-M-EARTH-9",
-                ctx -> ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner()));
+        // 大地の恵み(0158): 山札の上から1枚を表向きでマナに置く。自分のマナが10枚以上なら1枚引く
+        // ★Batch 57(区分4): Ver1.1 で後半の「マナ10枚以上なら1ドロー」が追加された。
+        //   判定は<b>マナに置いた後</b>である(本文の順どおり) —— 9枚のときにこれを撃つと
+        //   10枚になってドローまで届く。《大地の開眼》(1ドロー→7枚以上ならもう1枚)と
+        //   同じ「置いてから数える」形である。
+        spellEffects.put("QTE-M-EARTH-9", ctx -> {
+            ctx.actions().placeTopOfDeckInManaFaceUp(ctx.room(), ctx.owner());
+            if (ctx.owner().getManaZone().size() >= 10) {
+                ctx.room().addLog("【大地の恵み】: マナが10枚以上のため1枚ドロー");
+                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+            }
+        });
 
         // ガイア・リソース(0151): 山札の上から1枚をマナに置く。【還元】(還元の処理は GameActions 側で共通)
         spellEffects.put("QTE-M-EARTH-26",
@@ -4049,6 +4181,14 @@ public class CardEffectRegistry {
         ownMinionDestroyedWatchers.put(cardId, effect);
     }
 
+    /**
+     * 「どちらのミニオンが破壊されても」反応する監視効果を登録する(★Batch 57)。
+     * 詳細は {@link #anyMinionDestroyedWatchers} を参照。
+     */
+    private void watchAnyMinionDestroyed(String cardId, BiConsumer<EffectContext, String> effect) {
+        anyMinionDestroyedWatchers.put(cardId, effect);
+    }
+
     private void register(String cardId, TriggerType trigger, Consumer<EffectContext> effect) {
         triggers.computeIfAbsent(cardId, k -> new EnumMap<>(TriggerType.class)).put(trigger, effect);
     }
@@ -4094,6 +4234,7 @@ public class CardEffectRegistry {
                 || minionAbilities.containsKey(cardId)
                 || enhancedCosts.containsKey(cardId)
                 || ownMinionDestroyedWatchers.containsKey(cardId)
+                || anyMinionDestroyedWatchers.containsKey(cardId)
                 || playConditions.containsKey(cardId)
                 || soulSpells.containsKey(cardId);
     }

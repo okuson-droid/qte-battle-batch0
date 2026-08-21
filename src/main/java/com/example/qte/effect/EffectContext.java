@@ -51,4 +51,20 @@ public record EffectContext(
         return new EffectContext(room, state, owner, opponent, newSource, targets, actions,
                 enhanced, fromTaboo);
     }
+
+    /**
+     * 持ち主と相手を入れ替えた文脈を作る(★Batch 57)。
+     *
+     * <p>イベントの文脈は「出来事が起きた側」を {@code owner} として作られる。
+     * 《執念の暗殺者》の【常在】のように<b>相手の場で起きた出来事にも反応する</b>効果は、
+     * 反応する側(=カードの持ち主)を {@code owner} とした文脈でなければ
+     * ドローも回復も相手側に飛んでしまう。
+     *
+     * <p>発生源({@code source})は落とす —— 入れ替えた先の場に居るミニオンは、
+     * 元の文脈の発生源とは無関係だからである。対象({@code targets})も同様に落とす。
+     */
+    public EffectContext swapSides() {
+        return new EffectContext(room, state, opponent, owner, null, null, actions,
+                enhanced, fromTaboo);
+    }
 }

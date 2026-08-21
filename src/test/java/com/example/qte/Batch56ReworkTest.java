@@ -19,6 +19,7 @@ import com.example.qte.game.ManaCard;
 import com.example.qte.game.MinionInstance;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.Civilization;
+import com.example.qte.master.Keyword;
 import com.example.qte.support.AutoGameFixture;
 
 /**
@@ -81,6 +82,25 @@ class Batch56ReworkTest {
 
     private static TargetChoice weapon(String side) {
         return new TargetChoice(null, null, null, null, List.of(side));
+    }
+
+    /** 墓地の位置を選ぶ(★Batch 57。冥府の禁皇・禁忌の代償) */
+    private static TargetChoice trash(Integer... indexes) {
+        return new TargetChoice(null, null, null, List.of(indexes), null);
+    }
+
+    /** 場のミニオンを選ぶ(★Batch 57) */
+    private static TargetChoice minions(String... instanceIds) {
+        return new TargetChoice(null, List.of(instanceIds), null, null, null);
+    }
+
+    /** 裏向きのマナを n 枚置く(★Batch 57。禁忌の代償の代償) */
+    private static void giveFaceDownMana(com.example.qte.game.PlayerState player, int count) {
+        for (int i = 0; i < count; i++) {
+            ManaCard mana = new ManaCard(MAGMA, false);
+            mana.turnFaceDown();
+            player.getManaZone().add(mana);
+        }
     }
 
     // ==================================================================
@@ -735,5 +755,547 @@ class Batch56ReworkTest {
                 .as("光のスペルはコスト-1(2→1)").isEqualTo(1);
         assertThat(stats.effectiveCost(f.state(), f.me(), f.card(MAGMA)))
                 .as("光文明でないスペルはコストが下がらない").isEqualTo(1);
+    }
+
+    // ==================================================================
+    // 闇文明(★Batch 57 = 56後半。区分3b・4。裁定待ちの4枚を除く9枚)
+    // ==================================================================
+
+    /** 【守護】だけを持つ素のミニオン(ゴーレム・ウォール 3/1/5)。道具として使う */
+    private static final String PLAIN_GUARD = "QTE-M-EARTH-2";
+    private static final String ZOMB_STRIKER = "QTE-M-DARK-16";
+
+    // ---- 執念の暗殺者(QTE-M-DARK-20・区分3b) ----
+    // 旧: 「【召喚時】ミニオン1体に3ダメージ。自分のミニオンが破壊されるたび1枚引いてもよい。」
+    // 新: 「【召喚時】ミニオン1体に3ダメージ。【常在】ミニオンが破壊されるたび山札から1枚引いてもよい。」
+    // → 「自分の」が消えたので、裁定156(2)により相手のミニオンの破壊でも引ける
+
+    @Test
+    void 執念の暗殺者は相手のミニオンが破壊されても引く() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.me(), "QTE-M-DARK-20");
+        MinionInstance victim = f.putOnField(f.you(), PLAIN_MINION);
+        int deckBefore = f.me().getDeck().size();
+        int handBefore = f.me().getHand().size();
+
+        actions.destroyMinion(f.room(), f.you(), victim);
+
+        assertThat(f.me().getDeck().size()).as("新: 相手のミニオンの破壊でも1枚引く")
+                .isEqualTo(deckBefore - 1);
+        assertThat(f.me().getHand().size()).isEqualTo(handBefore + 1);
+    }
+
+    @Test
+    void 執念の暗殺者は自分のミニオンの破壊でも引き続き引く() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.me(), "QTE-M-DARK-20");
+        MinionInstance victim = f.putOnField(f.me(), PLAIN_MINION);
+        int deckBefore = f.me().getDeck().size();
+
+        actions.destroyMinion(f.room(), f.me(), victim);
+
+        assertThat(f.me().getDeck().size()).as("旧からの挙動も残っている").isEqualTo(deckBefore - 1);
+    }
+
+    @Test
+    void 執念の暗殺者のドローは相手には起きない() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.me(), "QTE-M-DARK-20");
+        MinionInstance victim = f.putOnField(f.you(), PLAIN_MINION);
+        int opponentDeckBefore = f.you().getDeck().size();
+
+        actions.destroyMinion(f.room(), f.you(), victim);
+
+        assertThat(f.you().getDeck().size())
+                .as("引くのはカードの持ち主であって、破壊された側ではない")
+                .isEqualTo(opponentDeckBefore);
+    }
+
+    // ---- 墓場の怨念集合体(QTE-M-DARK-22・区分3b) ----
+    // 旧: 「自分の墓地にあるスペル以外のカード1枚につきAttack+1。【召喚時】…」
+    // 新: 「自分の墓地にあるスペル以外のカード1枚につきCost-1,Attack+1。【召喚時】… 【守護】」
+
+    @Test
+    void 墓場の怨念集合体は墓地のスペル以外の数だけコストも下がる() {
+        AutoGameFixture f = newGame();
+        int printed = f.card("QTE-M-DARK-22").cost();
+        f.me().getTrash().addAll(List.of(PLAIN_MINION, PLAIN_MINION, PLAIN_MINION));
+
+        assertThat(stats.effectiveCost(f.state(), f.me(), f.card("QTE-M-DARK-22")))
+                .as("新: 墓地のスペル以外3枚でコスト-3").isEqualTo(printed - 3);
+    }
+
+    @Test
+    void 墓場の怨念集合体のコスト軽減はスペルを数えない() {
+        AutoGameFixture f = newGame();
+        int printed = f.card("QTE-M-DARK-22").cost();
+        f.me().getTrash().addAll(List.of(MAGMA, MAGMA));
+
+        assertThat(stats.effectiveCost(f.state(), f.me(), f.card("QTE-M-DARK-22")))
+                .as("スペルだけの墓地では軽減されない").isEqualTo(printed);
+    }
+
+    @Test
+    void 墓場の怨念集合体はAttack加算を保ったまま守護を持つ() {
+        AutoGameFixture f = newGame();
+        f.me().getTrash().addAll(List.of(PLAIN_MINION, PLAIN_MINION));
+        MinionInstance self = f.putOnField(f.me(), "QTE-M-DARK-22");
+
+        assertThat(stats.effectiveAttack(f.state(), f.me(), self))
+                .as("Attack加算は据え置き(印刷0+2)").isEqualTo(2);
+        assertThat(self.hasKeyword(Keyword.GUARD)).as("新: 【守護】が付いた").isTrue();
+    }
+
+    // ---- 群がる死霊王(QTE-M-DARK-21・区分3b) ----
+    // 旧: 「自分の墓地にある「ゾンストライカー」の数だけコストを-1する。」(印刷コスト6)
+    // 新: 「自分の墓地にある「ゾンストライカー」の数コスト-2する。」(印刷コスト8)
+
+    @Test
+    void 群がる死霊王はゾンストライカー1枚につきコストが2下がる() {
+        AutoGameFixture f = newGame();
+        int printed = f.card("QTE-M-DARK-21").cost();
+        f.me().getTrash().addAll(List.of(ZOMB_STRIKER, ZOMB_STRIKER));
+
+        assertThat(stats.effectiveCost(f.state(), f.me(), f.card("QTE-M-DARK-21")))
+                .as("新: 2枚で-4(旧は-2)").isEqualTo(printed - 4);
+    }
+
+    @Test
+    void 群がる死霊王はゾンストライカー以外を数えない() {
+        AutoGameFixture f = newGame();
+        int printed = f.card("QTE-M-DARK-21").cost();
+        f.me().getTrash().addAll(List.of(PLAIN_MINION, PLAIN_MINION));
+
+        assertThat(stats.effectiveCost(f.state(), f.me(), f.card("QTE-M-DARK-21")))
+                .isEqualTo(printed);
+    }
+
+    // ---- 死者蘇生(QTE-M-DARK-12・区分3b)★実装変更なし ----
+    // 旧・新の差は送りがな(「好きな数の」「破壊した数だけ」)と読点だけである
+
+    @Test
+    void 死者蘇生は生贄の数だけ軽くなり突進付きで蘇生する() {
+        AutoGameFixture f = newGame();
+        MinionInstance a = f.putOnField(f.me(), PLAIN_MINION);
+        MinionInstance b = f.putOnField(f.me(), PLAIN_MINION);
+        f.me().getTrash().add(PLAIN_GUARD);
+        payMana(f.me(), f.card("QTE-M-DARK-12").cost() - 2);
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-12");
+
+        game.playCard(f.room(), "me", spell,
+                List.of(minions(a.getInstanceId(), b.getInstanceId())), false);
+
+        assertThat(f.fieldIds(f.me())).as("生贄2体が消え、蘇生した1体だけが残る")
+                .containsExactly(PLAIN_GUARD);
+        assertThat(f.me().getMinionZone().get(0).hasKeyword(Keyword.RUSH))
+                .as("蘇生したミニオンは【突進】を持つ").isTrue();
+    }
+
+    // ---- 冥府の禁皇(QTE-M-DARK-1・区分4) ----
+    // 旧: 「起動能力(1ターンに1回): 自分のマナゾーンの「裏向きのカード」を1枚選び手札に戻す。
+    //      そうした場合、カードを2枚引く。」
+    // 新: 「【起動：１】自分の墓地のカードを1枚選び手札に戻す。
+    //      そうした場合、山札の上から2枚を墓地に置く」
+    // → 参照ゾーンがマナ裏向き→墓地、後半が2ドロー→セルフミル2枚に変わった
+
+    private AutoGameFixture newGameWithLeader(String myLeaderId) {
+        AutoGameFixture f = new AutoGameFixture(cards, myLeaderId, PLAIN_LEADER);
+        f.fillDeck(f.me(), 30);
+        f.fillDeck(f.you(), 30);
+        return f;
+    }
+
+    @Test
+    void 冥府の禁皇は墓地のカードを手札に戻し山札の上から2枚を墓地に置く() {
+        AutoGameFixture f = newGameWithLeader("QTE-M-DARK-1");
+        payMana(f.me(), 1);
+        giveFaceDownMana(f.me(), 1);
+        f.me().getTrash().add(PLAIN_GUARD);
+        int deckBefore = f.me().getDeck().size();
+
+        game.useLeaderAbility(f.room(), "me", List.of(trash(0)));
+
+        assertThat(f.me().getHand()).as("新: 墓地のカードが手札に戻る").containsExactly(PLAIN_GUARD);
+        assertThat(f.me().getDeck().size()).as("新: 山札の上から2枚が墓地へ(ドローではない)")
+                .isEqualTo(deckBefore - 2);
+        assertThat(f.me().getTrash()).as("戻した1枚が消え、ミルした2枚が入る").hasSize(2);
+        assertThat(f.me().getFaceDownManaCount()).as("旧の参照先だった裏向きマナはもう触らない")
+                .isEqualTo(1);
+    }
+
+    @Test
+    void 冥府の禁皇は墓地が空なら使用できない() {
+        AutoGameFixture f = newGameWithLeader("QTE-M-DARK-1");
+        payMana(f.me(), 1);
+        giveFaceDownMana(f.me(), 2);
+
+        assertThatThrownBy(() -> game.useLeaderAbility(f.room(), "me", List.of(trash())))
+                .as("旧は裏向きマナがあれば撃てたが、新は墓地が空だと撃てない")
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    // ---- 獄門の裁定者(QTE-M-DARK-23・区分4) ----
+    // 旧: 「【守護】このミニオンがダメージを受けた時、相手のリーダーに2ダメージ。」(9/5/7)
+    // 新: 上記に加えて「このミニオンはリーダーを攻撃できない。」(9/9/9)
+
+    @Test
+    void 獄門の裁定者はリーダーを攻撃できない() {
+        AutoGameFixture f = newGame();
+        MinionInstance judge = f.putOnField(f.me(), "QTE-M-DARK-23");
+        f.state().setPhase(com.example.qte.game.TurnPhase.BATTLE);
+
+        assertThatThrownBy(() -> game.attack(f.room(), "me", judge.getInstanceId(), null))
+                .as("新: リーダーへの攻撃だけが止まる")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("獄門の裁定者");
+    }
+
+    @Test
+    void 獄門の裁定者はミニオンには攻撃でき被ダメージで相手リーダーを焼く() {
+        AutoGameFixture f = newGame();
+        MinionInstance judge = f.putOnField(f.me(), "QTE-M-DARK-23");
+        MinionInstance target = f.putOnField(f.you(), PLAIN_MINION); // 2/1
+        f.state().setPhase(com.example.qte.game.TurnPhase.BATTLE);
+        int lpBefore = f.you().getLp();
+
+        game.attack(f.room(), "me", judge.getInstanceId(), target.getInstanceId());
+
+        assertThat(f.you().getMinionZone()).as("ミニオンへの攻撃は通る").isEmpty();
+        assertThat(f.you().getLp()).as("反撃ダメージを受けたので相手リーダーに2ダメージ")
+                .isEqualTo(lpBefore - 2);
+    }
+
+    // ---- 禁忌の代償(QTE-M-DARK-10・区分4) ----
+    // 旧: 「自分のマナゾーンの「裏向きのカード」1枚を破壊する。相手のミニオン1体を破壊する。」
+    // 新: 「…1枚を破壊する。その後自分の墓地からコスト4以下のミニオンを1体選び場に出す。」
+
+    @Test
+    void 禁忌の代償は裏向きマナを砕いて墓地のコスト4以下を場に出す() {
+        AutoGameFixture f = newGame();
+        giveFaceDownMana(f.me(), 1);
+        payMana(f.me(), f.card("QTE-M-DARK-10").cost());
+        f.me().getTrash().add(PLAIN_GUARD);
+        MinionInstance survivor = f.putOnField(f.you(), PLAIN_MINION);
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-10");
+
+        game.playCard(f.room(), "me", spell, List.of(trash(0)), false);
+
+        assertThat(f.me().getFaceDownManaCount()).as("代償の裏向きマナ1枚は砕かれる").isZero();
+        assertThat(f.fieldIds(f.me())).as("新: 墓地のミニオンが場に出る").containsExactly(PLAIN_GUARD);
+        assertThat(f.you().getMinionZone()).as("旧の相手ミニオン破壊はもう起きない")
+                .containsExactly(survivor);
+    }
+
+    @Test
+    void 禁忌の代償は墓地にコスト4以下のミニオンが無ければ使用できない() {
+        AutoGameFixture f = newGame();
+        giveFaceDownMana(f.me(), 1);
+        payMana(f.me(), f.card("QTE-M-DARK-10").cost());
+        f.me().getTrash().add(MAGMA); // スペルしかない墓地
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-10");
+
+        assertThatThrownBy(() -> game.playCard(f.room(), "me", spell, List.of(trash()), false))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void 禁忌の代償は裏向きマナが無ければ使用できない() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), f.card("QTE-M-DARK-10").cost());
+        f.me().getTrash().add(PLAIN_GUARD);
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-10");
+
+        assertThatThrownBy(() -> game.playCard(f.room(), "me", spell, List.of(trash(0)), false))
+                .as("代償の形は旧から据え置き").isInstanceOf(IllegalStateException.class);
+    }
+
+    // ---- 絶望の連鎖(QTE-M-DARK-9・区分4) ----
+    // 旧: 「自分のミニオン1体を破壊する。相手のミニオン1体を破壊する。」
+    // 新: 「…そうしたら相手のミニオン1体を破壊する。
+    //      このターンミニオンが3体以上破壊されていたならカードを1枚引く。」
+
+    @Test
+    void 絶望の連鎖は破壊が2体だけならドローしない() {
+        AutoGameFixture f = newGame();
+        MinionInstance mine = f.putOnField(f.me(), PLAIN_MINION);
+        MinionInstance theirs = f.putOnField(f.you(), PLAIN_MINION);
+        payMana(f.me(), f.card("QTE-M-DARK-9").cost());
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-9");
+        int deckBefore = f.me().getDeck().size();
+
+        game.playCard(f.room(), "me", spell,
+                List.of(minions(mine.getInstanceId()), minions(theirs.getInstanceId())), false);
+
+        assertThat(f.me().getMinionZone()).isEmpty();
+        assertThat(f.you().getMinionZone()).isEmpty();
+        assertThat(f.me().getDeck().size()).as("このターンの破壊は2体なので引かない")
+                .isEqualTo(deckBefore);
+    }
+
+    @Test
+    void 絶望の連鎖はこのターン3体以上破壊されていたら1枚引く() {
+        AutoGameFixture f = newGame();
+        MinionInstance sacrificed = f.putOnField(f.me(), PLAIN_MINION);
+        actions.destroyMinion(f.room(), f.me(), sacrificed); // 事前に1体(=このターン1体目)
+        MinionInstance mine = f.putOnField(f.me(), PLAIN_MINION);
+        MinionInstance theirs = f.putOnField(f.you(), PLAIN_MINION);
+        payMana(f.me(), f.card("QTE-M-DARK-9").cost());
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-9");
+        int deckBefore = f.me().getDeck().size();
+
+        game.playCard(f.room(), "me", spell,
+                List.of(minions(mine.getInstanceId()), minions(theirs.getInstanceId())), false);
+
+        assertThat(f.state().getMinionsDestroyedThisTurn())
+                .as("数えるのは両者の合計(裁定156(2)・205)").isEqualTo(3);
+        assertThat(f.me().getDeck().size()).as("新: 3体以上なので1枚引く").isEqualTo(deckBefore - 1);
+    }
+
+    @Test
+    void 絶望の連鎖は相手のミニオンが居なくても自分の1体だけで撃てる() {
+        AutoGameFixture f = newGame();
+        MinionInstance mine = f.putOnField(f.me(), PLAIN_MINION);
+        payMana(f.me(), f.card("QTE-M-DARK-9").cost());
+        int spell = f.giveHand(f.me(), "QTE-M-DARK-9");
+
+        assertThatCode(() -> game.playCard(f.room(), "me", spell,
+                List.of(minions(mine.getInstanceId()), none()), false))
+                .doesNotThrowAnyException();
+        assertThat(f.me().getMinionZone()).isEmpty();
+    }
+
+    // ==================================================================
+    // 土文明(★Batch 57 = 56後半。区分3b・4。裁定待ちの創世神ガイアを除く8枚)
+    // ==================================================================
+
+    // ---- アースクエイク・ジャイアント(QTE-M-EARTH-4・区分3b)★実装変更なし ----
+    // 旧・新の差は【召喚時】の印が明記されたことだけである
+
+    @Test
+    void アースクエイクジャイアントは召喚時に相手の守護だけを全破壊する() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.you(), PLAIN_GUARD);
+        f.putOnField(f.you(), PLAIN_GUARD);
+        MinionInstance survivor = f.putOnField(f.you(), PLAIN_MINION);
+        f.putOnField(f.me(), PLAIN_GUARD); // 自分の守護は巻き込まれない
+        payMana(f.me(), f.card("QTE-M-EARTH-4").cost());
+        int hand = f.giveHand(f.me(), "QTE-M-EARTH-4");
+
+        game.playCard(f.room(), "me", hand, List.of(), false);
+
+        assertThat(f.you().getMinionZone()).containsExactly(survivor);
+        assertThat(f.fieldIds(f.me())).contains(PLAIN_GUARD);
+    }
+
+    // ---- 大地の精霊 グラン(QTE-M-EARTH-3・区分3b/4)★実装変更なし ----
+
+    @Test
+    void 大地の精霊グランは召喚時に山札の上を表向きでマナに置く() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), f.card("QTE-M-EARTH-3").cost());
+        int manaBefore = f.me().getManaZone().size();
+        int deckBefore = f.me().getDeck().size();
+        int hand = f.giveHand(f.me(), "QTE-M-EARTH-3");
+
+        game.playCard(f.room(), "me", hand, List.of(), false);
+
+        assertThat(f.me().getManaZone()).hasSize(manaBefore + 1);
+        assertThat(f.me().getDeck().size()).isEqualTo(deckBefore - 1);
+    }
+
+    // ---- 天変地異のタイタン(QTE-M-EARTH-21・区分3b)★実装変更なし ----
+
+    @Test
+    void 天変地異のタイタンは召喚時に相手全体7ダメージと2ドローを行う() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.you(), PLAIN_MINION);
+        f.putOnField(f.you(), PLAIN_GUARD);
+        payMana(f.me(), f.card("QTE-M-EARTH-21").cost());
+        int deckBefore = f.me().getDeck().size();
+        int hand = f.giveHand(f.me(), "QTE-M-EARTH-21");
+
+        game.playCard(f.room(), "me", hand, List.of(), false);
+
+        assertThat(f.you().getMinionZone()).as("HP7以下は全滅する").isEmpty();
+        assertThat(f.me().getDeck().size()).isEqualTo(deckBefore - 2);
+    }
+
+    // ---- 安らぎのガーディアン(QTE-M-EARTH-20・区分3b) ----
+    // 旧: 「リーダーのHPを2回復。ターンエンド時リーダーのHPを4回復。」
+    // 新: 「【守護】【召喚時】リーダーのHPを2回復 自分のターンエンド時リーダーのHPを4回復」
+    // → ON_TURN_END は両者の場を回すため、旧は相手のターンの終わりにも4回復していた
+
+    @Test
+    void 安らぎのガーディアンは自分のターンエンドにだけ4回復する() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.me(), "QTE-M-EARTH-20");
+        f.me().setLp(5);
+
+        game.endTurn(f.room(), "me");
+        assertThat(f.me().getLp()).as("自分のターンエンドでは回復する").isEqualTo(9);
+
+        game.endTurn(f.room(), "you");
+        assertThat(f.me().getLp()).as("新: 相手のターンエンドでは回復しない(旧は8回復していた)")
+                .isEqualTo(9);
+    }
+
+    @Test
+    void 安らぎのガーディアンは守護を持つ() {
+        AutoGameFixture f = newGame();
+        assertThat(f.putOnField(f.me(), "QTE-M-EARTH-20").hasKeyword(Keyword.GUARD))
+                .as("新: 【守護】が付いた").isTrue();
+    }
+
+    // ---- 苗木植えの精霊(QTE-M-EARTH-16・区分3b)★実装変更なし ----
+
+    @Test
+    void 苗木植えの精霊は召喚時に手札1枚を表向きでマナに置く() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), f.card("QTE-M-EARTH-16").cost());
+        f.giveHand(f.me(), PLAIN_GUARD); // マナに置かれる側(自分自身は対象にできない)
+        int hand = f.giveHand(f.me(), "QTE-M-EARTH-16");
+        int manaBefore = f.me().getManaZone().size();
+
+        game.playCard(f.room(), "me", hand, List.of(hand(0)), false);
+
+        assertThat(f.me().getManaZone()).hasSize(manaBefore + 1);
+        assertThat(f.me().getHand()).as("マナに置いた手札は手札から消える").isEmpty();
+    }
+
+    // ---- 豊穣の地霊主(QTE-M-EARTH-15・区分3b)★実装変更なし ----
+    // 旧・新の差は【常在】の印だけである
+
+    @Test
+    void 豊穣の地霊主はそのターン2回目のマナ配置で1枚引く() {
+        AutoGameFixture f = newGameWithLeader("QTE-M-EARTH-15");
+        int deckBefore = f.me().getDeck().size();
+
+        actions.placeCardInManaFaceUp(f.room(), f.me(), PLAIN_MINION);
+        assertThat(f.me().getDeck().size()).as("1回目では引かない").isEqualTo(deckBefore);
+
+        actions.placeCardInManaFaceUp(f.room(), f.me(), PLAIN_MINION);
+        assertThat(f.me().getDeck().size()).as("2回目で1枚引く").isEqualTo(deckBefore - 1);
+
+        actions.placeCardInManaFaceUp(f.room(), f.me(), PLAIN_MINION);
+        assertThat(f.me().getDeck().size()).as("3回目では引かない").isEqualTo(deckBefore - 1);
+    }
+
+    // ---- ガイア・ハンマー(QTE-M-EARTH-14・区分4)★実装変更なし ----
+    // 【召喚時】の印が付いたが、ウェポンにとっての「場に出る」は装備(ON_EQUIP)である
+
+    @Test
+    void ガイアハンマーは装備時に山札の上を表向きでマナに置く() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), f.card("QTE-M-EARTH-14").cost());
+        int manaBefore = f.me().getManaZone().size();
+        int deckBefore = f.me().getDeck().size();
+        int hand = f.giveHand(f.me(), "QTE-M-EARTH-14");
+
+        game.playCard(f.room(), "me", hand, List.of(), false);
+
+        assertThat(f.me().getEquippedWeapon().id()).isEqualTo("QTE-M-EARTH-14");
+        assertThat(f.me().getManaZone()).hasSize(manaBefore + 1);
+        assertThat(f.me().getDeck().size()).isEqualTo(deckBefore - 1);
+    }
+
+    // ---- 大地の恵み(QTE-M-EARTH-9・区分4) ----
+    // 旧: 「自分の山札の上から1枚を表向きでマナに置く。」
+    // 新: 上記に加えて「自分のマナが10枚以上ならカードを1枚引く。」
+
+    @Test
+    void 大地の恵みはマナが10枚以上になったら1枚引く() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), 9);
+        int spell = f.giveHand(f.me(), "QTE-M-EARTH-9");
+        int deckBefore = f.me().getDeck().size();
+
+        game.playCard(f.room(), "me", spell, List.of(), false);
+
+        assertThat(f.me().getManaZone()).as("9枚 + 置いた1枚 = 10枚").hasSize(10);
+        assertThat(f.me().getDeck().size()).as("新: マナ加速1枚 + ドロー1枚で山札-2")
+                .isEqualTo(deckBefore - 2);
+    }
+
+    @Test
+    void 大地の恵みはマナが10枚に届かなければ引かない() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), f.card("QTE-M-EARTH-9").cost());
+        int spell = f.giveHand(f.me(), "QTE-M-EARTH-9");
+        int deckBefore = f.me().getDeck().size();
+
+        game.playCard(f.room(), "me", spell, List.of(), false);
+
+        assertThat(f.me().getDeck().size()).as("マナ加速の1枚だけ").isEqualTo(deckBefore - 1);
+    }
+
+    // ---- 黄泉の召喚主(QTE-M-DARK-15・区分4)★裁定275 待ちのため本体は未着手 ----
+    // 旧: 「サブフェイズ時、ミニオンを墓地から召喚してもよい(コストは支払う)。」
+    // 新: 「サブフェイズ時ミニオンを墓地から<b>手札にあるかのように</b>召喚してもよい(コストは支払う)」
+    //
+    // 「手札にあるかのように」がどこまでを指すかが2通り以上に読めるため、実装で決めずに
+    // 裁定へ回した(裁定184)。ただしこの入口には Ver.0.4 から潜っていた穴があり、
+    // 対象を選ぶ【召喚時】を持つミニオンを墓地から召喚すると NullPointerException で
+    // 落ちていた。裁定が付くまでの間、黙って壊れる代わりに理由を返して止める。
+
+    @Test
+    void 黄泉の召喚主は対象を選ぶ召喚時を持つミニオンを墓地から召喚できない() {
+        AutoGameFixture f = newGameWithLeader("QTE-M-DARK-15");
+        payMana(f.me(), 8);
+        f.me().getTrash().add("QTE-M-DARK-20"); // 【召喚時】ミニオン1体に3ダメージ
+        f.putOnField(f.you(), PLAIN_MINION);
+        f.state().setPhase(com.example.qte.game.TurnPhase.SUB);
+
+        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0))
+                .as("500で落ちるのではなく、理由の付いた拒否になる(裁定275待ちの暫定)")
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("墓地からは召喚できません");
+    }
+
+    @Test
+    void 黄泉の召喚主は対象を選ばないミニオンなら従来どおり墓地から召喚できる() {
+        AutoGameFixture f = newGameWithLeader("QTE-M-DARK-15");
+        payMana(f.me(), 8);
+        f.me().getTrash().add(PLAIN_GUARD);
+        f.state().setPhase(com.example.qte.game.TurnPhase.SUB);
+
+        game.summonFromGrave(f.room(), "me", 0);
+
+        assertThat(f.fieldIds(f.me())).containsExactly(PLAIN_GUARD);
+        assertThat(f.me().getTrash()).isEmpty();
+    }
+
+    // ==================================================================
+    // ★Batch 57 で見つかった実装の穴(カードの作り直しとは別)
+    // ==================================================================
+
+    // 壊し検証(tools/batch56_break_check.py ケース1)が見つけた穴。
+    // Kind.WEAPON の要求だけ、Requirement.side() がサーバで検証されていなかった。
+    // TargetSpec の Javadoc は「サーバはこれに照らして選択の正当性を検証する」と
+    // 謳っており、ウェポンだけがその約束を守っていなかった。
+
+    @Test
+    void ウェポンの対象は要求された側でなければサーバが弾く() {
+        AutoGameFixture f = newGame();
+        f.me().setEquippedWeapon(cards.findById(PLAIN_WEAPON));
+        f.you().setEquippedWeapon(cards.findById(PLAIN_WEAPON));
+        payMana(f.me(), f.card("QTE-M-LIGHT-8").cost());
+        int hand = f.giveHand(f.me(), "QTE-M-LIGHT-8"); // 相手のウェポン限定(Side.OPPONENT)
+
+        assertThatThrownBy(() -> game.playCard(f.room(), "me", hand, List.of(weapon("SELF")), false))
+                .as("Side.OPPONENT の要求に SELF を送っても通ってはいけない")
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(f.me().getEquippedWeapon()).as("盤面は動いていない").isNotNull();
+    }
+
+    @Test
+    void ウェポンの対象がSideANYなら両方選べる() {
+        AutoGameFixture f = newGame();
+        f.me().setEquippedWeapon(cards.findById(PLAIN_WEAPON));
+        payMana(f.me(), 2);
+        int spell = f.giveHand(f.me(), "QTE-M-FIRE-24"); // 武具昇華の炎(Side.ANY)
+
+        assertThatCode(() -> game.playCard(f.room(), "me", spell, List.of(weapon("SELF")), false))
+                .doesNotThrowAnyException();
+        assertThat(f.me().getEquippedWeapon()).isNull();
     }
 }

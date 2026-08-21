@@ -48,6 +48,8 @@ public class RuleGuards {
     private static final String GLEAM_SHIELD = "QTE-M-LIGHT-16";    // 煌めきの盾(自身は攻撃不可)
     private static final String GENESIS_IRIS = "QTE-M-LIGHT-25";    // 創世神(自身はリーダーを攻撃不可)
     private static final String ABSOLUTE_GAIA = "QTE-M-EARTH-23";   // 不動の絶対神ガイア(自身はリーダーを攻撃不可・土文明)
+    /** 獄門の裁定者(★Batch 57。Ver1.1 で「このミニオンはリーダーを攻撃できない」が付いた・闇文明) */
+    private static final String WARDEN_JUDGE = "QTE-M-DARK-23";
     private static final String ZODIAC = "QTE-M-LIGHT-8";          // ゾディアック(相手リーダーは攻撃不可)
     private static final String HAKUREI = "QTE-M-WIND-34";         // ハク霊(自身は攻撃不可・★Batch 48)
     private static final String KOKUREI = "QTE-M-WIND-35";         // コク霊(自身は攻撃不可・★Batch 48)
@@ -95,7 +97,7 @@ public class RuleGuards {
      * (コメントを除いたソースに現れるカードIDのうち、登録にも宣言にも無いものがあれば止まる)。
      */
     public static final Set<String> IMPLEMENTED_CARDS = Set.of(
-            PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC,
+            PEACE_BARRIER, GLEAM_SHIELD, GENESIS_IRIS, ABSOLUTE_GAIA, ZODIAC, WARDEN_JUDGE,
             MICHAEL, HOLY_PROTECTOR_AURA, JUSTICE_SHIELD, JUDGEMENT_ANGEL,
             ORDER_ENFORCER, TEMPLE_KNIGHT, HAKUREI, KOKUREI, MOANIRU, SUPPORT_TANUKI,
             KOREKI);
@@ -169,6 +171,10 @@ public class RuleGuards {
         }
         if (targetIsLeader && ABSOLUTE_GAIA.equals(attacker.getMaster().id())) {
             return "【不動の絶対神ガイア】はリーダーを攻撃できません";
+        }
+        // ★Batch 57: 獄門の裁定者(Ver1.1)。9/9/9 と引き換えにリーダーを殴れない
+        if (targetIsLeader && WARDEN_JUDGE.equals(attacker.getMaster().id())) {
+            return "【獄門の裁定者】はリーダーを攻撃できません";
         }
         // 平和の結界は敵味方を問わず、Attack3以上の全てのミニオンを止める(自身も含む)
         if (isOnAnyField(state, PEACE_BARRIER)

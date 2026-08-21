@@ -796,22 +796,10 @@ public class GameActions {
         return destroyed;
     }
 
-    /** 裏向きのマナ1枚を手札に戻す(冥府の禁皇の起動能力)。戻せたらtrue */
-    public boolean returnFaceDownManaToHand(GameRoom room, PlayerState owner) {
-        for (int i = owner.getManaZone().size() - 1; i >= 0; i--) {
-            ManaCard mana = owner.getManaZone().get(i);
-            if (mana.isFaceUp()) {
-                continue;
-            }
-            owner.getManaZone().remove(i);
-            owner.getHand().add(mana.getCardId());
-            room.addLog("裏向きのマナ【%s】が手札に戻りました"
-                    .formatted(cards.findById(mana.getCardId()).name()));
-            manaLeft(room, owner);
-            return true;
-        }
-        return false;
-    }
+    // ★Batch 57: returnFaceDownManaToHand(裏向きのマナ1枚を手札に戻す)は削除した。
+    // 唯一の使い手だった《冥府の禁皇》の起動能力が Ver1.1 で参照ゾーンを墓地へ変えたため、
+    // 呼び出し元が1つも無くなったからである(死んだコードを残さない)。
+    // 表向き版の returnFaceUpManaToHand(風のマナ変換)は使い手が居るので残っている。
 
     /**
      * 墓地のカードを裏向きでマナゾーンに置く(禁忌の墓地利用)。
@@ -914,7 +902,6 @@ public class GameActions {
 
     /**
      * 表向きのマナ1枚を手札に戻す(Batch 12b。風のマナ変換)。
-     * 既存の {@link #returnFaceDownManaToHand} は裏向き専用であり、表向き版が無かった。
      * 戻す1枚は末尾(最後に置かれたもの)から探す。
      *
      * @return 戻せたらtrue(表向きのマナが1枚もなければfalse)
