@@ -38,17 +38,23 @@ import lombok.Getter;
  *
  * <p><b>{@code ledgerCardId} は {@link CardMaster} に持たせない。</b>
  * 退役するIDを新しい正に持ち込むと、いつまでも2つのIDが並走する。
- * 台帳との対応が要るのは移行作業と、それを検める試験だけであり、
- * どちらもファイルを直に読めばよい({@code tools/build_id_map.py} / {@code CardIdMappingTest})。
+ * 由来との対応が要るのは移行作業と、それを検める試験だけであり、
+ * どちらもファイルを直に読めばよい({@code tools/check_legacy_ids.py} / {@code CardIdMappingTest})。
  *
- * <p><b>{@code qte-cards.json} は削除していない。</b> 46b では<b>読まなくなるだけ</b>である。
- * 1バッチ分の戻り道を残すのと、抽出規則の番人({@code CardTextKeywordsTest} の169枚照合)が
- * まだあのファイルを必要としているためである。
+ * <h2>★Batch 60: 台帳ファイルを削除した</h2>
+ *
+ * 46b の時点では {@code qte-cards.json} を<b>読まなくなっただけ</b>で、ファイルは残していた ——
+ * 1バッチ分の戻り道と、抽出規則の番人({@code CardTextKeywordsTest} の169枚照合)のためである。
+ * 60 で区分5(作り直し)が終わり、戻り道は要らなくなった。
+ * 番人のほうは、台帳から<b>人手が付けたキーワード169件だけ</b>を抜き出して
+ * {@code src/test/resources/keyword-baseline.json} に凍結してある
+ * ({@code com.example.qte.support.KeywordBaseline})。
+ * ★台帳を丸ごと残すと、次に読む人はそれを<b>もう1つのカード台帳</b>として読む。
  */
 @Repository
 public class CardMasterRepository {
 
-    /** ★Batch 46b で {@code cards/qte-cards.json} から差し替えた */
+    /** ★Batch 46b で台帳({@code cards/qte-cards.json}・60 で削除)から差し替えた */
     private static final String RESOURCE = "cards/manual-cards.json";
 
     private final Map<String, CardMaster> cardsById;
@@ -96,7 +102,7 @@ public class CardMasterRepository {
     /**
      * カード定義1件。
      *
-     * ★{@code imageId} / {@code ledgerCardId} / {@code unlimitedCopies} は
+     * ★{@code imageId} / {@code ledgerCardId} は
      * {@code ignoreUnknown} で読み飛ばす。エンジンが使わない項目を record に足すと、
      * 「使えるから使ってしまう」経路が開く。画像は画面側が
      * {@code /manual/api/card-library} から引く(裁定144 と同じ形)。

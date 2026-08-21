@@ -29,7 +29,9 @@ import tools.jackson.databind.ObjectMapper;
  * <p>それでもこのクラスが残るのは、<b>エンジンが持たない2項目</b>を見るためである。
  * <ul>
  * <li>{@code ledgerCardId} … 退役するIDを {@code CardMaster} に持ち込まないと決めた(46b)。
- *     台帳との対応を確かめられるのは、ファイルを直に読んだときだけである。</li>
+ *     由来との対応を確かめられるのは、ファイルを直に読んだときだけである。
+ *     ★台帳ファイルそのものは Batch 60 で削除したので、確かめられるのは
+ *     「重複していない・169枚に付いている」までである({@code CardIdMappingTest})。</li>
  * <li>{@code imageId} … 画像は画面側が {@code /manual/api/card-library} から引く(裁定144)。
  *     エンジンは持たない。</li>
  * </ul>

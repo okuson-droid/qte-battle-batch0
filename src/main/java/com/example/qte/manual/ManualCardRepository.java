@@ -136,15 +136,16 @@ public class ManualCardRepository {
             Integer attack,
             Integer hp,
             String imageId,
-            String ledgerCardId,
-            Boolean unlimitedCopies) {
+            String ledgerCardId) {
+        // ★Batch 60: unlimitedCopies を受ける口も外した。manual-cards.json に
+        // この項目は1件も無く、@JsonIgnoreProperties(ignoreUnknown = true) があるので、
+        // 将来また現れても読み飛ばされるだけで壊れない
 
         ManualCardMaster toMaster() {
             return new ManualCardMaster(id, name,
                     ManualCardType.valueOf(type),
                     ManualCivilization.valueOf(civilization),
-                    cost, attack, hp, imageId, ledgerCardId,
-                    Boolean.TRUE.equals(unlimitedCopies));
+                    cost, attack, hp, imageId, ledgerCardId);
         }
     }
 }

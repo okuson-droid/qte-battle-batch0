@@ -15,7 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.Keyword;
-import com.example.qte.support.LedgerCards;
+import com.example.qte.support.KeywordBaseline;
 import com.example.qte.support.Ver11Cards;
 
 import tools.jackson.databind.ObjectMapper;
@@ -29,23 +29,30 @@ import tools.jackson.databind.ObjectMapper;
  * 実データ169枚で確かめておかないと、移行の瞬間に全カードの挙動が静かに変わる。
  *
  * <p>★期待値を書き並べていない(裁定110)。突き合わせているのは
- * <b>台帳 {@code qte-cards.json} から読んだ値</b>と<b>Ver1.1 のテキストから読んだ値</b>であり、
- * どちらもファイルから来る。テストが持っているのは、両者が食い違う9枚の表だけである。
+ * <b>凍結した物差し {@code keyword-baseline.json} から読んだ値</b>と
+ * <b>Ver1.1 のテキストから読んだ値</b>であり、どちらもファイルから来る。
+ * テストが持っているのは、両者が食い違う9枚の表だけである。
  *
  * <h2>★Batch 46b で変えたこと(マスター裁定: 照合は残す)</h2>
  *
  * 46b で {@link CardMasterRepository} が読むファイルが Ver1.1 に変わったため、
- * <b>台帳は本体からは読めなくなった</b>。照合はテスト専用の読み口
- * {@link LedgerCards} 経由で続ける —— 素朴な規則では22枚が狂うのだから(裁定159)、
- * 169枚の回帰検出を無料で残せるうちは残す。
+ * <b>台帳は本体からは読めなくなった</b>。照合はテスト専用の読み口を経由して続ける ——
+ * 素朴な規則では22枚が狂うのだから(裁定159)、169枚の回帰検出を残す価値がある。
  *
  * <p>同時に、照合の<b>右辺を「規則の出力」から「リポジトリが実際に持っている値」へ移した</b>。
  * 46a の時点では本体がまだ台帳を読んでいたので規則を直接叩くしかなかったが、
  * 今はエンジンが持つ値そのものを測れる。<b>規則が正しくても配線を間違えれば挙動は変わる</b>ので、
  * 測るべきは配線の先である。
  *
- * <p>★{@code qte-cards.json} を削除するバッチで、{@link LedgerCards} と
- * 台帳照合の2件を一緒に消すこと。
+ * <h2>★Batch 60: 台帳は消え、物差しだけが残った</h2>
+ *
+ * 60 で {@code qte-cards.json}(101KB・169枚・Ver0.4)を削除した。
+ * <b>照合そのものは残す</b>というマスターの判断により、台帳から
+ * 「人手で付けたキーワード」169件だけを抜き出して
+ * {@code src/test/resources/keyword-baseline.json}(7KB)に凍結し、
+ * 読み口を {@link KeywordBaseline} に置き換えてある。
+ * ★物差しは<b>Ver1.1 のカードIDで引く</b>ので、{@code ledgerCardId} を経由しない ——
+ * 台帳という概念はこのテストから完全に消えた。
  */
 @SpringBootTest
 class CardTextKeywordsTest {
@@ -58,7 +65,7 @@ class CardTextKeywordsTest {
     ObjectMapper objectMapper;
 
     private List<Ver11Cards.Card> ver11;
-    private Map<String, Set<Keyword>> ledgerKeywords;
+    private Map<String, Set<Keyword>> baseline;
 
     /** Ver1.1 のカード定義。Jackson の設定は Spring から借りるので、読み込みは初回参照時に行う */
     private List<Ver11Cards.Card> ver11Cards() {
@@ -68,18 +75,12 @@ class CardTextKeywordsTest {
         return ver11;
     }
 
-    /** 台帳ID → 人手で付けたキーワード(退役した台帳ファイルから直に読む) */
-    private Map<String, Set<Keyword>> ledgerKeywords() {
-        if (ledgerKeywords == null) {
-            Map<String, Set<Keyword>> map = new LinkedHashMap<>();
-            for (LedgerCards.Card card : LedgerCards.load(objectMapper)) {
-                map.put(card.id(), card.keywords().stream()
-                        .map(Keyword::fromDisplayName)
-                        .collect(java.util.stream.Collectors.toUnmodifiableSet()));
-            }
-            ledgerKeywords = map;
+    /** Ver1.1 のカードID → 人手で付けられていたキーワード(凍結した物差し・169件) */
+    private Map<String, Set<Keyword>> baseline() {
+        if (baseline == null) {
+            baseline = KeywordBaseline.load(objectMapper);
         }
-        return ledgerKeywords;
+        return baseline;
     }
 
     // ------------------------------------------------------------------
@@ -202,27 +203,27 @@ class CardTextKeywordsTest {
     }
 
     @Test
-    void 台帳と対応づく169枚のうち食い違うのは既知の9枚だけである() {
+    void 物差しと対応づく169枚のうち食い違うのは既知の9枚だけである() {
         // ★46b: 左辺は「リポジトリが実際に持っている値」である(規則の出力ではない)。
         // 規則が正しくても、リポジトリの配線を間違えれば挙動は変わる。測るのは配線の先。
         Map<String, String> unexpected = new LinkedHashMap<>();
         int compared = 0;
         for (Ver11Cards.Card card : ver11Cards()) {
-            if (card.ledgerCardId() == null) {
-                continue; // 新カード66枚。台帳に相手がいないので突き合わせられない
+            if (!baseline().containsKey(card.id())) {
+                continue; // 新カード66枚。Ver0.4 に相手がいないので突き合わせられない
             }
             compared++;
             Set<Keyword> inEngine = cards.findById(card.id()).keywords();
             Set<Keyword> expected = VER11_KEYWORD_CHANGES.containsKey(card.id())
                     ? VER11_KEYWORD_CHANGES.get(card.id())
-                    : ledgerKeywords().get(card.ledgerCardId());
+                    : baseline().get(card.id());
             if (!inEngine.equals(expected)) {
                 unexpected.put(card.id() + " " + card.name(),
                         "期待 " + sorted(expected) + " / エンジン " + sorted(inEngine));
             }
         }
         assertThat(compared).isEqualTo(169);
-        assertThat(unexpected).as("台帳と食い違うのは表に書いた9枚だけのはず").isEmpty();
+        assertThat(unexpected).as("物差しと食い違うのは表に書いた9枚だけのはず").isEmpty();
     }
 
     @Test
@@ -250,10 +251,10 @@ class CardTextKeywordsTest {
         for (String id : VER11_KEYWORD_CHANGES.keySet()) {
             Ver11Cards.Card card = byId.get(id);
             assertThat(card).as("差分表のカードが Ver1.1 に存在しない: " + id).isNotNull();
-            assertThat(card.ledgerCardId()).as("差分表のカードに台帳の対応が無い: " + id).isNotNull();
+            assertThat(baseline()).as("差分表のカードが物差しに載っていない: " + id).containsKey(id);
             assertThat(VER11_KEYWORD_CHANGES.get(id))
-                    .as("差分表の " + id + " は台帳と同じ内容になっている(表から消すこと)")
-                    .isNotEqualTo(ledgerKeywords().get(card.ledgerCardId()));
+                    .as("差分表の " + id + " は物差しと同じ内容になっている(表から消すこと)")
+                    .isNotEqualTo(baseline().get(id));
         }
     }
 

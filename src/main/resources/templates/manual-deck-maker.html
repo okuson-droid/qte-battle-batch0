@@ -727,7 +727,11 @@ function toast(msg){
   toastTimer=setTimeout(()=>{ toastTimer=null; t.hidden=true; },1600);
 }
 function costKey(c){ return (c==null)?'0':(c>=10?'10plus':String(c)); }
-function isUnlimited(c){ return !!c.unlimited; }
+/* ★Batch 60: isUnlimited(同名無制限の例外)は削除した。
+   「4枚以上入れられる」を持つカードは Ver1.1 の235枚に1枚も無く
+   (《ゾンストライカー》の構築特例は裁定267 で廃止)、カードデータにも項目が無い。
+   常に false を返す関数と、それを見る2箇所の分岐だけが残っていた。
+   サーバ側(ManualDeckImporter.checkNameLimit / DeckValidator)も同時に外してある。 */
 
 /* ============================================================
  * 0-2) モーダルの層と確認(★★★Batch 39・裁定47〜56)
@@ -970,8 +974,7 @@ function loadLibrary(lib){
   CARDS = lib.cards
     .map(c=>({id:c.id, name:c.name, type:c.type, civ:CIV_JA[c.civilization]||c.civilization,
               cost:c.cost, atk:c.attack, hp:c.hp,
-              text:c.text||'',
-              unlimited:!!c.unlimitedCopies}))
+              text:c.text||''}))
     .filter(c=>c.civ!=='無');   // ピュア・エレメントは構築対象外(後攻へ自動配布される)
   byId = new Map(CARDS.map(c=>[c.id,c]));
   resetDeck();
@@ -1014,7 +1017,7 @@ function changeCount(id, delta){
   const cur = deck.counts.get(id)||0;
   if(delta>0){
     const isMain = isMainCard(c);
-    const max = isMain ? (isUnlimited(c) ? MAIN_SIZE : MAX_SAME) : TABOO_SAME;
+    const max = isMain ? MAX_SAME : TABOO_SAME;
     if(cur>=max){ toast(!isMain?'禁忌デッキは同名1枚までです':`同名カードは${max}枚までです`); return; }
     deck.counts.set(id,cur+1);
   }else{
@@ -1248,7 +1251,7 @@ function validateDeck(){
   for(const [id,q] of deck.counts){
     const c = byId.get(id); if(!c) continue;
     if(!isMainCard(c)){ if(q>TABOO_SAME) overTaboo.push(`${c.name}(${q})`); }
-    else if(!isUnlimited(c) && q>MAX_SAME) overMain.push(`${c.name}(${q})`);
+    else if(q>MAX_SAME) overMain.push(`${c.name}(${q})`);
   }
   const shortage = (n, size)=> n===size ? 'ちょうど' : (n<size ? `あと ${size-n} 枚` : `${n-size} 枚多い`);
   return [

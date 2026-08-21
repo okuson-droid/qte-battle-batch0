@@ -56,7 +56,9 @@ class Batch55TriageTest {
     private static final String PLAIN_LEADER = "QTE-M-WATER-1"; // 蒼海の賢者(起動能力のみ)
 
     // 区分1: 旧台帳の keywords(表示名を Keyword enum に変換したもの)。
-    // データの出どころは qte-cards.json と manual-cards.json の突き合わせ(tools/rework_triage.py と同じ)。
+    // データの出どころは Ver0.4 台帳と manual-cards.json の突き合わせである(当時 tools/rework_triage.py が行った)。
+    // ★台帳もツールも Batch 60 で削除した。ここに焼き付いた35枚は当時の断面の記録であり、
+    //   もう作り直せない —— 数え直したくなったら notes/rework-triage.md を読むこと。
     private static final Object[][] CATEGORY1_KEYWORDS = {
         {"QTE-M-FIRE-13", Set.of(Keyword.KNOWLEDGE)},
         {"QTE-M-FIRE-6", Set.of(Keyword.HASTE)},

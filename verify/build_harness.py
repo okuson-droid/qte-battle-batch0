@@ -42,14 +42,33 @@ html = html.replace(
     "",
 )
 
+
+def _sub_once(text, pattern, replacement, what):
+    """Thymeleaf のリンクを実ファイルの相対パスへ書き換える(★Batch 60)。
+
+    ★版数(?v=NN)は正規表現で吸う。59 までは版数まで含めた文字列一致で書いていたため、
+      battle.js の版を上げるたびにここが黙って一致しなくなり、
+      スクリプトが読み込まれないまま「render is not defined」で落ちていた。
+      置換が0件なら、その場で止めて理由を出す —— 黙って壊れるのがいちばん悪い。
+    """
+    new, count = re.subn(pattern, replacement, text)
+    if count == 0:
+        raise SystemExit("harness: %s の書き換えに失敗した(元の HTML が変わった?)" % what)
+    return new
+
+
 # 実ファイルを相対パスで読ませる
-html = html.replace(
-    '<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">',
+html = _sub_once(
+    html,
+    r'<link th:href="@\{/css/battle\.css\(v=\d+\)\}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
+    "manual-battle.html の battle.css",
 )
-html = html.replace(
-    '<script th:src="@{/js/manual-battle.js(v=33)}"></script>',
+html = _sub_once(
+    html,
+    r'<script th:src="@\{/js/manual-battle\.js\(v=\d+\)\}"></script>',
     '<script src="/js/manual-battle.js"></script>',
+    "manual-battle.html の manual-battle.js",
 )
 
 # Thymeleaf 属性を落とす(値は静的なもので置き換える)
@@ -256,9 +275,11 @@ print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")
 #   (ロビーの一覧APIと同じ考え方。スタブに置き換えると「形が変わったのに検証は通る」を作る)。
 # ---------------------------------------------------------------------------
 deck = DECK_TEMPLATE.read_text(encoding="utf-8")
-deck = deck.replace(
-    '<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">',
+deck = _sub_once(
+    deck,
+    r'<link th:href="@\{/css/battle\.css\(v=\d+\)\}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
+    "manual-deck-maker.html の battle.css",
 )
 deck = re.sub(r'\s+th:href="[^"]*"', ' href="#"', deck)
 deck = deck.replace(' th:inline="none"', "")
@@ -288,13 +309,17 @@ battle = battle.replace(
     '<script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>',
     "",
 )
-battle = battle.replace(
-    '<link th:href="@{/css/battle.css(v=46)}" rel="stylesheet">',
+battle = _sub_once(
+    battle,
+    r'<link th:href="@\{/css/battle\.css\(v=\d+\)\}" rel="stylesheet">',
     '<link href="/css/battle.css" rel="stylesheet">',
+    "battle.html の battle.css",
 )
-battle = battle.replace(
-    '<script th:src="@{/js/battle.js(v=25)}"></script>',
+battle = _sub_once(
+    battle,
+    r'<script th:src="@\{/js/battle\.js\(v=\d+\)\}"></script>',
     '<script src="/js/battle.js"></script>',
+    "battle.html の battle.js",
 )
 battle = battle.replace("/*[[${roomId}]]*/ ''", "'TESTRM'")
 battle = battle.replace("/*[[${playerId}]]*/ ''", "'P1'")

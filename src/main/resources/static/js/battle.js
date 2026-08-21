@@ -455,6 +455,13 @@ function pickTrashCard(index) {
     const req = currentRequirement();
     if (!req || req.kind !== 'TRASH') return;
     if (pending.current.trashIndexes.includes(index)) return;
+    // ★Batch 60: 墓地から出すカード自身は、そのカードの対象には選べない。
+    // 出どころ(trashIndex)は extra に載っているので、それと同じ位置なら断る。
+    // サーバの GameService.requireTrashSourceNotTargeted が同じ判定をやり直す
+    if (pending.extra && pending.extra.trashIndex === index) {
+        showMessage('墓地から出すカード自身は対象に選べません');
+        return;
+    }
     const card = latestView.you.trash[index];
     if (!matchesFilters(req, card, null)) return;
     pending.current.trashIndexes.push(index);
@@ -476,9 +483,22 @@ function openTrashPicker(mode) {
         const picked = pending && pending.current.trashIndexes.includes(index);
         const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
         const label = `${card.name} (${card.type === 'SPELL' ? 'スペル' : card.type === 'WEAPON' ? 'ウェポン' : 'ミニオン'}${cost != null ? ' コスト' + cost : ''})`;
-        rows.push({ index, label, picked });
+        rows.push({ index, label, picked, card });
     });
     showModalRows(title, rows, mode);
+}
+
+/**
+ * 墓地からの召喚(《黄泉の召喚主》)を始める。★Batch 60(裁定278(c))。
+ *
+ * 59 までは trashIndex を送るだけだったが、【召喚時】が対象を要求するミニオンも
+ * ここから出せるようになった。手札から召喚するときと段取りはまったく同じである ——
+ * 対象要求(card.targets)はサーバが墓地の面にも添えてくれているので、
+ * この画面は beginSelection にそのまま渡すだけでよい(要求が無ければ即送信される)。
+ */
+function beginGraveSummon(trashIndex, card) {
+    hideModal();
+    beginSelection('summon-from-grave', null, card.targets, { trashIndex });
 }
 
 /** クリックできる行を持つモーダル。情報表示用のshowModalとは別に用意する */
@@ -497,8 +517,7 @@ function showModalRows(title, rows, mode) {
             btn.textContent = (row.picked ? '選択中: ' : '') + row.label;
             btn.onclick = () => {
                 if (mode === 'summon') {
-                    hideModal();
-                    send('summon-from-grave', { trashIndex: row.index });
+                    beginGraveSummon(row.index, row.card);
                 } else {
                     pickTrashCard(row.index);
                 }

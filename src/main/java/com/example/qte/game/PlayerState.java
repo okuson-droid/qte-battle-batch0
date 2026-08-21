@@ -123,8 +123,9 @@ public class PlayerState {
     /**
      * 現在のターン中にマナゾーンへカードが置かれた回数(土文明の豊穣の地霊主が参照する)。
      * マナチャージ(総合ルール6章-3)・カード効果によるマナ加速のいずれによる配置も含む。
-     * 配置経路は {@link GameActions#placeCardInManaFaceUp} の1箇所に集約されており、
-     * そこから {@link #recordManaPlacement(int)} を通じて数える。
+     * ★<b>Batch 60: 裏向きで置かれた分も数える</b>(《豊穣の地霊主》の本文は向きを条件にしていない)。
+     * 数えるのは {@link GameActions#manaPlaced(com.example.qte.room.GameRoom, PlayerState)}
+     * 1箇所であり、表向き・裏向き・一時マナ(ピュア・エレメント)のどの経路もそこを通る。
      * <p>
      * このカウンタは「自分のターン開始時にリセット」ではなく、配置のたびにターン番号を
      * 照合して数え直す({@link #manaPlacedCountTurn} を参照)。これは相手のターン中に

@@ -1,0 +1,362 @@
+{
+  "_note": "退役した Ver0.4 台帳(qte-cards.json・Batch 60 で削除)で、人手が付けていたキーワードだけを Ver1.1 のカードIDに写し替えて凍結したものである。★これはカード台帳ではない —— コスト・攻撃力・本文・画像を1つも持たず、エンジンはこのファイルを読まない。使い道は1つだけで、CardTextKeywords(テキストからキーワードを読む規則)を触ったときに169枚の解釈が黙って変わっていないかを CardTextKeywordsTest が検出することである。素朴な規則では22枚が狂うので(裁定159)、この番人には値段に見合う価値がある。",
+  "_source": "qte-cards.json (Ver0.4 / 169枚) — Batch 59 時点の内容を Batch 60 で凍結",
+  "_count": 169,
+  "keywords": {
+    "QTE-M-WATER-1": [],
+    "QTE-M-WATER-2": [
+      "知識"
+    ],
+    "QTE-M-WATER-3": [
+      "守護"
+    ],
+    "QTE-M-WATER-4": [
+      "守護"
+    ],
+    "QTE-M-WATER-5": [
+      "守護"
+    ],
+    "QTE-M-WATER-6": [
+      "突進",
+      "威圧"
+    ],
+    "QTE-M-WATER-7": [
+      "突進",
+      "守護"
+    ],
+    "QTE-M-WATER-8": [
+      "特殊召喚"
+    ],
+    "QTE-M-WATER-9": [],
+    "QTE-M-WATER-10": [],
+    "QTE-M-WATER-11": [],
+    "QTE-M-WATER-12": [],
+    "QTE-M-WATER-13": [],
+    "QTE-M-WATER-14": [
+      "知識"
+    ],
+    "QTE-M-WATER-15": [],
+    "QTE-M-WATER-16": [
+      "知識",
+      "貫通"
+    ],
+    "QTE-M-WATER-17": [
+      "知識",
+      "還元",
+      "守護"
+    ],
+    "QTE-M-WATER-18": [
+      "突進"
+    ],
+    "QTE-M-WATER-19": [
+      "知識",
+      "守護"
+    ],
+    "QTE-M-WATER-20": [
+      "突進",
+      "潜伏"
+    ],
+    "QTE-M-WATER-21": [
+      "知識"
+    ],
+    "QTE-M-WATER-22": [
+      "知識",
+      "守護",
+      "特殊召喚"
+    ],
+    "QTE-M-WATER-23": [
+      "知識",
+      "守護",
+      "特殊召喚"
+    ],
+    "QTE-M-WATER-24": [
+      "知識",
+      "特殊召喚"
+    ],
+    "QTE-M-WATER-25": [],
+    "QTE-M-WATER-26": [],
+    "QTE-M-WATER-27": [
+      "還元"
+    ],
+    "QTE-M-WATER-28": [
+      "貫通"
+    ],
+    "QTE-M-FIRE-1": [],
+    "QTE-M-FIRE-2": [],
+    "QTE-M-FIRE-3": [],
+    "QTE-M-FIRE-4": [],
+    "QTE-M-FIRE-5": [],
+    "QTE-M-FIRE-6": [
+      "速攻"
+    ],
+    "QTE-M-FIRE-7": [
+      "守護"
+    ],
+    "QTE-M-FIRE-8": [
+      "速攻",
+      "特殊召喚"
+    ],
+    "QTE-M-FIRE-9": [],
+    "QTE-M-FIRE-10": [],
+    "QTE-M-FIRE-11": [],
+    "QTE-M-FIRE-12": [],
+    "QTE-M-FIRE-13": [
+      "知識"
+    ],
+    "QTE-M-FIRE-14": [],
+    "QTE-M-FIRE-15": [],
+    "QTE-M-FIRE-16": [],
+    "QTE-M-FIRE-17": [],
+    "QTE-M-FIRE-18": [
+      "知識"
+    ],
+    "QTE-M-FIRE-19": [],
+    "QTE-M-FIRE-20": [
+      "知識",
+      "特殊召喚"
+    ],
+    "QTE-M-FIRE-21": [
+      "守護",
+      "特殊召喚"
+    ],
+    "QTE-M-FIRE-22": [
+      "速攻",
+      "特殊召喚"
+    ],
+    "QTE-M-FIRE-23": [],
+    "QTE-M-FIRE-24": [],
+    "QTE-M-FIRE-25": [],
+    "QTE-M-FIRE-26": [
+      "還元"
+    ],
+    "QTE-M-FIRE-27": [
+      "還元"
+    ],
+    "QTE-M-FIRE-28": [],
+    "QTE-M-DARK-1": [],
+    "QTE-M-DARK-2": [],
+    "QTE-M-DARK-3": [],
+    "QTE-M-DARK-4": [],
+    "QTE-M-DARK-5": [],
+    "QTE-M-DARK-6": [
+      "突進"
+    ],
+    "QTE-M-DARK-7": [
+      "特殊召喚",
+      "突進",
+      "知識"
+    ],
+    "QTE-M-DARK-8": [],
+    "QTE-M-DARK-9": [],
+    "QTE-M-DARK-10": [],
+    "QTE-M-DARK-11": [],
+    "QTE-M-DARK-12": [],
+    "QTE-M-DARK-13": [],
+    "QTE-M-DARK-14": [],
+    "QTE-M-DARK-15": [],
+    "QTE-M-DARK-16": [
+      "突進"
+    ],
+    "QTE-M-DARK-17": [],
+    "QTE-M-DARK-18": [
+      "守護"
+    ],
+    "QTE-M-DARK-19": [
+      "守護",
+      "知識",
+      "還元"
+    ],
+    "QTE-M-DARK-20": [],
+    "QTE-M-DARK-21": [],
+    "QTE-M-DARK-22": [
+      "守護"
+    ],
+    "QTE-M-DARK-23": [
+      "守護"
+    ],
+    "QTE-M-DARK-24": [],
+    "QTE-M-DARK-25": [],
+    "QTE-M-DARK-26": [],
+    "QTE-M-DARK-27": [],
+    "QTE-M-DARK-28": [],
+    "QTE-M-LIGHT-1": [],
+    "QTE-M-LIGHT-2": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-3": [
+      "知識"
+    ],
+    "QTE-M-LIGHT-4": [],
+    "QTE-M-LIGHT-5": [
+      "守護",
+      "潜伏"
+    ],
+    "QTE-M-LIGHT-6": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-7": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-8": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-9": [],
+    "QTE-M-LIGHT-10": [],
+    "QTE-M-LIGHT-11": [],
+    "QTE-M-LIGHT-12": [],
+    "QTE-M-LIGHT-13": [],
+    "QTE-M-LIGHT-14": [],
+    "QTE-M-LIGHT-15": [],
+    "QTE-M-LIGHT-16": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-17": [
+      "知識"
+    ],
+    "QTE-M-LIGHT-18": [
+      "還元"
+    ],
+    "QTE-M-LIGHT-19": [],
+    "QTE-M-LIGHT-20": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-21": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-22": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-23": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-24": [
+      "守護"
+    ],
+    "QTE-M-LIGHT-25": [
+      "守護",
+      "潜伏",
+      "知識"
+    ],
+    "QTE-M-LIGHT-26": [
+      "還元"
+    ],
+    "QTE-M-LIGHT-27": [],
+    "QTE-M-LIGHT-28": [],
+    "QTE-M-WIND-1": [],
+    "QTE-M-WIND-2": [
+      "知識"
+    ],
+    "QTE-M-WIND-3": [
+      "速攻"
+    ],
+    "QTE-M-WIND-4": [],
+    "QTE-M-WIND-5": [
+      "突進"
+    ],
+    "QTE-M-WIND-6": [],
+    "QTE-M-WIND-7": [],
+    "QTE-M-WIND-8": [
+      "速攻"
+    ],
+    "QTE-M-WIND-9": [],
+    "QTE-M-WIND-10": [],
+    "QTE-M-WIND-11": [],
+    "QTE-M-WIND-12": [],
+    "QTE-M-WIND-13": [],
+    "QTE-M-WIND-14": [],
+    "QTE-M-WIND-15": [],
+    "QTE-M-WIND-16": [
+      "守護",
+      "突進"
+    ],
+    "QTE-M-WIND-17": [
+      "潜伏",
+      "守護"
+    ],
+    "QTE-M-WIND-18": [
+      "突進"
+    ],
+    "QTE-M-WIND-19": [
+      "守護",
+      "特殊召喚"
+    ],
+    "QTE-M-WIND-20": [
+      "知識",
+      "還元"
+    ],
+    "QTE-M-WIND-21": [
+      "守護",
+      "特殊召喚"
+    ],
+    "QTE-M-WIND-22": [],
+    "QTE-M-WIND-23": [],
+    "QTE-M-WIND-24": [],
+    "QTE-M-WIND-25": [],
+    "QTE-M-WIND-26": [],
+    "QTE-M-WIND-27": [
+      "還元"
+    ],
+    "QTE-M-WIND-28": [
+      "知識"
+    ],
+    "QTE-M-EARTH-1": [],
+    "QTE-M-EARTH-2": [
+      "守護"
+    ],
+    "QTE-M-EARTH-3": [],
+    "QTE-M-EARTH-4": [],
+    "QTE-M-EARTH-5": [
+      "守護",
+      "潜伏"
+    ],
+    "QTE-M-EARTH-6": [
+      "突進"
+    ],
+    "QTE-M-EARTH-7": [],
+    "QTE-M-EARTH-8": [
+      "特殊召喚"
+    ],
+    "QTE-M-EARTH-9": [],
+    "QTE-M-EARTH-10": [
+      "還元"
+    ],
+    "QTE-M-EARTH-11": [],
+    "QTE-M-EARTH-12": [],
+    "QTE-M-EARTH-13": [],
+    "QTE-M-EARTH-14": [],
+    "QTE-M-EARTH-15": [],
+    "QTE-M-EARTH-16": [],
+    "QTE-M-EARTH-17": [
+      "突進"
+    ],
+    "QTE-M-EARTH-18": [
+      "突進",
+      "還元"
+    ],
+    "QTE-M-EARTH-19": [
+      "突進"
+    ],
+    "QTE-M-EARTH-20": [
+      "守護"
+    ],
+    "QTE-M-EARTH-21": [],
+    "QTE-M-EARTH-22": [
+      "速攻"
+    ],
+    "QTE-M-EARTH-23": [
+      "潜伏"
+    ],
+    "QTE-M-EARTH-24": [
+      "速攻"
+    ],
+    "QTE-M-EARTH-25": [],
+    "QTE-M-EARTH-26": [
+      "還元"
+    ],
+    "QTE-M-EARTH-27": [
+      "還元"
+    ],
+    "QTE-M-EARTH-28": [],
+    "QTE-M-NONE-01": []
+  }
+}

@@ -1,7 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-手動モード用カードデータの変換(Batch 17a)。
+手動モード用カードデータの変換(Batch 17a)。★★Batch 60 で退役した。実行できない。
+
+===================================================================
+★★このスクリプトはもう動かない(実行すると理由を出して止まる)。
+===================================================================
+
+理由は2つある。どちらも「直せば動く」類のものではない。
+
+  1. 読んでいた台帳 src/main/resources/cards/qte-cards.json を Batch 60 で削除した。
+  2. ★このスクリプトは text を持たない JSON を出す(下の「出力される JSON」を参照)。
+     ところが今の manual-cards.json は全235枚に text を持っている ——
+     Ver1.1 のカード本文であり、キーワード抽出(CardTextKeywords)とカード効果の
+     すべてがそこにぶら下がっている。再実行すれば、その本文が丸ごと消える。
+
+★では消さずに残しているのはなぜか。
+  manual-cards.json が「CSV 6文明 + 画像ディレクトリ」からどう組み上がったかを
+  書き残しているのはこのファイルだけだからである。カードを増やすときは、
+  ここに書かれた CSV の列の意味と検査の項目を読んだうえで、
+  text を保つ形の変換を新しく書くこと。そのまま再実行してはいけない。
+
+以下は当時のままの説明である。
 
 6文明の CSV(Shift_JIS・ヘッダ行なし・9列)から
 src/main/resources/cards/manual-cards.json を生成する。
@@ -189,6 +209,18 @@ class Report:
 
     def has_blocking(self):
         return bool(self.fatal)
+
+
+RETIRED = """\
+tools/convert_manual_cards.py は Batch 60 で退役した。実行できない。
+
+  - 読んでいた台帳 qte-cards.json は削除された
+  - このスクリプトは text を持たない manual-cards.json を出す。
+    今の manual-cards.json は全235枚に本文を持っており、再実行すると全部消える
+
+カードを増やすときは、このファイルの説明(CSV の列と検査項目)を読んだうえで、
+text を保つ変換を新しく書くこと。
+"""
 
 
 def convert(root, out_path, csv_dir):
@@ -465,6 +497,12 @@ def print_report(payload, report, type_counts, civ_counts, out_path):
 
 
 def main():
+    # ★Batch 60: 引数を読むより前に止める。誤って実行した人の手が滑る余地を残さないため
+    print(RETIRED, file=sys.stderr)
+    return 2
+
+
+def _retired_main_body():
     parser = argparse.ArgumentParser(description="CSV6本から manual-cards.json を生成する")
     parser.add_argument("root", nargs="?", default=".", help="リポジトリのルート")
     parser.add_argument("--csv-dir", default=None, help="CSV の置き場(既定 <root>/tools/csv)")

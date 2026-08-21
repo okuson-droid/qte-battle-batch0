@@ -152,12 +152,17 @@ public class GameWsController {
 
     /**
      * 墓地からのミニオン召喚(リーダー【黄泉の召喚主】のみ・サブフェイズ)。
-     * UIからの呼び出しはBatch 10bで追加する。
+     *
+     * ★<b>Batch 60(裁定278(c)): 対象を選ぶ【召喚時】も通るようになった。</b>
+     * 受け取る型を {@code TrashActionRequest} から {@link GraveSummonRequest} へ変えている ——
+     * 墓地からの【特殊召喚】と<b>まったく同じ形</b>(墓地の位置 + 対象)であり、
+     * 型を2つに分ける理由が無い。{@code materialIds} はこちらでは読まない
+     * (墓地からの「召喚」で出せるのはミニオンだけで、進化は【特殊召喚】の側を通る)。
      */
     @MessageMapping("/room/{roomId}/summon-from-grave")
-    public void summonFromGrave(@DestinationVariable String roomId, TrashActionRequest request) {
+    public void summonFromGrave(@DestinationVariable String roomId, GraveSummonRequest request) {
         execute(roomId, request.playerId(), room -> gameService.summonFromGrave(
-                room, request.playerId(), request.trashIndex()));
+                room, request.playerId(), request.trashIndex(), request.targets()));
     }
 
     /** フェイズを1つ進める */
@@ -224,8 +229,9 @@ public class GameWsController {
     public record HandActionRequest(String playerId, int handIndex) {
     }
 
-    public record TrashActionRequest(String playerId, int trashIndex) {
-    }
+    // ★Batch 60: TrashActionRequest(playerId + trashIndex だけ)は削除した。
+    // 最後の使い手だった summon-from-grave が、裁定278(c) で対象を伴うようになり
+    // GraveSummonRequest へ移ったためである。「墓地の位置を送る操作」の型は1つでよい。
 
     /**
      * @param materialIds ★Batch 52。進化召喚の素材にする自分の場のミニオンの instanceId。
@@ -240,8 +246,10 @@ public class GameWsController {
     }
 
     /**
-     * 墓地からの【特殊召喚】(★Batch 53)。手札の位置ではなく墓地の位置を送る。
-     * ★{@code TrashActionRequest} を使い回さなかったのは、こちらが対象と進化素材を伴うためである。
+     * 墓地を出どころにする召喚(★Batch 53)。手札の位置ではなく墓地の位置を送る。
+     *
+     * ★Batch 60: <b>墓地からの【特殊召喚】と、墓地からの召喚(《黄泉の召喚主》)が共用する。</b>
+     * 後者は {@code materialIds} を読まない —— 出せるのはミニオンだけだからである。
      */
     public record GraveSummonRequest(String playerId, int trashIndex,
             List<TargetChoice> targets, List<String> materialIds) {

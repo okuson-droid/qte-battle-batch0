@@ -1228,28 +1228,19 @@ class Batch56ReworkTest {
         assertThat(f.me().getDeck().size()).as("マナ加速の1枚だけ").isEqualTo(deckBefore - 1);
     }
 
-    // ---- 黄泉の召喚主(QTE-M-DARK-15・区分4)★裁定275 待ちのため本体は未着手 ----
+    // ---- 黄泉の召喚主(QTE-M-DARK-15・区分4)----
     // 旧: 「サブフェイズ時、ミニオンを墓地から召喚してもよい(コストは支払う)。」
     // 新: 「サブフェイズ時ミニオンを墓地から<b>手札にあるかのように</b>召喚してもよい(コストは支払う)」
     //
     // 「手札にあるかのように」がどこまでを指すかが2通り以上に読めるため、実装で決めずに
     // 裁定へ回した(裁定184)。ただしこの入口には Ver.0.4 から潜っていた穴があり、
     // 対象を選ぶ【召喚時】を持つミニオンを墓地から召喚すると NullPointerException で
-    // 落ちていた。裁定が付くまでの間、黙って壊れる代わりに理由を返して止める。
-
-    @Test
-    void 黄泉の召喚主は対象を選ぶ召喚時を持つミニオンを墓地から召喚できない() {
-        AutoGameFixture f = newGameWithLeader("QTE-M-DARK-15");
-        payMana(f.me(), 8);
-        f.me().getTrash().add("QTE-M-DARK-20"); // 【召喚時】ミニオン1体に3ダメージ
-        f.putOnField(f.you(), PLAIN_MINION);
-        f.state().setPhase(com.example.qte.game.TurnPhase.SUB);
-
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0))
-                .as("500で落ちるのではなく、理由の付いた拒否になる(裁定275待ちの暫定)")
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("墓地からは召喚できません");
-    }
+    // 落ちていた。56 はそれを「理由を返して止める」暫定のガードに変えた。
+    //
+    // ★<b>Batch 60(裁定278(c)): そのガードは外れた。</b>対象選択の導線を新設したので、
+    // 対象を選ぶ【召喚時】も墓地から通る。ここに残すのは「対象を選ばないミニオンは
+    // 従来どおり出せる」のほうだけで、外れた側の試験は Batch60Test へ移してある
+    // (拒否ではなく成功を測る形に書き換わっている)。
 
     @Test
     void 黄泉の召喚主は対象を選ばないミニオンなら従来どおり墓地から召喚できる() {
@@ -1258,7 +1249,7 @@ class Batch56ReworkTest {
         f.me().getTrash().add(PLAIN_GUARD);
         f.state().setPhase(com.example.qte.game.TurnPhase.SUB);
 
-        game.summonFromGrave(f.room(), "me", 0);
+        game.summonFromGrave(f.room(), "me", 0, List.of());
 
         assertThat(f.fieldIds(f.me())).containsExactly(PLAIN_GUARD);
         assertThat(f.me().getTrash()).isEmpty();

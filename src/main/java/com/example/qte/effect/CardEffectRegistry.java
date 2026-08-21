@@ -595,7 +595,7 @@ public class CardEffectRegistry {
 
     /**
      * 「自分のマナゾーンにカードが置かれた」イベントの処理(土文明)。
-     * GameActions.placeCardInManaFaceUp が配置1回ごとに呼ぶ(マナチャージ・カード効果を問わない)。
+     * GameActions.manaPlaced が配置1回ごとに呼ぶ(マナチャージ・カード効果、表向き・裏向きを問わない。★Batch 60)。
      *
      * 豊穣の地霊主(L012): マナにカードが置かれたとき、そのターン中それが2回目なら1ドロー。
      * カウンタは配置イベントの発火前に加算済みのため、2回目の配置ではちょうど2を読む。
@@ -1237,12 +1237,13 @@ public class CardEffectRegistry {
         //        <b>【突進】破壊されたとき自分の山札の上から1枚を墓地に置く。</b>」
         //
         // ★<b>構築特例(同名4枚超えを許す)は Ver1.1 で廃止された</b>(マスター裁定267(a))。
-        //   ★<b>この廃止のために書くコードは1行も無い。</b>特例の宣言は
-        //   コードではなくカード定義({@code manual-cards.json} の {@code unlimitedCopies})が
-        //   持っており、Ver1.1 のカード定義には<b>その項目がそもそも無い</b> ——
-        //   したがって同名4枚上限は既に効いている。
-        //   ★{@code ManualDeckImporter} に残っている {@code unlimitedCopies} の分岐は
-        //   これで完全に死んだ。掃除は Batch 60(引き継ぎ書の積み残し)。
+        //   ★<b>この廃止のために書くコードは1行も無かった。</b>特例の宣言は
+        //   コードではなくカード定義({@code manual-cards.json})が持っており、
+        //   Ver1.1 のカード定義には<b>その項目がそもそも無い</b> ——
+        //   したがって同名4枚上限は既に効いていた。
+        //   ★Batch 60: 死んでいた {@code unlimitedCopies} の分岐
+        //   ({@code ManualCardMaster} / {@code ManualCardRepository} /
+        //   {@code ManualDeckImporter} / デッキメーカー)は<b>すべて掃除した</b>。
         //
         // ★<b>実際に足す実装は「破壊されたとき1枚セルフミル」のほうである。</b>
         //   「破壊されたとき」であって「戦闘で破壊されたとき」ではないので ON_DESTROYED を使う

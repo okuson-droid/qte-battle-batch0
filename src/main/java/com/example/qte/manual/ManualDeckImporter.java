@@ -538,23 +538,27 @@ public class ManualDeckImporter {
     }
 
     /**
-     * 同名上限の検証。★カードテキストによる上書きを許す(総合ルール 7-3 は
-     * デッキ構築検証にも及ぶ。例: ゾンストライカー「4枚以上入れられる」)。
-     * 上書きの宣言はコードではなくカード定義({@code manual-cards.json} の
-     * {@code unlimitedCopies})が持つ。IDや名前をここに書かない。
+     * 同名上限の検証。
+     *
+     * <p>★<b>Batch 60: 「4枚以上入れられる」の例外を取り除いた。</b>
+     * 46b までは、カード定義の {@code unlimitedCopies} を持つカードだけ上限を免除していた
+     * (総合ルール 7-3 のテキスト上書きがデッキ構築にも及ぶ、という形)。
+     * その最後の持ち主だった《ゾンストライカー》の構築特例は<b>裁定267 で廃止され</b>、
+     * Ver1.1 の235枚に該当は1枚も残っていない。
+     * 免除の判定はここでも {@code manual-cards.json} でも常に偽であり、
+     * 「必ず通らない道」だけが残っていた。
+     *
+     * <p>もう一度そういうカードが現れたら、そのときに作り直す。
+     * 誰も通らない分岐を残しておくより、そのほうが安全である(46b の DeckValidator と同じ判断)。
      */
     private void checkNameLimit(List<ManualDeckImport.Entry> deck, int limit, String label,
             List<String> warnings) {
         Map<String, Integer> counts = new LinkedHashMap<>();
-        Map<String, Boolean> exempt = new LinkedHashMap<>();
         for (ManualDeckImport.Entry entry : deck) {
             counts.merge(entry.displayName(), 1, Integer::sum);
-            if (entry.master() != null && entry.master().unlimitedCopies()) {
-                exempt.put(entry.displayName(), true);
-            }
         }
         for (Map.Entry<String, Integer> count : counts.entrySet()) {
-            if (count.getValue() > limit && !exempt.containsKey(count.getKey())) {
+            if (count.getValue() > limit) {
                 warnings.add("%s の同名上限 %d 枚を超えている: %s(%d 枚)"
                         .formatted(label, limit, count.getKey(), count.getValue()));
             }

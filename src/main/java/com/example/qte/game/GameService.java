@@ -1110,7 +1110,9 @@ public class GameService {
         requireCanEnterField(state, player);
         List<MinionInstance> materials = evolution
                 ? resolveMaterials(player, master, materialIds) : List.of();
-        // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である
+        // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である。
+        // ★Batch 60: 墓地の自己除外は手札の位置では表せないので、専用の門で塞ぐ
+        requireTrashSourceNotTargeted(trashIndex, spec.targets().requirements(), choices);
         ValidatedTargets validated = validateTargets(state, player, -1, spec.targets(), choices);
         payCost(player, spec.mpCost());
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
@@ -1133,9 +1135,27 @@ public class GameService {
      *
      * 効果による「出す」ではなく「召喚」であるため、【召喚時】(ON_SUMMON)も発動する。
      *
+     * <h2>★Batch 60(裁定278(c)): 対象を選ぶ【召喚時】もここから通る</h2>
+     *
+     * Batch 57 から 59 までのあいだ、この入口は
+     * 「【召喚時】に対象を選ぶミニオンは墓地からは召喚できません」と理由を返して止めていた。
+     * 止めていたのは<b>対象の選択({@link TargetChoice})を受け取る口が無かった</b>ためであり、
+     * ルールとしてそう決まっていたからではない。裁定275 が「手札にあるかのように」を
+     * 狭く読んだ結果、そのガードは恒久のルールになる<b>はずだった</b>が、
+     * マスター裁定278 は (c) ——<b>導線を新設する</b>—— を採った。
+     * カードテキストのどこにも書かれていない制限を1つ増やすより、
+     * 《黄泉の召喚主》と《執念の暗殺者》が同じスターターに入っている遊び味を採る、という判断である。
+     *
+     * <p>新設したといっても、道具は1つも増えていない ——
+     * {@link #specialSummonFromGrave}(Batch 53)が既に持っていた
+     * 「墓地の位置 + 対象」の形をそのまま借りただけである
+     * ({@code GraveSummonRequest} も {@code battle.js} の {@code beginSelection} も共用する)。
+     *
      * @param trashIndex 墓地の何番目のカードか
+     * @param choices    【召喚時】が要求する対象の選択。要求が無いカードでは空でよい
      */
-    public void summonFromGrave(GameRoom room, String playerId, int trashIndex) {
+    public void summonFromGrave(GameRoom room, String playerId, int trashIndex,
+            List<TargetChoice> choices) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -1157,43 +1177,66 @@ public class GameService {
         if (player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
-        // ★Batch 57: 【召喚時】に対象を選ぶミニオンは、墓地からは召喚できない。
-        //
-        // この入口は対象の選択(TargetChoice)を受け取らないため、
-        // {@code summonToField} に null を渡している。対象を読む ON_SUMMON
-        // (執念の暗殺者・腐敗の投擲者など)がそこで発火すると NullPointerException になり、
-        // <b>500 で落ちる</b>。Ver.0.4 から潜っていた穴であり、闇のスターターは
-        // 黄泉の召喚主と執念の暗殺者を同時に積むので実際に踏める。
-        //
-        // ★Batch 59(裁定275 確定): マスターは<b>狭い読み</b>を採った ——
-        // 「手札にあるかのように」は「効果で場に出すのではなく<b>召喚</b>である」の念押しにすぎず、
-        // 墓地を手札と同じゾーンとして扱う(【特殊召喚】の代替コストや「手札の」を参照する軽減が
-        // 乗る)という意味ではない。したがって<b>実装は変えない</b>。
-        // このガードは暫定ではなく<b>恒久のルール</b>である。
-        //
-        // ★残っている問い: 対象を読む【召喚時】を「選ばせずに自動決定(AutoChoice)で通す」
-        // 形にするかどうかは、まだ決まっていない(Batch 60 へ)。今は止める側を採る ——
-        // 黙って壊れる(NullPointerException で 500)よりは理由を返すほうがよく、
-        // 自動決定は「本人に選ばせる」原則(裁定192)から外れる選択なので、
-        // 実装で決めずに裁定を仰ぐ(裁定184)。
-        if (!effects.targetSpecOf(master.id()).requirements().isEmpty()) {
-            throw new IllegalStateException(
-                    "【%s】は召喚時に対象を選ぶため、墓地からは召喚できません".formatted(master.name()));
-        }
         requireCanEnterField(state, player);
+        // ★Batch 60(裁定278(c)): ここから先は通常召喚(playMinion)と同じ順序である ——
+        // 検証(状態を変えない)→ 支払い → 墓地から取り除く → 場に出す → 効果。
+        TargetSpec spec = effects.targetSpecOf(master.id());
+        requireTrashSourceNotTargeted(trashIndex, spec.requirements(), choices);
+        // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である
+        ValidatedTargets validated = validateTargets(state, player, -1, spec, choices);
         payCost(player, stats.effectiveCost(state, player, master));
+        ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
         player.getTrash().remove(trashIndex);
         room.addLog("%sが墓地から【%s】を召喚".formatted(player.getDisplayName(), master.name()));
-        MinionInstance summoned = summonToField(room, state, player, master, null, false);
+        MinionInstance summoned = summonToField(room, state, player, master, resolved, false);
         // 【演舞の墓守】(★Batch 50): 自分の墓地から出たミニオンはそのターンAttack+1。
         // ★経路を問わない(マスター裁定204)ので、効果による「出す」(GameActions.reviveFromGrave)
         // だけでなく、この「墓地からの召喚」でも乗る
         if (summoned != null) {
-            effects.fireMinionEnteredFromGrave(contextOf(room, state, player, summoned, null));
+            effects.fireMinionEnteredFromGrave(contextOf(room, state, player, summoned, resolved));
         }
         player.setPlayedCardThisTurn(true);
         // 墓地からの召喚もカードの使用として数える(a1)
         afterCardUsed(room, state, player, false);
+    }
+
+    /**
+     * 墓地から出すカード自身を、そのカードの対象に選ぶことを禁じる(★Batch 60)。
+     *
+     * <h2>なぜ要るのか</h2>
+     *
+     * 墓地を出どころにする2つの入口({@link #summonFromGrave} /
+     * {@link #specialSummonFromGrave})は、<b>対象の検証を済ませてから</b>
+     * 出すカードを墓地から取り除く。順序を逆にすると、検証で弾かれたときに
+     * 状態が変わってしまうためである(通常召喚と同じ「検証 → 支払い → 除去」の順)。
+     *
+     * <p>その結果、検証の時点では出すカード自身がまだ墓地に居る。
+     * {@code Kind.TRASH} の要求はそれを<b>普通の候補として見てしまう</b> ——
+     * つまり「墓地から出るのに、出た後の効果でもう一度墓地から拾われる」1枚が作れる。
+     *
+     * <p>今の235枚では実害が出ない。{@code Kind.TRASH} の【召喚時】を持つ唯一のミニオンは
+     * 《墓場の怨念集合体》で、その要求は {@code SPELL_CARD} で絞られており、
+     * ミニオンである自分自身は絞り込みで落ちるからである。
+     * ★<b>だからこそここで塞ぐ。</b>絞り込みが偶然守っているだけの穴は、
+     * 次に「墓地のミニオンを拾う【召喚時】」が1枚増えた瞬間に開く。
+     *
+     * @param trashIndex 出どころとして指定された墓地の位置
+     * @param reqs       そのカードが要求する対象の一覧
+     * @param choices    クライアントから届いた生の選択(検証前。信用しない)
+     */
+    private void requireTrashSourceNotTargeted(int trashIndex,
+            List<TargetSpec.Requirement> reqs, List<TargetChoice> choices) {
+        if (choices == null || reqs.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < reqs.size() && i < choices.size(); i++) {
+            if (reqs.get(i).kind() != TargetSpec.Kind.TRASH) {
+                continue;
+            }
+            if (choices.get(i).trashIndexes().contains(trashIndex)) {
+                throw new IllegalArgumentException("墓地から出すカード自身は対象に選べません");
+            }
+        }
     }
 
     /** 素材を取らない召喚(通常のミニオン・蘇生・禁忌)。進化以外はすべてこちらを通る */
@@ -1288,6 +1331,13 @@ public class GameService {
     /**
      * ピュア・エレメント: 使用時このカード自身を裏向きの一時マナとしてマナゾーンに置く。
      * 通常のスペルと違い墓地へ行かない(カード自体がマナになる)。ターン終了時に消滅する。
+     *
+     * <p>★<b>Batch 60: これも「マナにカードが置かれた」1回として数える。</b>
+     * 一時マナであることは本文の「マナゾーンに置く」を打ち消さない ——
+     * 《豊穣の地霊主》は<b>置かれたこと</b>に反応するのであって、
+     * 置かれたものがターンをまたぐかどうかは見ていない。
+     * ★一時マナを作るのはこの1枚だけなので、{@code GameActions} の裏向きの共通入口には
+     * 合流させず、置いたあとで通知({@code manaPlaced})だけを送っている。
      */
     private void playPureElement(GameRoom room, PlayerState player, int handIndex) {
         if (player.getManaZone().size() >= PlayerState.MAX_MANA) {
@@ -1299,6 +1349,7 @@ public class GameService {
         player.getManaZone().add(mana);
         room.addLog("%sが【ピュア・エレメント】を使用: このターンの間マナが1枚増えます"
                 .formatted(player.getDisplayName()));
+        actions.manaPlaced(room, player);
     }
 
     /**

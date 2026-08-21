@@ -808,29 +808,17 @@ class Batch59ReworkTest {
         game.nextPhase(f.room(), "me"); // メイン→バトル
         game.nextPhase(f.room(), "me"); // バトル→サブ
 
-        game.summonFromGrave(f.room(), "me", 0);
+        game.summonFromGrave(f.room(), "me", 0, List.of());
 
         assertThat(f.fieldIds(f.me())).containsExactly(SKY_SWALLOW);
         assertThat(f.me().getTrash()).isEmpty();
     }
 
-    /**
-     * ★<b>ガードは恒久のルールである</b>(裁定275(a))。
-     * 「手札にあるかのように」を広く読んで対象選択の導線を新設する、という道は採らなかった。
-     * 黙って NullPointerException で落ちる代わりに、理由を返して止める。
-     */
-    @Test
-    void 黄泉の召喚主は召喚時に対象を選ぶミニオンを墓地から召喚できない() {
-        AutoGameFixture f = newGame(GRAVE_SUMMONER);
-        payMana(f.me(), 5);
-        f.me().getTrash().add(SHADOW_ASSASSIN);
-        f.putOnField(f.you(), SKY_SWALLOW); // 対象の候補は居る
-        game.nextPhase(f.room(), "me");
-        game.nextPhase(f.room(), "me");
-
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0))
-                .hasMessageContaining("墓地からは召喚できません");
-    }
+    // ★Batch 60(裁定278(c)): 「召喚時に対象を選ぶミニオンは墓地から召喚できない」の試験は
+    // ここから消えた。裁定278 が (c)(対象選択の導線を新設する)を採ったためであり、
+    // 同じ盤面が「拒否される」ではなく「対象を選んで召喚できる」を測る形で
+    // Batch60Test に置き直してある。★裁定275(狭い読み)そのものは変わっていない ——
+    // 変わったのは「対象を運ぶ口が無いから止めていた」という<b>実装の都合</b>のほうである。
 
     @Test
     void 黄泉の召喚主のサブフェイズ以外では墓地から召喚できない() {
@@ -839,7 +827,7 @@ class Batch59ReworkTest {
         f.me().getTrash().add(SKY_SWALLOW);
 
         assertThat(f.state().getPhase()).isEqualTo(TurnPhase.MAIN);
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0))
+        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0, List.of()))
                 .isInstanceOf(IllegalStateException.class);
     }
 }

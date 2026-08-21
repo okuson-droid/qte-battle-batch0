@@ -54,7 +54,6 @@ Ver1.1 対応(P1〜P5)は 163枚の効果を作る長い作業である。途中
 import json
 import re
 import sys
-import unicodedata
 from collections import Counter, OrderedDict
 from pathlib import Path
 
@@ -87,18 +86,7 @@ def load_cards():
         return json.load(f)['cards']
 
 
-def load_ledger():
-    with open(CARDS / 'qte-cards.json', encoding='utf-8') as f:
-        return {c['id']: c for c in json.load(f)['cards']}
-
-
-def normalized(text):
-    """本文の比較用。全角半角と句読点・空白の違いだけを消す。
-
-    ★意味の違いまでは判定できない。ここで数えられるのは「字面が違う」までであり、
-      それが遊びに効く変更かどうかは人が読むしかない。
-    """
-    return re.sub(r'[\s。、,\.]+', '', unicodedata.normalize('NFKC', text or ''))
+# ★Batch 60: normalized(本文の字面比較)は、使い手だった台帳との突き合わせごと削除した。
 
 
 def registered_ids():
@@ -325,7 +313,7 @@ def main():
     w('| ├ 宣言あり(表ではなくルール側に実装) | %d |' % len(partial))
     w('| └ **未実装** | **%d** |' % len(todo))
     w('')
-    w('新カード(台帳に無い) %d 枚のうち、効果の文があるのは %d 枚。'
+    w('新カード(Ver0.4 に由来を持たない) %d 枚のうち、効果の文があるのは %d 枚。'
       % (len([r for r in rows if r['new']]),
          len([r for r in rows if r['new'] and r['sentence']])))
     w('')
@@ -356,24 +344,11 @@ def main():
           % (typ, len(sub), c['登録あり'], c['宣言あり'], c['未実装']))
     w('')
 
-    ledger = load_ledger()
-    changed = [c for c in cards
-               if c.get('ledgerCardId')
-               and normalized(c['text']) != normalized(ledger[c['ledgerCardId']]['text'])]
-    changed_impl = [c for c in changed if c['id'] in registered]
-    w('## 本文が台帳と異なるカード(作り直しの候補)')
-    w('')
-    w('| 区分 | 枚数 |')
-    w('|---|---|')
-    w('| 台帳と対応づくカード | %d |' % len([c for c in cards if c.get('ledgerCardId')]))
-    w('| うち本文が異なる(全角半角・句読点の違いを除く) | %d |' % len(changed))
-    w('| うち効果が登録済み = **作り直しの対象** | %d |' % len(changed_impl))
-    w('')
-    w('★これは字面の比較である。表記を整えただけのものも含まれるため、'
-      '遊びに効く変更が何枚かは人が読んで決める'
-      '(2026-08-16 時点の読み合わせでは実質変更86・うち実装済み69。'
-      '`notes/ver11-migration-plan.md` 0-2)。')
-    w('')
+    # ★Batch 60: 「本文が台帳と異なるカード(作り直しの候補)」の節は削除した。
+    #   数えるのに Ver0.4 台帳(qte-cards.json)が要るが、区分5 が終わったので
+    #   台帳ごと消してある。作り直し(P5)は Batch 59 で121枚すべてを消化して完了しており、
+    #   何枚残っているかを毎回数え直す相手はもう居ない。
+    #   当時の内訳は notes/rework-triage.md に記録として残っている。
 
     if '--summary' not in args:
         w('## 未実装の一覧(★盤面で「効果未実装」の印が付くカード)')

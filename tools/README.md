@@ -14,6 +14,9 @@ python3 tools/check_all.py .                                         # 項目 1�
 python3 tools/check_records.py src/main/java                         # 項目 4
 python3 tools/check_undeclared.py src/main/resources/static/js/*.js  # 項目 8
 node --check src/main/resources/static/js/battle.js                  # 項目 7
+python3 tools/check_legacy_ids.py                                    # ★Batch 60
+python3 tools/check_leader_abilities.py
+python3 tools/report_effects.py --summary                            # 未実装 0 枚が正常値
 ```
 
 ## 各スクリプトが見るもの
@@ -24,6 +27,22 @@ node --check src/main/resources/static/js/battle.js                  # 項目 7
 | `check_all.py` | 1 package宣言とディレクトリの一致 / 3 カードIDの実在 / 5 メソッド参照の解決 / 6 デッキプリセットの枚数と同名制限 |
 | `check_records.py` | 4 recordのコンストラクタ引数の数 |
 | `check_undeclared.py` | 8 JSの未宣言変数(Batch 11a の事故の再発防止) |
+| `check_legacy_ids.py` | ★Batch 60。Ver0.4 形式のカードID(QTE-0001 等)が本番のコードに書かれていないこと / 由来のIDが重複せず169枚に付いていること |
+| `check_leader_abilities.py` | リーダーの【起動：n】がテキストと一致すること |
+| `report_effects.py` | 効果の実装状況(`--summary` で枚数だけ)。**未実装0枚が正常値である** |
+| `batchNN_break_check.py` | そのバッチの「壊し検証」。実装をわざと壊して試験が落ちることを確かめる |
+
+### ★Batch 60 で消したもの
+
+| ファイル | なぜ消したか |
+|---|---|
+| `build_id_map.py` | Ver0.4 台帳と Ver1.1 の対応表を作るツール。台帳(`qte-cards.json`)を 60 で削除したので作れないし、46b の機械変換はとうに終わっている。台帳を見ずに確かめられる分だけ `check_legacy_ids.py` に移した |
+| `rework_triage.py` | 作り直し(P5)121枚の進捗を数えるツール。Batch 59 で121枚すべてを消化して**完了した**ので、数え直す相手が居ない。当時の内訳は `notes/rework-triage.md` に記録として残る |
+
+`convert_manual_cards.py`(CSV → manual-cards.json)は**退役した**。実行すると理由を出して止まる ——
+読んでいた台帳が無く、そのうえ今の `manual-cards.json` は全235枚に本文を持っているので、
+再実行すると本文が丸ごと消えるためである。カードを増やすときは、あのファイルに書かれた
+CSV の列の意味と検査項目を読んだうえで、本文を保つ変換を新しく書くこと。
 
 ---
 

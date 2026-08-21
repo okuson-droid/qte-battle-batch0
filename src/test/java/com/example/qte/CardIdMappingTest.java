@@ -17,7 +17,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
 import com.example.qte.master.Civilization;
-import com.example.qte.support.LedgerCards;
 import com.example.qte.support.Ver11Cards;
 
 import tools.jackson.databind.ObjectMapper;
@@ -36,15 +35,21 @@ import tools.jackson.databind.ObjectMapper;
  * <li>Ver1.1 側の型・文明が、エンジンの列挙体で表せる</li>
  * </ul>
  *
+ * <h2>★Batch 60: 台帳が消えたので、対応の検査は片側だけになった</h2>
+ *
+ * {@code qte-cards.json} を削除したため、「台帳の169件が余さず指されている」は
+ * <b>もう確かめられない</b>(相手のファイルが存在しない)。
+ * 代わりに残したのは、台帳を見ずに確かめられる分 ——
+ * <b>{@code ledgerCardId} が重複せず、ちょうど169枚に付いている</b>ことである。
+ * ★この2つが真であるかぎり、46b の機械的な書き換え(台帳ID169種 →
+ * {@code QTE-M-<文明>-<番号>})の前提は今も崩れていない。
+ * <b>台帳の側が変わる</b>ことは、もう起こりえない —— 消えたファイルは変化しないからである。
+ *
  * ★このテストは移行<b>前</b>に置いた。移行してから「前提が崩れていた」と気づくと、
  * 何がどこまで正しく変換されたのか誰にも分からなくなるからである。
  * 移行後も残すのは、カード定義ファイルを差し替えたときに同じ前提が崩れるのを検出するためである。
- * 同じ検証は {@code tools/build_id_map.py --check} でも行える(あちらは Maven を要さない)。
+ * 同じ検証は {@code tools/check_legacy_ids.py} でも行える(あちらは Maven を要さない)。
  *
- * <p>★46b の変更点: 台帳側は本体のリポジトリからは読めなくなったので
- * {@link LedgerCards} 経由にした。{@code qte-cards.json} を削除するバッチで、
- * 台帳を見る2件({@code 台帳とVer11のカードが1対1で対応する} と
- * {@code 台帳に無い新カードは66枚である})も一緒に畳むこと。
  */
 @SpringBootTest
 class CardIdMappingTest {
@@ -57,23 +62,12 @@ class CardIdMappingTest {
     ObjectMapper objectMapper;
 
     private List<Ver11Cards.Card> ver11;
-    private Set<String> ledgerIds;
 
     private List<Ver11Cards.Card> ver11Cards() {
         if (ver11 == null) {
             ver11 = Ver11Cards.load(objectMapper);
         }
         return ver11;
-    }
-
-    /** 退役した台帳のカードID(169件)。テスト専用の読み口から直に読む */
-    private Set<String> ledgerIds() {
-        if (ledgerIds == null) {
-            ledgerIds = LedgerCards.load(objectMapper).stream()
-                    .map(LedgerCards.Card::id)
-                    .collect(Collectors.toCollection(TreeSet::new));
-        }
-        return ledgerIds;
     }
 
     @Test
@@ -101,11 +95,16 @@ class CardIdMappingTest {
                 Map.entry("NONE", 1L));
     }
 
+    /**
+     * ★Batch 60: 台帳ファイルが消えたので、「台帳の側に余りが無い」は検査から外れた。
+     * 残しているのは<b>Ver1.1 の側だけで確かめられること</b>である ——
+     * {@code ledgerCardId} が重複せず、ちょうど169枚に付いていること。
+     * 46b の機械的な書き換えが成り立つ前提はこの2つである。
+     */
     @Test
-    void 台帳とVer11のカードが1対1で対応する() {
+    void 由来のIDは重複せずちょうど169枚に付いている() {
         Map<String, String> byLedgerId = new LinkedHashMap<>();
         Set<String> duplicated = new TreeSet<>();
-        Set<String> notInLedger = new TreeSet<>();
         for (Ver11Cards.Card card : ver11Cards()) {
             String ledgerId = card.ledgerCardId();
             if (ledgerId == null) {
@@ -114,27 +113,18 @@ class CardIdMappingTest {
             if (byLedgerId.put(ledgerId, card.id()) != null) {
                 duplicated.add(ledgerId);
             }
-            if (!ledgerIds().contains(ledgerId)) {
-                notInLedger.add(ledgerId + " (" + card.id() + ")");
-            }
         }
-        assertThat(duplicated).as("2枚の Ver1.1 カードが同じ台帳カードを指している").isEmpty();
-        assertThat(notInLedger).as("台帳に存在しない ledgerCardId").isEmpty();
-
-        Set<String> unreferenced = ledgerIds().stream()
-                .filter(id -> !byLedgerId.containsKey(id))
-                .collect(Collectors.toCollection(TreeSet::new));
-        assertThat(unreferenced).as("どの Ver1.1 カードからも指されていない台帳カード").isEmpty();
-        assertThat(byLedgerId).hasSize(ledgerIds().size());
+        assertThat(duplicated).as("2枚の Ver1.1 カードが同じ由来のIDを指している").isEmpty();
+        assertThat(byLedgerId).as("Ver0.4 から引き継いだのは169枚である").hasSize(169);
     }
 
     @Test
-    void 台帳に無い新カードは66枚である() {
+    void 由来のIDを持たない新カードは66枚である() {
         List<Ver11Cards.Card> fresh = ver11Cards().stream()
                 .filter(c -> c.ledgerCardId() == null)
                 .toList();
         assertThat(fresh).hasSize(66);
-        // ★進化18枚はすべて新カードである(台帳に進化という概念が無い)。
+        // ★進化18枚はすべて新カードである(Ver0.4 に進化という概念が無い)。
         assertThat(fresh.stream().filter(c -> "EVOLUTION".equals(c.type()))).hasSize(18);
     }
 

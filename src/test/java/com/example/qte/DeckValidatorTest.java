@@ -247,15 +247,40 @@ class DeckValidatorTest {
     }
 
     /** メインデッキの1枚だけを差し替える(合計40枚を保つ) */
+    /**
+     * メインデッキの1枚を {@code cardId} に差し替える。合計40枚は保つ。
+     *
+     * <p>★<b>Batch 60: 差し込むカードが既にデッキに居る場合に対応した。</b>
+     * 60 でプリセットを Ver1.1 化した結果、その文明のカードは<b>ほぼ全種類がプリセットに入った</b> ——
+     * 「デッキに無いカードを1枚足す」が成り立たなくなり、
+     * 行が重複して {@code DeckValidator} に弾かれていた。
+     * 既にある行なら枚数を1増やし、無ければ行を足す。
+     * 減らす側も、差し込むカードと同じ行は避けて選ぶ。
+     */
     private DeckDefinition replaceOneMainCard(DeckDefinition base, String cardId) {
         List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
-        DeckDefinition.Entry head = main.get(0);
-        if (head.count() == 1) {
-            main.remove(0);
-        } else {
-            main.set(0, new DeckDefinition.Entry(head.cardId(), head.count() - 1));
+        int from = 0;
+        while (main.get(from).cardId().equals(cardId)) {
+            from++;
         }
-        main.add(new DeckDefinition.Entry(cardId, 1));
+        DeckDefinition.Entry donor = main.get(from);
+        if (donor.count() == 1) {
+            main.remove(from);
+        } else {
+            main.set(from, new DeckDefinition.Entry(donor.cardId(), donor.count() - 1));
+        }
+        int existing = -1;
+        for (int i = 0; i < main.size(); i++) {
+            if (main.get(i).cardId().equals(cardId)) {
+                existing = i;
+                break;
+            }
+        }
+        if (existing >= 0) {
+            main.set(existing, new DeckDefinition.Entry(cardId, main.get(existing).count() + 1));
+        } else {
+            main.add(new DeckDefinition.Entry(cardId, 1));
+        }
         return new DeckDefinition(base.formatVersion(), base.name(), base.leaderCardId(),
                 main, base.taboo());
     }

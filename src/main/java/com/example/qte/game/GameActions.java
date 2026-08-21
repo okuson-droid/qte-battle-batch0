@@ -275,11 +275,9 @@ public class GameActions {
             switch (destination) {
                 case TRASH -> sendToTrashOrRestore(room, owner, card, false);
                 case HAND -> owner.getHand().add(card.id());
-                case MANA_FACE_DOWN -> {
-                    ManaCard mana = new ManaCard(card.id(), false);
-                    mana.turnFaceDown();
-                    owner.getManaZone().add(mana);
-                }
+                // ★上限の判定は呼び出し元(putFieldMinionIntoManaFaceDown)が
+                //   束を含めた全枚数で済ませている
+                case MANA_FACE_DOWN -> addFaceDownMana(room, owner, card.id());
             }
         }
         room.addLog("【%s】の下にあった%d枚も一緒に移動しました"
@@ -506,9 +504,7 @@ public class GameActions {
             return false;
         }
         if (restoration && owner.getManaZone().size() < PlayerState.MAX_MANA) {
-            ManaCard mana = new ManaCard(card.id(), false);
-            mana.turnFaceDown();
-            owner.getManaZone().add(mana); // アンタップ状態で置かれる(キーワード定義通り)
+            addFaceDownMana(room, owner, card.id()); // アンタップ状態で置かれる(キーワード定義通り)
             room.addLog("【還元】【%s】が裏向きでマナに置かれました(マナ%d枚)"
                     .formatted(card.name(), owner.getManaZone().size()));
             return false;
@@ -887,9 +883,7 @@ public class GameActions {
         if (owner.getManaZone().size() >= PlayerState.MAX_MANA || !owner.getTrash().remove(cardId)) {
             return false;
         }
-        ManaCard mana = new ManaCard(cardId, false);
-        mana.turnFaceDown();
-        owner.getManaZone().add(mana);
+        addFaceDownMana(room, owner, cardId);
         room.addLog("【%s】が墓地から裏向きでマナに置かれました(マナ%d枚)"
                 .formatted(cards.findById(cardId).name(), owner.getManaZone().size()));
         return true;
@@ -970,9 +964,7 @@ public class GameActions {
             return false;
         }
         String cardId = owner.getHand().remove(handIndex);
-        ManaCard mana = new ManaCard(cardId, false);
-        mana.turnFaceDown();
-        owner.getManaZone().add(mana);
+        addFaceDownMana(room, owner, cardId);
         room.addLog("%sが手札1枚を裏向きでマナに置きました(マナ%d枚)"
                 .formatted(owner.getDisplayName(), owner.getManaZone().size()));
         return true;
@@ -1040,6 +1032,42 @@ public class GameActions {
     // ---------------------------------------------------------------
 
     /**
+     * 「自分のマナゾーンにカードが1枚置かれた」の共通後始末(★Batch 60)。
+     *
+     * <p>ターン内のマナ配置カウンタを進め、{@code fireManaPlaced} を発火する
+     * (《豊穣の地霊主》が「そのターン2回目なら1ドロー」で反応する)。
+     * マナゾーンへの追加そのものは呼ぶ側が済ませている ——
+     * 上限に達したときの振る舞い(何もしない / 墓地へ落とす / 呼び出し元へ false を返す)が
+     * 経路ごとに違うためであり、そこまで1つにまとめると嘘の共通化になる。
+     *
+     * <p>★<b>Batch 60 まで、これは表向きの配置でしか呼ばれていなかった。</b>
+     * 51 設計解説 6-2 が「裏向きマナと {@code fireManaPlaced} の非対称」として
+     * 積み残していたものである。《豊穣の地霊主》の本文は
+     * 「マナにカードが置かれたとき」であって「表向きで置かれたとき」ではないので、
+     * <b>本文どおりの読みは1つに定まる</b> —— 裏向きでも数える。
+     * (裁定を仰いではいるが、作業は止めていない。{@code notes/batch60-ruling-requests.md} 280)
+     *
+     * <p>対になるのは {@link #manaLeft(GameRoom, PlayerState)} である。
+     */
+    public void manaPlaced(GameRoom room, PlayerState owner) {
+        owner.recordManaPlacement(room.getGameState().getTurnNumber());
+        effects.fireManaPlaced(contextOf(room, owner, null));
+    }
+
+    /**
+     * カード1枚を裏向き・アンタップでマナゾーンに積む(★Batch 60。裏向きの配置の共通処理)。
+     *
+     * <p><b>上限の判定はしない。</b>呼ぶ側が済ませている前提であり、
+     * ここがやるのは「裏向きのマナ札を1枚作って積み、置かれたことを知らせる」だけである。
+     */
+    private void addFaceDownMana(GameRoom room, PlayerState owner, String cardId) {
+        ManaCard mana = new ManaCard(cardId, false);
+        mana.turnFaceDown();
+        owner.getManaZone().add(mana);
+        manaPlaced(room, owner);
+    }
+
+    /**
      * カード1枚を表向き・アンタップでマナゾーンに置く(土文明のマナ加速の唯一の入口)。
      *
      * マナが上限(15枚)に達している場合は置かず、計数もイベント発火もしない。
@@ -1055,8 +1083,7 @@ public class GameActions {
         }
         // ManaCard(cardId, temporary) の第2引数は「一時マナか」であり、faceUpは既定でtrue
         owner.getManaZone().add(new ManaCard(cardId, false));
-        owner.recordManaPlacement(room.getGameState().getTurnNumber());
-        effects.fireManaPlaced(contextOf(room, owner, null));
+        manaPlaced(room, owner);
         return true;
     }
 
@@ -1091,9 +1118,14 @@ public class GameActions {
      * カード1枚を裏向き・アンタップでマナゾーンに置く(★Batch 54)。
      *
      * {@link #placeCardInManaFaceUp} の裏向き版である。
-     * ★<b>裏向きの経路は {@code fireManaPlaced} を発火しない</b> ——
-     * 51 以前からの非対称をそのまま踏襲している(《豊穣の地霊主》は表向きの配置しか見ていない)。
-     * 揃えるかどうかは裁定を仰いでおらず、P5 の宿題である。
+     *
+     * <p>★<b>Batch 60: 裏向きの経路も {@code fireManaPlaced} を発火するようになった。</b>
+     * 54 から 59 までは発火しておらず、51 設計解説 6-2 が「裏向きマナと
+     * {@code fireManaPlaced} の非対称」として積み残していた。
+     * 《豊穣の地霊主》の本文は「マナにカードが置かれたとき」であり、
+     * 向きを条件にしていない —— したがって<b>本文どおりの読みは1つに定まる</b>。
+     * 揃えたのはこの入口だけではなく、裏向きでマナに置く経路すべてである
+     * ({@link #addFaceDownMana} を参照)。
      *
      * @return 置けたらtrue、マナ上限で置けなければfalse
      */
@@ -1102,9 +1134,7 @@ public class GameActions {
             room.addLog("マナが15枚のため、これ以上マナに置けません");
             return false;
         }
-        ManaCard mana = new ManaCard(cardId, false);
-        mana.turnFaceDown();
-        owner.getManaZone().add(mana);
+        addFaceDownMana(room, owner, cardId);
         return true;
     }
 
@@ -1256,9 +1286,7 @@ public class GameActions {
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(minion.getMaster().name()));
             return true;
         }
-        ManaCard mana = new ManaCard(minion.getMaster().id(), false);
-        mana.turnFaceDown();
-        owner.getManaZone().add(mana);
+        addFaceDownMana(room, owner, minion.getMaster().id());
         room.addLog("【%s】が場から裏向きでマナに置かれました(マナ%d枚)"
                 .formatted(minion.getMaster().name(), owner.getManaZone().size()));
         return true;
