@@ -20,7 +20,12 @@
     <h1 class="mb-1">クイン・タブーエレメント</h1>
     <p class="text-muted mb-3">
         部屋を作って、表示された部屋コードを対戦相手に伝えてください。
-        <a th:href="@{/deck-builder}">デッキビルダー</a> /
+        <!--/* ★Batch 63: デッキを組む場所は両モード共通のデッキメーカー1つになった
+                (通常モード専用のデッキビルダー /deck-builder は退役)。
+                ★これは Thymeleaf のパーサ水準コメントであり、配信されるHTMLには残らない ——
+                素のHTMLコメントで書くと退役した経路の文字列がページに出てしまい、
+                「リンクが残っていない」を測る試験を黙らせる(裁定114 と同じ形)。 */-->
+        <a th:href="@{/deck-maker}">デッキメーカー</a> /
         <a th:href="@{/cards}">カード一覧</a> /
         <a th:href="@{/}">手動モード</a>
     </p>
@@ -91,6 +96,24 @@
 <script>
     // デッキファイルはブラウザ側で読み取り、隠しフィールドに載せて通常のフォーム送信で届ける。
     // 中身の正当性はサーバのDeckValidatorが判定する(ここでの確認は表示のためだけ)。
+
+    /**
+     * ★★Batch 63: デッキファイルの要約。欄の名前はデッキメーカーが書く形式
+     * (taboo-elemental-deck v2)に揃えてある。62 まではここが count / name を見ており、
+     * デッキメーカーで組んだデッキを選ぶと「メインNaN枚」と表示されたまま送信され、
+     * サーバに弾かれていた —— 通常モードで読み込めなかった事象の、画面側の顔である。
+     *
+     * ★機械検証(verify 63)はこの関数を取り出して、デッキメーカーの<b>実際の書き出し</b>に
+     * 当てる。だから名前付きの関数として切り出してある(その場に書くと取り出せない)。
+     */
+    function deckSummary(deck) {
+        if (!deck || deck.format !== 'taboo-elemental-deck') {
+            return null;
+        }
+        const main = (deck.main || []).reduce((sum, e) => sum + (e.qty || 1), 0);
+        return { name: deck.deckName || '(名前なし)', main: main, taboo: (deck.taboo || []).length };
+    }
+
     function readDeck(input) {
         const form = input.closest('form');
         const status = form.querySelector('.deck-status');
@@ -105,9 +128,10 @@
         reader.onload = () => {
             hidden.value = reader.result;
             try {
-                const deck = JSON.parse(reader.result);
-                const total = (deck.main || []).reduce((sum, e) => sum + e.count, 0);
-                status.textContent = `読み込み: ${deck.name || '(名前なし)'} / メイン${total}枚・禁忌${(deck.taboo || []).length}枚`;
+                const summary = deckSummary(JSON.parse(reader.result));
+                status.textContent = summary === null
+                    ? 'デッキメーカーで保存したデッキファイルを選んでください'
+                    : `読み込み: ${summary.name} / メイン${summary.main}枚・禁忌${summary.taboo}枚`;
             } catch (e) {
                 status.textContent = 'このファイルはJSONとして読めません';
             }

@@ -1,57 +1,95 @@
 {
-  "formatVersion": 1,
-  "name": "進化確認用(Batch52)",
-  "leaderCardId": "QTE-M-FIRE-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "進化確認用(Batch52)",
+  "leader": {
+    "cardId": "QTE-M-FIRE-29",
+    "name": "機神兵長茶爺"
+  },
   "main": [
     {
       "cardId": "QTE-M-FIRE-30",
-      "count": 4
+      "name": "不敗鉄人闘太",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-31",
-      "count": 4
+      "name": "追撃鉄人連太",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-32",
-      "count": 4
+      "name": "飛翔鉄人走太",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-33",
-      "count": 4
+      "name": "支援盾機狸",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-2",
-      "count": 4
+      "name": "フレア・ポーン",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-16",
-      "count": 4
+      "name": "血誓のバーサーカー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-34",
-      "count": 4
+      "name": "乱戦鉄機狼",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-35",
-      "count": 4
+      "name": "砲台鉄機虎",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-10",
-      "count": 4
+      "name": "マグマ・ストレート",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-36",
-      "count": 4
+      "name": "ラスト・アタック",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-DARK-31",
-    "QTE-M-EARTH-36",
-    "QTE-M-EARTH-2",
-    "QTE-M-WATER-9",
-    "QTE-M-DARK-6",
-    "QTE-M-LIGHT-2",
-    "QTE-M-WIND-2",
-    "QTE-M-WATER-2"
+    {
+      "cardId": "QTE-M-DARK-31",
+      "name": "サモナーポップ・エンラ"
+    },
+    {
+      "cardId": "QTE-M-EARTH-36",
+      "name": "勝阿外(カツアゲ)"
+    },
+    {
+      "cardId": "QTE-M-EARTH-2",
+      "name": "ゴーレム・ウォール"
+    },
+    {
+      "cardId": "QTE-M-WATER-9",
+      "name": "スプラッシュ・ドロー"
+    },
+    {
+      "cardId": "QTE-M-DARK-6",
+      "name": "ボーン・コレクター"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-2",
+      "name": "ライト・シールド"
+    },
+    {
+      "cardId": "QTE-M-WIND-2",
+      "name": "ウィンド・ペティ"
+    },
+    {
+      "cardId": "QTE-M-WATER-2",
+      "name": "アクア・ジェリー"
+    }
   ]
 }

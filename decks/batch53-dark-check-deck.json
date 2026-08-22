@@ -1,57 +1,95 @@
 {
-  "formatVersion": 1,
-  "name": "進化・闇確認用(Batch53)",
-  "leaderCardId": "QTE-M-DARK-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "進化・闇確認用(Batch53)",
+  "leader": {
+    "cardId": "QTE-M-DARK-29",
+    "name": "演舞の墓守"
+  },
   "main": [
     {
       "cardId": "QTE-M-DARK-30",
-      "count": 4
+      "name": "リボーンライヴ・ノア",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-31",
-      "count": 4
+      "name": "サモナーポップ・エンラ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-35",
-      "count": 4
+      "name": "カムバックキーパー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-34",
-      "count": 4
+      "name": "サモンズライト",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-16",
-      "count": 4
+      "name": "ゾンストライカー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-33",
-      "count": 4
+      "name": "デビルズマイク",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-2",
-      "count": 4
+      "name": "カース・ボーン",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-24",
-      "count": 4
+      "name": "墓穴の呪い",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-26",
-      "count": 4
+      "name": "冥府への道",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-13",
-      "count": 4
+      "name": "死神の大鎌",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-LIGHT-39",
-    "QTE-M-LIGHT-30",
-    "QTE-M-LIGHT-2",
-    "QTE-M-WIND-32",
-    "QTE-M-WIND-2",
-    "QTE-M-WATER-31",
-    "QTE-M-WATER-33",
-    "QTE-M-FIRE-33"
+    {
+      "cardId": "QTE-M-LIGHT-39",
+      "name": "英術・スケアロック"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-30",
+      "name": "英霊・ニュウキロ"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-2",
+      "name": "ライト・シールド"
+    },
+    {
+      "cardId": "QTE-M-WIND-32",
+      "name": "灰ノ霊呼者"
+    },
+    {
+      "cardId": "QTE-M-WIND-2",
+      "name": "ウィンド・ペティ"
+    },
+    {
+      "cardId": "QTE-M-WATER-31",
+      "name": "海淵獣ラカブ"
+    },
+    {
+      "cardId": "QTE-M-WATER-33",
+      "name": "海獣タウギーナ"
+    },
+    {
+      "cardId": "QTE-M-FIRE-33",
+      "name": "支援盾機狸"
+    }
   ]
 }

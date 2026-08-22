@@ -1,57 +1,95 @@
 {
-  "formatVersion": 1,
-  "name": "進化・光確認用(Batch53)",
-  "leaderCardId": "QTE-M-LIGHT-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "進化・光確認用(Batch53)",
+  "leader": {
+    "cardId": "QTE-M-LIGHT-29",
+    "name": "英皇アントマルエル"
+  },
   "main": [
     {
       "cardId": "QTE-M-LIGHT-39",
-      "count": 4
+      "name": "英術・スケアロック",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-30",
-      "count": 4
+      "name": "英霊・ニュウキロ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-31",
-      "count": 4
+      "name": "英霊・コレキ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-2",
-      "count": 4
+      "name": "ライト・シールド",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-33",
-      "count": 4
+      "name": "光霊・ミルーア",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-17",
-      "count": 4
+      "name": "聖域の司祭",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-16",
-      "count": 4
+      "name": "煌めきの盾",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-37",
-      "count": 4
+      "name": "英術・グラーニス",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-9",
-      "count": 4
+      "name": "光の戒め",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-13",
-      "count": 4
+      "name": "正義の御盾",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-WIND-32",
-    "QTE-M-WIND-2",
-    "QTE-M-FIRE-33",
-    "QTE-M-WATER-31",
-    "QTE-M-WATER-33",
-    "QTE-M-WATER-32",
-    "QTE-M-FIRE-2",
-    "QTE-M-EARTH-2"
+    {
+      "cardId": "QTE-M-WIND-32",
+      "name": "灰ノ霊呼者"
+    },
+    {
+      "cardId": "QTE-M-WIND-2",
+      "name": "ウィンド・ペティ"
+    },
+    {
+      "cardId": "QTE-M-FIRE-33",
+      "name": "支援盾機狸"
+    },
+    {
+      "cardId": "QTE-M-WATER-31",
+      "name": "海淵獣ラカブ"
+    },
+    {
+      "cardId": "QTE-M-WATER-33",
+      "name": "海獣タウギーナ"
+    },
+    {
+      "cardId": "QTE-M-WATER-32",
+      "name": "海淵獣ゾクシム"
+    },
+    {
+      "cardId": "QTE-M-FIRE-2",
+      "name": "フレア・ポーン"
+    },
+    {
+      "cardId": "QTE-M-EARTH-2",
+      "name": "ゴーレム・ウォール"
+    }
   ]
 }

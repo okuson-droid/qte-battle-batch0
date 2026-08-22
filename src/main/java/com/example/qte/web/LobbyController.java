@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import com.example.qte.deck.DeckDefinition;
+import com.example.qte.deck.DeckFileReader;
 import com.example.qte.deck.DeckValidator;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
@@ -23,10 +24,9 @@ import com.example.qte.room.GameRoomManager;
 import com.example.qte.room.PlayerSlot;
 
 import lombok.RequiredArgsConstructor;
-import tools.jackson.databind.ObjectMapper;
 
 /**
- * ロビー(部屋の作成・入室)とデッキビルダー画面。
+ * ロビー(部屋の作成・入室)とカード一覧の入口。
  * 「ページを開くまで」はMVC、「開いた後の対戦」はWebSocket、という役割分担。
  *
  * デッキはファイルとして持ち込まれる(アカウント・DBを持たない方針)。
@@ -40,7 +40,7 @@ public class LobbyController {
     private final GameRoomManager roomManager;
     private final CardMasterRepository cards;
     private final DeckValidator deckValidator;
-    private final ObjectMapper objectMapper;
+    private final DeckFileReader deckFileReader;
 
     /**
      * ★Batch 19a: {@code /} は手動モードの新ロビーになった(設計書 6-2)。
@@ -100,16 +100,24 @@ public class LobbyController {
         return "battle";
     }
 
-    /** デッキビルダー画面(通常モード用) */
-    @GetMapping("/deck-builder")
-    public String deckBuilder() {
-        return "deck-builder";
-    }
+    /*
+     * ★★Batch 63: 通常モード用のデッキビルダー(/deck-builder)は退役した。
+     *
+     * デッキファイルの形式を taboo-elemental-deck に一本化した結果、この画面が書き出す
+     * 形式は無くなった。カードの正も 46b 以降は両モードとも manual-cards.json であり、
+     * 機能はデッキメーカー(/deck-maker)の下位互換になっていた
+     * (マナカーブ・検証一覧・autosave・[元に戻す] が無い)。
+     * 画面を2つ残すことは、同じ規則を2箇所へ書き続けることと同義である。
+     * 一緒に退役したもの: deck-builder.html / deck-builder.js /
+     * CardApiController(/api/cards・/api/implemented-civilizations。この画面専用だった)。
+     */
 
     /**
-     * デッキメーカー画面(手動モード用・Batch 24)。カードデータは
+     * デッキメーカー画面(Batch 24)。カードデータは
      * {@code /manual/api/card-library} から取得する薄い静的画面であり、
      * ここではビュー名を返すだけである(手動モードの依存をこのクラスへ持ち込まない)。
+     *
+     * <p>★Batch 63 から<b>両モード共通のデッキを組む場所</b>である。
      */
     @GetMapping("/deck-maker")
     public String deckMaker() {
@@ -163,15 +171,22 @@ public class LobbyController {
         return playerId;
     }
 
+    /**
+     * デッキファイルを読む。未選択(空)は「おまかせ」を意味するので null を返す。
+     *
+     * <p>★★Batch 63: 読み取りは {@link DeckFileReader} に移した。62 までは
+     * {@code ObjectMapper.readValue} で {@link DeckDefinition} に直接流し込んでいたが、
+     * それは<b>ファイルの形と内部表現が同じであることを前提にした書き方</b>であり、
+     * デッキメーカーが書いた形式を読めない原因そのものだった。
+     * <b>読めなかった理由をそのまま画面へ返す</b> —— 62 までは理由を握りつぶして
+     * 「デッキファイルの形式が正しくありません」の一言にしていたので、
+     * 何を直せばよいのかが分からなかった。
+     */
     private DeckDefinition parseDeck(String deckJson) {
         if (deckJson == null || deckJson.isBlank()) {
             return null;
         }
-        try {
-            return objectMapper.readValue(deckJson, DeckDefinition.class);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("デッキファイルの形式が正しくありません");
-        }
+        return deckFileReader.read(deckJson);
     }
 
     private String redirectToBattle(String roomId, String playerId) {

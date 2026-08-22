@@ -1,61 +1,100 @@
 {
-  "formatVersion": 1,
-  "name": "光Ver1.1確認用(Batch50)",
-  "leaderCardId": "QTE-M-LIGHT-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "光Ver1.1確認用(Batch50)",
+  "leader": {
+    "cardId": "QTE-M-LIGHT-29",
+    "name": "英皇アントマルエル"
+  },
   "main": [
     {
       "cardId": "QTE-M-LIGHT-34",
-      "count": 4
+      "name": "光霊・テングスン",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-35",
-      "count": 4
+      "name": "光霊・ネフラ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-36",
-      "count": 4
+      "name": "光霊・モアニール",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-37",
-      "count": 4
+      "name": "英術・グラーニス",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-38",
-      "count": 4
+      "name": "英術・バンユー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-39",
-      "count": 2
+      "name": "英術・スケアロック",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-LIGHT-2",
-      "count": 4
+      "name": "ライト・シールド",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-16",
-      "count": 4
+      "name": "煌めきの盾",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-17",
-      "count": 4
+      "name": "聖域の司祭",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-LIGHT-11",
-      "count": 2
+      "name": "聖なる降誕の儀式",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-LIGHT-3",
-      "count": 4
+      "name": "聖域の案内人",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-DARK-12",
-    "QTE-M-DARK-16",
-    "QTE-M-WATER-9",
-    "QTE-M-WATER-2",
-    "QTE-M-FIRE-9",
-    "QTE-M-FIRE-2",
-    "QTE-M-WIND-16",
-    "QTE-M-EARTH-10"
+    {
+      "cardId": "QTE-M-DARK-12",
+      "name": "死者蘇生"
+    },
+    {
+      "cardId": "QTE-M-DARK-16",
+      "name": "ゾンストライカー"
+    },
+    {
+      "cardId": "QTE-M-WATER-9",
+      "name": "スプラッシュ・ドロー"
+    },
+    {
+      "cardId": "QTE-M-WATER-2",
+      "name": "アクア・ジェリー"
+    },
+    {
+      "cardId": "QTE-M-FIRE-9",
+      "name": "イグニッション・バースト"
+    },
+    {
+      "cardId": "QTE-M-FIRE-2",
+      "name": "フレア・ポーン"
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "name": "疾風の先陣"
+    },
+    {
+      "cardId": "QTE-M-EARTH-10",
+      "name": "落石の罠"
+    }
   ]
 }

@@ -2,31 +2,34 @@ package com.example.qte.deck;
 
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
 /**
- * デッキファイル(.json)の中身。デッキビルダーが出力し、対戦時に読み込む。
+ * デッキ1本の中身。<b>サーバの内部表現であり、ファイルの形そのものではない</b>。
  *
- * このファイル自体が保存データであり、サーバはデッキを永続化しない
- * (アカウント・DBを持たない方針の帰結。保存先はユーザーのPC)。
+ * <h2>★Batch 63: ファイルの形と内部表現を分けた</h2>
+ * 62 までは、この record が<b>そのままデッキファイルの JSON 構造</b>だった
+ * ({@code formatVersion} という欄はそのためにあった)。その結果、通常モードは
+ * 通常モードのデッキビルダーが書いた形しか読めず、デッキメーカー({@code /deck-maker})が
+ * 書いた {@code taboo-elemental-deck} 形式のデッキは<b>手動モードでしか使えなかった</b>。
  *
- * @param formatVersion 将来フォーマットを変えたときに互換性を判断するための版番号
- * @param name          デッキ名(表示用)
- * @param leaderCardId  リーダーカードのID
- * @param main          メインデッキ40枚(カードIDと枚数)
- * @param taboo         禁忌デッキ8枚(カードID。同名1枚まで)
+ * <p>63 でデッキファイルの形式を {@code taboo-elemental-deck}(version 2)に一本化し、
+ * ファイルの読み取りは {@link DeckFileReader} が受け持つことにした。
+ * この record に版番号が無いのは、<b>版番号はファイルの性質であって、
+ * 盤面へ渡すデッキの性質ではない</b>ためである。
+ *
+ * <p>デッキはサーバに永続化しない(アカウント・DBを持たない方針の帰結。
+ * 保存先はユーザーのPCのファイルである)。
+ *
+ * @param name         デッキ名(表示用)
+ * @param leaderCardId リーダーカードのID
+ * @param main         メインデッキ40枚(カードIDと枚数)
+ * @param taboo        禁忌デッキ8枚(カードID。同名1枚まで)
  */
-@JsonIgnoreProperties(ignoreUnknown = true)
 public record DeckDefinition(
-        int formatVersion,
         String name,
         String leaderCardId,
         List<Entry> main,
         List<String> taboo) {
 
-    public static final int CURRENT_FORMAT_VERSION = 1;
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
     public record Entry(String cardId, int count) {
     }
 }

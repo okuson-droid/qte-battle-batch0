@@ -1,65 +1,105 @@
 {
-  "formatVersion": 1,
-  "name": "闇Ver1.1確認用(Batch50)",
-  "leaderCardId": "QTE-M-DARK-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "闇Ver1.1確認用(Batch50)",
+  "leader": {
+    "cardId": "QTE-M-DARK-29",
+    "name": "演舞の墓守"
+  },
   "main": [
     {
       "cardId": "QTE-M-DARK-33",
-      "count": 4
+      "name": "デビルズマイク",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-34",
-      "count": 4
+      "name": "サモンズライト",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-35",
-      "count": 4
+      "name": "カムバックキーパー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-36",
-      "count": 4
+      "name": "ダークネオンステージ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-39",
-      "count": 2
+      "name": "1stL「NEMれぬ夜のドリーミー」",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-DARK-37",
-      "count": 2
+      "name": "グレイヴガールズファン",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-DARK-16",
-      "count": 4
+      "name": "ゾンストライカー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-24",
-      "count": 4
+      "name": "墓穴の呪い",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-12",
-      "count": 2
+      "name": "死者蘇生",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-DARK-9",
-      "count": 4
+      "name": "絶望の連鎖",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-2",
-      "count": 2
+      "name": "カース・ボーン",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-DARK-17",
-      "count": 4
+      "name": "腐敗の投擲者",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-FIRE-25",
-    "QTE-M-FIRE-7",
-    "QTE-M-FIRE-10",
-    "QTE-M-FIRE-9",
-    "QTE-M-WATER-9",
-    "QTE-M-WIND-16",
-    "QTE-M-LIGHT-13",
-    "QTE-M-EARTH-10"
+    {
+      "cardId": "QTE-M-FIRE-25",
+      "name": "血の対価"
+    },
+    {
+      "cardId": "QTE-M-FIRE-7",
+      "name": "背水の烈火使い"
+    },
+    {
+      "cardId": "QTE-M-FIRE-10",
+      "name": "マグマ・ストレート"
+    },
+    {
+      "cardId": "QTE-M-FIRE-9",
+      "name": "イグニッション・バースト"
+    },
+    {
+      "cardId": "QTE-M-WATER-9",
+      "name": "スプラッシュ・ドロー"
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "name": "疾風の先陣"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-13",
+      "name": "正義の御盾"
+    },
+    {
+      "cardId": "QTE-M-EARTH-10",
+      "name": "落石の罠"
+    }
   ]
 }

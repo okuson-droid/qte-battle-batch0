@@ -1,65 +1,105 @@
 {
-  "formatVersion": 1,
-  "name": "水Ver1.1確認用(Batch49)",
-  "leaderCardId": "QTE-M-WATER-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "水Ver1.1確認用(Batch49)",
+  "leader": {
+    "cardId": "QTE-M-WATER-29",
+    "name": "ロロイヨ伯爵"
+  },
   "main": [
     {
       "cardId": "QTE-M-WATER-33",
-      "count": 4
+      "name": "海獣タウギーナ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-34",
-      "count": 4
+      "name": "海獣ホウェライソ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-35",
-      "count": 4
+      "name": "海獣リューグー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-36",
-      "count": 4
+      "name": "潮獣ビシャカワ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-37",
-      "count": 4
+      "name": "潮獣コアンチ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-38",
-      "count": 2
+      "name": "ギガマウス・バイト",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-WATER-39",
-      "count": 2
+      "name": "アルキンティス",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-WATER-2",
-      "count": 4
+      "name": "アクア・ジェリー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-17",
-      "count": 4
+      "name": "知識の守り手",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-18",
-      "count": 4
+      "name": "波濤の突撃兵",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WATER-9",
-      "count": 2
+      "name": "スプラッシュ・ドロー",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-WATER-25",
-      "count": 2
+      "name": "アクア・サーチ",
+      "qty": 2
     }
   ],
   "taboo": [
-    "QTE-M-FIRE-9",
-    "QTE-M-WIND-9",
-    "QTE-M-DARK-9",
-    "QTE-M-LIGHT-9",
-    "QTE-M-EARTH-9",
-    "QTE-M-FIRE-2",
-    "QTE-M-WIND-16",
-    "QTE-M-LIGHT-2"
+    {
+      "cardId": "QTE-M-FIRE-9",
+      "name": "イグニッション・バースト"
+    },
+    {
+      "cardId": "QTE-M-WIND-9",
+      "name": "追い風"
+    },
+    {
+      "cardId": "QTE-M-DARK-9",
+      "name": "絶望の連鎖"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-9",
+      "name": "光の戒め"
+    },
+    {
+      "cardId": "QTE-M-EARTH-9",
+      "name": "大地の恵み"
+    },
+    {
+      "cardId": "QTE-M-FIRE-2",
+      "name": "フレア・ポーン"
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "name": "疾風の先陣"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-2",
+      "name": "ライト・シールド"
+    }
   ]
 }

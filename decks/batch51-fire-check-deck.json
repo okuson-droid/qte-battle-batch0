@@ -1,57 +1,95 @@
 {
-  "formatVersion": 1,
-  "name": "火Ver1.1確認用(Batch51)",
-  "leaderCardId": "QTE-M-FIRE-1",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "火Ver1.1確認用(Batch51)",
+  "leader": {
+    "cardId": "QTE-M-FIRE-1",
+    "name": "剛火の将"
+  },
   "main": [
     {
       "cardId": "QTE-M-FIRE-33",
-      "count": 4
+      "name": "支援盾機狸",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-34",
-      "count": 4
+      "name": "乱戦鉄機狼",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-35",
-      "count": 4
+      "name": "砲台鉄機虎",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-36",
-      "count": 4
+      "name": "ラスト・アタック",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-37",
-      "count": 4
+      "name": "リペア・チューナー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-38",
-      "count": 4
+      "name": "アイアン・リターン",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-39",
-      "count": 4
+      "name": "ドレイン・ブラスト",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-2",
-      "count": 4
+      "name": "フレア・ポーン",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-13",
-      "count": 4
+      "name": "フレム・ダガー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-FIRE-10",
-      "count": 4
+      "name": "マグマ・ストレート",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-WATER-9",
-    "QTE-M-WIND-16",
-    "QTE-M-LIGHT-13",
-    "QTE-M-EARTH-10",
-    "QTE-M-DARK-24",
-    "QTE-M-WATER-18",
-    "QTE-M-WIND-5",
-    "QTE-M-EARTH-9"
+    {
+      "cardId": "QTE-M-WATER-9",
+      "name": "スプラッシュ・ドロー"
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "name": "疾風の先陣"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-13",
+      "name": "正義の御盾"
+    },
+    {
+      "cardId": "QTE-M-EARTH-10",
+      "name": "落石の罠"
+    },
+    {
+      "cardId": "QTE-M-DARK-24",
+      "name": "墓穴の呪い"
+    },
+    {
+      "cardId": "QTE-M-WATER-18",
+      "name": "波濤の突撃兵"
+    },
+    {
+      "cardId": "QTE-M-WIND-5",
+      "name": "サイクロン・フェンサー"
+    },
+    {
+      "cardId": "QTE-M-EARTH-9",
+      "name": "大地の恵み"
+    }
   ]
 }

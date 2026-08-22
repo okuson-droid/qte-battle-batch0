@@ -68,10 +68,9 @@ public class DeckValidator {
         if (deck == null) {
             throw new IllegalArgumentException("デッキファイルが読み込めませんでした");
         }
-        if (deck.formatVersion() != DeckDefinition.CURRENT_FORMAT_VERSION) {
-            throw new IllegalArgumentException(
-                    "対応していないデッキファイル形式です(version=%d)".formatted(deck.formatVersion()));
-        }
+        // ★Batch 63: 版番号の検査はここから消えた。版番号はファイルの性質であり、
+        // ファイルを読む DeckFileReader が見る。このクラスが見るのは
+        // 総合ルール第1章(デッキ構築)だけである。
         CardMaster leader = requireCard(deck.leaderCardId(), "リーダー");
         if (leader.type() != CardType.LEADER) {
             throw new IllegalArgumentException("リーダーカードではありません: " + leader.name());

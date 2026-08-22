@@ -114,7 +114,7 @@ class DeckValidatorTest {
         List<String> taboo = new ArrayList<>(base.taboo());
         taboo.set(0, "QTE-M-FIRE-30"); // 不敗鉄人闘太
         DeckDefinition deck = new DeckDefinition(
-                base.formatVersion(), base.name(), base.leaderCardId(), base.main(), taboo);
+                base.name(), base.leaderCardId(), base.main(), taboo);
         assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
     }
 
@@ -131,7 +131,7 @@ class DeckValidatorTest {
         List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
         main.set(0, new DeckDefinition.Entry(main.get(0).cardId(), 5));
         DeckDefinition deck = new DeckDefinition(
-                base.formatVersion(), base.name(), base.leaderCardId(), main, base.taboo());
+                base.name(), base.leaderCardId(), main, base.taboo());
         assertThatThrownBy(() -> validator.validate(deck))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同名カードは4枚まで");
@@ -158,7 +158,7 @@ class DeckValidatorTest {
         assertThat(at).as("闇のプリセットにゾンストライカーがいる").isNotNegative();
         main.set(at, new DeckDefinition.Entry("QTE-M-DARK-16", 5));
         DeckDefinition deck = new DeckDefinition(
-                base.formatVersion(), base.name(), base.leaderCardId(), main, base.taboo());
+                base.name(), base.leaderCardId(), main, base.taboo());
         assertThatThrownBy(() -> validator.validate(deck))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同名カードは4枚まで")
@@ -200,7 +200,7 @@ class DeckValidatorTest {
         List<String> taboo = new ArrayList<>(base.taboo());
         taboo.set(0, "QTE-M-FIRE-37"); // リペア・チューナー(火の未実装スペル)
         DeckDefinition deck = new DeckDefinition(
-                base.formatVersion(), base.name(), base.leaderCardId(), base.main(), taboo);
+                base.name(), base.leaderCardId(), base.main(), taboo);
         assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
     }
 
@@ -242,8 +242,7 @@ class DeckValidatorTest {
         List<DeckDefinition.Entry> main = counts.entrySet().stream()
                 .map(e -> new DeckDefinition.Entry(e.getKey(), e.getValue()))
                 .toList();
-        return new DeckDefinition(DeckDefinition.CURRENT_FORMAT_VERSION, "テスト",
-                leader.id(), main, deckFactory.createTabooDeck(leader));
+        return new DeckDefinition("テスト", leader.id(), main, deckFactory.createTabooDeck(leader));
     }
 
     /** メインデッキの1枚だけを差し替える(合計40枚を保つ) */
@@ -281,7 +280,6 @@ class DeckValidatorTest {
         } else {
             main.add(new DeckDefinition.Entry(cardId, 1));
         }
-        return new DeckDefinition(base.formatVersion(), base.name(), base.leaderCardId(),
-                main, base.taboo());
+        return new DeckDefinition(base.name(), base.leaderCardId(), main, base.taboo());
     }
 }

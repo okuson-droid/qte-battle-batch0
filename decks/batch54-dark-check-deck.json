@@ -1,57 +1,95 @@
 {
-  "formatVersion": 1,
-  "name": "賢魂・闇確認用(Batch54)",
-  "leaderCardId": "QTE-M-DARK-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "賢魂・闇確認用(Batch54)",
+  "leader": {
+    "cardId": "QTE-M-DARK-29",
+    "name": "演舞の墓守"
+  },
   "main": [
     {
       "cardId": "QTE-M-DARK-37",
-      "count": 4
+      "name": "グレイヴガールズファン",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-38",
-      "count": 4
+      "name": "スタンディングテント",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-33",
-      "count": 4
+      "name": "デビルズマイク",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-16",
-      "count": 4
+      "name": "ゾンストライカー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-17",
-      "count": 4
+      "name": "腐敗の投擲者",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-34",
-      "count": 4
+      "name": "サモンズライト",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-35",
-      "count": 4
+      "name": "カムバックキーパー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-6",
-      "count": 4
+      "name": "ボーン・コレクター",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-19",
-      "count": 4
+      "name": "死の知識人",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-DARK-26",
-      "count": 4
+      "name": "冥府への道",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-EARTH-36",
-    "QTE-M-LIGHT-2",
-    "QTE-M-LIGHT-17",
-    "QTE-M-WIND-2",
-    "QTE-M-WIND-3",
-    "QTE-M-WIND-16",
-    "QTE-M-FIRE-2",
-    "QTE-M-WATER-2"
+    {
+      "cardId": "QTE-M-EARTH-36",
+      "name": "勝阿外(カツアゲ)"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-2",
+      "name": "ライト・シールド"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-17",
+      "name": "聖域の司祭"
+    },
+    {
+      "cardId": "QTE-M-WIND-2",
+      "name": "ウィンド・ペティ"
+    },
+    {
+      "cardId": "QTE-M-WIND-3",
+      "name": "スカイ・スワロー"
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "name": "疾風の先陣"
+    },
+    {
+      "cardId": "QTE-M-FIRE-2",
+      "name": "フレア・ポーン"
+    },
+    {
+      "cardId": "QTE-M-WATER-2",
+      "name": "アクア・ジェリー"
+    }
   ]
 }

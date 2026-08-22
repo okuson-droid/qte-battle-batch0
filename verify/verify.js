@@ -3255,8 +3255,9 @@ async function clearZoom(page) {
   // ---- 75〜77. ★メタ情報とブランド資産(テンプレートの静的検査)----
   // ★ここだけブラウザを使わない。「全ページに入っているか」は DOM ではなく
   //   テンプレートの集合に対する問いであり、1枚を開いて確かめても意味が無い。
+  // ★Batch 63: 'deck-builder' が消えた(通常モードのデッキビルダーは退役した)。
   const TEMPLATES = ['manual-battle', 'manual-lobby', 'manual-deck-maker', 'manual-cards',
-    'lobby', 'battle', 'cards', 'deck-builder', 'error'];
+    'lobby', 'battle', 'cards', 'error'];
   const metaMissing = [];
   for (const name of TEMPLATES) {
     const src = fs.readFileSync(path.join(RES, 'templates', `${name}.html`), 'utf8');
@@ -4567,8 +4568,11 @@ async function clearZoom(page) {
   //   Bootstrap なら「なぜか崩れている」、stomp なら「なぜか動かない」にしかならない。
   const vendorMissing = vendorRefs.filter(
     (r) => !fs.existsSync(path.join(RES, 'static', 'vendor', r.file)));
+  // ★Batch 63: 下限が 9 → 8 になった。deck-builder.html(通常モードのデッキビルダー)を
+  //   退役させたぶんである。★<b>下限は「黙って減っていないこと」の番人</b>なので、
+  //   画面を意図して減らしたときだけ、理由を書いてここを下げる。
   check('★★★vendor の参照はすべて実ファイルに当たる(41・結線)',
-    vendorRefs.length >= 9 && vendorMissing.length === 0,
+    vendorRefs.length >= 8 && vendorMissing.length === 0,
     JSON.stringify({ refs: vendorRefs.length, missing: vendorMissing }));
 
   // ★stomp を参照するのは対戦画面2つだけである。ここが減っていたら、
@@ -5856,8 +5860,15 @@ async function clearZoom(page) {
     //   URL.createObjectURL でしか Blob を URL にできない。ボタンを押したかどうかではなく、
     //   <b>ファイルが作られたかどうか</b>を見る(34 hotfix の一般形)
     window.__downloads = [];
+    // ★★Batch 63: 中身も控える。63 は「デッキメーカーが書いた<b>実物</b>を
+    //   通常モードが読めるか」を測るので、大きさだけでは足りない
+    window.__downloadTexts = [];
     const origCreate = URL.createObjectURL.bind(URL);
-    URL.createObjectURL = (blob) => { window.__downloads.push(blob.size); return origCreate(blob); };
+    URL.createObjectURL = (blob) => {
+      window.__downloads.push(blob.size);
+      blob.text().then((t) => window.__downloadTexts.push(t));
+      return origCreate(blob);
+    };
   });
   deckPage.on('download', () => { /* 保存先は要らない。作られたことは上の spy が数えている */ });
   await deckPage.goto(`http://127.0.0.1:${port}/harness-deckmaker.html`);
@@ -6423,6 +6434,90 @@ async function clearZoom(page) {
   check('★★★デッキの規定枚数と同名上限はサーバと同じ値である(40・裁定110)',
     javaSizes.main !== null && JSON.stringify(jsSizes) === JSON.stringify(javaSizes),
     JSON.stringify({ jsSizes, javaSizes }));
+
+  // =========================================================================
+  // ★★★Batch 63: デッキファイルの形式の一本化
+  //
+  // 62 まで、デッキファイルの形式は2つあった —— デッキメーカーが書く
+  // taboo-elemental-deck(v2)と、通常モードのデッキビルダーが書く formatVersion:1 である。
+  // カードIDは 46b で統一済みだったのに<b>欄の名前だけが違い</b>、
+  // 「手動モードで使っているデッキが通常モードで読み込めない」状態になっていた。
+  //
+  // ★★測り方: <b>デッキメーカーが実際に書き出したファイル</b>を材料にする。
+  //   期待値の JSON を verify に書いてしまうと、それは3つ目の形式になる(裁定110)。
+  // =========================================================================
+  const exported = await deckPage.evaluate(() => window.__downloadTexts.at(-1) || '');
+  let exportedDeck = null;
+  try { exportedDeck = JSON.parse(exported); } catch (e) { exportedDeck = null; }
+  check('★★デッキメーカーの書き出しを実物として捕まえている(63 の前提)',
+    exportedDeck !== null && Array.isArray(exportedDeck.main),
+    exported.slice(0, 120));
+
+  // ---- 63-1. ★★★通常モードの読み取りが見る欄が、実物にすべて在る ----
+  //
+  // ★Java 側の欄名は<b>ソースから読む</b>(path("...") の実引数)。verify に書き写すと、
+  //   Java を変えたときに黙って離れていく —— それが 62 までの状態そのものである。
+  const readerJava = fs.readFileSync(
+    path.join(ROOT, 'src/main/java/com/example/qte/deck/DeckFileReader.java'), 'utf8');
+  const readerFields = Array.from(new Set(
+    Array.from(readerJava.matchAll(/path\("([a-zA-Z]+)"\)/g)).map((m) => m[1])));
+  // ★過渡期の別名。読み取りは受け付けるが、デッキメーカーは書かない
+  //   (leader オブジェクトの代わりの leaderId 文字列)。ここだけは名指しで除く。
+  const READER_ALIASES = ['leaderId'];
+  const exportedKeys = exportedDeck === null ? [] : [
+    ...Object.keys(exportedDeck),
+    ...Object.keys(exportedDeck.leader || {}),
+    ...Object.keys((exportedDeck.main || [])[0] || {}),
+    ...Object.keys((exportedDeck.taboo || [])[0] || {}),
+  ];
+  const missingFields = readerFields
+    .filter((f) => !READER_ALIASES.includes(f))
+    .filter((f) => !exportedKeys.includes(f));
+  check('★★★通常モードの読み取りが見る欄は、デッキメーカーの書き出しに全部在る(63)',
+    readerFields.length > 0 && missingFields.length === 0,
+    JSON.stringify({ readerFields, missingFields }));
+
+  // ---- 63-2. ★形式名の文字列が Java と デッキメーカーで一致する ----
+  const javaFormat = (readerJava.match(/FORMAT\s*=\s*"([^"]+)"/) || [])[1];
+  check('★★デッキファイルの形式名は Java と デッキメーカーで同じ文字列である(63・裁定110)',
+    javaFormat !== undefined && exportedDeck !== null && exportedDeck.format === javaFormat,
+    JSON.stringify({ javaFormat, exported: exportedDeck && exportedDeck.format }));
+
+  // ---- 63-3. ★★★ロビーの要約を、実物の書き出しに当てる ----
+  //
+  // ★lobby.html の deckSummary を<b>取り出して実行する</b>。ソースに count が無いことを
+  //   走査で確かめるのではなく、実際に数えさせて 40/8 が出るかを見る(裁定131)。
+  const lobbyHtml = fs.readFileSync(path.join(RES, 'templates/lobby.html'), 'utf8');
+  const summarySrc = (lobbyHtml.match(/function deckSummary\(deck\) \{[\s\S]*?\n    \}/) || [])[0];
+  const summary = summarySrc === undefined || exportedDeck === null ? null
+    : await deckPage.evaluate(([src, deck]) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(`${src}; return deckSummary;`)();
+      return fn(deck);
+    }, [summarySrc, exportedDeck]);
+  check('★★★ロビーの要約はデッキメーカーの書き出しを 40/8 と数える(63)',
+    summary !== null && summary.main === 40 && summary.taboo === 8,
+    JSON.stringify({ found: summarySrc !== undefined, summary }));
+  // ★形式が違うファイルには null を返す(黙って0枚と数えない)
+  const summaryOther = summarySrc === undefined ? 'x'
+    : await deckPage.evaluate((src) => {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(`${src}; return deckSummary;`)();
+      return fn({ formatVersion: 1, name: '旧', main: [{ cardId: 'X', count: 4 }] });
+    }, summarySrc);
+  check('★★旧形式のファイルを黙って0枚と数えない(63)', summaryOther === null,
+    JSON.stringify(summaryOther));
+
+  // ---- 63-4. ★退役したデッキビルダーのファイルが残っていない ----
+  //
+  // ★経路(404)は JUnit の LobbyPageTest が測る。ここで測るのは<b>ファイル</b>である ——
+  //   消し忘れた js は誰にも呼ばれないまま配信され続け、次に読む人はそれを現役だと思う。
+  const retired = [
+    'templates/deck-builder.html',
+    'static/js/deck-builder.js',
+  ].filter((rel) => fs.existsSync(path.join(RES, rel)));
+  check('★★退役したデッキビルダーのファイルが残っていない(63)',
+    retired.length === 0, JSON.stringify(retired));
 
   check('デッキメーカーでJSエラーが出ない', deckErrors.length === 0, deckErrors.join(' | '));
   await deckPage.close();

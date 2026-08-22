@@ -1,61 +1,100 @@
 {
-  "formatVersion": 1,
-  "name": "風Ver1.1確認用(Batch48)",
-  "leaderCardId": "QTE-M-WIND-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "風Ver1.1確認用(Batch48)",
+  "leader": {
+    "cardId": "QTE-M-WIND-29",
+    "name": "妖ノ長・ストク"
+  },
   "main": [
     {
       "cardId": "QTE-M-WIND-33",
-      "count": 4
+      "name": "透キ通ル・アヤカシ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-34",
-      "count": 4
+      "name": "ハク霊",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-35",
-      "count": 4
+      "name": "コク霊",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-36",
-      "count": 4
+      "name": "喚ビ集ウ・アヤカシ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-37",
-      "count": 3
+      "name": "魂喰ラウ・オニ",
+      "qty": 3
     },
     {
       "cardId": "QTE-M-WIND-38",
-      "count": 3
+      "name": "暴レ狂ウ・オニ",
+      "qty": 3
     },
     {
       "cardId": "QTE-M-WIND-39",
-      "count": 2
+      "name": "天翔ケル霊鬼・シュテン",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-WIND-3",
-      "count": 4
+      "name": "スカイ・スワロー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-2",
-      "count": 4
+      "name": "ウィンド・ペティ",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-5",
-      "count": 4
+      "name": "サイクロン・フェンサー",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-WIND-16",
-      "count": 4
+      "name": "疾風の先陣",
+      "qty": 4
     }
   ],
   "taboo": [
-    "QTE-M-WATER-9",
-    "QTE-M-WATER-10",
-    "QTE-M-FIRE-9",
-    "QTE-M-DARK-9",
-    "QTE-M-LIGHT-9",
-    "QTE-M-EARTH-9",
-    "QTE-M-WATER-2",
-    "QTE-M-FIRE-2"
+    {
+      "cardId": "QTE-M-WATER-9",
+      "name": "スプラッシュ・ドロー"
+    },
+    {
+      "cardId": "QTE-M-WATER-10",
+      "name": "恵みの雨"
+    },
+    {
+      "cardId": "QTE-M-FIRE-9",
+      "name": "イグニッション・バースト"
+    },
+    {
+      "cardId": "QTE-M-DARK-9",
+      "name": "絶望の連鎖"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-9",
+      "name": "光の戒め"
+    },
+    {
+      "cardId": "QTE-M-EARTH-9",
+      "name": "大地の恵み"
+    },
+    {
+      "cardId": "QTE-M-WATER-2",
+      "name": "アクア・ジェリー"
+    },
+    {
+      "cardId": "QTE-M-FIRE-2",
+      "name": "フレア・ポーン"
+    }
   ]
 }

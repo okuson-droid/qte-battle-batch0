@@ -1,61 +1,100 @@
 {
-  "formatVersion": 1,
-  "name": "土Ver1.1確認用(Batch51)",
-  "leaderCardId": "QTE-M-EARTH-29",
+  "format": "taboo-elemental-deck",
+  "version": 2,
+  "deckName": "土Ver1.1確認用(Batch51)",
+  "leader": {
+    "cardId": "QTE-M-EARTH-29",
+    "name": "地上覇総長・翔山(ショウザン)"
+  },
   "main": [
     {
       "cardId": "QTE-M-EARTH-33",
-      "count": 4
+      "name": "分那愚利(ブンナグリ)",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-34",
-      "count": 4
+      "name": "勝鼓美(カチコミ)",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-35",
-      "count": 4
+      "name": "素手喧嘩(ステゴロ)",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-37",
-      "count": 4
+      "name": "仏恥義理(ブッチギリ)",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-38",
-      "count": 4
+      "name": "喧嘩上等(ケンカジョウトウ)",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-39",
-      "count": 4
+      "name": "俺等地上覇夜露死苦(セカイヲスベシモノ)",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-7",
-      "count": 4
+      "name": "百獣の王 ベヒーモス",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-36",
-      "count": 2
+      "name": "勝阿外(カツアゲ)",
+      "qty": 2
     },
     {
       "cardId": "QTE-M-EARTH-16",
-      "count": 4
+      "name": "苗木植えの精霊",
+      "qty": 4
     },
     {
       "cardId": "QTE-M-EARTH-9",
-      "count": 3
+      "name": "大地の恵み",
+      "qty": 3
     },
     {
       "cardId": "QTE-M-EARTH-25",
-      "count": 3
+      "name": "大地の開眼",
+      "qty": 3
     }
   ],
   "taboo": [
-    "QTE-M-FIRE-10",
-    "QTE-M-FIRE-9",
-    "QTE-M-WATER-9",
-    "QTE-M-WIND-16",
-    "QTE-M-LIGHT-13",
-    "QTE-M-DARK-24",
-    "QTE-M-WATER-18",
-    "QTE-M-WIND-5"
+    {
+      "cardId": "QTE-M-FIRE-10",
+      "name": "マグマ・ストレート"
+    },
+    {
+      "cardId": "QTE-M-FIRE-9",
+      "name": "イグニッション・バースト"
+    },
+    {
+      "cardId": "QTE-M-WATER-9",
+      "name": "スプラッシュ・ドロー"
+    },
+    {
+      "cardId": "QTE-M-WIND-16",
+      "name": "疾風の先陣"
+    },
+    {
+      "cardId": "QTE-M-LIGHT-13",
+      "name": "正義の御盾"
+    },
+    {
+      "cardId": "QTE-M-DARK-24",
+      "name": "墓穴の呪い"
+    },
+    {
+      "cardId": "QTE-M-WATER-18",
+      "name": "波濤の突撃兵"
+    },
+    {
+      "cardId": "QTE-M-WIND-5",
+      "name": "サイクロン・フェンサー"
+    }
   ]
 }
