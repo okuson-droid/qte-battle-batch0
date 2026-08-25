@@ -86,13 +86,16 @@ public record PlayerView(
      * @param min        最低選択数(0なら「選ばない」を許す)
      * @param max        最大選択数
      * @param prompt     案内文
+     * @param queued     ★Batch 64: 待っている問い合わせの総数(この1件を含む)。
+     *                   2以上なら「答えてもまだ次がある」ということである
      */
     public record PendingChoiceView(
             String kind,
             List<ChoiceCandidateView> candidates,
             int min,
             int max,
-            String prompt) {
+            String prompt,
+            int queued) {
 
         /**
          * 候補1件のビュー。

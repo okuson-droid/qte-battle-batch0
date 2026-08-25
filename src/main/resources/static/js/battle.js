@@ -1812,6 +1812,10 @@ function render(view) {
  * 割り込み選択(a9): 効果の解決中にサーバが問い合わせてきた選択のUI。
  * 手札・場・墓地・公開領域のいずれからでも、候補の並び順の位置を選んで送り返す。
  * 既存の対象選択(pending)とは別物(あちらは使用宣言時、こちらは解決の途中)。
+ *
+ * ★Batch 64: kind に CONFIRM(はい/いいえ)が増え、queued(待っている件数)が届くようになった。
+ * どちらも送受信の形は変わっていない —— CONFIRM は「候補1件の選択」であり、
+ * [はい] は index 0 を送り、[いいえ] は空を送るだけである。
  */
 function renderPendingChoice(view) {
     const area = document.getElementById('reveal-area');
@@ -1821,7 +1825,15 @@ function renderPendingChoice(view) {
     const promptEl = document.getElementById('reveal-prompt');
     row.innerHTML = '';
     if (!choice) return;
-    promptEl.textContent = choice.prompt;
+    // ★複数の問い合わせが並んでいるときは、残り件数を添える(1件だけのときは出さない)
+    promptEl.textContent = choice.queued > 1
+        ? `${choice.prompt}(この後あと${choice.queued - 1}件)`
+        : choice.prompt;
+    if (choice.kind === 'CONFIRM') {
+        renderConfirmChoice(row);
+        document.getElementById('btn-confirm-choice').classList.add('d-none');
+        return;
+    }
     const multi = choice.max > 1 || choice.min === 0;
     choice.candidates.forEach(cand => {
         const btn = document.createElement('button');
@@ -1840,6 +1852,30 @@ function renderPendingChoice(view) {
     if (multi) {
         confirmBtn.textContent = `この内容で確定 (${choicePicks.length}/${choice.max})`;
     }
+}
+
+/**
+ * 「〜してもよい」の はい/いいえ(★Batch 64)。
+ * ★どちらも押せば即送信する —— 取り消せる操作ではないが、二択に確認を重ねる意味は無い(裁定113)。
+ */
+function renderConfirmChoice(row) {
+    // ★分割代入で書かないのは tools/check_undeclared.py が引数の分割代入を
+    //   「未宣言の識別子」と読むためである(道具に合わせて書き方を1つ選ぶ。裁定114 の親戚)
+    const options = [
+        { label: 'はい', cls: 'btn-warning', indexes: [0] },
+        { label: 'いいえ', cls: 'btn-outline-secondary', indexes: [] }
+    ];
+    options.forEach(function (opt) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'btn btn-sm ' + opt.cls;
+        btn.textContent = opt.label;
+        btn.onclick = () => {
+            send('resolve-choice', { chosenIndexes: opt.indexes });
+            choicePicks = [];
+        };
+        row.appendChild(btn);
+    });
 }
 
 /** 候補のトグル(複数選択)または即確定(単一選択) */

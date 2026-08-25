@@ -232,12 +232,15 @@ public class GameViewBuilder {
                     CardMaster m = cards.findById(mana.getCardId());
                     label = mana.isFaceUp() ? m.name() : m.name() + "(裏向き)";
                 }
+                // ★Batch 64: はい/いいえ。候補は1件だけで、選べば「はい」である。
+                // クライアントは kind を見て2つのボタンに描き替えるので、ここの文言は保険にすぎない
+                case CONFIRM -> label = "はい";
                 default -> label = id;
             }
             candidates.add(new PlayerView.PendingChoiceView.ChoiceCandidateView(i, label, keywords, minionInstanceId));
         }
         return new PlayerView.PendingChoiceView(choice.kind().name(), candidates,
-                choice.min(), choice.max(), choice.prompt());
+                choice.min(), choice.max(), choice.prompt(), player.getPendingChoiceCount());
     }
 
     /** リーダー起動能力の状態。使用可否はサーバで評価する(UIはボタンの活性に使うだけ) */

@@ -1,6 +1,7 @@
 package com.example.qte.effect;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.List;
@@ -8,6 +9,7 @@ import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.BiPredicate;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import org.springframework.stereotype.Component;
 
@@ -78,23 +80,19 @@ public class CardEffectRegistry {
     private final Map<String, EnhancedCostSpec> enhancedCosts = new HashMap<>();
 
     /**
-     * 「自分の他のミニオンが破壊された」ことを場から監視する効果
-     * (カードID → 処理。第2引数は破壊されたミニオンのカードID)。
+     * 「<b>どちらの</b>ミニオンが破壊された」ことを場から監視する効果
+     * (★Batch 57。カードID → 処理。第2引数は破壊されたミニオンのカードID)。
      *
-     * 破壊されたミニオン自身のトリガー(ON_DESTROYED)とは向きが逆で、
-     * 場に残っている側が他者の破壊に反応する。執念の暗殺者・不滅のネクロマンサーが該当する。
-     */
-    private final Map<String, BiConsumer<EffectContext, String>> ownMinionDestroyedWatchers = new HashMap<>();
-
-    /**
-     * 「<b>どちらの</b>ミニオンが破壊された」にも反応する監視効果(★Batch 57。カードID → 処理)。
-     *
-     * <p>{@link #ownMinionDestroyedWatchers} との違いは<b>数える範囲</b>だけである。
-     * Ver1.1 の《執念の暗殺者》は本文から「自分の」が消えたため、裁定156(2)により
-     * 両者のミニオンの破壊に反応する。
+     * <p>破壊されたミニオン自身のトリガー(ON_DESTROYED)とは向きが逆で、
+     * 場に残っている側が他者の破壊に反応する。Ver1.1 では《執念の暗殺者》1枚だけが使う。
      *
      * <p>相手の場で起きた破壊に反応するとき、文脈は
      * {@link EffectContext#swapSides()} で持ち主側に向け直してから渡す。
+     *
+     * <p>★★<b>Batch 64: 「自分の」限定の監視({@code ownMinionDestroyedWatchers})を撤去した。</b>
+     * 唯一の使い手だった《不滅のネクロマンサー》が Ver1.1 の本文へ作り直され、
+     * 破壊の監視をやめたためである。<b>誰も登録しない器は残さない</b>(裁定178)——
+     * 「自分の」限定の監視が必要なカードが現れたときに、そのとき足せばよい。
      */
     private final Map<String, BiConsumer<EffectContext, String>> anyMinionDestroyedWatchers = new HashMap<>();
 
@@ -245,7 +243,7 @@ public class CardEffectRegistry {
                 handPositions.add(String.valueOf(i));
             }
             int discardCount = Math.min(2, handPositions.size());
-            ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
                     PendingChoice.Kind.HAND, handPositions, discardCount, discardCount,
                     ResumePoint.AQUA_SEARCH_DISCARD,
                     "【アクア・サーチ】: 捨てる手札を2枚選んでください"));
@@ -568,10 +566,7 @@ public class CardEffectRegistry {
         }
         for (MinionInstance watcher : List.copyOf(ctx.owner().getMinionZone())) {
             BiConsumer<EffectContext, String> effect =
-                    ownMinionDestroyedWatchers.get(watcher.getMaster().id());
-            if (effect == null) {
-                effect = anyMinionDestroyedWatchers.get(watcher.getMaster().id());
-            }
+                    anyMinionDestroyedWatchers.get(watcher.getMaster().id());
             if (effect == null || !ctx.owner().getMinionZone().contains(watcher)) {
                 continue;
             }
@@ -580,8 +575,9 @@ public class CardEffectRegistry {
         // ★Batch 57: 「自分の」と書かれていない監視効果(執念の暗殺者)は、
         // 破壊されたミニオンの<b>持ち主でない側</b>の場でも発火する(裁定156(2))。
         // 文脈は swapSides で反応する側へ向け直す —— そうしないとドローが相手に飛ぶ。
-        // 上のループと2本に分けているのは、「自分の」限定の監視効果(不滅のネクロマンサー・
-        // 妖ノ長・ストク)をこちら側で発火させてはならないためである。
+        // ★Batch 64: 上のループと2本に分かれているのは、上が
+        // 「自分の」限定のリーダー常在(妖ノ長・ストク)も通る側だからである
+        // (カード側の「自分の」限定の監視は 64 で撤去した)。
         EffectContext otherSide = ctx.swapSides();
         for (MinionInstance watcher : List.copyOf(otherSide.owner().getMinionZone())) {
             BiConsumer<EffectContext, String> effect =
@@ -1163,7 +1159,8 @@ public class CardEffectRegistry {
     // 登録: 闇文明(Batch 10bで全面実装)
     //
     // 闇のテーマは「墓地」と「裏向きマナ」を資源として使い潰すこと。
-    // 効果の解決中に生じる選択は AutoChoice が自動で決める(Batch 10bの暫定方針)。
+    // ★Batch 64: 解決中に生じる選択は<b>本人が選ぶ</b>(裁定299)。
+    // 10b から 63 までの「AutoChoice が自動で決める」という暫定方針はここで終わった。
     // ---------------------------------------------------------------
 
     private void registerDarkCards() {
@@ -1212,12 +1209,18 @@ public class CardEffectRegistry {
                         "3ダメージを与えるミニオンを選んでください(自分のミニオンも選べます)")));
         register("QTE-M-DARK-20", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
                 .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 3)));
+        // ★★Batch 64: 「引いてもよい」を本人に問う(裁定299)。
+        //   ★<b>1回の破壊につき1回問う</b>(裁定300)。全体破壊が4体を飛ばせば4回積まれる ——
+        //     このカードが {@code PlayerState} の待ち行列を要求した張本人である。
+        //   ★<b>山札が空なら問い合わせ自体を出さない</b>(裁定302)。
+        //     引けば敗北する選択肢を並べる意味が無く、63 までの AutoChoice も同じ判断だった。
         watchAnyMinionDestroyed("QTE-M-DARK-20", (ctx, destroyedCardId) -> {
-            // 「引いてもよい」= 山札が空でなければ引く(AutoChoice)
-            if (AutoChoice.shouldDrawOptional(ctx.owner())) {
-                ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
-                ctx.room().addLog("【執念の暗殺者】が1枚ドロー");
+            if (ctx.owner().getDeck().isEmpty()) {
+                return;
             }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.confirm(
+                    ResumePoint.ASSASSIN_OPTIONAL_DRAW,
+                    "【執念の暗殺者】: カードを1枚引きますか?"));
         });
 
         // ゾンストライカー: 【召喚時】墓地の「ゾンストライカー」を全て出す(ゾーン上限まで)。
@@ -1271,29 +1274,29 @@ public class CardEffectRegistry {
         register("QTE-M-DARK-22", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).trashCardIds()
                 .forEach(id -> ctx.actions().returnFromTrashToHand(ctx.room(), ctx.owner(), id)));
 
-        // 不滅のネクロマンサー: 自分の他のミニオンが破壊されるたび、裏向きマナ1枚を破壊して
-        // そのミニオンを蘇生し【突進】を付与してもよい。
-        // 「してもよい」の判断はAutoChoice。マナを無駄にしないよう、蘇生できる見込みを先に確かめる
-        watchOwnMinionDestroyed("QTE-M-DARK-5", (ctx, destroyedCardId) -> {
-            // ★Batch 53: 「場が満杯か」ではなく「場に出られるか」を先に見る ——
-            // 《英霊・コレキ》で出られないときに裏向きマナだけを失うのを避けるためである
-            if (!AutoChoice.shouldRevivePayingMana(ctx.owner())
-                    || ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())
-                    || !ctx.owner().getTrash().contains(destroyedCardId)
-                    || ctx.actions().isCheatIntoFieldBlocked(destroyedCardId)) {
-                return;
-            }
-            if (ctx.actions().destroyFaceDownMana(ctx.room(), ctx.owner(), 1) == 0) {
-                return;
-            }
-            // ★Batch 50: 「場の末尾を取る」形をやめ、蘇生したミニオンの実体を受け取る。
-            // 末尾は ON_ENTER の中でさらに場が増えると別人になりうる(49 設計解説 2-3)
-            MinionInstance revived = ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), destroyedCardId);
-            if (revived != null) {
-                revived.grantKeyword(Keyword.RUSH);
-                ctx.room().addLog("【不滅のネクロマンサー】が【%s】を蘇生し【突進】を付与"
-                        .formatted(cards.findById(destroyedCardId).name()));
-            }
+        // ★★★Batch 64: 不滅のネクロマンサー(QTE-M-DARK-5)を Ver1.1 の本文へ作り直した。
+        //
+        //   旧(Ver0.4・4コスト 3/3): 「自分の他のミニオンが破壊されるたび、裏向きマナ1枚を
+        //     破壊してそのミニオンを蘇生し【突進】を付与してもよい。」
+        //   新(Ver1.1・4コスト 6/1): 「出た時相手はカードを1枚引く。」
+        //
+        //   ★<b>P5(Batch 55〜59)の作り直しから丸ごと抜け落ちていた1枚である。</b>
+        //     `notes/rework-triage.md` にこのカードの行が無く、
+        //     Ver1.1 に存在しない効果が 63 まで動き続けていた。
+        //   ★<b>`report_effects.py` はこれを捕まえられない。</b>あのツールが見るのは
+        //     「登録が在るか」であって「本文どおりか」ではない。未実装0枚は嘘ではないが、
+        //     <b>実装が本文と同じであることは何も保証していない</b>。
+        //
+        // ★<b>「出た時」なので ON_ENTER である</b>(【召喚時】と書かれていない登場時能力。
+        //   プロジェクトリファレンス 2-9 の3層の2番目)。効果で場に出しても発動する。
+        // ★<b>引くのは相手である。</b>6/1 という破格の攻撃力に対する代償であり、
+        //   ctx.owner() は「場に出たミニオンの持ち主」なので、引かせる先は ctx.opponent()。
+        // ★このドローは「相手が引いたとき」(《英知の水晶》)を焚く ——
+        //   効果ドローも数えるためである(裁定270(a))。
+        register("QTE-M-DARK-5", TriggerType.ON_ENTER, ctx -> {
+            ctx.actions().drawCards(ctx.room(), ctx.opponent(), 1);
+            ctx.room().addLog("【不滅のネクロマンサー】: %sがカードを1枚引きました"
+                    .formatted(ctx.opponent().getDisplayName()));
         });
 
         // ボーン・コレクター(QTE-M-DARK-6): ★Batch 59(区分3b・裁定266)
@@ -1353,16 +1356,11 @@ public class CardEffectRegistry {
             }
             int reviveLimit = ctx.owner().getFaceDownManaCount();
             ctx.room().addLog("【冥界神ハデス】: 裏向きマナ%d枚分まで蘇生します".formatted(reviveLimit));
-            int revived = 0;
-            // どの体を蘇生するかはAutoChoice(コストの高い順)が決める
-            for (String cardId : AutoChoice.reviveOrder(cards, ctx.owner().getMinionsDestroyedThisTurn())) {
-                if (revived >= reviveLimit) {
-                    break;
-                }
-                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId) != null) {
-                    revived++;
-                }
-            }
+            // ★★Batch 64: どの体を蘇生するかは本人が選ぶ(裁定192・299)。
+            // 63 まではコストの高い順の自動決定だった
+            requestTrashRevive(ctx, "冥界神ハデス", ResumePoint.HADES_REVIVE,
+                    trashPositionsOfDestroyedThisTurn(ctx.owner()), reviveLimit, false,
+                    "【冥界神ハデス】: 墓地から場に出すミニオンを最大%d体まで選んでください".formatted(reviveLimit));
         });
 
         // 裏切りの魔女: 【召喚時】裏向きマナが1枚以上なら、相手のコスト3以下のミニオン1体を破壊
@@ -1558,20 +1556,12 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-DARK-12", ctx -> {
             ctx.targets().get(0).minions()
                     .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
-            List<String> candidates = ctx.owner().getTrash().stream()
-                    .filter(id -> cards.findById(id).type() == CardType.MINION)
-                    .toList();
-            // 蘇生する1体はAutoChoice(コストの高い順)が決める
-            for (String cardId : AutoChoice.reviveOrder(cards, candidates)) {
-                // ★Batch 50: 「場の末尾を取る」形をやめ、蘇生したミニオンの実体を受け取る
-                MinionInstance revived = ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId);
-                if (revived != null) {
-                    revived.grantKeyword(Keyword.RUSH);
-                    ctx.room().addLog("【死者蘇生】が【%s】を蘇生し【突進】を付与"
-                            .formatted(cards.findById(cardId).name()));
-                    break;
-                }
-            }
+            // ★★Batch 64: 蘇生する1体は本人が選ぶ(裁定192・299)。
+            // 63 まではコストの高い順の自動決定だった
+            requestTrashRevive(ctx, "死者蘇生", ResumePoint.RAISE_DEAD_REVIVE,
+                    trashPositionsMatching(ctx.owner(),
+                            id -> cards.findById(id).type() == CardType.MINION),
+                    1, true, "【死者蘇生】: 蘇生するミニオンを墓地から1体選んでください");
         });
 
         // 絶望の連鎖: 自分のミニオン1体を破壊する。そうしたら相手のミニオン1体を破壊する。
@@ -1743,24 +1733,23 @@ public class CardEffectRegistry {
         //   本文が種類を限定していないためである(裁定211)。
         //   したがって<b>相手のターンが始まるたびに必ず1回は誘発する</b>。
         //
-        // ★★<b>「引いても良い」は自動判断で解く(AutoChoice)。</b>マスターは
-        //   「毎回問い合わせ(任意選択)」の形を承認したが、<b>実装できていない</b>。
-        //   割り込み選択(a9)は「効果の解決を中断し、再開点(ResumePoint)から続きを走らせる」
-        //   仕組みであり、<b>中断できるのは登録された再開点だけ</b>である。
-        //   ドローはこのエンジンのあらゆる場所から呼ばれる ——
-        //   ターン開始処理・スペルの解決の途中・【知識】の共通処理・破壊時の誘発……。
-        //   そのどこで中断しても、<b>中断された側の続き</b>を再開する術が無い。
-        //   ★したがって当面は AutoChoice に寄せ、<b>山札が空でなければ引く</b>とする
-        //   (《執念の暗殺者》の「引いてもよい」と同じ判断)。
-        //   ★AutoChoice のクラス説明どおり、割り込みが一般化できた日には
-        //   <b>ここの呼び出し1行を差し替えるだけ</b>で問い合わせ式に移れる。
-        //   ★この差はマスターへ報告済みである(引き継ぎ書 v66)。
+        // ★★<b>Batch 64: 「引いても良い」を毎回問い合わせる形にした</b>(裁定270(a) の実装。裁定301)。
+        //   59〜63 は AutoChoice(山札が空でなければ引く)に寄せていた。理由として
+        //   「割り込みは中断であり、ドローはあらゆる場所から呼ばれるので中断点を作れない」
+        //   と書いてきたが、<b>これは読み違いだった</b> ——
+        //   割り込みは中断ではなく<b>後回し</b>であり、問い合わせを積んでも呼び出し元は先へ進む。
+        //   詰まっていたのは「はい/いいえの器が無い」ことのほうである。
+        //   ★<b>相手のターン開始ドローでも必ず1回問う。</b>答えるまで盤面が止まるが、
+        //     それは裁定214 の対(選択待ちの間は誰も盤面を動かさない)がそのまま効いた姿である。
+        //   ★<b>ここで引く1枚は「相手が引いたとき」を焚かない</b>(裁定279)。
+        //     GameActions.drawCardsWithoutOpponentWatchers を参照。
         register("QTE-M-LIGHT-19", TriggerType.ON_OPPONENT_DRAW, ctx -> {
-            if (!AutoChoice.shouldDrawOptional(ctx.owner())) {
-                return;
+            if (ctx.owner().getDeck().isEmpty()) {
+                return; // 山札が空なら問い合わせ自体を出さない(裁定302)
             }
-            ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
-            ctx.room().addLog("【英知の水晶】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.confirm(
+                    ResumePoint.WISDOM_CRYSTAL_OPTIONAL_DRAW,
+                    "【英知の水晶】: カードを1枚引きますか?"));
         });
 
         // 創世神 ゾディアックアイリス(QTE-M-LIGHT-25): ★Batch 59(区分5・裁定271)
@@ -1840,8 +1829,11 @@ public class CardEffectRegistry {
         // ホーリー・シグナル: 相手の場で最も攻撃力の高いミニオン1体と最も体力の低いミニオン1体を破壊。
         // ★Batch 56(区分4): Ver1.1 で「最も体力の低いミニオン1体」の同時破壊が追加された
         // (rework-triage.md 区分4)。
-        // ★最低体力側はTargetSpec.Requirementにせず、AutoChoice.lowestCurrentHpで自動決定する
-        // (AutoChoice.javaのJavadoc参照)。理由: GameService.validateTargetsは1枚のカードの
+        // ★最低体力側はTargetSpec.Requirementにせず、lowestCurrentHp で自動決定する。
+        // ★★Batch 64: 自動決定がこの1件だけ残った理由は「本人に選ばせたくない」からではなく、
+        //   対象指定の検証と噛み合わないという<b>構造上の都合</b>だからである(下記)。
+        //   他の7件は AutoChoice ごと退役させ、本人の選択へ移した(裁定299)。
+        //   理由: GameService.validateTargetsは1枚のカードの
         // 検証中、Requirementをまたいでusedひとつの Set<String> usedMinionIds を使い回すため、
         // 2つのRequirementにすると「同じミニオンが両方の条件を満たす」ケース
         // (例: 相手の場が1体しかいない)で「同じミニオンを重複して選べません」の例外になり、
@@ -1858,7 +1850,7 @@ public class CardEffectRegistry {
             // 両方の対象を、効果解決前(=まだ何も壊れていない)盤面で先に確定してから破壊する。
             // 片方の破壊で盤面が変わり、もう片方の判定が狂うのを防ぐため
             List<MinionInstance> beforeOpp = new ArrayList<>(ctx.opponent().getMinionZone());
-            MinionInstance lowestHp = AutoChoice.lowestCurrentHp(beforeOpp);
+            MinionInstance lowestHp = lowestCurrentHp(beforeOpp);
 
             List<MinionInstance> toDestroy = new ArrayList<>();
             ctx.targets().get(0).minions().forEach(t -> toDestroy.add(t.minion()));
@@ -2056,7 +2048,11 @@ public class CardEffectRegistry {
                 "このターン中に自分がカードを5枚以上使用: コスト1で召喚します"));
 
         // 嵐の呼び手: 【召喚時】このターン中にカードを3枚以上使用しているなら、
-        // 相手のミニオン1体を持ち主の手札に戻す(a1のカウンタのみで完結。対象は自動選択)
+        // 相手のミニオン1体を持ち主の手札に戻す(a1のカウンタのみで完結)。
+        // ★★Batch 64: どの1体かを<b>本人が選ぶ</b>(裁定299)。
+        //   63 までは「印刷された攻撃力が最も高いもの」の自動決定だった ——
+        //   本文は「相手のミニオン1体」としか書いておらず、強さの順は実装が足した規則である。
+        //   ★候補が1体なら選ぶ余地が無いので問い合わせない。
         register("QTE-M-WIND-4", TriggerType.ON_SUMMON, ctx -> {
             if (ctx.owner().getCardsUsedThisTurn() < 3) {
                 return;
@@ -2065,9 +2061,15 @@ public class CardEffectRegistry {
             if (opponentMinions.isEmpty()) {
                 return;
             }
-            MinionInstance target = AutoChoice.highestPrintedAttack(opponentMinions);
-            ctx.actions().bounceToHand(ctx.room(), ctx.opponent(), target);
-            ctx.room().addLog("【嵐の呼び手】: 【%s】を持ち主の手札に戻しました".formatted(target.getMaster().name()));
+            if (opponentMinions.size() == 1) {
+                bounceStormCallerTarget(ctx, opponentMinions.get(0).getInstanceId());
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MINION,
+                    opponentMinions.stream().map(MinionInstance::getInstanceId).toList(),
+                    ResumePoint.STORM_CALLER_BOUNCE,
+                    "【嵐の呼び手】: 持ち主の手札に戻す相手のミニオンを1体選んでください"));
         });
 
         // 詠唱の疾風騎士: ターンエンド時、このターン5回以上スペルを撃っていたら
@@ -2691,30 +2693,22 @@ public class CardEffectRegistry {
                         "1ダメージを与える相手のミニオンを選んでください")));
         register("QTE-M-DARK-34", TriggerType.ON_SUMMON, ctx -> ctx.targets().get(0).minions()
                 .forEach(t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 1)));
-        // ★【破壊時】の蘇生対象は<b>自動決定</b>である(AutoChoice)。裁定192
-        //   (盤面に残るものを決める選択は本人にさせる)の例外にあたるが、構造上の理由がある ——
-        //   【破壊時】は<b>相手のターン中にも起きる</b>のに対し、割り込み選択の解決
-        //   (GameService.resolveChoice)は「ターンプレイヤーでなければ拒否する」。
-        //   相手ターンに問い合わせを出すと、誰も解決できないまま盤面が固まる。
+        // ★★Batch 64: 【破壊時】の蘇生対象を<b>本人が選ぶ</b>形に戻した(裁定192・299)。
+        //   50 の設計解説は自動決定にした理由をこう書いていた ——
+        //   「【破壊時】は相手のターン中にも起きるのに、resolveChoice はターンプレイヤーしか
+        //     受け付けない。問い合わせを出すと誰も解決できないまま盤面が固まる」。
+        //   ★<b>その制限は 51(裁定214)で外れていた。</b>外れてもなお自動決定のまま残っていた ——
+        //     制約に合わせて曲げた実装は、制約が消えても自分では戻らない。
         // ★数えるのは印刷コストである(場に出る前のカードには動的コストが無い)。
         // ★自分自身(コスト2)は候補にならない。破壊処理は墓地へ置いてから
         //   ON_DESTROYED を発火するため、もしコスト1だったら自分を選びうる点に注意
-        register("QTE-M-DARK-34", TriggerType.ON_DESTROYED, ctx -> {
-            List<String> candidates = ctx.owner().getTrash().stream()
-                    .filter(id -> {
-                        CardMaster m = cards.findById(id);
-                        return m.type() == CardType.MINION && m.cost() != null && m.cost() == 1;
-                    })
-                    .toList();
-            for (String cardId : AutoChoice.reviveOrder(cards, candidates)) {
-                if (ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId) != null) {
-                    ctx.room().addLog("【サモンズライト】: 墓地から【%s】を場に出しました"
-                            .formatted(cards.findById(cardId).name()));
-                    return;
-                }
-            }
-            ctx.room().addLog("【サモンズライト】: 墓地にコスト1のミニオンが居ないため、何も起こりませんでした");
-        });
+        register("QTE-M-DARK-34", TriggerType.ON_DESTROYED, ctx -> requestTrashRevive(
+                ctx, "サモンズライト", ResumePoint.SUMMONS_LIGHT_REVIVE,
+                trashPositionsMatching(ctx.owner(), id -> {
+                    CardMaster m = cards.findById(id);
+                    return m.type() == CardType.MINION && m.cost() != null && m.cost() == 1;
+                }),
+                1, false, "【サモンズライト】: 墓地から場に出すコスト1のミニオンを1体選んでください"));
 
         // ---- ダークネオンステージ(QTE-M-DARK-36) ----
         // 「【特殊召喚】(自分の場1枚、自分の手札を2枚捨てることでこのカードを0コストとして場に出す)」
@@ -3246,6 +3240,103 @@ public class CardEffectRegistry {
         }
         ctx.actions().requestChoice(ctx.room(), ctx.owner(),
                 PendingChoice.one(PendingChoice.Kind.MANA, positions, resumeAt, prompt));
+    }
+
+    // -----------------------------------------------------------------
+    // ★★Batch 64: 「墓地から場に出す体を本人が選ぶ」の共通形(裁定299)
+    //
+    // 4枚(冥界神ハデス・死者蘇生・サモンズライト・不滅のネクロマンサー)が同じ形を持ち、
+    // 違うのは<b>候補の絞り込み・上限・【突進】を付けるか</b>だけである。
+    // requestManaSummon(51)と同じ流儀で1本にまとめた(裁定163)。
+    // -----------------------------------------------------------------
+
+    /**
+     * 墓地から場に出す体を選ばせる(★Batch 64)。
+     *
+     * ★<b>候補が上限以下なら問い合わせない。</b>選ぶ余地が無いためである
+     * (《詠唱の疾風騎士》《降臨の伝道師》から変えていない流儀)。
+     *
+     * @param positions 候補となる墓地の位置(文字列)
+     * @param limit     出せる体数の上限
+     * @param grantRush 出した体に【突進】を付けるか
+     */
+    private void requestTrashRevive(EffectContext ctx, String cardName, ResumePoint resumeAt,
+            List<String> positions, int limit, boolean grantRush, String prompt) {
+        if (positions.isEmpty() || limit <= 0) {
+            ctx.room().addLog("【%s】: 墓地に出せるミニオンが居ないため、何も起こりませんでした"
+                    .formatted(cardName));
+            return;
+        }
+        if (positions.size() <= limit) {
+            resolveTrashRevive(ctx, cardName, positions, grantRush);
+            return;
+        }
+        // ★1体だけ出す効果は必須(min=1)、複数体なら上限つきの任意(min=0)である。
+        //   後者を必須にできないのは裁定277 と同じ事情 —— 「いるだけちょうど」を表す器が無く、
+        //   場の空きや《英霊・コレキ》で途中から出せなくなる場合があるためである。
+        //   少なく選ぶのは自分が損をするだけなので、そこは 277 の判断に揃えてある。
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), limit == 1
+                ? PendingChoice.one(PendingChoice.Kind.TRASH, positions, resumeAt, prompt)
+                : PendingChoice.upTo(PendingChoice.Kind.TRASH, positions, limit, resumeAt, prompt));
+    }
+
+    /**
+     * 選ばれた墓地の位置から場に出す(★Batch 64)。
+     *
+     * ★<b>位置からカードIDへの読み替えを先に全部済ませる。</b>1体出すたびに墓地が縮むので、
+     * 出しながら次の位置を読むと<b>ずれた別のカード</b>を掴む。
+     * (《詠唱の疾風騎士》が降順に取り除いているのと同じ問題を、別の解き方で避けている ——
+     * あちらは位置を消す側、こちらは位置を先に値へ変える側である。)
+     */
+    private void resolveTrashRevive(EffectContext ctx, String cardName,
+            List<String> positions, boolean grantRush) {
+        List<String> trash = ctx.owner().getTrash();
+        List<String> cardIds = new ArrayList<>();
+        for (String position : positions) {
+            int index = Integer.parseInt(position);
+            if (index >= 0 && index < trash.size()) {
+                cardIds.add(trash.get(index));
+            }
+        }
+        for (String cardId : cardIds) {
+            MinionInstance revived = ctx.actions().reviveFromGrave(ctx.room(), ctx.owner(), cardId);
+            if (revived == null) {
+                continue;
+            }
+            if (grantRush) {
+                revived.grantKeyword(Keyword.RUSH);
+            }
+            ctx.room().addLog("【%s】: 墓地から【%s】を場に出しました%s"
+                    .formatted(cardName, cards.findById(cardId).name(),
+                            grantRush ? "(【突進】を付与)" : ""));
+        }
+    }
+
+    /**
+     * 墓地の中で、条件に合うカードの位置を並べる(★Batch 64)。
+     * 墓地はカードIDの並びであって個体を持たないため、候補は位置で表すしかない。
+     */
+    private List<String> trashPositionsMatching(PlayerState owner, Predicate<String> accept) {
+        List<String> positions = new ArrayList<>();
+        List<String> trash = owner.getTrash();
+        for (int i = 0; i < trash.size(); i++) {
+            if (accept.test(trash.get(i))) {
+                positions.add(String.valueOf(i));
+            }
+        }
+        return positions;
+    }
+
+    /**
+     * 「このターン破壊された味方」に対応する墓地の位置(★Batch 64。《冥界神ハデス》)。
+     *
+     * ★<b>多重度を守る。</b>同名のカードが以前から墓地に居ても、
+     * このターン壊れた数までしか候補にならない ——
+     * 「このターン破壊された味方ミニオンを出す」という本文をそのまま数える。
+     */
+    private List<String> trashPositionsOfDestroyedThisTurn(PlayerState owner) {
+        List<String> remaining = new ArrayList<>(owner.getMinionsDestroyedThisTurn());
+        return trashPositionsMatching(owner, remaining::remove);
     }
 
     // ---------------------------------------------------------------
@@ -3811,16 +3902,20 @@ public class CardEffectRegistry {
                     ctx.room().addLog("【英術・スケアロック】: 進化素材が足りなくなったため、場に出せませんでした");
                     break;
                 }
-                ctx.owner().setPendingEvolutionCardId(cardId);
+                // ★★Batch 64: どの進化カードを出そうとしているかは payload が運ぶ。
+                // 63 までは PlayerState.pendingEvolutionCardId というこのカード専用の
+                // フィールドに置いていた —— 「候補では表せない文脈」を運ぶ器が
+                // PendingChoice に無かったためである。器ができたので、専用の箱は撤去した
                 int max = Math.min(spec.maxMaterials(), materials.size());
-                ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+                ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
                         PendingChoice.Kind.MINION, materials, spec.minMaterials(), max,
                         ResumePoint.SCARELOCK_MATERIAL,
                         "【%s】の進化素材を選んでください(%s)"
-                                .formatted(cards.findById(cardId).name(), spec.description())));
+                                .formatted(cards.findById(cardId).name(), spec.description()))
+                        .withPayload(cardId));
             }
             // 英術・スケアロック(QTE-M-LIGHT-39): 素材を確定させて進化ミニオンを場に出す。★Batch 53
-            case SCARELOCK_MATERIAL -> resolveScarelockMaterials(ctx, chosen);
+            case SCARELOCK_MATERIAL -> resolveScarelockMaterials(ctx, choice.payload(), chosen);
             // 白ノ霊知者(QTE-M-WIND-31): 【召喚時】に破壊するミニオンを確定させる。★Batch 54。
             // ★候補は両者の場から作ってあるので、どちら側に居るかを探し直す
             case HAKUNO_REICHISHA_DESTROY -> {
@@ -3836,7 +3931,91 @@ public class CardEffectRegistry {
             }
             // 愚乱怒土地(QTE-M-EARTH-30): 見た2枚のうち、裏向きでマナに置く1枚を確定させる。★Batch 54
             case GURANDORANDO_MANA -> resolveGurandorandoChoice(ctx, chosen);
+
+            // -----------------------------------------------------------------
+            // ★★Batch 64: AutoChoice から本人の選択へ移した7件(裁定299)
+            // -----------------------------------------------------------------
+
+            // 執念の暗殺者(QTE-M-DARK-20): 「1枚引いてもよい」の答え。★Batch 64
+            case ASSASSIN_OPTIONAL_DRAW -> {
+                if (saidYes(chosen)) {
+                    ctx.actions().drawCards(ctx.room(), ctx.owner(), 1);
+                    ctx.room().addLog("【執念の暗殺者】が1枚ドロー");
+                }
+            }
+            // 英知の水晶(QTE-M-LIGHT-19): 「1枚引いても良い」の答え。★Batch 64。
+            // ★このドローは「相手が引いたとき」を焚かない —— 焚くと互いに終わらない(裁定279)
+            case WISDOM_CRYSTAL_OPTIONAL_DRAW -> {
+                if (saidYes(chosen)) {
+                    ctx.actions().drawCardsWithoutOpponentWatchers(ctx.room(), ctx.owner(), 1);
+                    ctx.room().addLog("【英知の水晶】%sが1枚ドロー".formatted(ctx.owner().getDisplayName()));
+                }
+            }
+            // 冥界神ハデス(QTE-M-DARK-8): 墓地から出す味方を確定させる。★Batch 64
+            case HADES_REVIVE -> resolveTrashRevive(ctx, "冥界神ハデス", chosen, false);
+            // 死者蘇生(QTE-M-DARK-12): 蘇生する1体を確定させる(【突進】付き)。★Batch 64
+            case RAISE_DEAD_REVIVE -> resolveTrashRevive(ctx, "死者蘇生", chosen, true);
+            // サモンズライト(QTE-M-DARK-34): 【破壊時】に出すコスト1のミニオンを確定させる。★Batch 64。
+            // ★相手のターン中にも通る経路である(裁定214)
+            case SUMMONS_LIGHT_REVIVE -> resolveTrashRevive(ctx, "サモンズライト", chosen, false);
+            // 死霊の収鎌: 墓地から手札に戻す1枚を確定させる。★Batch 64
+            case WRAITH_SCYTHE_RECOVER -> {
+                String cardId = ctx.owner().getTrash().get(Integer.parseInt(chosen.get(0)));
+                ctx.actions().returnFromTrashToHand(ctx.room(), ctx.owner(), cardId);
+            }
+            // 嵐の呼び手(QTE-M-WIND-4): 手札に戻す相手のミニオンを確定させる。★Batch 64
+            case STORM_CALLER_BOUNCE -> bounceStormCallerTarget(ctx, chosen.get(0));
         }
+    }
+
+    /**
+     * 現在HPが最も低いミニオンを選ぶ(《ホーリー・シグナル》QTE-M-LIGHT-10)。
+     * 同値なら盤面の並び順(先に出た方)で安定させる。
+     *
+     * <h2>★Batch 64: 自動決定として最後に残った1件である</h2>
+     *
+     * 10b から 63 まで、解決中の選択は {@code AutoChoice} という1つのクラスに集めて
+     * 自動で決めていた。64 でその7件は本人の選択へ移り、クラスごと退役した(裁定299)。
+     *
+     * <p>これだけが残るのは、<b>本人に選ばせたくないからではなく、
+     * 対象指定の検証と噛み合わないから</b>である ——
+     * 2つ目の {@code Requirement} にすると {@code GameService.validateTargets} の
+     * {@code usedMinionIds}(要求をまたいだ重複選択の防止)に引っかかり、
+     * 相手の場が1体しか居ないときに<b>カードが使用不能になる</b>。
+     * ★{@code AutoChoice} を残さずここへ移したのは、「自動決定という方針」の集約ではなく
+     * <b>1枚のカードの都合</b>になったからである。方針が消えたなら、その入れ物も消す。
+     */
+    private MinionInstance lowestCurrentHp(List<MinionInstance> candidates) {
+        return candidates.stream()
+                .min(Comparator.comparingInt(MinionInstance::getCurrentHp))
+                .orElse(null);
+    }
+
+    /**
+     * 「はい」と答えたか(★Batch 64。{@link PendingChoice.Kind#CONFIRM})。
+     *
+     * ★<b>候補を選んだかどうかがそのまま答えである。</b>「いいえ」を別の候補として並べると、
+     * 「何も選ばない」と「いいえを選ぶ」の2つが同じ意味を持つことになり、
+     * 検証(min/max)がどちらを正とするかを決められなくなる。
+     */
+    private boolean saidYes(List<String> chosen) {
+        return chosen.contains(PendingChoice.CONFIRM_YES);
+    }
+
+    /**
+     * 嵐の呼び手(QTE-M-WIND-4)のバウンス本体(★Batch 64)。
+     * 選択中に相手の場から居なくなっていたら何も起きない(《サモナーポップ・エンラ》と同じ形)。
+     */
+    private void bounceStormCallerTarget(EffectContext ctx, String instanceId) {
+        MinionInstance target = ctx.opponent().getMinionZone().stream()
+                .filter(m -> m.getInstanceId().equals(instanceId))
+                .findFirst().orElse(null);
+        if (target == null) {
+            ctx.room().addLog("【嵐の呼び手】: 選んだミニオンが場に居ないため、何も起こりませんでした");
+            return;
+        }
+        ctx.actions().bounceToHand(ctx.room(), ctx.opponent(), target);
+        ctx.room().addLog("【嵐の呼び手】: 【%s】を持ち主の手札に戻しました".formatted(target.getMaster().name()));
     }
 
     /**
@@ -3907,9 +4086,7 @@ public class CardEffectRegistry {
      * 抜いてから出せないと分かると、カードがどのゾーンにも居ない瞬間が生まれる
      * (51 の「先に場から取り除くと行き先の無いカードが生まれる」と同じ形)。
      */
-    private void resolveScarelockMaterials(EffectContext ctx, List<String> chosen) {
-        String cardId = ctx.owner().getPendingEvolutionCardId();
-        ctx.owner().setPendingEvolutionCardId(null);
+    private void resolveScarelockMaterials(EffectContext ctx, String cardId, List<String> chosen) {
         if (cardId == null) {
             return;
         }
@@ -4287,7 +4464,7 @@ public class CardEffectRegistry {
                 ctx.room().addLog("【灰ノ霊呼者】: 手札に【破壊時】を持つミニオンが居ません");
                 return;
             }
-            ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
                     PendingChoice.Kind.HAND, candidates,
                     Math.min(2, candidates.size()), Math.min(2, candidates.size()),
                     ResumePoint.ASHINO_REIKOSHA_SUMMON,
@@ -4512,7 +4689,7 @@ public class CardEffectRegistry {
             for (int i = 0; i < revealed.size(); i++) {
                 positions.add(String.valueOf(i));
             }
-            ctx.actions().requestChoice(ctx.room(), ctx.owner(), new PendingChoice(
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
                     PendingChoice.Kind.REVEALED, positions,
                     revealed.size() >= 2 ? 1 : 0, 1, ResumePoint.GURANDORANDO_MANA,
                     "【愚乱怒土地】: 裏向きでマナに置く1枚を選んでください(残りは手札に加わります)"));
@@ -4596,7 +4773,7 @@ public class CardEffectRegistry {
             positions.add(String.valueOf(i));
         }
         ctx.actions().requestChoice(ctx.room(), ctx.owner(),
-                new PendingChoice(PendingChoice.Kind.HAND, positions, min, max, resumeAt, prompt));
+                PendingChoice.of(PendingChoice.Kind.HAND, positions, min, max, resumeAt, prompt));
     }
 
     /**
@@ -4627,11 +4804,6 @@ public class CardEffectRegistry {
     /** 進化ミニオンの素材条件。進化ミニオンでないカード、未登録のカードは null */
     public EvolutionSpec evolutionOf(String cardId) {
         return evolutions.get(cardId);
-    }
-
-    /** 「自分のミニオンが破壊された」監視効果の登録 */
-    private void watchOwnMinionDestroyed(String cardId, BiConsumer<EffectContext, String> effect) {
-        ownMinionDestroyedWatchers.put(cardId, effect);
     }
 
     /**
@@ -4675,7 +4847,7 @@ public class CardEffectRegistry {
      * <b>実行時の表そのものを見ている</b>ことに意味がある。登録は
      * {@code registerXxx()} が実行された結果であり、ソースを走査して数える
      * {@code tools/report_effects.py} と違って、書き方(直接 put か、
-     * {@code register(...)} や {@code watchOwnMinionDestroyed(...)} のような
+     * {@code register(...)} や {@code watchAnyMinionDestroyed(...)} のような
      * ヘルパ経由か)に左右されない(裁定170: 測るのはエンジンが実際に持っている値)。
      */
     public boolean isRegistered(String cardId) {
@@ -4686,7 +4858,6 @@ public class CardEffectRegistry {
                 || leaderAbilities.containsKey(cardId)
                 || minionAbilities.containsKey(cardId)
                 || enhancedCosts.containsKey(cardId)
-                || ownMinionDestroyedWatchers.containsKey(cardId)
                 || anyMinionDestroyedWatchers.containsKey(cardId)
                 || playConditions.containsKey(cardId)
                 || soulSpells.containsKey(cardId);

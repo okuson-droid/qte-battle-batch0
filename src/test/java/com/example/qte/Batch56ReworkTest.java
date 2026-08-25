@@ -770,6 +770,9 @@ class Batch56ReworkTest {
     // 新: 「【召喚時】ミニオン1体に3ダメージ。【常在】ミニオンが破壊されるたび山札から1枚引いてもよい。」
     // → 「自分の」が消えたので、裁定156(2)により相手のミニオンの破壊でも引ける
 
+    // ★★Batch 64: 「引いてもよい」は自動判断ではなく<b>本人への問い合わせ</b>になった(裁定299)。
+    //   破壊しただけでは引かず、[はい] と答えて初めて1枚増える。
+
     @Test
     void 執念の暗殺者は相手のミニオンが破壊されても引く() {
         AutoGameFixture f = newGame();
@@ -779,6 +782,10 @@ class Batch56ReworkTest {
         int handBefore = f.me().getHand().size();
 
         actions.destroyMinion(f.room(), f.you(), victim);
+
+        assertThat(f.me().getPendingChoice()).as("★64: 破壊しただけではまだ引かない").isNotNull();
+        assertThat(f.me().getDeck().size()).isEqualTo(deckBefore);
+        game.resolveChoice(f.room(), "me", List.of(0)); // [はい]
 
         assertThat(f.me().getDeck().size()).as("新: 相手のミニオンの破壊でも1枚引く")
                 .isEqualTo(deckBefore - 1);
@@ -793,8 +800,24 @@ class Batch56ReworkTest {
         int deckBefore = f.me().getDeck().size();
 
         actions.destroyMinion(f.room(), f.me(), victim);
+        game.resolveChoice(f.room(), "me", List.of(0)); // [はい]
 
         assertThat(f.me().getDeck().size()).as("旧からの挙動も残っている").isEqualTo(deckBefore - 1);
+    }
+
+    /** ★Batch 64: [いいえ] と答えれば引かない —— 「してもよい」が本当に任意になった */
+    @Test
+    void 執念の暗殺者はいいえと答えれば引かない() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.me(), "QTE-M-DARK-20");
+        MinionInstance victim = f.putOnField(f.me(), PLAIN_MINION);
+        int deckBefore = f.me().getDeck().size();
+
+        actions.destroyMinion(f.room(), f.me(), victim);
+        game.resolveChoice(f.room(), "me", List.of()); // [いいえ]
+
+        assertThat(f.me().getDeck().size()).as("★引かない").isEqualTo(deckBefore);
+        assertThat(f.me().getPendingChoice()).as("問い合わせは解消している").isNull();
     }
 
     @Test
@@ -884,6 +907,12 @@ class Batch56ReworkTest {
 
         game.playCard(f.room(), "me", spell,
                 List.of(minions(a.getInstanceId(), b.getInstanceId())), false);
+
+        // ★★Batch 64: どの1体を蘇生するかは本人が選ぶ(裁定299)。
+        // 生贄2体も墓地に落ちているので候補は3つあり、選ぶ余地があるぶん問い合わせが出る
+        String guardPosition = String.valueOf(f.me().getTrash().indexOf(PLAIN_GUARD));
+        game.resolveChoice(f.room(), "me",
+                List.of(f.me().getPendingChoice().candidates().indexOf(guardPosition)));
 
         assertThat(f.fieldIds(f.me())).as("生贄2体が消え、蘇生した1体だけが残る")
                 .containsExactly(PLAIN_GUARD);

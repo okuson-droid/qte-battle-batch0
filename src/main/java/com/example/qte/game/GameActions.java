@@ -85,24 +85,41 @@ public class GameActions {
         return minion;
     }
 
-    /**
-     * 「相手が引いたとき」の誘発(《英知の水晶》)を今は焚かない、という印(★Batch 59)。
-     *
-     * <p><b>なぜ要るのか。</b>両者が《英知の水晶》を場に出していると、
-     * A のドローが B に引かせ、その B のドローが A に引かせ……と<b>互いに終わらない</b>。
-     * 本文には書かれていない制限だが、書かれたとおりに実装すると
-     * <b>ゲームが停止しない</b>ため、規則として足さざるを得ない。
-     *
-     * <p>★<b>「誘発によるドローは数えない」を再入ガードで表している。</b>
-     * 「1ターンに1回まで」のような回数制限にしなかったのは、
-     * それだと<b>誰が引いた分なのか</b>を数える器がもう1つ要るうえ、
-     * 制限に達するまでの数往復は依然として起きるからである。
-     * ★この読みはマスターに確認を依頼している(Batch 60)。
-     */
-    private boolean firingOpponentDrawWatchers = false;
-
     /** ドロー。山札が空の状態で引こうとしたら敗北(発注者確認済み: デュエマ準拠) */
     public void drawCards(GameRoom room, PlayerState player, int count) {
+        drawCards(room, player, count, true);
+    }
+
+    /**
+     * 「相手が引いたとき」を焚かないドロー(★Batch 64。《英知の水晶》の続き)。
+     *
+     * <h2>★★裁定279 の表し方が変わった</h2>
+     *
+     * 両者が《英知の水晶》を場に出していると、A のドローが B に引かせ、
+     * その B のドローが A に引かせ……と<b>互いに終わらない</b>。
+     * 裁定279 は「誘発によるドローは数えない」でこれを止めると決めた。
+     *
+     * <p>59 はそれを <b>{@code GameActions} の再入フラグ</b>で表していた ——
+     * 「相手ドローの誘発を焚いている最中は、入れ子で焚かない」。
+     * ドローがその場で起きる作りだったので、それで足りていた。
+     *
+     * <p>64 で《英知の水晶》は<b>問い合わせを出すだけ</b>になり、実際に引くのは
+     * 本人が「はい」と答えた後 —— <b>誘発を焚いていた時間の外</b>である。
+     * 再入フラグはもう何も守らないので撤去し、代わりに
+     * <b>「そのドローそのものが焚かない」</b>という形に置き換えた。
+     *
+     * <blockquote>数えないのは<b>瞬間</b>ではなく、<b>そのドロー</b>である。</blockquote>
+     *
+     * ★<b>この置き換えで挙動は変わらない。</b>A が引く → B に問う → B が引く →
+     * その1枚では A に問わない、という1往復で止まる点は 59 と同じである。
+     * ★<b>《執念の暗殺者》のドローは焚く。</b>あちらは「効果ドロー」であり、
+     * 裁定270(a) が「通常ドロー・効果ドローの両方に反応する」と決めている。
+     */
+    public void drawCardsWithoutOpponentWatchers(GameRoom room, PlayerState player, int count) {
+        drawCards(room, player, count, false);
+    }
+
+    private void drawCards(GameRoom room, PlayerState player, int count, boolean fireOpponentWatchers) {
         GameState state = room.getGameState();
         int drawnIntoHand = 0;
         for (int i = 0; i < count; i++) {
@@ -125,7 +142,9 @@ public class GameActions {
             player.getHand().add(cardId);
             drawnIntoHand++;
         }
-        fireOpponentDrawWatchers(room, state, player, drawnIntoHand);
+        if (fireOpponentWatchers) {
+            fireOpponentDrawWatchers(room, state, player, drawnIntoHand);
+        }
     }
 
     /**
@@ -138,22 +157,20 @@ public class GameActions {
      *
      * <p>★<b>反応するのは引かなかった側の場である。</b>渡す文脈の owner も反応する側であり、
      * 効果(「自分はカードを1枚引いても良い」)はその側が引く。
+     *
+     * <p>★<b>Batch 64 で再入フラグを撤去した。</b>止めるべき往復は
+     * {@link #drawCardsWithoutOpponentWatchers} が「そのドローそのもの」の側で止めている。
      */
     private void fireOpponentDrawWatchers(GameRoom room, GameState state, PlayerState drawer, int drawn) {
-        if (drawn <= 0 || firingOpponentDrawWatchers || state.getStatus() != GameStatus.PLAYING) {
+        if (drawn <= 0 || state.getStatus() != GameStatus.PLAYING) {
             return;
         }
         PlayerState watcher = state.opponentOf(drawer.getPlayerId());
         if (watcher.getMinionZone().isEmpty()) {
             return;
         }
-        firingOpponentDrawWatchers = true;
-        try {
-            for (int i = 0; i < drawn; i++) {
-                effects.fireOpponentDrew(contextOf(room, watcher, null));
-            }
-        } finally {
-            firingOpponentDrawWatchers = false;
+        for (int i = 0; i < drawn; i++) {
+            effects.fireOpponentDrew(contextOf(room, watcher, null));
         }
     }
 
@@ -1357,19 +1374,64 @@ public class GameActions {
     }
 
     /**
-     * 効果の解決を中断し、プレイヤーに選択を問い合わせる(a9)。
+     * プレイヤーに選択を問い合わせる(a9)。
      *
      * これを呼んだ効果は、その場では続きを実行せずに戻る。
      * 続きは GameService.resolveChoice → CardEffectRegistry.resolveChoice から
      * PendingChoice.resumeAt に応じて再開される。
+     *
+     * <h2>★Batch 64: 2件目からは待ち行列に積む</h2>
+     *
+     * 63 までは2件目で例外を投げていた。《執念の暗殺者》の
+     * 「ミニオンが破壊されるたび1枚引いてもよい」を問い合わせに移した結果、
+     * <b>1回の解決の中で複数回誘発する</b>ことが普通になったので、積めるようにした
+     * (マスター裁定300: 1回ずつ聞く)。上限は {@code PlayerState.MAX_PENDING_CHOICES}。
+     *
+     * <h2>★★問い合わせを作った瞬間のゾーンの中身をここで控える</h2>
+     *
+     * 候補が「ゾーン内の位置」である選択(手札・墓地・公開領域・マナ)は、
+     * <b>待っている間に位置がずれうる</b> —— キューに並んだ<b>手前の選択の解決</b>が
+     * 同じゾーンを動かすからである(《不滅のネクロマンサー》が墓地から蘇生してから、
+     * 《冥界神ハデス》の蘇生対象を選ぶ、という並びが実際に作れる)。
+     *
+     * <p>控えを取るのは<b>ここ1箇所だけ</b>である。候補を作るのは20箇所以上あるが、
+     * 積む口はこの1つしかないので、<b>新しい問い合わせを足しても控え忘れが起きない</b>
+     * (裁定68「発火点を増やさない」と同じ形)。照合は {@code GameService.resolveChoice} が行う。
      */
     public void requestChoice(GameRoom room, PlayerState owner, PendingChoice choice) {
-        if (owner.getPendingChoice() != null) {
-            // 1プレイヤーにつき同時に1つまで。二重に発生する経路があれば設計の誤りである
-            throw new IllegalStateException("すでに選択待ちの効果があります");
-        }
-        owner.setPendingChoice(choice);
+        owner.enqueuePendingChoice(withZoneSnapshot(owner, choice));
         room.addLog("%s: %s".formatted(owner.getDisplayName(), choice.prompt()));
+    }
+
+    /**
+     * 候補が指すゾーンの位置に、今どのカードが居るかを控える(★Batch 64)。
+     * 位置を指さない選択(MINION は instanceId・CONFIRM は固定値)はそのまま返す。
+     */
+    private PendingChoice withZoneSnapshot(PlayerState owner, PendingChoice choice) {
+        if (!choice.pointsAtZonePositions()) {
+            return choice;
+        }
+        java.util.List<String> snapshot = new java.util.ArrayList<>();
+        for (String position : choice.candidates()) {
+            snapshot.add(cardIdAtZonePosition(owner, choice.kind(), Integer.parseInt(position)));
+        }
+        return choice.withExpectedCardIds(snapshot);
+    }
+
+    /**
+     * ゾーン内の位置にあるカードID。範囲外ならnull(★Batch 64)。
+     * ★{@code GameService.resolveChoice} の照合も同じこのメソッドを読む ——
+     * 控えるときと照合するときで別の読み方をしたら、番人の意味が無い(裁定110)。
+     */
+    public String cardIdAtZonePosition(PlayerState owner, PendingChoice.Kind kind, int position) {
+        java.util.List<String> zone = switch (kind) {
+            case HAND -> owner.getHand();
+            case TRASH -> owner.getTrash();
+            case REVEALED -> owner.getRevealedZone();
+            case MANA -> owner.getManaZone().stream().map(ManaCard::getCardId).toList();
+            default -> java.util.List.of();
+        };
+        return position >= 0 && position < zone.size() ? zone.get(position) : null;
     }
 
     private EffectContext contextOf(GameRoom room, PlayerState owner, MinionInstance source) {

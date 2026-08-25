@@ -10,6 +10,7 @@ import com.example.qte.effect.PersistentAura;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.Civilization;
 
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -360,18 +361,12 @@ public class PlayerState {
     @Setter
     private SpellDisposition pendingSpellDisposition;
 
-    /**
-     * 効果で場に出そうとしている進化ミニオンのカードID(★Batch 53。《英術・スケアロック》)。
-     *
-     * 素材を選ばせる割り込み({@link com.example.qte.effect.ResumePoint#SCARELOCK_MATERIAL})を
-     * またいで「どの進化カードを出そうとしているか」を運ぶ。
-     * {@link com.example.qte.effect.PendingChoice} は候補の一覧しか持てないため、
-     * それ以外の文脈は pendingSacrificeCount と同じくここに置く。
-     * ★カードは選択待ちの間<b>手札に残したまま</b>である ——
-     * 素材が確定して実際に場へ出るときに、はじめて手札から取り除く。
-     */
-    @Setter
-    private String pendingEvolutionCardId;
+    // ★★Batch 64: pendingEvolutionCardId(《英術・スケアロック》がどの進化カードを
+    //   出そうとしているか)を撤去した。あれは「候補では表せない文脈」を割り込みをまたいで
+    //   運ぶための<b>カード専用のフィールド</b>であり、53 の時点では
+    //   PendingChoice が候補の一覧しか持てなかったので他に置き場が無かった。
+    //   64 で PendingChoice.payload を足したので、そちらへ移した ——
+    //   同じ役割のものを2つの形で持たない(設計判断28)。
 
     /**
      * 自分の場にミニオンが出たターン番号と、そのターンに出た体数(★Batch 53。《英霊・コレキ》)。
@@ -430,12 +425,62 @@ public class PlayerState {
     private final List<String> revealedZone = new ArrayList<>();
 
     /**
-     * 効果の解決を中断してプレイヤーに問い合わせている選択(a9)。nullなら中断していない。
-     * 1プレイヤーにつき同時に1つだけ存在しうる。
-     * これが非nullの間、そのプレイヤーは選択の解決以外の操作を行えない。
+     * プレイヤーに問い合わせている選択の待ち行列(a9。★Batch 64 で1件からキューへ)。
+     *
+     * <h2>なぜキューになったのか</h2>
+     *
+     * 63 までは1プレイヤーにつき1件しか持てず、2件目を積もうとすると例外を投げていた
+     * (「二重に発生する経路があれば設計の誤りである」)。
+     * これは<b>問い合わせが必ず1つずつ起きる</b>ことを前提にした形である。
+     *
+     * <p>64 が《執念の暗殺者》の「ミニオンが破壊されるたび1枚引いてもよい」を
+     * 問い合わせに移した瞬間に、その前提が崩れた ——
+     * 全体破壊が4体を飛ばせば、<b>1回の解決の中で4回誘発する</b>。
+     * マスター裁定300 は「1回ずつ聞く」であり、本文が「たび」と言っている以上、
+     * 誘発1回 = 問い合わせ1回である。まとめるのは実装都合の集約でしかない。
+     *
+     * <p>★<b>答える順序は起きた順(FIFO)である。</b>《冥界神ハデス》なら
+     * 「破壊のたびのドロー」を先に、「その後の蘇生」を後に聞く —— 本文の順序と一致する。
+     *
+     * <p>★<b>上限を置いてある。</b>構築ルールではなく、暴走した誘発への防波堤である
+     * (設計判断27)。ここに引っかかったらカード側の誘発が閉路になっている。
+     *
+     * <p>★キューが空でない間、そのプレイヤーは選択の解決以外の操作を行えず、
+     * <b>相手も盤面を動かせない</b>(裁定214 の対。{@code GameService.requireTurnPlayer})。
      */
-    @Setter
-    private PendingChoice pendingChoice;
+    @Getter(AccessLevel.NONE)
+    private final Deque<PendingChoice> pendingChoices = new ArrayDeque<>();
+
+    /** 1人が同時に抱えられる問い合わせの上限(★Batch 64)。外から来る値ではなく誘発の暴走を捕まえる番人 */
+    public static final int MAX_PENDING_CHOICES = 32;
+
+    /**
+     * 今答えるべき問い合わせ。無ければnull。
+     *
+     * ★<b>キューの先頭を覗くだけで、取り出さない。</b>63 までの
+     * 「1件だけのフィールドを読む」呼び出し元がそのまま動くのは、この形にしたためである。
+     */
+    public PendingChoice getPendingChoice() {
+        return pendingChoices.peekFirst();
+    }
+
+    /** 抱えている問い合わせの数(★Batch 64。ビューと試験が「何件待っているか」を読む) */
+    public int getPendingChoiceCount() {
+        return pendingChoices.size();
+    }
+
+    /** 問い合わせを待ち行列の末尾に積む(★Batch 64)。積む経路は GameActions.requestChoice 1つだけである */
+    public void enqueuePendingChoice(PendingChoice choice) {
+        if (pendingChoices.size() >= MAX_PENDING_CHOICES) {
+            throw new IllegalStateException("選択待ちが多すぎます(誘発が閉路になっている可能性があります)");
+        }
+        pendingChoices.addLast(choice);
+    }
+
+    /** 先頭の問い合わせを取り出す(★Batch 64)。解決の直前に呼ぶ */
+    public PendingChoice pollPendingChoice() {
+        return pendingChoices.pollFirst();
+    }
 
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter

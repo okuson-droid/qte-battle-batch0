@@ -796,9 +796,24 @@ public class GameService {
             }
             chosen.add(choice.candidates().get(idx));
         }
-        // 解決の前に pendingChoice を解消する(効果内で例外が起きても選択待ちのまま固まらないように)
-        player.setPendingChoice(null);
-        effects.resolveChoice(contextOf(room, state, player, null, null), choice, chosen);
+        // 解決の前に待ち行列から取り出す(効果内で例外が起きても選択待ちのまま固まらないように)。
+        // ★Batch 64: 取り出すのは先頭1件だけである。積まれている残りは次の resolveChoice が扱う
+        player.pollPendingChoice();
+
+        // ★★Batch 64: 選んだ位置が、問い合わせを作った瞬間と同じものを指しているか。
+        //
+        // 1人が複数の問い合わせを同時に持てるようになったので、
+        // <b>手前の選択の解決で、後ろの選択の候補が指す先が動きうる</b>
+        // (墓地から蘇生してから、別の問い合わせで墓地の位置を選ぶ)。
+        // ★<b>1件でもずれていたら、その問い合わせは何も起こさずに終える。</b>
+        //   ずれた候補だけを落とす形にすると、再開先ごとに「空で来たとき」の分岐が要る ——
+        //   25個ある再開先の全部に同じ但し書きを書くことになる(裁定163 が戒めた形)。
+        if (hasDriftedCandidate(player, choice, chosen)) {
+            room.addLog("%s: 選ぼうとしたカードが盤面から動いたため、この選択は何も起こしませんでした"
+                    .formatted(player.getDisplayName()));
+        } else {
+            effects.resolveChoice(contextOf(room, state, player, null, null), choice, chosen);
+        }
 
         // ★Batch 51: 攻撃時の割り込みだった場合、保留していた戦闘をここで解決する。
         // 下のターン受け渡しより先に置くのは、戦闘のほうが同じターンの中の事象だからである
@@ -808,6 +823,30 @@ public class GameService {
         // 保留していたターンの受け渡しを行う。それ以外(メインフェイズ中の割り込み)では
         // まだ手番が続くため、advanceTurn は呼ばれない(内部で保留フラグを見て判断する)
         advanceTurnIfPending(room, state);
+    }
+
+    /**
+     * 選んだ候補が、問い合わせを作った瞬間と別のカードを指していないか(★Batch 64)。
+     *
+     * ★<b>控えを取るのも読むのも {@code GameActions} の同じメソッドである。</b>
+     * 控えるときと照合するときでゾーンの読み方が違ったら、番人が番人でなくなる(裁定110)。
+     *
+     * @return 1件でもずれていれば true
+     */
+    private boolean hasDriftedCandidate(PlayerState player, PendingChoice choice, List<String> chosen) {
+        if (choice.expectedCardIds().isEmpty()) {
+            return false; // 位置を指さない選択(MINION / CONFIRM)は照合しない
+        }
+        for (String position : chosen) {
+            int index = choice.candidates().indexOf(position);
+            String expected = choice.expectedCardIds().get(index);
+            String actual = actions.cardIdAtZonePosition(player, choice.kind(),
+                    Integer.parseInt(position));
+            if (!java.util.Objects.equals(expected, actual)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------
@@ -1420,13 +1459,7 @@ public class GameService {
             // 「自分のリーダーの攻撃」から「自分のミニオンの攻撃/登場」へ移ったため、
             // このswitchから外して CardEffectRegistry のトリガー登録に移設した
             // (ON_ALLY_MINION_ATTACK / ON_ALLY_MINION_ENTER)
-            case WRAITH_SCYTHE -> { // 死霊の収鎌: 自分の墓地からカードを1枚手札に戻す
-                // どの1枚かは自動選択(AutoChoice: 最後に墓地へ置かれたカード)
-                String recovered = com.example.qte.effect.AutoChoice.recoverFromTrash(player);
-                if (recovered != null) {
-                    actions.returnFromTrashToHand(room, player, recovered);
-                }
-            }
+            case WRAITH_SCYTHE -> requestWraithScytheRecover(room, player);
             case REAPER_SCYTHE -> { // 死神の大鎌: 攻撃されたミニオンは戦闘ダメージに関わらず破壊される
                 if (!targetIsLeader && opponent.getMinionZone().contains(target)) {
                     actions.destroyMinion(room, opponent, target, DestructionCause.COMBAT);
@@ -1535,6 +1568,35 @@ public class GameService {
                 zone.stream().map(MinionInstance::getInstanceId).toList(),
                 ResumePoint.GUARD_STAFF_TARGET,
                 "【風護の杖】: 体力+1・守護を与えるミニオンを選んでください"));
+    }
+
+    /**
+     * 死霊の収鎌の攻撃時効果(★Batch 64)。墓地から手札に戻す1枚を本人が選ぶ(裁定299)。
+     *
+     * ★63 までは自動選択(最後に墓地へ置かれたカード)だった。
+     * 本文は「自分の墓地からカードを1枚手札に戻す」としか書いておらず、
+     * 「最後に置かれたもの」は実装が足した規則である。
+     * ★<b>戦闘の保留({@code GameState.pendingAttack})には乗らない。</b>
+     * ウェポンの攻撃時効果はダメージの<b>後</b>に走るので、保留すべき戦闘がもう残っていない。
+     * ★候補が1枚なら選ぶ余地が無いので問い合わせない(風護の杖と同じ流儀)。
+     */
+    private void requestWraithScytheRecover(GameRoom room, PlayerState player) {
+        List<String> trash = player.getTrash();
+        if (trash.isEmpty()) {
+            return;
+        }
+        if (trash.size() == 1) {
+            actions.returnFromTrashToHand(room, player, trash.get(0));
+            return;
+        }
+        List<String> positions = new ArrayList<>();
+        for (int i = 0; i < trash.size(); i++) {
+            positions.add(String.valueOf(i));
+        }
+        actions.requestChoice(room, player, PendingChoice.one(
+                PendingChoice.Kind.TRASH, positions,
+                ResumePoint.WRAITH_SCYTHE_RECOVER,
+                "【死霊の収鎌】: 手札に戻すカードを墓地から1枚選んでください"));
     }
 
     /** 風護の杖の効果本体(体力+1・守護付与)。GameServiceに置くのはminionZoneへの直接アクセスのため */

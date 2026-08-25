@@ -5817,6 +5817,70 @@ async function clearZoom(page) {
   check('★★ミュート中は配信でも攻撃でも鳴らない(62・裁定289)', (await bAudio()) === 0);
   check('通常モードの音でJSエラーが出ない', bsndErrors.length === 0, bsndErrors.join(' | '));
   await bsnd.close();
+
+  // ================================================================
+  // 64. ★★はい/いいえの問い合わせ(PendingChoice.Kind.CONFIRM)
+  //
+  // ★<b>送受信の形を1つも増やさなかった</b>ことを、実物の battle.js で測る。
+  //   CONFIRM は「候補1件・min=0・max=1」の選択であり、
+  //   [はい] は index 0 を送り、[いいえ] は空を送るだけである。
+  //   ここで期待値を verify に書き写すのではなく、<b>実際に押して送信を捕まえる</b>
+  //   (裁定296: 測るときは実物を材料にする)。
+  // ================================================================
+
+  const confirmView = (queued) => autoView({
+    you: autoPlayer({
+      pendingChoice: {
+        kind: 'CONFIRM',
+        candidates: [{ index: 0, label: 'はい', keywords: [], minionInstanceId: null }],
+        min: 0, max: 1, prompt: '【執念の暗殺者】: カードを1枚引きますか?', queued,
+      },
+    }),
+  });
+
+  await autoPage.evaluate((view) => { latestView = view; render(view); }, confirmView(1));
+  const confirmUi = await autoPage.evaluate(() => ({
+    hidden: document.getElementById('reveal-area').classList.contains('d-none'),
+    prompt: document.getElementById('reveal-prompt').textContent,
+    labels: Array.from(document.querySelectorAll('#reveal-cards button')).map((b) => b.textContent),
+    confirmHidden: document.getElementById('btn-confirm-choice').classList.contains('d-none'),
+  }));
+  check('★★はい/いいえは2つのボタンとして描かれる(64)',
+    confirmUi.hidden === false
+      && confirmUi.labels.length === 2
+      && confirmUi.labels[0] === 'はい' && confirmUi.labels[1] === 'いいえ'
+      && confirmUi.confirmHidden === true,
+    JSON.stringify(confirmUi));
+
+  // ★[はい] を実際に押して、送られた中身を捕まえる
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await autoPage.locator('#reveal-cards button', { hasText: 'はい' }).first().click();
+  await autoPage.waitForTimeout(40);
+  const yesSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★★[はい] は既存の resolve-choice に index 0 を送る(64・形を増やしていない)',
+    yesSent !== null
+      && yesSent.destination.endsWith('resolve-choice')
+      && JSON.stringify(yesSent.body.chosenIndexes) === '[0]',
+    JSON.stringify(yesSent));
+
+  await autoPage.evaluate((view) => { latestView = view; render(view); }, confirmView(1));
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await autoPage.locator('#reveal-cards button', { hasText: 'いいえ' }).first().click();
+  await autoPage.waitForTimeout(40);
+  const noSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★★[いいえ] は同じ口に「何も選ばない」を送る(64)',
+    noSent !== null
+      && noSent.destination.endsWith('resolve-choice')
+      && JSON.stringify(noSent.body.chosenIndexes) === '[]',
+    JSON.stringify(noSent));
+
+  // ★待ち行列が2件以上なら、答えた後にまだ続くことを案内に出す(裁定300 の見える化)
+  await autoPage.evaluate((view) => { latestView = view; render(view); }, confirmView(3));
+  const queuedPrompt = await autoPage.evaluate(
+    () => document.getElementById('reveal-prompt').textContent);
+  check('★待っている問い合わせが複数あるなら残り件数を添える(64)',
+    queuedPrompt.includes('あと2件'), queuedPrompt);
+
   await autoPage.close();
 
   // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----

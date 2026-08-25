@@ -149,7 +149,7 @@ public class DeckFactory {
         DARK_STARTER.put("QTE-M-DARK-3", 2); // 生贄を求める邪鬼 2/3/2 召喚時:生贄か自壊
         DARK_STARTER.put("QTE-M-DARK-20", 2); // 執念の暗殺者 4/3/3 召喚時3ダメージ・破壊のたびドロー
         DARK_STARTER.put("QTE-M-DARK-6", 1); // ボーン・コレクター 4/4/2 突進・戦闘破壊で1ドロー
-        DARK_STARTER.put("QTE-M-DARK-5", 1); // 不滅のネクロマンサー 4/3/3 裏向きマナで蘇生
+        DARK_STARTER.put("QTE-M-DARK-5", 1); // 不滅のネクロマンサー 4/6/1 出た時相手が1枚引く(★Batch 64 で Ver1.1 の本文へ)
         DARK_STARTER.put("QTE-M-DARK-4", 1); // 裏切りの魔女 3/2/3 召喚時:条件付き除去
         DARK_STARTER.put("QTE-M-DARK-21", 1); // 群がる死霊王 6-/7/3 墓地のゾンストライカーで軽減
         DARK_STARTER.put("QTE-M-DARK-8", 1); // 冥界神ハデス 8/7/7 召喚時:全体破壊+蘇生

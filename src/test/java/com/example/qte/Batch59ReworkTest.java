@@ -595,8 +595,27 @@ class Batch59ReworkTest {
 
         game.endTurn(f.room(), "me"); // 相手のターン開始時ドローが起きる
 
+        // ★★Batch 64: 「引いても良い」は本人への問い合わせになった(裁定270(a) の実装。裁定301)
+        assertThat(f.me().getPendingChoice()).as("★64: 相手が引くたびに問われる").isNotNull();
+        assertThat(f.me().getHand()).as("答える前は増えていない").hasSize(handBefore);
+        game.resolveChoice(f.room(), "me", List.of(0)); // [はい]
+
         assertThat(f.me().getHand()).as("★相手のターン開始ドローに反応して1枚引く")
                 .hasSize(handBefore + 1);
+    }
+
+    /** ★Batch 64: [いいえ] と答えれば引かない(裁定270(a) の「良い」がそのまま効く) */
+    @Test
+    void 英知の水晶はいいえと答えれば引かない() {
+        AutoGameFixture f = newGame();
+        f.putOnField(f.me(), WISDOM_CRYSTAL);
+        int handBefore = f.me().getHand().size();
+
+        game.endTurn(f.room(), "me");
+        game.resolveChoice(f.room(), "me", List.of()); // [いいえ]
+
+        assertThat(f.me().getHand()).as("★引かない").hasSize(handBefore);
+        assertThat(f.me().getPendingChoice()).isNull();
     }
 
     @Test
@@ -616,7 +635,14 @@ class Batch59ReworkTest {
     /**
      * ★★<b>両者が出しても終わる</b>ことの番人。
      * 誘発によるドローが再び誘発を呼ぶと、A と B のあいだで無限に往復する。
-     * 「誘発によるドローは数えない」を再入ガードで表しているので、1往復で止まる。
+     *
+     * <p>★★<b>Batch 64 で止め方の表し方が変わった。</b>59 は
+     * 「相手ドローの誘発を焚いている最中は入れ子で焚かない」という
+     * {@code GameActions} の再入フラグで止めていた。64 で《英知の水晶》は
+     * 問い合わせを出すだけになり、実際に引くのは<b>誘発を焚いていた時間の外</b>なので、
+     * フラグはもう何も守らない。撤去して
+     * {@code drawCardsWithoutOpponentWatchers}(そのドローそのものが焚かない)に置き換えた。
+     * ★<b>この試験が測る結果は 59 と同じである</b> —— 1往復で止まること。
      */
     @Test
     void 英知の水晶は両者が場に出していても無限に往復しない() {
@@ -626,10 +652,14 @@ class Batch59ReworkTest {
         int myHand = f.me().getHand().size();
         int yourHand = f.you().getHand().size();
 
-        game.endTurn(f.room(), "me"); // 相手のターン開始ドロー → わたしが1枚引く → そこで止まる
+        game.endTurn(f.room(), "me"); // 相手のターン開始ドロー → わたしに問い合わせ
+        game.resolveChoice(f.room(), "me", List.of(0)); // [はい] → わたしが1枚引く
 
         assertThat(f.you().getHand()).as("相手はターン開始の1枚だけ").hasSize(yourHand + 1);
         assertThat(f.me().getHand()).as("★わたしは1枚だけ引いて止まる").hasSize(myHand + 1);
+        assertThat(f.you().getPendingChoice())
+                .as("★★わたしのドローは相手の《英知の水晶》を誘発させない(裁定279)").isNull();
+        assertThat(f.me().getPendingChoice()).as("★往復していない").isNull();
     }
 
     // ==================================================================
