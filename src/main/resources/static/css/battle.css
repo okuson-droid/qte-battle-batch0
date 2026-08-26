@@ -1763,9 +1763,15 @@ body.manual-drag-active .manual-band {
 .auto-back + .auto-back { margin-left: -16px; }
 
 /* ---------- 自分のマナ(名前つきタイル)。基底は手動モードの .mana-tile ---------- */
-/* ★nowrap が肝である。折り返しを許すと横に溢れず、重なり判定(scrollWidth 比較)が
-   永久に発火しない —— 2段に折れて縦を70px食う、という形で 43-1 が落ちて発覚した */
-.auto-mana-row { display: flex; flex-wrap: nowrap; align-items: flex-start; min-height: 84px; }
+/* ★nowrap が肝である。折り返しを許すと横に溢れず、重なりの計算に渡す実幅が
+   永久に足りたことになる —— 2段に折れて縦を70px食う、という形で 43-1 が落ちて発覚した。
+   ★★Batch 65: gap を 0 にした。タイルの間隔と重なりは<b>同じ軸の値</b>であり、
+   CSS と JS の両方が持つと詳細度で勝ち負けが決まる(45 が壊れていた原因)。
+   間隔の正は battle.js の AUTO_MANA_GAP 1箇所である。 */
+.auto-mana-row {
+    display: flex; flex-wrap: nowrap; align-items: flex-start;
+    min-height: 84px; gap: 0;
+}
 /* 文明色は --mana-civ(cardId → card-library)。無ければ既定の緑のまま */
 .auto-mana-row .mana-tile {
     height: 80px;
@@ -1776,10 +1782,11 @@ body.manual-drag-active .manual-band {
     background: repeating-linear-gradient(135deg, #241d31 0 6px, #1b1526 6px 12px);
     border-color: #4a4460;
 }
-.auto-mana-row .mana-tile + .mana-tile { margin-left: 4px; }
-/* ★並びきらないときだけ重ねる(battle.js が付ける)。タップの回転ぶんは余白で吸収 */
-.auto-mana-row.auto-mana-overlap .mana-tile + .mana-tile { margin-left: -26px; }
-.auto-mana-row .mana-tile.tapped { margin-left: 14px; margin-right: 24px; }
+/* ★★Batch 65: margin を書く場所を1つにした。45 はここに3本のセレクタが在り、
+   .auto-mana-overlap(クラス4つ)が .mana-tile.tapped(クラス3つ)に詳細度で勝つため、
+   タップ済のために用意した下駄(margin-left: 14px)が<b>一度も効いていなかった</b>。
+   今は battle.js の applyAutoManaOverlap が style で直接書く。
+   ★.auto-mana-overlap クラスは使い手を失ったので撤去した(裁定178)。 */
 .auto-mana-row .mana-tile.mana-temporary { box-shadow: inset 0 0 0 2px #6edff6; }
 
 /* ---------- ゾーン一覧のフェイス格子(墓地・消滅のモーダル) ---------- */

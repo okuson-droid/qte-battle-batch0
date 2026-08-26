@@ -5638,6 +5638,133 @@ async function clearZoom(page) {
       && tabooSoulSent.body.manaIndexes.length === 1,
     JSON.stringify(tabooSoulSent));
 
+  // =====================================================================
+  // ★★★Batch 65: マナ行の重なり(設計解説 1〜3章)
+  //
+  // 45 の「はみ出したら固定の -26px で重ねる」は3つ壊れていた ——
+  // 回転したタイルの外接(80px)を勘定に入れていない / 重なりが枚数に依らない /
+  // 重なりが均等でなく、読みたい表向きの名前のほうが潰れる。
+  //
+  // ★★<b>期待値を書き写さない</b>(裁定298)。ここが測るのは実装の定数ではなく、
+  //   ブラウザが実際に置いた矩形から出てくる<b>不変量</b>である ——
+  //   「はみ出さない」と「重なりが均等である」の2つ。
+  //   露出の下限(28px)もタイルの寸法(64/80px)も、この節には1つも書いていない。
+  // =====================================================================
+  const autoManaView = (n, tapEvery) => autoView({
+    you: autoPlayer({
+      totalMana: n, availableMp: n,
+      manaZone: Array.from({ length: n }, (_, i) => ({
+        name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10',
+        tapped: tapEvery > 0 && i % tapEvery === 0, faceUp: i % 4 !== 3, temporary: false,
+      })),
+    }),
+    opponent: autoPlayer({
+      displayName: 'あいて',
+      manaZone: Array.from({ length: n }, (_, i) => ({
+        name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10',
+        tapped: tapEvery > 0 && i % tapEvery === 0, faceUp: i % 4 !== 3,
+      })),
+    }),
+  });
+  /**
+   * マナ行の実測。
+   * ★<b>見た目の矩形</b>で測る(getBoundingClientRect)。回転したタイルの幅は
+   *   ブラウザが 80px と答えるので、こちらで「回転しているから80」と書かずに済む。
+   * ★slack =(次のタイルまでの距離)-(そのタイル自身の実測幅)= 間隔 - 重なり。
+   *   均等に重ねているなら、これが全ての隣接対で等しくなる。
+   */
+  const manaGeometry = (rowId) => autoPage.evaluate((id) => {
+    const row = document.getElementById(id);
+    const rb = row.getBoundingClientRect();
+    const cs = window.getComputedStyle(row);
+    const contentRight = rb.right - parseFloat(cs.paddingRight);
+    const tiles = [...row.children].map((t) => {
+      const r = t.getBoundingClientRect();
+      return { left: r.left, right: r.right, width: r.width };
+    });
+    const slack = [];
+    for (let i = 0; i + 1 < tiles.length; i++) {
+      slack.push((tiles[i + 1].left - tiles[i].left) - tiles[i].width);
+    }
+    return {
+      n: tiles.length,
+      overflowRight: tiles.length ? Math.max(...tiles.map((t) => t.right)) - contentRight : 0,
+      slackSpread: slack.length ? Math.max(...slack) - Math.min(...slack) : 0,
+      slackSample: slack.slice(0, 4).map((v) => Math.round(v * 100) / 100),
+      oneLine: [...row.children].every((t) => t.offsetTop === row.children[0].offsetTop),
+    };
+  }, rowId);
+
+  // ---- 65-1. ★★★満杯(15枚)がすべてタップ済でも右へはみ出さない ----
+  //   ★45 の実測は +50px であり、その 50px は右列(リーダー・パイル)に重なっていた
+  await autoDeliver(autoManaView(15, 1));
+  const manaFullTapped = await manaGeometry('my-mana-row');
+  check('★★★マナ15枚がすべてタップ済でも行から右へはみ出さない(65)',
+    manaFullTapped.n === 15 && manaFullTapped.overflowRight <= 0.5 && manaFullTapped.oneLine,
+    JSON.stringify(manaFullTapped));
+
+  // ---- 65-2. ★★★重なりは均等である(タップの有無で露出が変わらない) ----
+  //   ★45 の実測は 表向き33px / タップ済65px であり、読みたい名前のほうが潰れていた
+  await autoDeliver(autoManaView(15, 3));
+  const manaMixed = await manaGeometry('my-mana-row');
+  check('★★★タップ済と非タップが混ざっても重なりは均等である(65・自分のマナ)',
+    manaMixed.n === 15 && manaMixed.slackSpread <= 0.5 && manaMixed.overflowRight <= 0.5,
+    JSON.stringify(manaMixed));
+
+  // ---- 65-3. ★★同じ規則が相手のマナ行にも当たっている ----
+  //   ★45 は自分と相手の両方に同じ簡易版を当てていた。直すときも両方である
+  const manaMixedOpp = await manaGeometry('opp-mana-row');
+  check('★★相手のマナ行も同じ規則で重なる(65・片側だけ直さない)',
+    manaMixedOpp.n === 15 && manaMixedOpp.slackSpread <= 0.5
+      && manaMixedOpp.overflowRight <= 0.5,
+    JSON.stringify(manaMixedOpp));
+
+  // ---- 65-6. ★★重なりの前後。名前は左寄せなので、右のタイルが上でなければ読めない ----
+  //   ★実物で測る(elementFromPoint)。「z-index を i+1 で振っている」ではなく
+  //     「重なった点を指したとき<b>右のタイル</b>が返る」を測る(裁定296)。
+  //   ★★空振りを第3の答えとして持つ(裁定186)—— 重なっている対が0件なら測れていない
+  await autoDeliver(autoManaView(15, 1));
+  const manaStack = await autoPage.evaluate(() => {
+    const tiles = [...document.getElementById('my-mana-row').children];
+    let pairs = 0;
+    let wrong = 0;
+    for (let i = 0; i + 1 < tiles.length; i++) {
+      const a = tiles[i].getBoundingClientRect();
+      const b = tiles[i + 1].getBoundingClientRect();
+      if (b.left >= a.right - 2) continue;      // 重なっていない対は測らない
+      pairs += 1;
+      const x = b.left + 2;
+      const y = (Math.max(a.top, b.top) + Math.min(a.bottom, b.bottom)) / 2;
+      const at = document.elementFromPoint(x, y);
+      const owner = at && at.closest ? at.closest('.mana-tile') : null;
+      if (owner !== tiles[i + 1]) wrong += 1;
+    }
+    return { pairs, wrong };
+  });
+  check('★★★重なった部分では右のタイルが上にある(65・名前の先頭が読める向き)',
+    manaStack.pairs > 0 && manaStack.wrong === 0, JSON.stringify(manaStack));
+
+  // ---- 65-4. ★★margin を書く場所は1つである ----
+  //   ★45 は CSS(3本)と JS(クラスの付け外し)の両方が margin を決めており、
+  //     詳細度でどちらが勝つかが挙動を決めていた。退役の番人は「残っていないこと」である
+  const manaCssSrc = fs.readFileSync(path.join(RES, 'static/css/battle.css'), 'utf8');
+  const manaJsSrc = fs.readFileSync(path.join(RES, 'static/js/battle.js'), 'utf8');
+  const manaCssRules = manaCssSrc.split('\n').filter((line) =>
+    line.includes('.auto-mana-row') && /margin-(left|right)\s*:/.test(line));
+  check('★★★マナ行の margin を書くのは battle.js だけである(65・裁定178 の退役の番人)',
+    manaCssRules.length === 0 && !manaJsSrc.includes("'auto-mana-overlap'")
+      && manaJsSrc.includes('applyAutoManaOverlap'),
+    JSON.stringify({ manaCssRules, jsHasOldClass: manaJsSrc.includes("'auto-mana-overlap'") }));
+
+  // ---- 65-5. ★枚数の端(0枚・1枚)で壊れない ----
+  //   ★上限を取る Math.min は候補が空だと Infinity を返す。1枚のときがその境目である
+  await autoDeliver(autoManaView(1, 1));
+  const manaOne = await manaGeometry('my-mana-row');
+  await autoDeliver(autoManaView(0, 0));
+  const manaZero = await manaGeometry('my-mana-row');
+  check('★マナ0枚・1枚でも重なりの計算が壊れない(65)',
+    manaOne.n === 1 && manaOne.overflowRight <= 0.5 && manaZero.n === 0,
+    JSON.stringify({ manaOne, manaZero }));
   check('通常モードの盤面でJSエラーが出ない', autoErrors.length === 0, autoErrors.join(' | '));
 
   // =====================================================================

@@ -1719,6 +1719,88 @@ function attachHover(el, dataFn) {
     };
 }
 
+// ---------------------------------------------------------------
+// ★★Batch 65: マナ行の重なり(設計解説 1〜3章)
+//
+// 45 は「はみ出したら固定の -26px で重ねる」という簡易版だった。3つ壊れていた。
+//   (1) タップ済(回転)のタイルは外接が横 80px になり、その 8px が左隣へ食い込む。
+//       CSS には .tapped { margin-left: 14px } という下駄が在ったのに、
+//       重なり側のセレクタのほうが詳細度で勝つため<b>効いていなかった</b>。
+//   (2) 重なりが枚数に関係なく固定なので、15枚すべてタップ済だと 50px はみ出し、
+//       右列(リーダー・パイル)に重なった。実測で確認した。
+//   (3) 重なりが均等でなく、読みたい<b>表向きの名前</b>のほうが潰れていた
+//       (実測: 表向きの露出 33px / タップ済 65px)。
+//
+// ★これは手動モードが Batch 34 hotfix で既に直した症状と<b>同じ根</b>である。
+//   あちら(applyManaOverlap)は「占有幅はタイルごとに違う」「露出の下限を守る」
+//   「必要なぶんだけ均等に重ねる」の3つで解いている。65 はその規則を通常モードにも当てる。
+//   ★同じ規則が2箇所に在ること自体は裁定130 が許す形である —— 一致を番人が見張る。
+//     verify 65系がこちら側の露出下限と非はみ出しを実物の DOM で測る。
+// ---------------------------------------------------------------
+
+/** マナタイルの寸法。★CSS の .auto-mana-row .mana-tile と対である(片方だけ変えないこと) */
+const AUTO_MANA_TILE_WIDTH = 64;
+const AUTO_MANA_TILE_HEIGHT = 80;
+/** タイルの間に空けたい幅。45 までは CSS の margin-left が持っていた値である */
+const AUTO_MANA_GAP = 4;
+/**
+ * 1枚あたり露出させたい幅。★手動モードの MANA_MIN_EXPOSURE / MANA_HARD_EXPOSURE と同じ値。
+ * まず 28px の露出で詰め、それで足りなければ 14px まで譲る。
+ * ★名前は左寄せなので、露出しているのは<b>名前の先頭</b>である(z-index を昇順に振るため)。
+ */
+const AUTO_MANA_MIN_EXPOSURE = 28;
+const AUTO_MANA_HARD_EXPOSURE = 14;
+
+/**
+ * マナ行の重なりを計算して当てる。★margin は<b>ここだけ</b>が書く。
+ *
+ * 45 は CSS(3本のセレクタ)と JS(クラスの付け外し)の両方が margin を決めていて、
+ * 詳細度でどちらが勝つかが挙動を決めていた。65 は CSS から margin を全部外し、
+ * 規則をこの関数1本にした(設計判断28: 同じ役割のものを2つの形で持たない)。
+ *
+ * ★<b>占有幅は回転で変わる。</b>要素の幅は常に 64px だが、90度回した見た目の外接は
+ *   縦の 80px になる。左右に (80-64)/2 = 8px ずつはみ出すので、その下駄を margin で確保する。
+ * ★<b>覆われるのは左のタイルである。</b>z-index を昇順に振るので、タイル i の見える幅は
+ *   「i 自身の占有幅 + 間隔 - 重なり」になる。上限を取るのはこの<b>覆われる側</b>
+ *   (0 〜 n-2)であり、手動モードの実装は覆う側(1 〜 n-1)で取っている ——
+ *   均一な行では同じ値になるが、タップ済と非タップが混ざる行では1枚ぶんずれる。
+ *   ★手動モードのずれは notes/qte-pitfalls.md に記録した(65 では触らない)。
+ */
+function applyAutoManaOverlap(row) {
+    const tiles = [...row.children];
+    for (const tile of tiles) {
+        tile.style.marginLeft = '';
+        tile.style.marginRight = '';
+        tile.style.zIndex = '';
+    }
+    if (tiles.length === 0) return;
+    const pad = (AUTO_MANA_TILE_HEIGHT - AUTO_MANA_TILE_WIDTH) / 2;
+    const tapped = tiles.map(t => t.classList.contains('tapped'));
+    const footprint = (i) => (tapped[i] ? AUTO_MANA_TILE_HEIGHT : AUTO_MANA_TILE_WIDTH);
+    let naturalWidth = AUTO_MANA_GAP * (tiles.length - 1);
+    tiles.forEach((tile, i) => { naturalWidth += footprint(i); });
+    // ★clientWidth は padding を含む。比べる相手は「中身が置ける幅」である(34 hotfix と同じ)
+    const cs = window.getComputedStyle(row);
+    const trackWidth = row.clientWidth
+        - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    // 覆われるのは 0 〜 n-2 のタイルである
+    const overlapCapAt = (exposure) => Math.min(
+        ...tiles.slice(0, -1).map((t, k) => footprint(k) + AUTO_MANA_GAP - exposure));
+    const needed = tiles.length <= 1 || naturalWidth <= trackWidth
+        ? 0
+        : (naturalWidth - trackWidth) / (tiles.length - 1);
+    let perTileOverlap = Math.min(needed, overlapCapAt(AUTO_MANA_MIN_EXPOSURE));
+    if (needed > perTileOverlap) {
+        perTileOverlap = Math.min(needed, overlapCapAt(AUTO_MANA_HARD_EXPOSURE));
+    }
+    tiles.forEach((tile, i) => {
+        const base = tapped[i] ? pad : 0;
+        tile.style.marginLeft = `${base + (i > 0 ? AUTO_MANA_GAP - perTileOverlap : 0)}px`;
+        tile.style.marginRight = `${base}px`;
+        tile.style.zIndex = String(i + 1);
+    });
+}
+
 /**
  * マナタイル1枚(両席で共用・45)。表向き=名前と文明色、裏向き=実物の裏面画像。
  * ★表向きのマナは公開情報であり、相手の表向きにも名前が出る(45・マスター指摘)。
@@ -2052,9 +2134,9 @@ function renderOpponent(opp, view) {
     //   表向きは名前・文明色つき。裏向きは裏面で、中身はそもそも届いていない
     const oppManaRow = document.getElementById('opp-mana-row');
     oppManaRow.innerHTML = '';
-    oppManaRow.classList.remove('auto-mana-overlap');
     opp.manaZone.forEach(mana => oppManaRow.appendChild(buildManaTile(mana)));
-    oppManaRow.classList.toggle('auto-mana-overlap', oppManaRow.scrollWidth > oppManaRow.clientWidth);
+    // ★★Batch 65: 重なりは applyAutoManaOverlap 1本が決める(45 のクラス切り替えは退役)
+    applyAutoManaOverlap(oppManaRow);
 
     const leaderEl = document.getElementById('opp-leader');
     // ★Batch 42: 文明色。リーダーの文明はビューに無いので台帳IDから引く(取得前は無文明色)
@@ -2159,7 +2241,6 @@ function renderSelf(you, view) {
     const manaReq = currentRequirement();
     const manaRow = document.getElementById('my-mana-row');
     manaRow.innerHTML = '';
-    manaRow.classList.remove('auto-mana-overlap');
     you.manaZone.forEach((mana, index) => {
         const tile = buildManaTile(mana);
         if (tabooPay) {
@@ -2175,8 +2256,9 @@ function renderSelf(you, view) {
         }
         manaRow.appendChild(tile);
     });
-    // ★並びきらないときだけ重ねる(手動モードの applyManaOverlap と同じ思想の簡易版)
-    manaRow.classList.toggle('auto-mana-overlap', manaRow.scrollWidth > manaRow.clientWidth);
+    // ★★Batch 65: 45 の「固定 -26px で重ねる簡易版」は退役した。必要なぶんだけ均等に重ね、
+    //   露出の下限を守り、回転の外接を勘定に入れる(手動モードの 34 hotfix と同じ規則)
+    applyAutoManaOverlap(manaRow);
 
     const req = currentRequirement();
     const row = document.getElementById('my-minions');
