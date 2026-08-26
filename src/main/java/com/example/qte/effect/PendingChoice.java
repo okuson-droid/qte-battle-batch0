@@ -149,6 +149,20 @@ public record PendingChoice(
          * はい/いいえ(★Batch 64)。「〜してもよい」を本人に問う。
          * 候補は {@link #CONFIRM_YES} 1件だけで、選べば「はい」・選ばなければ「いいえ」である。
          */
-        CONFIRM
+        CONFIRM,
+        /**
+         * 装備中のウェポン(★Batch 68)。候補は "SELF" / "OPPONENT"。
+         *
+         * <p>★<b>68 が足した唯一の値である。</b>裁定282 により【召喚時】の対象が
+         * 割り込みへ移り、《天界の守護神 ゾディアック》の「相手のウェポンを1つ選び破壊する」が
+         * この経路を通るようになった —— 67 までウェポンを選ばせるのは
+         * <b>宣言時の対象指定だけ</b>({@code TargetSpec.Kind.WEAPON})だったため、
+         * 割り込み側に対応する値が無かった。
+         *
+         * <p>★{@code TargetSpec.Kind} のすべての値がこの列挙体にもあることは
+         * {@code TargetCandidates.pendingKindOf} が唯一の対応表であり、
+         * 網羅は Java の switch が保証する(あちらに値を足せばコンパイルが止まる)。
+         */
+        WEAPON
     }
 }

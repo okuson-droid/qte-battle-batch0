@@ -378,6 +378,41 @@ public class GameActions {
         return true;
     }
 
+    /**
+     * 装備中のウェポンを場から外し、<b>山札へ戻すカードID</b>を返す(★Batch 68。裁定309)。
+     *
+     * <p>《サイクロン・リフレッシュ》の「場か手札のカードを2枚デッキに戻して」が唯一の使い手である。
+     *
+     * <p>★<b>{@link #destroyOwnWeapon} と入口を分けた。</b>あちらは<b>破壊</b>であり、
+     * 行き先を {@code sendToTrashOrRestore}(消滅 &gt; 還元 &gt; 墓地)が決める。
+     * こちらは破壊ではなく<b>山札へ戻す</b>ので、行き先は呼び出し側が決める ——
+     * 「場を離れる処理を新しく書くときは、どちらの入口かを必ず決める」(裁定207)の形である。
+     *
+     * <p>★<b>場を離れたことの通知({@link #onWeaponLeftPlay})は両方が通る。</b>
+     * 《詠唱の宝珠》の持続効果も《暴風の双剣》の加算のリセットも、
+     * 外れ方によらず起きなければならない。
+     *
+     * @return 山札へ戻すカードID。禁忌由来だった(=消滅させた)場合と、
+     *         そもそも装備していなかった場合は null
+     */
+    public String removeWeaponForDeck(GameRoom room, PlayerState owner) {
+        CardMaster weapon = owner.getEquippedWeapon();
+        if (weapon == null) {
+            return null;
+        }
+        boolean fromTaboo = owner.isEquippedWeaponFromTaboo();
+        owner.setEquippedWeapon(null);
+        owner.setEquippedWeaponFromTaboo(false);
+        onWeaponLeftPlay(owner, weapon);
+        if (fromTaboo) {
+            owner.getLostZone().add(weapon.id());
+            room.addLog("【%s】は禁忌カードのため消滅しました".formatted(weapon.name()));
+            return null;
+        }
+        room.addLog("【%s】が場を離れました".formatted(weapon.name()));
+        return weapon.id();
+    }
+
     /** 効果によるミニオンへのダメージ。適用と破壊判定を分離する原則に従う(設計判断2) */
     public void damageMinion(GameRoom room, PlayerState owner, MinionInstance minion, int amount) {
         applyDamageToMinion(room, owner, minion, amount);
@@ -628,6 +663,20 @@ public class GameActions {
     }
 
     /**
+     * 出どころを添えて効果で場に出す(★Batch 68。裁定311)。素材を伴わない場合の入口。
+     *
+     * <p>★{@link FieldEntryOrigin#HAND} を渡すのは、
+     * <b>本当に手札から出しているとき</b>だけである。
+     * 《降臨の伝道師》は公開領域から、《スタンディングテント》は
+     * <b>本文が「そのミニオンの【召喚時】は使えない」と明記している</b>ので、
+     * どちらも {@link FieldEntryOrigin#OTHER} である(総則よりカードテキストが優先する。総合ルール2-7)。
+     */
+    public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId,
+            FieldEntryOrigin origin) {
+        return putIntoFieldByEffect(room, owner, cardId, java.util.List.of(), false, origin);
+    }
+
+    /**
      * 効果によって<b>進化ミニオン</b>を素材つきで場に「出す」(★Batch 53。《英術・スケアロック》)。
      *
      * <h2>これは召喚ではない(マスター裁定)</h2>
@@ -667,6 +716,24 @@ public class GameActions {
      */
     public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId,
             java.util.List<MinionInstance> materials, boolean fromTaboo) {
+        return putIntoFieldByEffect(room, owner, cardId, materials, fromTaboo, FieldEntryOrigin.OTHER);
+    }
+
+    /**
+     * 効果によって場に出す(★Batch 68。出どころを受け取る版。裁定311)。
+     *
+     * <p>★<b>{@link FieldEntryOrigin#HAND} を渡すと【召喚時】も発動する。</b>
+     * 63 までは効果による「出す」で ON_SUMMON が発動することは無かったが、
+     * 裁定311 により「召喚であるか、<b>手札から場に出た</b>とき」に広がった。
+     *
+     * <p>★<b>順序は召喚と同じである</b>({@code GameService.summonToField}) ——
+     * ON_SUMMON を焚いてから、登場の共通処理({@link #fireEntryTriggers})を通す。
+     * 2箇所に同じ順序が書かれることになるが、片方は「召喚」もう片方は「効果で出す」であり、
+     * <b>前段(置換の判定・素材・ログ)がまるごと違う</b>ので1本にはできない。
+     * ★一致は {@code Batch68SummonFromHandTest} が見張る(裁定130 の「番人に見張らせる」形)。
+     */
+    public MinionInstance putIntoFieldByEffect(GameRoom room, PlayerState owner, String cardId,
+            java.util.List<MinionInstance> materials, boolean fromTaboo, FieldEntryOrigin origin) {
         boolean evolution = materials != null && !materials.isEmpty();
         GameState state = room.getGameState();
         if (NO_CHEAT_INTO_FIELD.contains(cardId)) {
@@ -700,10 +767,22 @@ public class GameActions {
             return null;
         }
         MinionInstance minion = newFieldMinion(state, master, fromTaboo);
+        // ★★Batch 68(裁定311): 「召喚ではなく効果で出た」の印を、誘発を焚く<b>前に</b>付ける。
+        //   HAND なら【召喚時】は発動するが、<b>このカード自身は使用されていない</b> ——
+        //   「このターン使用したカードの枚数」を読む効果はその違いを見なければならない
+        //   (《ガイル・フォックス》。MinionInstance.enteredByEffect の注記)
+        minion.markEnteredByEffect();
         attachEvolutionMaterials(room, owner, minion, materials);
         owner.getMinionZone().add(minion);
-        room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));
-        fireEntryTriggers(room, owner, minion, contextOf(room, owner, minion));
+        EffectContext ctx = contextOf(room, owner, minion);
+        if (origin == FieldEntryOrigin.HAND) {
+            // ★★Batch 68(裁定311): 手札から出たなら【召喚時】も発動する
+            room.addLog("【%s】が効果で手札から場に出ました".formatted(master.name()));
+            effects.fire(TriggerType.ON_SUMMON, minion, ctx);
+        } else {
+            room.addLog("【%s】が効果で場に出ました(召喚時効果は発動しない)".formatted(master.name()));
+        }
+        fireEntryTriggers(room, owner, minion, ctx);
         return minion;
     }
 

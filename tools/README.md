@@ -17,7 +17,31 @@ node --check src/main/resources/static/js/battle.js                  # 項目 7
 python3 tools/check_legacy_ids.py                                    # ★Batch 60
 python3 tools/check_leader_abilities.py
 python3 tools/report_effects.py --summary                            # 未実装 0 枚が正常値
+python3 tools/check_card_text_numbers.py                             # ★Batch 67
+python3 tools/mark_text_reviewed.py --check                          # ★Batch 67
 ```
+
+### ★★Batch 67: 「未実装0枚」の隣に置いた2本
+
+`report_effects.py` の「未実装0枚」は**登録が在るか**しか見ていない(裁定303)。
+本文が Ver1.1 で差し替わったのに実装が Ver0.4 のまま残っていても、あのツールは何も言わない
+—— 64 で1枚、67 でさらに7枚が見つかった。そこで2本足した。
+
+| ファイル | 見るもの |
+|---|---|
+| `check_card_text_numbers.py` | **本文の数値がそのカードの実装に現れているか。**★コメントの数字は数えない(旧本文が書き写されていることがあり、いちばん信用してはいけない場所である)。★0 と 1 は数えない(「1枚につき」は実装に現れない)。説明の付いた不足は `KNOWN_GAPS` に理由つきで持つ |
+| `mark_text_reviewed.py` | **本文と実装の突き合わせ台帳**(`src/test/resources/text-impl-review.json`)の更新と点検。`--check` は台帳と本文の食い違いを一覧する。番人は JUnit の `CardTextReviewTest` である |
+
+★**台帳を更新するときは `--card` と `--note` の両方が要る。**
+理由を書かずに緑にできない形にしてある —— 台帳は緑にするための書類ではなく、点検の記録である(裁定196)。
+
+★★**Batch 68: `check_card_text_numbers.py` に「名前を付けた効果のラムダを展開する」を足した。**
+2つの誘発が同じ効果を共有する形(`Consumer<EffectContext> galeFox = ctx -> {...};` を
+`register` に2回渡す)にすると、`register` の文には**ラムダの名前しか残らない**ため、
+中の数が数えられなくなっていた。
+★これは数値の定数(`NUMBER_CONST_DECL`)と同じ問題である ——
+**「同じ規則を2箇所に書かない」(裁定130)に従った実装ほど、数を数える番人から不利になる。**
+番人が実装の書き方を狭めてはいけないので、ツールの側を広げた。
 
 ## 各スクリプトが見るもの
 
@@ -29,7 +53,9 @@ python3 tools/report_effects.py --summary                            # 未実装
 | `check_undeclared.py` | 8 JSの未宣言変数(Batch 11a の事故の再発防止) |
 | `check_legacy_ids.py` | ★Batch 60。Ver0.4 形式のカードID(QTE-0001 等)が本番のコードに書かれていないこと / 由来のIDが重複せず169枚に付いていること |
 | `check_leader_abilities.py` | リーダーの【起動：n】がテキストと一致すること |
-| `report_effects.py` | 効果の実装状況(`--summary` で枚数だけ)。**未実装0枚が正常値である** |
+| `report_effects.py` | 効果の実装状況(`--summary` で枚数だけ)。**未実装0枚が正常値である**。★ただし「本文どおり」は意味しない(裁定303) |
+| `check_card_text_numbers.py` | ★Batch 67。本文の数値と実装の数値の照合 |
+| `mark_text_reviewed.py` | ★Batch 67。本文と実装の突き合わせ台帳の更新・点検 |
 | `batchNN_break_check.py` | そのバッチの「壊し検証」。実装をわざと壊して試験が落ちることを確かめる |
 
 ### ★Batch 60 で消したもの

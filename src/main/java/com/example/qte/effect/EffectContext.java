@@ -53,6 +53,18 @@ public record EffectContext(
     }
 
     /**
+     * 同じ文脈で選択結果だけを差し替える(★Batch 68。裁定282)。
+     *
+     * <p>【召喚時】【登場時】の対象は<b>ミニオンが場に出てから</b>選ぶことになったので、
+     * 選び終えたあとに<b>同じ効果をもう一度呼ぶ</b>必要がある。
+     * そのとき差し替わるのは対象だけであり、部屋・盤面・持ち主は変わらない。
+     */
+    public EffectContext withTargets(ResolvedTargets newTargets) {
+        return new EffectContext(room, state, owner, opponent, source, newTargets, actions,
+                enhanced, fromTaboo);
+    }
+
+    /**
      * 持ち主と相手を入れ替えた文脈を作る(★Batch 57)。
      *
      * <p>イベントの文脈は「出来事が起きた側」を {@code owner} として作られる。

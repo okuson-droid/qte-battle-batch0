@@ -403,17 +403,27 @@ class SoulSpellTest {
 
     /**
      * ★タイガラムの【召喚時】は、手札から【守護】を持つ進化ではないミニオンを1体出す。
-     * ★効果による「出す」なので、出したミニオンの【召喚時】は発動しない(裁定245)。
+     *
+     * <p>★★★Batch 68(裁定282)で<b>2手</b>になった ——
+     * 出す1体はタイガラムが場に出てから選ぶ。
+     * ★<b>進化ミニオンでこそ効く直しである</b>: 66 までの宣言時の検証は
+     * 素材を場から外す<b>前</b>に走っており、素材にした1体を対象に選べる危うさが
+     * 構造として残っていた(裁定258 の罠)。今は素材はもう場に居ない。
+     *
+     * <p>★<b>裁定311 により、出したミニオンの【召喚時】は発動する</b>
+     * (67 までは裁定245 により発動しなかった)。ここで出す《ライト・シールド》は
+     * 【召喚時】を持たないので、この試験の結果は変わらない。
      */
     @Test
     void タイガラムの召喚時は手札から守護ミニオンを場に出す() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 7);
         MinionInstance material = f.putOnField(f.me(), LIGHT_GUARD);
-        int guardIndex = f.giveHand(f.me(), LIGHT_GUARD);
+        f.giveHand(f.me(), LIGHT_GUARD);
 
-        game.playCard(f.room(), "me", f.giveHand(f.me(), TAIGARAMU), List.of(hand(guardIndex)),
+        game.playCard(f.room(), "me", f.giveHand(f.me(), TAIGARAMU), List.of(),
                 false, List.of(material.getInstanceId()));
+        f.answerChoice(game, "me", f.handPosition(f.me(), LIGHT_GUARD));
 
         assertThat(f.fieldIds(f.me())).containsExactlyInAnyOrder(TAIGARAMU, LIGHT_GUARD);
         assertThat(f.me().getHand()).doesNotContain(LIGHT_GUARD);

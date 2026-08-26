@@ -133,4 +133,55 @@ public final class AutoGameFixture {
     public CardMaster card(String cardId) {
         return cards.findById(cardId);
     }
+
+    // ===================================================================
+    // ★★★Batch 68: 割り込みの選択に答える
+    // ===================================================================
+
+    /**
+     * 待っている問い合わせに<b>候補の値で</b>答える(★Batch 68)。
+     *
+     * <h2>なぜ「値」で答えるのか</h2>
+     *
+     * {@code GameService.resolveChoice} が受け取るのは<b>候補一覧の添字</b>である。
+     * 試験がその添字を直接書くと、候補の並び順が変わっただけで
+     * <b>別のものを選んでいるのに緑のまま</b>になる ——
+     * 「試験が値を実装から読む」の裏返しの事故である(裁定298)。
+     *
+     * <p>そこで試験は {@code instanceId} や手札の位置といった<b>意味のある値</b>を渡し、
+     * 添字への変換はここで行う。候補に無い値を渡したら、その場で落とす。
+     *
+     * <p>★Batch 68 で【召喚時】【登場時】の対象が宣言時から割り込みへ移った(裁定282)ため、
+     * 「召喚して対象を選ぶ」は<b>2手</b>になった。この足場はその2手目を書くためのものである。
+     */
+    public void answerChoice(com.example.qte.game.GameService game, String playerId,
+            String... candidateValues) {
+        PlayerState player = state.getPlayer1().getPlayerId().equals(playerId)
+                ? state.getPlayer1() : state.getPlayer2();
+        var pending = player.getPendingChoice();
+        if (pending == null) {
+            throw new IllegalStateException(
+                    "問い合わせが待っていないのに答えようとした(%s)".formatted(playerId));
+        }
+        List<Integer> indexes = new java.util.ArrayList<>();
+        for (String value : candidateValues) {
+            int index = pending.candidates().indexOf(value);
+            if (index < 0) {
+                throw new IllegalStateException("候補に無い値を選ぼうとした: %s(候補は %s)"
+                        .formatted(value, pending.candidates()));
+            }
+            indexes.add(index);
+        }
+        game.resolveChoice(room, playerId, indexes);
+    }
+
+    /** 待っている問い合わせに「何も選ばない」で答える(★Batch 68) */
+    public void answerChoiceNone(com.example.qte.game.GameService game, String playerId) {
+        game.resolveChoice(room, playerId, List.of());
+    }
+
+    /** 手札の中でそのカードIDが最初に現れる位置(割り込みの候補は手札の位置である。★Batch 68) */
+    public String handPosition(PlayerState player, String cardId) {
+        return String.valueOf(player.getHand().indexOf(cardId));
+    }
 }

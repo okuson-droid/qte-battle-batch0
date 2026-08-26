@@ -142,6 +142,30 @@ public record TargetSpec(List<Requirement> requirements, int combinedTotal) {
          * (素材は最低1体を要求する)。
          * ★<b>ここに値を足したら battle.js の2箇所にも足すこと</b>(verify 49-1 が番人)。
          */
-        EVOLUTION_MINION
+        EVOLUTION_MINION,
+        /**
+         * 風文明のカードである(★Batch 67。《ツイン・ストライク》)。
+         *
+         * ★<b>文明フィルタで初めて「場のミニオン」に当たる値である。</b>
+         * {@link #LIGHT_CIVILIZATION}(神の福音)と {@link #WATER_CIVILIZATION}
+         * (ギガマウス・バイト)はどちらも手札から選ばせるものだったため、
+         * {@code battle.js} 側の判定も手札のカードビューしか見ていなかった。
+         * 67 で3値とも「場のミニオンなら {@code MinionView}・手札なら {@code CardView}」
+         * を見る形へ揃えてある(挙動は変わらない —— 既存2値は手札でしか使われない)。
+         * ★そのために {@code MinionView} に文明を足した。盤面のミニオンの文明を
+         * 問うカードが、Ver1.1 で初めて出てきたということである。
+         * ★<b>ここに値を足したら battle.js の2箇所にも足すこと</b>(verify 49-1 が番人)。
+         */
+        WIND_CIVILIZATION,
+        /**
+         * ミニオンではないカードである(★Batch 67。《禁忌の墓地利用》)。
+         *
+         * ★{@link #MINION_CARD} の否定だが、<b>進化ミニオンも「ミニオンでない」に含めない</b>。
+         * 総合ルール上「進化ミニオン」はミニオンの一種であり(2-1: メインデッキ40枚に算入する)、
+         * 墓地に居るときも種別が {@code EVOLUTION} であるだけでミニオンには違いないためである。
+         * したがって判定は「{@code MINION} でも {@code EVOLUTION} でもない」= スペルかウェポン、になる。
+         * ★<b>ここに値を足したら battle.js の2箇所にも足すこと</b>(verify 49-1 が番人)。
+         */
+        NON_MINION_CARD
     }
 }

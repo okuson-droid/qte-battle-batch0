@@ -264,6 +264,12 @@ class Batch60Test {
     //   → 裁定278(c): 対象選択の導線を新設する。ガードは外れた
     // ==================================================================
 
+    /**
+     * ★★★Batch 68(裁定282)で<b>2手</b>になった。
+     * 66 までは召喚の宣言と一緒に対象を渡していたが、
+     * 【召喚時】の対象は<b>ミニオンが場に出てから</b>選ぶことになったので、
+     * 「墓地から召喚する」→「問い合わせに答える」の順になる。
+     */
     @Test
     void 黄泉の召喚主は召喚時に対象を選ぶミニオンを墓地から召喚できる() {
         AutoGameFixture f = newGame(GRAVE_SUMMONER);
@@ -272,44 +278,63 @@ class Batch60Test {
         MinionInstance victim = f.putOnField(f.you(), LIGHT_SHIELD); // 2/1/3
         toSubPhase(f);
 
-        game.summonFromGrave(f.room(), "me", 0, List.of(minions(victim.getInstanceId())));
+        game.summonFromGrave(f.room(), "me", 0, List.of());
 
         assertThat(f.fieldIds(f.me())).containsExactly(SHADOW_ASSASSIN);
         assertThat(f.me().getTrash()).as("召喚したカードは墓地から消える").isEmpty();
+        assertThat(f.me().getPendingChoice())
+                .as("★場に出てから対象を問われる(裁定282)").isNotNull();
+
+        f.answerChoice(game, "me", victim.getInstanceId());
+
         assertThat(f.you().getMinionZone())
                 .as("【召喚時】の3ダメージがHP3の守護を落とす").doesNotContain(victim);
     }
 
+    /**
+     * ★★★Batch 68(裁定282): 「対象の指定が無ければ召喚できない」は<b>無くなった</b>。
+     *
+     * <p>66 までは宣言時に対象を渡さないと {@code 対象の指定が不足しています} で弾かれた。
+     * 対象が場に出てから問われるようになったので、<b>召喚そのものは必ず通る</b> ——
+     * 弾かれるとしたら、それは選択の段である。
+     * ★<b>この試験は「消えた挙動が本当に消えていること」を測っている。</b>
+     * 残しておかないと、次の人は今も宣言時に対象が要ると読む。
+     */
     @Test
-    void 黄泉の召喚主は対象の指定が無ければ召喚できない() {
+    void 黄泉の召喚主は対象を渡さなくても召喚できる() {
         AutoGameFixture f = newGame(GRAVE_SUMMONER);
         payMana(f.me(), 4);
         f.me().getTrash().add(SHADOW_ASSASSIN);
         f.putOnField(f.you(), LIGHT_SHIELD);
         toSubPhase(f);
 
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0, List.of()))
-                .hasMessageContaining("対象の指定が不足しています");
+        game.summonFromGrave(f.room(), "me", 0, List.of());
+
+        assertThat(f.fieldIds(f.me())).as("宣言時の対象は要らない").containsExactly(SHADOW_ASSASSIN);
+        assertThat(effects.declarationTargetSpecOf(SHADOW_ASSASSIN).requirements())
+                .as("★ミニオンの宣言時対象は構造的に空である(裁定282)").isEmpty();
     }
 
     /**
      * ★<b>順序の番人。</b>60 は summonFromGrave を
      * 「検証 → 支払い → 墓地から取り除く」の順に組み替えた(通常召喚と同じ形)。
-     * 検証で弾かれたときに<b>状態が1つも変わっていない</b>ことをここで測る ——
+     * 弾かれたときに<b>状態が1つも変わっていない</b>ことをここで測る ——
      * 逆順のままだと、拒否されたのにマナがタップされ墓地が減る。
+     *
+     * <p>★★Batch 68: 対象が宣言時から消えたので、弾かれる理由を
+     * <b>MP不足</b>に取り替えた。測っている性質(拒否は盤面を1つも変えない)は同じである。
      */
     @Test
-    void 黄泉の召喚主は対象の検証で弾かれたとき盤面を1つも変えない() {
+    void 黄泉の召喚主は弾かれたとき盤面を1つも変えない() {
         AutoGameFixture f = newGame(GRAVE_SUMMONER);
-        payMana(f.me(), 4);
+        payMana(f.me(), 3); // 執念の暗殺者はコスト4。1足りない
         f.me().getTrash().add(SHADOW_ASSASSIN);
         f.putOnField(f.you(), LIGHT_SHIELD);
         toSubPhase(f);
         int mpBefore = f.me().getAvailableMp();
 
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0,
-                List.of(minions("居ないミニオンのID"))))
-                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0, List.of()))
+                .isInstanceOf(IllegalStateException.class);
 
         assertThat(f.me().getAvailableMp()).as("MPは減っていない").isEqualTo(mpBefore);
         assertThat(f.me().getTrash()).as("墓地から消えていない").containsExactly(SHADOW_ASSASSIN);
@@ -317,40 +342,57 @@ class Batch60Test {
     }
 
     /**
-     * 【潜伏】や側(Side)の検証は、墓地からの召喚でもそのまま効く ——
-     * 対象の正当性を見るのは {@code validateTargets} 1箇所だからである(裁定163)。
+     * 側(Side)の限定は、墓地からの召喚でもそのまま効く ——
+     * 候補を作るのは {@code TargetCandidates} 1箇所だからである(裁定163・130)。
+     *
+     * <p>★★Batch 68: 66 までは「不正な対象を渡すと例外」で測っていた。
+     * 対象が割り込みに移ったので、今は<b>候補に現れないこと</b>で測る。
+     * 自分の場しか居ないなら、相手限定の要求は候補0件 ——
+     * つまり<b>そもそも問い合わせが立たない</b>。
      */
     @Test
-    void 黄泉の召喚主でも対象の側の検証はそのまま効く() {
+    void 黄泉の召喚主でも対象の側の限定はそのまま効く() {
         AutoGameFixture f = newGame(GRAVE_SUMMONER);
         payMana(f.me(), 2);
         f.me().getTrash().add(ROT_THROWER); // 【召喚時】<b>相手の</b>ミニオン1体に1ダメージ
         MinionInstance mine = f.putOnField(f.me(), LIGHT_SHIELD);
         toSubPhase(f);
 
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0,
-                List.of(minions(mine.getInstanceId()))))
-                .isInstanceOf(IllegalArgumentException.class);
+        game.summonFromGrave(f.room(), "me", 0, List.of());
+
+        assertThat(f.me().getPendingChoice())
+                .as("★相手の場が空なので候補0件。問い合わせは立たない").isNull();
+        assertThat(mine.getCurrentHp())
+                .as("★自分のミニオンは巻き添えにならない").isEqualTo(mine.getMaster().hp());
     }
 
     /**
-     * ★<b>墓地から出すカード自身は、そのカードの対象には選べない</b>(★Batch 60 で新設)。
+     * ★★★Batch 68(裁定196): <b>Batch 60 の門が測っていた性質を、候補の側から測り直す。</b>
      *
-     * <p>検証は墓地から取り除く<b>前</b>に行うため、その瞬間は出すカード自身も墓地に居る。
-     * {@code Kind.TRASH} の要求はそれを普通の候補として見てしまうので、専用の門で塞いだ。
-     * 今の235枚では《墓場の怨念集合体》の絞り込み({@code SPELL_CARD})が偶然守っているが、
-     * 絞り込みが守っているだけの穴は、次の1枚で開く。
+     * <p>60 は「墓地から出すカード自身をそのカードの対象に選べてしまう」を
+     * {@code requireTrashSourceNotTargeted} という専用の門で弾いていた。
+     * 穴は<b>順序</b>から生まれていた —— 対象の検証が墓地から取り除く前だったので、
+     * その瞬間は出すカード自身がまだ墓地に居たのである。
+     *
+     * <p>裁定282 で対象は<b>場に出てから</b>選ぶことになり、
+     * 候補を数える時点でカードはとっくに墓地を離れている。
+     * ★<b>門は撤去した。塞ぐ穴が構造ごと消えたからである。</b>
+     * 代わりにこの試験が「候補に自分が現れない」を直接測る。
      */
     @Test
-    void 墓地から出すカード自身は対象に選べない() {
+    void 墓地から召喚したカード自身は召喚時の候補に現れない() {
         AutoGameFixture f = newGame(GRAVE_SUMMONER);
         payMana(f.me(), 10);
         f.me().getTrash().add(GRAVE_AGGREGATE); // 0番目 = 出どころ
         f.me().getTrash().add(DESPAIR_CHAIN);   // 1番目 = 本来の対象(スペル)
         toSubPhase(f);
 
-        assertThatThrownBy(() -> game.summonFromGrave(f.room(), "me", 0, List.of(trash(0))))
-                .hasMessageContaining("墓地から出すカード自身は対象に選べません");
+        game.summonFromGrave(f.room(), "me", 0, List.of());
+
+        assertThat(f.me().getTrash())
+                .as("★候補を数える時点で、出どころはもう墓地に居ない").containsExactly(DESPAIR_CHAIN);
+        assertThat(f.me().getPendingChoice().candidates())
+                .as("候補は残った1枚だけである").containsExactly("0");
     }
 
     @Test
@@ -361,7 +403,8 @@ class Batch60Test {
         f.me().getTrash().add(DESPAIR_CHAIN);
         toSubPhase(f);
 
-        game.summonFromGrave(f.room(), "me", 0, List.of(trash(1)));
+        game.summonFromGrave(f.room(), "me", 0, List.of());
+        f.answerChoice(game, "me", "0"); // 墓地に1枚だけ残った《絶望の鎖》
 
         assertThat(f.fieldIds(f.me())).containsExactly(GRAVE_AGGREGATE);
         assertThat(f.me().getHand()).as("【召喚時】が墓地のスペルを手札へ加える")

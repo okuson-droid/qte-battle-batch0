@@ -1115,6 +1115,29 @@ function pickMinion(instanceId, isOwn) {
 }
 
 /**
+ * 絞り込みのための文明の取り出し(★Batch 67)。
+ *
+ * ★<b>MinionView は文明を運ばない。</b>手札のカードビュー(CardView)は運ぶが、
+ * 場のミニオンは運ばない —— これは 45 からの意図した設計であり、
+ * 足りない属性は card-library(autoLibrary)から引くと決まっている(設計判断28)。
+ * 《ツイン・ストライク》で「場のミニオンの文明」を初めて問うことになったが、
+ * <b>ビューを太らせずに済んだのは、引く口が既に在ったからである</b>。
+ *
+ * ★autoLibrary はこのファイルの後方で宣言された const だが、この関数が呼ばれるのは
+ * 対象選択中(=スクリプトの評価がとうに終わった後)なので一時的死角には入らない。
+ */
+function civilizationOfTarget(card, minion) {
+    if (card) {
+        return card.civilization;
+    }
+    if (!minion) {
+        return null;
+    }
+    const lib = autoLibrary.get(minion.cardId);
+    return lib ? lib.civilization : null;
+}
+
+/**
  * 絞り込み条件(AND)の判定。クライアント側は操作補助であり、
  * 最終的な正当性はサーバのvalidateTargetsが判定する。
  * cardは手札のカードビュー、minionは場のミニオンビュー(該当しない方はnull)。
@@ -1137,10 +1160,18 @@ function matchesFilters(req, card, minion) {
                 ok = (minion || card).cost != null && (minion || card).cost <= 3; break;
             case 'SPELL_CARD':
                 ok = card && card.type === 'SPELL'; break;
+            // ★Batch 67: 文明の3値は civilizationOfTarget に揃えた。
+            // 66 までは card しか見ておらず、場のミニオンでは必ず false になっていた
+            // (神の福音・ギガマウス・バイトは手札からしか選ばないので症状は出ていない)。
             case 'LIGHT_CIVILIZATION':
-                ok = card && card.civilization === 'LIGHT'; break;
+                ok = civilizationOfTarget(card, minion) === 'LIGHT'; break;
             case 'WATER_CIVILIZATION':
-                ok = card && card.civilization === 'WATER'; break;
+                ok = civilizationOfTarget(card, minion) === 'WATER'; break;
+            case 'WIND_CIVILIZATION':
+                ok = civilizationOfTarget(card, minion) === 'WIND'; break; // ★Batch 67(ツイン・ストライク)
+            case 'NON_MINION_CARD':
+                // ★Batch 67(禁忌の墓地利用)。進化ミニオンもミニオンである(裁定 2-1)
+                ok = !!card && card.type !== 'MINION' && card.type !== 'EVOLUTION'; break;
             case 'COST_7_OR_LESS':
                 ok = (minion || card).cost != null && (minion || card).cost <= 7; break;
             case 'HIGHEST_ATTACK_OPPONENT': {
@@ -2773,6 +2804,10 @@ function createHandCardEl(card, index, view) {
                     case 'COST_7_OR_LESS': return card.cost != null && card.cost <= 7;
                     case 'LIGHT_CIVILIZATION': return card.civilization === 'LIGHT';
                     case 'WATER_CIVILIZATION': return card.civilization === 'WATER';
+                    // ★Batch 67。手札から風文明を選ばせるカードは今のところ無いが、
+                    // Filter を足したら battle.js の2箇所とも足すのが規約である(裁定195)
+                    case 'WIND_CIVILIZATION': return card.civilization === 'WIND';
+                    case 'NON_MINION_CARD': return card.type !== 'MINION' && card.type !== 'EVOLUTION';
                     default: return true;
                 }
             });

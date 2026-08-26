@@ -219,8 +219,9 @@ class DarkLightVer11EffectTest {
         AutoGameFixture f = newGame();
         f.giveMana(f.me(), 3);
         MinionInstance target = f.putOnField(f.you(), PLAIN_MINION); // 2/1
-        game.playCard(f.room(), "me", f.giveHand(f.me(), SUMMONS_LIGHT),
-                List.of(minions(target.getInstanceId())), false);
+        // ★★Batch 68(裁定282): 【召喚時】の対象は場に出てから選ぶ
+        game.playCard(f.room(), "me", f.giveHand(f.me(), SUMMONS_LIGHT), List.of(), false);
+        f.answerChoice(game, "me", target.getInstanceId());
         assertThat(f.you().getMinionZone()).as("HP1に1ダメージで破壊される").isEmpty();
     }
 
@@ -232,7 +233,9 @@ class DarkLightVer11EffectTest {
     void サモンズライトは相手の場が空でも召喚できる() {
         AutoGameFixture f = newGame();
         f.giveMana(f.me(), 3);
-        game.playCard(f.room(), "me", f.giveHand(f.me(), SUMMONS_LIGHT), List.of(minions()), false);
+        // ★★Batch 68: 相手の場が空なら候補0件 —— 問い合わせすら立たない(裁定302)
+        game.playCard(f.room(), "me", f.giveHand(f.me(), SUMMONS_LIGHT), List.of(), false);
+        assertThat(f.me().getPendingChoice()).as("候補0件なので問わない").isNull();
         assertThat(f.fieldIds(f.me())).containsExactly(SUMMONS_LIGHT);
     }
 

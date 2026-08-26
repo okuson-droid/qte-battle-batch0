@@ -225,9 +225,13 @@ class WaterVer11EffectTest {
         AutoGameFixture f = newGame(LOLOIYO);
         f.giveMana(f.me(), 9);
         int spell = f.giveHand(f.me(), HOLY_BIRTH);
-        int guard = f.giveHand(f.me(), GUARD);
+        f.giveHand(f.me(), GUARD);
         int before = f.me().getDeck().size();
-        game.playCard(f.room(), "me", spell, List.of(hand(guard)), false);
+        // ★★Batch 68(裁定308): 出す1体は<b>割り込み</b>で選ぶ。
+        //   候補に「素材を確保できる進化」を入れるには盤面を見なければならず、
+        //   宣言時の対象指定では表せないためである
+        game.playCard(f.room(), "me", spell, List.of(), false);
+        f.answerChoice(game, "me", f.handPosition(f.me(), GUARD));
         assertThat(f.fieldIds(f.me())).containsExactly(GUARD);
         assertThat(before - f.me().getDeck().size())
                 .as("効果で出しても【守護】の登場である")
@@ -442,11 +446,18 @@ class WaterVer11EffectTest {
     }
 
     /**
-     * ★効果による「出す」なので【召喚時】は発動しない(ON_ENTER のみ)。
-     * 水鏡の幻術師の「【召喚時】カードを2枚引く」が起きないことで測る。
+     * ★★★<b>Batch 68(裁定311)で結論がひっくり返った試験である。</b>
+     *
+     * <p>67 までは「効果による『出す』なので【召喚時】は発動しない」を測っていた
+     * (設計判断19)。裁定311 は<b>手札から場に出た場合はすべて発動する</b>と定めたので、
+     * 《ギガマウス・バイト》が手札から出したミニオンの【召喚時】は<b>発動する</b>。
+     *
+     * <p>★<b>消した試験ではなく、向きを変えた試験として残す</b>(裁定196)。
+     * 名前ごと消すと、次の人は「この経路は誰も測っていない」と読む。
+     * 水鏡の幻術師の「【召喚時】カードを2枚引く」が起きることで測る。
      */
     @Test
-    void ギガマウスで出したミニオンの召喚時効果は発動しない() {
+    void ギガマウスで出したミニオンの召喚時効果も発動する() {
         AutoGameFixture f = newGame();
         f.giveMana(f.me(), 13);
         int spell = f.giveHand(f.me(), GIGAMOUSE);
@@ -455,8 +466,8 @@ class WaterVer11EffectTest {
         game.playCard(f.room(), "me", spell, List.of(hand(mirror)), false);
         assertThat(f.fieldIds(f.me())).containsExactly(ON_SUMMON_DRAW);
         assertThat(before - f.me().getDeck().size())
-                .as("【召喚時】の2ドローは起きない")
-                .isZero();
+                .as("★裁定311: 手札から出たので【召喚時】の2ドローが起きる")
+                .isEqualTo(2);
     }
 
     /** ★場が満杯で出せなかったぶんは手札に戻る(神の福音と同じ扱い) */

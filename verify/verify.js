@@ -6226,6 +6226,84 @@ async function clearZoom(page) {
   check('★待っている問い合わせが複数あるなら残り件数を添える(64)',
     queuedPrompt.includes('あと2件'), queuedPrompt);
 
+  // ================================================================
+  // 68. ★★★【召喚時】【登場時】の対象は、割り込みとして届く(裁定282)
+  //
+  // ★<b>ここでも送受信の形は1つも増えていない。</b>
+  //   66 までミニオンの【召喚時】の対象は「使用宣言の対象指定」(beginSelection の道)で
+  //   選ばせていた。68 でそれは<b>丸ごと割り込みへ移った</b> ——
+  //   つまり battle.js から見れば、64 で作った resolve-choice の道を通るだけである。
+  //
+  // ★測るのは2つ。
+  //   (1) 68 が PendingChoice.Kind に足した <b>WEAPON</b> が描けること
+  //       (《天界の守護神 ゾディアック》の【召喚時】が通る、割り込み初のウェポン)
+  //   (2) 割り込みの描画が<b>種類を数えていない</b>こと ——
+  //       kind ごとの分岐は CONFIRM の1つだけで、あとは候補のラベルを並べるだけである。
+  //       ★これが崩れると、次に Kind を足した人が「JS も直す」を忘れて空欄が出る。
+  // ================================================================
+
+  const weaponChoiceView = autoView({
+    you: autoPlayer({
+      pendingChoice: {
+        kind: 'WEAPON',
+        candidates: [
+          { index: 0, label: '真珠の三叉槍(相手)', keywords: [], minionInstanceId: null },
+        ],
+        min: 0, max: 1,
+        prompt: '破壊する相手のウェポンを選んでください(いなければ確定)', queued: 1,
+      },
+    }),
+  });
+  await autoPage.evaluate((view) => { latestView = view; render(view); }, weaponChoiceView);
+  const weaponUi = await autoPage.evaluate(() => ({
+    hidden: document.getElementById('reveal-area').classList.contains('d-none'),
+    labels: Array.from(document.querySelectorAll('#reveal-cards button')).map((b) => b.textContent),
+    // ★min=0(「破壊しない」も選べる)なので確定ボタンが出る
+    confirmHidden: document.getElementById('btn-confirm-choice').classList.contains('d-none'),
+  }));
+  check('★★★割り込みのウェポン選択が描ける(68・裁定282 で初めて通る Kind)',
+    weaponUi.hidden === false
+      && weaponUi.labels.length === 1
+      && weaponUi.labels[0].includes('真珠の三叉槍')
+      && weaponUi.labels[0].includes('相手')
+      && weaponUi.confirmHidden === false,
+    JSON.stringify(weaponUi));
+
+  // ★割り込みの描画が種類を数えていないことの証拠。
+  //   マスタに存在しない架空の Kind を流し込んでも、候補のボタンは出る
+  const unknownKindView = autoView({
+    you: autoPlayer({
+      pendingChoice: {
+        kind: 'FUTURE_KIND_THAT_DOES_NOT_EXIST',
+        candidates: [{ index: 0, label: 'なにか', keywords: [], minionInstanceId: null }],
+        min: 1, max: 1, prompt: '未知の種類', queued: 1,
+      },
+    }),
+  });
+  await autoPage.evaluate((view) => { latestView = view; render(view); }, unknownKindView);
+  const unknownUi = await autoPage.evaluate(() => ({
+    labels: Array.from(document.querySelectorAll('#reveal-cards button')).map((b) => b.textContent),
+  }));
+  check('★★割り込みの描画は Kind を数えていない(68・新しい種類を足しても空欄にならない)',
+    unknownUi.labels.length === 1 && unknownUi.labels[0] === 'なにか',
+    JSON.stringify(unknownUi));
+
+  // ★★ここから下は<b>実際に押す</b>検査である。
+  //   候補が1つも描かれていないと locator が待ち続けて検証全体が止まるので、
+  //   描画だけを見る検査(上の2件)は必ずこれより前に置く(★Batch 68 の壊し検証で判明)
+  await autoPage.evaluate((view) => { latestView = view; render(view); }, weaponChoiceView);
+  // ★実際に押して、64 と同じ口へ同じ形で送られることを捕まえる(裁定296)
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await autoPage.locator('#reveal-cards button').first().click();
+  await autoPage.locator('#btn-confirm-choice').click();
+  await autoPage.waitForTimeout(40);
+  const weaponSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★★ウェポンの割り込みも既存の resolve-choice を通る(68・形を増やしていない)',
+    weaponSent !== null
+      && weaponSent.destination.endsWith('resolve-choice')
+      && JSON.stringify(weaponSent.body.chosenIndexes) === '[0]',
+    JSON.stringify(weaponSent));
+
   await autoPage.close();
 
   // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----
@@ -6980,10 +7058,20 @@ async function clearZoom(page) {
   // ギガマウス・バイトの WATER_CIVILIZATION で実際にこの穴を通ったので、番人を置く
   // (裁定130: 同じ規則が2箇所にあるとき、期待値を書かず互いを突き合わせる)。
   //
-  // ★★JS 側が持つ必要があるのは<b>手札の絞り込みに使われるフィルタ</b>だけである。
-  //   IGNORES_STEALTH は潜伏チェックの上書き指示、HIGHEST_ATTACK_OPPONENT は盤面から計算する
-  //   もので、どちらも手札の要求には現れない。だから突き合わせるのは
-  //   「Java の Filter のうち、Kind.HAND の要求で実際に使われているもの」である。
+  // ★★★<b>Batch 67 で、この番人の範囲が足りていないことが分かった。</b>
+  //   66 までは「JS 側が持つ必要があるのは<b>手札の</b>絞り込みに使われるフィルタだけ」と読み、
+  //   Java の Kind.HAND の要求に現れる値だけを突き合わせていた。ところが 67 が足した
+  //   WIND_CIVILIZATION(Kind.MINION)と NON_MINION_CARD(Kind.TRASH)は
+  //   <b>どちらも手札の要求に現れない</b> —— つまり足しても番人の目に入らなかった。
+  //   しかも JS の分岐は場のミニオンも墓地のカードも同じ matchesFilters を通るので、
+  //   足し忘れれば<b>選べないカードが出る</b>。範囲が足りない番人は、無い番人と変わらない。
+  //
+  // ★<b>そこで JS の2箇所を別々に測るようにした</b>(67 で作り替え)。
+  //   - matchesFilters …… 手札・場・墓地のすべてが通る。<b>Java の全 Filter</b> が要る。
+  //   - 手札のハイライト …… 手札しか通らない。<b>Kind.HAND の Filter</b> だけでよい。
+  //   66 までは battle.js 全体から case を拾っていたため、
+  //   <b>片方だけに書いても緑になった</b>(裁定130 が求める「一致を機械が見張る」に届いていない)。
+  //
   // ★★★<b>空振りを第3の答えとして持つ</b>(裁定186)。抽出の正規表現が壊れて0件になると
   //   「差分なし」で緑になってしまうので、集合が空でないことを条件に含め、
   //   さらに<b>このバッチが足した値が照合の対象に入っていること</b>を別項目で測る。
@@ -6994,18 +7082,50 @@ async function clearZoom(page) {
   const battleJsSrc = fs.readFileSync(path.join(RES, 'static/js/battle.js'), 'utf8');
   const filterBody = filterJava.slice(filterJava.indexOf('enum Filter'));
   const javaFilters = [...filterBody.matchAll(/^ {8}([A-Z][A-Z_0-9]*),?$/gm)].map((m) => m[1]);
+  // ★★★<b>67 でこの抽出の誤りも見つかった。</b>66 までは
+  //   `Kind.HAND[^;]*?Filter.X` で拾っていたが、1つの文に Kind.HAND の要求と
+  //   Kind.MINION の要求が並ぶカード(《機神兵長茶爺》の【起動：1】)があるため、
+  //   <b>Kind.MINION 側の Filter まで「手札のフィルタ」として数えていた</b>
+  //   (EVOLUTION_MINION が実際にそうなっていた)。
+  //   66 までは JS 全体から case を拾っていたので、この誤検出は
+  //   matchesFilters 側に同じ値があることで<b>打ち消されて緑になっていた</b> ——
+  //   誤った抽出と広すぎる照合が、互いの間違いを隠していたということである。
+  //   区切りを「次の Kind. か ;」の早いほうにして、1つの要求の中だけを見るようにした。
+  const handSegments = [...registryJava.matchAll(/Kind\.HAND((?:(?!Kind\.|;)[\s\S])*)/g)]
+    .map((m) => m[1]);
   const handFilters = javaFilters.filter((f) =>
-    new RegExp(`Kind\\.HAND[^;]*?Filter\\.${f}\\b`, 's').test(registryJava));
-  const jsFilters = [...battleJsSrc.matchAll(/case '([A-Z][A-Z_0-9]*)':/g)].map((m) => m[1]);
-  const missingInJs = handFilters.filter((f) => !jsFilters.includes(f));
-  check('★★対象指定のフィルタは Java と battle.js の両方に居る(49・裁定130)',
-    javaFilters.length > 0 && handFilters.length > 0 && jsFilters.length > 0
-      && missingInJs.length === 0,
-    JSON.stringify({ javaFilters: javaFilters.length, handFilters, missingInJs }));
+    handSegments.some((s) => new RegExp(`Filter\\.${f}\\b`).test(s)));
+  // matchesFilters 関数の本体だけを切り出す(次の関数宣言の手前まで)
+  const mfStart = battleJsSrc.indexOf('function matchesFilters(');
+  const mfEnd = battleJsSrc.indexOf('\nfunction ', mfStart + 1);
+  const matchesBody = battleJsSrc.slice(mfStart, mfEnd);
+  const highlightBody = battleJsSrc.slice(0, mfStart) + battleJsSrc.slice(mfEnd);
+  const matchesCases = [...matchesBody.matchAll(/case '([A-Z][A-Z_0-9]*)':/g)].map((m) => m[1]);
+  const highlightCases =
+    [...highlightBody.matchAll(/case '([A-Z][A-Z_0-9]*)':/g)].map((m) => m[1]);
+  const missingInMatches = javaFilters.filter((f) => !matchesCases.includes(f));
+  const missingInHighlight = handFilters.filter((f) => !highlightCases.includes(f));
+  check('★★対象指定のフィルタは Java と battle.js の matchesFilters の両方に居る(49・★67 で範囲を広げた)',
+    mfStart >= 0 && mfEnd > mfStart && javaFilters.length > 0 && matchesCases.length > 0
+      && missingInMatches.length === 0,
+    JSON.stringify({ javaFilters: javaFilters.length, missingInMatches }));
+  check('★★手札の絞り込みに使うフィルタは手札のハイライトにも居る(★67 で分けて測るようにした)',
+    handFilters.length > 0 && highlightCases.length > 0 && missingInHighlight.length === 0,
+    JSON.stringify({ handFilters, missingInHighlight }));
   check('★★★49 が足した WATER_CIVILIZATION が両側に居る(49・空振りでないことの証拠)',
-    handFilters.includes('WATER_CIVILIZATION') && jsFilters.includes('WATER_CIVILIZATION'),
+    handFilters.includes('WATER_CIVILIZATION') && matchesCases.includes('WATER_CIVILIZATION')
+      && highlightCases.includes('WATER_CIVILIZATION'),
     JSON.stringify({ inHandFilters: handFilters.includes('WATER_CIVILIZATION'),
-      inJs: jsFilters.includes('WATER_CIVILIZATION') }));
+      inMatches: matchesCases.includes('WATER_CIVILIZATION'),
+      inHighlight: highlightCases.includes('WATER_CIVILIZATION') }));
+  // ★67 が足した2値は手札の要求に現れない。66 までの番人がこれを見落としたことの証拠として、
+  //   「Java に在る」と「matchesFilters に在る」を名指しで測る(裁定186)。
+  check('★★★67 が足した WIND_CIVILIZATION と NON_MINION_CARD が Java と matchesFilters の両方に居る(★67)',
+    ['WIND_CIVILIZATION', 'NON_MINION_CARD']
+      .every((f) => javaFilters.includes(f) && matchesCases.includes(f)),
+    JSON.stringify(['WIND_CIVILIZATION', 'NON_MINION_CARD'].map((f) =>
+      ({ filter: f, inJava: javaFilters.includes(f), inMatches: matchesCases.includes(f),
+        inHandRequirement: handFilters.includes(f) }))));
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 

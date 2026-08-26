@@ -584,6 +584,16 @@ class Batch56ReworkTest {
     // ★リーダー攻撃を封じる常在部分は既にRuleGuardsに実装済みで無変更。今回追加したのは
     // 【召喚時】のウェポン破壊のみ
 
+    /**
+     * ★★★Batch 68(裁定282)で<b>2手</b>になった ——
+     * 【召喚時】の対象はゾディアックが場に出てから選ぶ。
+     *
+     * <p>★このカードの要求は {@code upTo}(0〜1枚)なので、
+     * 相手がウェポンを1つしか装備していなくても<b>自動では決まらない</b> ——
+     * 「破壊しない」も選択肢だからである(裁定302)。
+     * ★{@code ResumePoint.SUMMON_TARGETS} は割り込みの新しい
+     * {@code PendingChoice.Kind.WEAPON}(★Batch 68 で足した)を通る初めての経路である。
+     */
     @Test
     void ゾディアックは召喚時に相手のウェポンを破壊する() {
         AutoGameFixture f = newGame();
@@ -591,10 +601,31 @@ class Batch56ReworkTest {
         payMana(f.me(), 9);
         int idx = f.giveHand(f.me(), "QTE-M-LIGHT-8");
 
-        game.playCard(f.room(), "me", idx, List.of(weapon("OPPONENT")), false);
+        game.playCard(f.room(), "me", idx, List.of(), false);
+
+        assertThat(f.fieldIds(f.me())).as("先に場へ出る").contains("QTE-M-LIGHT-8");
+        assertThat(f.me().getPendingChoice().candidates())
+                .as("★候補は相手側だけ(Side.OPPONENT)").containsExactly("OPPONENT");
+
+        f.answerChoice(game, "me", "OPPONENT");
 
         assertThat(f.you().getEquippedWeapon()).as("相手のウェポンが破壊された").isNull();
-        assertThat(f.fieldIds(f.me())).contains("QTE-M-LIGHT-8");
+    }
+
+    /**
+     * ★<b>「そうでない側」も測る</b>(裁定181)。同じ問い合わせで
+     * 「何も選ばない」と答えれば、相手のウェポンは残る(★Batch 68。裁定302)。
+     */
+    @Test
+    void ゾディアックの召喚時は選ばなければ何も壊さない() {
+        AutoGameFixture f = newGame();
+        f.you().setEquippedWeapon(cards.findById(PLAIN_WEAPON));
+        payMana(f.me(), 9);
+
+        game.playCard(f.room(), "me", f.giveHand(f.me(), "QTE-M-LIGHT-8"), List.of(), false);
+        f.answerChoiceNone(game, "me");
+
+        assertThat(f.you().getEquippedWeapon()).as("選ばなければ残る").isNotNull();
     }
 
     @Test
@@ -1293,18 +1324,31 @@ class Batch56ReworkTest {
     // TargetSpec の Javadoc は「サーバはこれに照らして選択の正当性を検証する」と
     // 謳っており、ウェポンだけがその約束を守っていなかった。
 
+    /**
+     * ★★Batch 68: 物差しを<b>ミニオンからスペルへ取り替えた</b>。
+     *
+     * <p>66 まではゾディアック(ミニオンの【召喚時】)で測っていたが、
+     * 裁定282 でミニオンの宣言時対象は無くなり、この道はミニオンからは通らなくなった。
+     * ★<b>測っている性質は変わっていない</b> —— 宣言時に届いた {@code Kind.WEAPON} の選択を
+     * サーバが {@code Requirement.side()} に照らして弾くか、である。
+     * 《サイクロン・リフレッシュ》は {@code Side.SELF} のウェポンを要求する
+     * (★裁定309 で 68 が足した3件目の要求)ので、そこへ相手側を送って測る。
+     */
     @Test
     void ウェポンの対象は要求された側でなければサーバが弾く() {
         AutoGameFixture f = newGame();
         f.me().setEquippedWeapon(cards.findById(PLAIN_WEAPON));
         f.you().setEquippedWeapon(cards.findById(PLAIN_WEAPON));
-        payMana(f.me(), f.card("QTE-M-LIGHT-8").cost());
-        int hand = f.giveHand(f.me(), "QTE-M-LIGHT-8"); // 相手のウェポン限定(Side.OPPONENT)
+        payMana(f.me(), f.card("QTE-M-WIND-22").cost());
+        int hand = f.giveHand(f.me(), "QTE-M-WIND-22"); // 自分のウェポン限定(Side.SELF)
 
-        assertThatThrownBy(() -> game.playCard(f.room(), "me", hand, List.of(weapon("SELF")), false))
-                .as("Side.OPPONENT の要求に SELF を送っても通ってはいけない")
+        assertThatThrownBy(() -> game.playCard(f.room(), "me", hand,
+                List.of(new TargetChoice(List.of(), null, null, null, null), // 1件目: 手札(空)
+                        new TargetChoice(null, List.of(), null, null, null), // 2件目: ミニオン(空)
+                        weapon("OPPONENT")), false))                          // 3件目: ★相手側
+                .as("Side.SELF の要求に OPPONENT を送っても通ってはいけない")
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(f.me().getEquippedWeapon()).as("盤面は動いていない").isNotNull();
+        assertThat(f.you().getEquippedWeapon()).as("盤面は動いていない").isNotNull();
     }
 
     @Test

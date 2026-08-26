@@ -17,6 +17,7 @@ import com.example.qte.effect.TargetSpec.Filter;
 import com.example.qte.effect.TargetSpec.Kind;
 import com.example.qte.effect.TargetSpec.Requirement;
 import com.example.qte.effect.TargetSpec.Side;
+import com.example.qte.game.FieldEntryOrigin;
 import com.example.qte.game.GameState;
 import com.example.qte.game.ManaCard;
 import com.example.qte.game.MinionInstance;
@@ -199,8 +200,19 @@ public class CardEffectRegistry {
     /** キーワード判定(知識カードの枚数条件など)にマスタ参照が必要 */
     private final CardMasterRepository cards;
 
-    public CardEffectRegistry(CardMasterRepository cards) {
+    /**
+     * 対象の絞り込みと候補の列挙(★Batch 68。裁定282)。
+     *
+     * <p>【召喚時】【登場時】の対象は<b>場に出てから</b>選ぶことになったので、
+     * この表を持つクラスが「今の盤面でどれが選べるか」を数えられなければならない。
+     * ★<b>絞り込みの規則は {@link TargetCandidates} 1箇所にある</b> ——
+     * 宣言時の検証({@code GameService.validateTargets})も同じものを呼ぶ(裁定130)。
+     */
+    private final TargetCandidates targets;
+
+    public CardEffectRegistry(CardMasterRepository cards, TargetCandidates targets) {
         this.cards = cards;
+        this.targets = targets;
         registerSpells();
         registerMinionTriggers();
         registerTargetedCards();
@@ -324,21 +336,27 @@ public class CardEffectRegistry {
         // 「そうしたら」型は再起の炎陣(0052)・血の対価(0065)と同じ形で表現する。すなわち
         // 手札の要求を optional にし、選択が空なら後続を実行しない。捨てる手札が無い場面でも
         // 召喚そのものは通す必要があるため、必須指定のままにはできない
+        // 手札を喰らう大蟹(QTE-M-WATER-4):
+        //   「【召喚時】自分の手札を1枚捨てる。そうしたらミニオン1体を持ち主の手札に戻す。」
+        //
+        // ★★Batch 68(裁定282): 要求を<b>1件に減らし、本文の順序どおりに問う形</b>へ書き換えた。
+        //   67 までは2件の要求を宣言時にまとめて選ばせていたが、
+        //   1件の PendingChoice は1つの要求しか運べない。
+        //   ★<b>本文に「そうしたら」がある</b>ので、順に問うほうが本文に忠実でもある ——
+        //   捨てが成立しなければバウンスは起きず、その判定は<b>捨てたあと</b>にしかできない。
+        // ★候補が0件(手札が空)なら fire() の入口が不発にする(裁定302)ので、
+        //   「捨てる手札が無かった」の分岐はここに要らなくなった。
         targetSpecs.put("QTE-M-WATER-4", TargetSpec.of(
-                new Requirement(Kind.HAND, Side.SELF, 1, true, false, List.of(), "捨てるカードを選んでください"),
-                new Requirement(Kind.MINION, Side.ANY, 1, true, false, List.of(), "手札に戻すミニオンを選んでください")));
+                new Requirement(Kind.HAND, Side.SELF, 1, false, false, List.of(),
+                        "捨てるカードを選んでください")));
         register("QTE-M-WATER-4", TriggerType.ON_SUMMON, ctx -> {
-            var discarded = ctx.targets().get(0);
-            if (discarded.isEmpty()) {
-                ctx.room().addLog("捨てる手札が無かったため【手札を喰らう大蟹】の効果は発動しませんでした");
-                return; // 「そうしたら」: 捨てが成立しなければバウンスもしない
-            }
             // 選択済み手札は除去済みで届くため、行き先(墓地)を決めるだけでよい
-            discarded.handCardIds().forEach(
+            ctx.targets().get(0).handCardIds().forEach(
                     id -> ctx.actions().putIntoTrashFromElsewhere(ctx.room(), ctx.owner(), id));
             ctx.room().addLog("%sが手札を1枚捨てました".formatted(ctx.owner().getDisplayName()));
-            ctx.targets().get(1).minions().forEach(
-                    t -> ctx.actions().bounceToHand(ctx.room(), t.owner(), t.minion()));
+            // ★「そうしたら」: 捨てが成立したので、戻すミニオンを問う
+            requestAnyMinionChoice(ctx, ResumePoint.CRAB_BOUNCE,
+                    "【手札を喰らう大蟹】: 持ち主の手札に戻すミニオンを1体選んでください");
         });
 
         // ★Batch 58(区分5): 英知の継承者(QTE-M-WATER-19)。
@@ -432,8 +450,13 @@ public class CardEffectRegistry {
 
         // 海皇 ポセイドン: メインフェーズ開始時、手札7枚以上なら手札3枚を捨ててコストなしで出せる
         // 「開始時」の厳密な実装は「このターンまだカードをプレイしていない」で近似する(設計解説4章)
+        // ★★Batch 68(裁定306): 「自分のメインフェーズ開始時」にフェイズの検査を足した。
+        //   67 までは「まだカードを使っていない」しか見ておらず、
+        //   隣の《静寂の瞑想》(QTE-M-WATER-26)だけが phase == MAIN を持っていた ——
+        //   <b>同じ語彙に対して実装が2通りあった</b>(裁定130)。
         specialSummons.put("QTE-M-WATER-8", SpecialSummonSpec.of(
-                (state, player, handIndex) -> player.getHand().size() >= 7 && !player.isPlayedCardThisTurn(),
+                (state, player, handIndex) -> state.getPhase() == TurnPhase.MAIN
+                        && player.getHand().size() >= 7 && !player.isPlayedCardThisTurn(),
                 TargetSpec.of(new Requirement(Kind.HAND, Side.SELF, 3, false, false, List.of(),
                         "捨てるカードを3枚選んでください")),
                 ctx -> {
@@ -948,9 +971,9 @@ public class CardEffectRegistry {
                 ctx.room().addLog("体力が10を超えているため効果は発動しなかった");
                 return;
             }
-            // 「出す」であり召喚ではないため【召喚時】は発動しない(ON_ENTERのみ)
-            selection.handCardIds().forEach(id ->
-                    ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id));
+            // ★Batch 68(裁定311): 手札から出すので【召喚時】も発動する
+            selection.handCardIds().forEach(id -> ctx.actions()
+                    .putIntoFieldByEffect(ctx.room(), ctx.owner(), id, FieldEntryOrigin.HAND));
         });
 
         // ---- スペル ----
@@ -1400,19 +1423,40 @@ public class CardEffectRegistry {
                 },
                 "自分のミニオンが破壊されているため、コスト0で特殊召喚できます(このターンの終わりに破壊されます)"));
 
-        // 生贄を求める邪鬼: 【召喚時】自分の他のミニオン1体を破壊しなければ、このミニオンを破壊する。
-        // 選ばない(自壊を選ぶ)こともできる(発注者確認済み)
+        // 生贄を求める邪鬼: 【召喚時】自分のミニオン2体を破壊する。相手のミニオンを1体破壊する。
+        //
+        // ★★Batch 67(裁定303 の6例目・いちばん大きい差)。66 までの実装は Ver0.4 の本文
+        //   「【召喚時】自分の他のミニオン1体を破壊しなければ、このミニオンを破壊する」
+        //   のままであり、<b>別のカードとして動いていた</b> ——
+        //   自分の破壊が1体だけ・選ばなければ自壊・<b>相手への破壊が丸ごと無い</b>。
+        //
+        // ★<b>要求は2つに分ける。</b>自分の場と相手の場は別の Requirement である
+        //   (同じ Requirement に Side.ANY で入れると、自分だけ3体でも通ってしまう)。
+        // ★<b>どちらも upTo である。</b>本文は「2体を破壊する」「1体破壊する」と書いているが、
+        //   場に居なければ破壊しようがない —— 居るだけ破壊する(裁定191)。
+        //   ここを固定数にすると、場が空のときに<b>召喚そのものが弾かれる</b>
+        //   (pitfalls「【召喚時】に破壊があるカードを固定数の TargetSpec にしない」)。
+        // ★<b>自分自身も候補に入る。</b>本文が「自分の他の」と書いていないためである
+        //   (Ver0.4 は「他の」と書いていた —— この一語が消えたことも差の一部である)。
+        // ★裁定を仰いでいる点は notes/batch67-ruling-requests.md にある(自身を含むか /
+        //   2体に満たないときの扱い / 自分を先に壊したあと相手への破壊が続くか)。
+        // ★★Batch 68(裁定282・305): 要求を<b>1件に減らし、本文の2文を順に問う形</b>へ書き換えた。
+        //   67 は「自分から2体」「相手から1体」を2件の要求として宣言時に選ばせていたが、
+        //   1件の PendingChoice は1つの要求しか運べない。
+        //   ★<b>本文が2つの文に分かれている</b>ので、順に問うほうが本文に忠実でもある。
+        // ★★★<b>裁定305(b-1) がここで初めて成立する。</b>「自分のミニオン2体」には
+        //   このミニオン自身も含まれる —— 67 までは<b>場に出る前に選んでいたので、
+        //   構造的に自身が候補に入らなかった</b>。
+        // ★自分自身を壊しても、相手への破壊は続く(裁定305(c-1))。
+        //   だから下の問い合わせは、発生源が場に居るかどうかを条件にしていない。
         targetSpecs.put("QTE-M-DARK-3", TargetSpec.of(
-                new Requirement(Kind.MINION, Side.SELF, 1, true, false, List.of(),
-                        "生贄にする自分のミニオンを選んでください(選ばない場合このミニオンが破壊されます)")));
+                Requirement.upTo(Kind.MINION, Side.SELF, 2,
+                        "破壊する自分のミニオンを2体まで選んでください")));
         register("QTE-M-DARK-3", TriggerType.ON_SUMMON, ctx -> {
-            List<ResolvedTargets.TargetedMinion> sacrifice = ctx.targets().get(0).minions();
-            if (sacrifice.isEmpty()) {
-                ctx.room().addLog("生贄を選ばなかったため【生贄を求める邪鬼】は破壊されます");
-                ctx.actions().destroyMinion(ctx.room(), ctx.owner(), ctx.source());
-                return;
-            }
-            sacrifice.forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            ctx.targets().get(0).minions()
+                    .forEach(t -> ctx.actions().destroyMinion(ctx.room(), t.owner(), t.minion()));
+            requestOpponentMinionChoice(ctx, ResumePoint.SACRIFICE_FIEND_OPPONENT,
+                    "【生贄を求める邪鬼】: 破壊する相手のミニオンを1体選んでください");
         });
 
         // ★Batch 57: スペルとウェポンは registerDarkSpellsAndWeapons() へ分けた。
@@ -1599,13 +1643,21 @@ public class CardEffectRegistry {
             }
         });
 
-        // 禁忌の墓地利用: 墓地のスペルを2枚選び、マナゾーンに裏向きで置く。
-        // 墓地に1枚しかなければ1枚だけ置く(発注者確認済み)ため upTo で表現する
+        // 禁忌の墓地利用: 墓地の<b>ミニオンでないカード</b>を2枚選び、マナゾーンに裏向きで置く。
+        // 墓地に1枚しかなければ1枚だけ置く(発注者確認済み)ため upTo で表現する。
+        //
+        // ★Batch 67(裁定303 の5例目): スペル限定 → <b>ミニオンでないカード</b>。
+        // Ver1.1 の本文は「自分の墓地にあるミニオンでないカードを2枚選び」であり、
+        // 66 までの実装は Ver0.4 のまま<b>ウェポンを拾えなかった</b>。
+        // 闇文明には墓地に落ちるウェポンが3枚ある(死神の大鎌・死霊の収鎌・禁忌の冥魔剣)。
+        // ★<b>使用条件も同じ語彙で書き直す</b> —— 片方だけ直すと、
+        // 墓地にウェポンしか無いときに「使えないのに候補はある」状態が生まれる(裁定130)。
         playConditions.put("QTE-M-DARK-25", (state, player) -> player.getManaZone().size() < PlayerState.MAX_MANA
-                && player.getTrash().stream().anyMatch(id -> cards.findById(id).type() == CardType.SPELL));
+                && player.getTrash().stream().anyMatch(id -> !cards.findById(id).type().isMinion()));
         targetSpecs.put("QTE-M-DARK-25", TargetSpec.of(
                 Requirement.upTo(Kind.TRASH, Side.SELF, 2,
-                        "マナに置くスペルを墓地から2枚まで選んでください", Filter.SPELL_CARD)));
+                        "マナに置くミニオンでないカードを墓地から2枚まで選んでください",
+                        Filter.NON_MINION_CARD)));
         spellEffects.put("QTE-M-DARK-25", ctx -> ctx.targets().get(0).trashCardIds()
                 .forEach(id -> ctx.actions().putTrashCardIntoManaFaceDown(ctx.room(), ctx.owner(), id)));
 
@@ -1718,7 +1770,9 @@ public class CardEffectRegistry {
             if (selection.isEmpty()) {
                 return;
             }
-            selection.handCardIds().forEach(id -> ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id));
+            // ★Batch 68(裁定311): 手札から出すので【召喚時】も発動する
+            selection.handCardIds().forEach(id -> ctx.actions()
+                    .putIntoFieldByEffect(ctx.room(), ctx.owner(), id, FieldEntryOrigin.HAND));
         });
 
         // 英知の水晶(QTE-M-LIGHT-19): ★Batch 59(区分5・裁定270)
@@ -1882,37 +1936,38 @@ public class CardEffectRegistry {
 
         // 神の福音: 手札から光文明の【守護】ミニオンを最大2体、コストを支払わず場に出す。
         // 出した数だけ引く。ゾーンの空きが足りなければ出せた数だけ出し、その数だけ引く(発注者確認済み)
-        targetSpecs.put("QTE-M-LIGHT-12", TargetSpec.of(Requirement.upTo(Kind.HAND, Side.SELF, 2,
-                "コストを支払わず場に出す光文明の【守護】ミニオンを2体まで選んでください",
-                Filter.LIGHT_CIVILIZATION, Filter.GUARD)));
-        spellEffects.put("QTE-M-LIGHT-12", ctx -> {
-            int summoned = 0;
-            for (String id : ctx.targets().get(0).handCardIds()) {
-                if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
-                    ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
-                    continue;
-                }
-                // ★Batch 50: 「出した数だけ引く」ので、実際に場へ出たかを戻り値で見る
-                // (光霊・モアニールに山札の下へ置き換えられた場合は出ていない)
-                if (ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id) != null) {
-                    summoned++;
-                }
-            }
-            if (summoned > 0) {
-                ctx.actions().drawCards(ctx.room(), ctx.owner(), summoned);
-            }
-        });
+        //
+        // ★★Batch 67: Filter.MINION_CARD を足した。66 までは種別を見ていなかったため、
+        //   <b>手札の進化ミニオンを素材なしで場に出せた</b>(《英霊・タイガラム》は
+        //   光文明・【守護】・コスト7 なので、このカードと《聖なる降誕の儀式》の両方を通った)。
+        //   進化は素材を要求する(裁定226: 代替されているのはコストだけ)のに、
+        //   この経路は素材を運ぶ口を持っていなかった。
+        // ★★★Batch 68(裁定308 b): <b>進化ミニオンを候補に戻した</b> ——
+        //   ただし「今この瞬間、素材を確保できる」ものだけである(但し書き)。
+        //   これは属性の一致ではなく<b>盤面に依存する規則</b>なので、
+        //   宣言時の対象指定({@link TargetSpec})では表せない —— クライアントに置けない(裁定234)。
+        //   よって<b>宣言時の対象指定をやめ、解決中の割り込みへ移した</b>。
+        //   ★53 が《英術・スケアロック》で下したのとまったく同じ判断であり、
+        //   素材を問う段({@link ResumePoint#EVOLUTION_MATERIAL_FROM_HAND})はあちらと共有する。
+        // ★min は 0(本文が「2体まで」なので出さない選択も許される。66 までの upTo と同じ)
+        spellEffects.put("QTE-M-LIGHT-12", ctx -> requestPutFromHand(ctx, "QTE-M-LIGHT-12", 0, 2,
+                m -> m.civilization() == Civilization.LIGHT && m.hasKeyword(Keyword.GUARD),
+                "【神の福音】: コストを支払わず場に出す光文明の【守護】ミニオンを2体まで選んでください"));
 
         // 聖なる降誕の儀式: 手札のコスト7以下の【守護】ミニオン1体を、コストを支払わず場に出す
-        playConditions.put("QTE-M-LIGHT-11", (state, player) -> player.getHand().stream().anyMatch(id -> {
-            var m = cards.findById(id);
-            return m.hasKeyword(Keyword.GUARD) && m.cost() != null && m.cost() <= 7;
-        }));
-        targetSpecs.put("QTE-M-LIGHT-11", TargetSpec.of(Requirement.filtered(
-                Kind.HAND, Side.SELF, 1, false, "コストを支払わず場に出すコスト7以下の【守護】ミニオンを選んでください",
-                Filter.GUARD, Filter.COST_7_OR_LESS)));
-        spellEffects.put("QTE-M-LIGHT-11", ctx -> ctx.targets().get(0).handCardIds()
-                .forEach(id -> ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id)));
+        // ★★Batch 67: Filter.MINION_CARD と、使用条件側の種別の検査を足した。
+        //   理由は《神の福音》と同じである(素材なしで進化ミニオンが場に出ていた)。
+        //   ★<b>使用条件と絞り込みの両方を直す</b> —— 片方だけ直すと、
+        //   「候補は0体なのに使用は通る」または逆の状態が生まれる(裁定130)。
+        // ★★★Batch 68(裁定308 b): 進化ミニオンを候補に戻した。
+        //   ★<b>使用条件と候補が同じ関数を呼ぶ形にした</b> —— 67 で足した「両方を直す」を、
+        //   68 では「両方が同じ規則を見る」に進めた({@code putFromHandCandidates})。裁定130。
+        playConditions.put("QTE-M-LIGHT-11", (state, player) -> !putFromHandCandidates(player,
+                m -> m.hasKeyword(Keyword.GUARD) && m.cost() != null && m.cost() <= 7).isEmpty());
+        // ★min は 1(66 までの Requirement.filtered(optional=false) と同じく必須である)
+        spellEffects.put("QTE-M-LIGHT-11", ctx -> requestPutFromHand(ctx, "QTE-M-LIGHT-11", 1, 1,
+                m -> m.hasKeyword(Keyword.GUARD) && m.cost() != null && m.cost() <= 7,
+                "【聖なる降誕の儀式】: コストを支払わず場に出すコスト7以下の【守護】ミニオンを選んでください"));
 
         // 光の戒め: 相手のミニオン1体を次のターン攻撃できなくする(氷結の杖と同じ仕組み)。1枚引く
         playConditions.put("QTE-M-LIGHT-9",
@@ -1984,18 +2039,24 @@ public class CardEffectRegistry {
         //     カウンタが 2 のとき本文の言う「3枚以上使用している」を満たす。
         //   - <b>効果</b>で場に出た場合、このカードは使用されていないので、
         //     素直にカウンタが 3 以上であることを求める。
-        //   両方が発火する経路(通常召喚: ON_SUMMON → ON_ENTER の順)では
-        //   ゆるいほうが先に通るが、<b>【潜伏】の付与は冪等</b>なので二重付与にならない。
-        register("QTE-M-WIND-6", TriggerType.ON_SUMMON, ctx -> {
-            if (ctx.owner().getCardsUsedThisTurn() >= 2) {
+        //
+        // ★★★Batch 68(裁定311)で<b>1つの式に畳んだ</b>。
+        //   59 は「ON_SUMMON なら 2・ON_ENTER なら 3」と<b>誘発の種類で</b>分けていた。
+        //   これは「効果で出たなら【召喚時】は発動しない」が成り立つ間だけ正しい書き方であり、
+        //   裁定311 が<b>手札から効果で出た場合にも【召喚時】を発動させた</b>ことで壊れた ——
+        //   《光の召喚士》に出されたガイル・フォックスは【召喚時】を発動するが、
+        //   自身は使用されていないので、閾値 2 では<b>1枚甘くなる</b>。
+        //   ★分けているのは<b>「このカード自身が使用されているか」ただ1つ</b>である。
+        //   それを直接読む形にした(裁定130: 同じ規則を2箇所に書かない)。
+        Consumer<EffectContext> galeFox = ctx -> {
+            if (galeFoxCardsUsed(ctx) >= 3) {
                 grantGaleFoxStealth(ctx);
             }
-        });
-        register("QTE-M-WIND-6", TriggerType.ON_ENTER, ctx -> {
-            if (ctx.owner().getCardsUsedThisTurn() >= 3) {
-                grantGaleFoxStealth(ctx);
-            }
-        });
+        };
+        // ★両方が発火する経路(通常召喚: ON_SUMMON → ON_ENTER の順)では2回通るが、
+        //   <b>【潜伏】の付与は冪等</b>なので二重付与にならない。
+        register("QTE-M-WIND-6", TriggerType.ON_SUMMON, galeFox);
+        register("QTE-M-WIND-6", TriggerType.ON_ENTER, galeFox);
 
         // 風神ヴァーユ: 【特殊召喚】自分の墓地に風文明を持つカードが6枚以上のとき、
         // このカードを手札から1コストで出せる(代替コストなし。条件のみ)
@@ -2138,6 +2199,24 @@ public class CardEffectRegistry {
      * 2つの経路(ON_SUMMON / ON_ENTER)が同じことを行うため、条件だけを外に出して中身を1本にした。
      * 付与は冪等なので、通常召喚で両方が通っても二重にはならない。
      */
+    /**
+     * 《ガイル・フォックス》が読む「このターン中に使用したカードの枚数」(★Batch 68。裁定311)。
+     *
+     * <p>使用カウンタ({@code cardsUsedThisTurn})は<b>解決中の自分自身をまだ数えていない</b>
+     * (裁定1)。したがって、このカードが<b>召喚されて</b>登場したのなら、
+     * 今まさに使用されている自分の1枚を足して数えなければならない。
+     * <b>効果で出された</b>のなら、このカードは使用されていないので足さない。
+     *
+     * <p>★<b>これが 59 の「閾値が経路で1違う」の正体である。</b>
+     * 誘発の種類(ON_SUMMON か ON_ENTER か)で代用していたのを、
+     * 裁定311 で分岐が壊れたのを機に<b>そのものを読む形</b>へ直した。
+     */
+    private int galeFoxCardsUsed(EffectContext ctx) {
+        int used = ctx.owner().getCardsUsedThisTurn();
+        boolean summoned = ctx.source() != null && !ctx.source().isEnteredByEffect();
+        return summoned ? used + 1 : used;
+    }
+
     private void grantGaleFoxStealth(EffectContext ctx) {
         if (ctx.source() == null || ctx.source().hasKeyword(Keyword.STEALTH)) {
             return;
@@ -2223,9 +2302,17 @@ public class CardEffectRegistry {
             resolveWindholeSecondTargets(ctx);
         });
 
-        // ツイン・ストライク: このターン中、自分のミニオン1体に「1ターンに2回攻撃できる」を付与
+        // ツイン・ストライク: このターン中、自分の<b>風文明</b>ミニオン1体に
+        // 「1ターンに2回攻撃できる」を付与。
+        //
+        // ★Batch 67(裁定303 の4例目): 文明の絞り込みを足した。
+        // Ver1.1 の本文は「自分の風文明ミニオン1体に」であり、66 までの実装は
+        // Ver0.4 のまま<b>文明を見ていなかった</b>(禁忌デッキから来た他文明のミニオンにも付いた)。
+        // ★<b>絞り込みは Filter で行う</b> —— 効果側で「風文明でなければ何もしない」と
+        // 書くと、選べるのに不発という形になる(裁定302: 成立しない選択肢は並べない)。
         targetSpecs.put("QTE-M-WIND-11", TargetSpec.of(new Requirement(Kind.MINION, Side.SELF, 1, false, false,
-                List.of(), "「1ターンに2回攻撃できる」を付与するミニオンを選んでください")));
+                List.of(Filter.WIND_CIVILIZATION),
+                "「1ターンに2回攻撃できる」を付与する自分の風文明ミニオンを選んでください")));
         spellEffects.put("QTE-M-WIND-11", ctx -> ctx.targets().get(0).minions().forEach(
                 t -> t.minion().addModifier(new StatModifier(StatModifier.Stat.EXTRA_ATTACKS,
                         StatModifier.Operation.ADD, 1, StatModifier.Duration.THIS_TURN, "QTE-M-WIND-11"))));
@@ -2330,11 +2417,27 @@ public class CardEffectRegistry {
 
         // サイクロン・リフレッシュ: 場か手札のカードを合計2枚デッキに戻してシャッフルする。
         // その後カードを2枚引く(a7: Kindを増やさず合計指定で解く。TargetSpecの本家サンプル)
+        // ★★Batch 68(裁定309): 「場」に<b>装備中のウェポン</b>も含める。
+        //   本文「場か手札のカードを2枚デッキに戻してシャッフルする」の「場」は
+        //   ミニオンゾーンだけでなくウェポンゾーンも指す(総合ルール2-2)。
+        //   67 まではミニオンしか候補にしていなかった。
+        // ★合計2枚の制約({@code combined})は3つの要求にまたがる ——
+        //   手札から2枚でも、ミニオン1体+ウェポン1枚でもよい。
         targetSpecs.put("QTE-M-WIND-22", TargetSpec.combined(2,
                 Requirement.upTo(Kind.HAND, Side.SELF, 2, "デッキに戻す手札を選んでください(合計2枚まで)"),
-                Requirement.upTo(Kind.MINION, Side.SELF, 2, "デッキに戻すミニオンを選んでください(合計2枚まで)")));
+                Requirement.upTo(Kind.MINION, Side.SELF, 2, "デッキに戻すミニオンを選んでください(合計2枚まで)"),
+                Requirement.upTo(Kind.WEAPON, Side.SELF, 1, "デッキに戻すウェポンを選んでください(合計2枚まで)")));
         spellEffects.put("QTE-M-WIND-22", ctx -> {
             List<String> toDeck = new ArrayList<>(ctx.targets().get(0).handCardIds());
+            // ★Batch 68(裁定309): 装備中のウェポンも山札へ戻る。
+            //   場を離れる処理は GameActions.removeWeaponForDeck 1箇所にある(裁定207)——
+            //   禁忌由来なら消滅させて null を返すので、山札へ積むのは戻り値が在るときだけである
+            for (PlayerState side : ctx.targets().get(2).weapons()) {
+                String returned = ctx.actions().removeWeaponForDeck(ctx.room(), side);
+                if (returned != null) {
+                    toDeck.add(returned);
+                }
+            }
             for (ResolvedTargets.TargetedMinion t : ctx.targets().get(1).minions()) {
                 t.owner().getMinionZone().remove(t.minion());
                 // ★Batch 52: 進化の下にあったカードも一緒に山札へ戻る(裁定154)
@@ -2643,7 +2746,8 @@ public class CardEffectRegistry {
                     ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す
                     continue;
                 }
-                MinionInstance put = ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+                MinionInstance put = ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id,
+                        FieldEntryOrigin.HAND); // ★Batch 68(裁定311)
                 if (put == null) {
                     continue; // 登場が置換された(行き先は置換側が決めている)
                 }
@@ -3483,17 +3587,22 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-EARTH-10", ctx -> ctx.targets().get(0).minions().forEach(
                 t -> ctx.actions().damageMinion(ctx.room(), t.owner(), t.minion(), 5)));
 
-        // 大地震(0148): お互いのコスト3以下のミニオンをすべて破壊(印刷コストで判定)
+        // 大地震: お互いのコスト4以下のミニオンをすべて破壊(印刷コストで判定)。
+        //
+        // ★Batch 67(裁定303 の2例目): 3以下 → <b>4以下</b>。
+        // Ver1.1 の本文は「お互いのコスト4以下のミニオンをすべて破壊。」であり、
+        // 66 までの実装は Ver0.4 のままだった。旧コメントは台帳番号(0148)まで
+        // 書き写しており、<b>コメントも実装も 46b の移行を素通りしていた</b>。
         spellEffects.put("QTE-M-EARTH-11", ctx -> {
             for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
                 for (MinionInstance m : List.copyOf(side.getMinionZone())) {
                     Integer c = m.getMaster().cost();
-                    if (c != null && c <= 3) {
+                    if (c != null && c <= 4) {
                         ctx.actions().destroyMinion(ctx.room(), side, m);
                     }
                 }
             }
-            ctx.room().addLog("【大地震】: お互いのコスト3以下のミニオンをすべて破壊しました");
+            ctx.room().addLog("【大地震】: お互いのコスト4以下のミニオンをすべて破壊しました");
         });
 
         // 大地の開眼(0149): カードを1枚引く。自分のマナが7枚以上ならさらに1枚引く
@@ -3881,7 +3990,8 @@ public class CardEffectRegistry {
                         ctx.owner().getHand().add(cardId); // 出せなかった分は手札に戻す
                         continue;
                     }
-                    if (ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId) != null) {
+                    if (ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId,
+                            FieldEntryOrigin.HAND) != null) { // ★Batch 68(裁定311)
                         summoned++;
                     }
                 }
@@ -3892,30 +4002,16 @@ public class CardEffectRegistry {
             //   途中で盤面が変わって出せなくなっても、カードがどこにも無い状態を作らないためである
             case SCARELOCK_EVOLUTION -> {
                 String cardId = ctx.owner().getHand().get(Integer.parseInt(chosen.get(0)));
-                EvolutionSpec spec = evolutions.get(cardId);
-                List<String> materials = ctx.owner().getMinionZone().stream()
-                        .filter(spec.material())
-                        .map(MinionInstance::getInstanceId)
-                        .toList();
-                if (materials.size() < spec.minMaterials()) {
-                    // 候補を作った時点では足りていた。ここへ来るのは選択中に盤面が変わった場合だけである
-                    ctx.room().addLog("【英術・スケアロック】: 進化素材が足りなくなったため、場に出せませんでした");
-                    break;
-                }
-                // ★★Batch 64: どの進化カードを出そうとしているかは payload が運ぶ。
-                // 63 までは PlayerState.pendingEvolutionCardId というこのカード専用の
-                // フィールドに置いていた —— 「候補では表せない文脈」を運ぶ器が
-                // PendingChoice に無かったためである。器ができたので、専用の箱は撤去した
-                int max = Math.min(spec.maxMaterials(), materials.size());
-                ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
-                        PendingChoice.Kind.MINION, materials, spec.minMaterials(), max,
-                        ResumePoint.SCARELOCK_MATERIAL,
-                        "【%s】の進化素材を選んでください(%s)"
-                                .formatted(cards.findById(cardId).name(), spec.description()))
-                        .withPayload(cardId));
+                // ★★Batch 68: 素材を問う段は《聖なる降誕の儀式》《神の福音》と共有する
+                // (旧 SCARELOCK_MATERIAL を EVOLUTION_MATERIAL_FROM_HAND へ統合した)。
+                // 残りのカードは無く、ここまでに出した数もこのカードでは使わないので 0 を渡す
+                requestEvolutionMaterialFromHand(ctx,
+                        new PutFromHandState("QTE-M-LIGHT-39", cardId, List.of(), 0));
             }
-            // 英術・スケアロック(QTE-M-LIGHT-39): 素材を確定させて進化ミニオンを場に出す。★Batch 53
-            case SCARELOCK_MATERIAL -> resolveScarelockMaterials(ctx, choice.payload(), chosen);
+            // ★手札から場に出す進化ミニオンの素材を確定させる。★Batch 53 → 68 で共通化。
+            //   《英術・スケアロック》《聖なる降誕の儀式》《神の福音》の3枚が使う
+            case EVOLUTION_MATERIAL_FROM_HAND ->
+                resolveEvolutionMaterialFromHand(ctx, choice.payload(), chosen);
             // 白ノ霊知者(QTE-M-WIND-31): 【召喚時】に破壊するミニオンを確定させる。★Batch 54。
             // ★候補は両者の場から作ってあるので、どちら側に居るかを探し直す
             case HAKUNO_REICHISHA_DESTROY -> {
@@ -3965,6 +4061,58 @@ public class CardEffectRegistry {
             }
             // 嵐の呼び手(QTE-M-WIND-4): 手札に戻す相手のミニオンを確定させる。★Batch 64
             case STORM_CALLER_BOUNCE -> bounceStormCallerTarget(ctx, chosen.get(0));
+
+            // ★★★Batch 68(裁定282): 【召喚時】【登場時】の対象が揃った。
+            //   15枚が共有するただ1つの再開先であり、やることは
+            //   「選ばれたものを詰めて fire() を呼び直す」だけである
+            case SUMMON_TARGETS -> resumeSummonTargets(ctx, choice.payload(), chosen);
+
+            // ★生贄を求める邪鬼(QTE-M-DARK-3): 自分の場を壊したあと、相手の1体を選ぶ。★Batch 68
+            case SACRIFICE_FIEND_OPPONENT -> {
+                if (!chosen.isEmpty()) {
+                    destroyChosenMinion(ctx, chosen.get(0));
+                }
+            }
+
+            // ★手札を喰らう大蟹(QTE-M-WATER-4): 捨てたあと、手札へ戻すミニオンを選ぶ。★Batch 68
+            case CRAB_BOUNCE -> {
+                if (!chosen.isEmpty()) {
+                    bounceChosenMinion(ctx, chosen.get(0));
+                }
+            }
+
+            // ★聖なる降誕の儀式(LIGHT-11)/神の福音(LIGHT-12): 手札から出すミニオンが揃った。★Batch 68
+            case PUT_FROM_HAND_SELECT -> {
+                List<String> picked = new ArrayList<>();
+                for (String index : chosen) {
+                    picked.add(ctx.owner().getHand().get(Integer.parseInt(index)));
+                }
+                putFromHandSequence(ctx,
+                        new PutFromHandState(choice.payload(), null, picked, 0));
+            }
+        }
+    }
+
+    /**
+     * 選ばれた instanceId のミニオンを破壊する(★Batch 68)。
+     * どちらの場に居るかは instanceId から引く —— 相手の場のミニオンも対象になりうる。
+     */
+    private void destroyChosenMinion(EffectContext ctx, String instanceId) {
+        for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+            side.getMinionZone().stream()
+                    .filter(m -> m.getInstanceId().equals(instanceId))
+                    .findFirst()
+                    .ifPresent(m -> ctx.actions().destroyMinion(ctx.room(), side, m));
+        }
+    }
+
+    /** 選ばれた instanceId のミニオンを持ち主の手札へ戻す(★Batch 68) */
+    private void bounceChosenMinion(EffectContext ctx, String instanceId) {
+        for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
+            side.getMinionZone().stream()
+                    .filter(m -> m.getInstanceId().equals(instanceId))
+                    .findFirst()
+                    .ifPresent(m -> ctx.actions().bounceToHand(ctx.room(), side, m));
         }
     }
 
@@ -4079,47 +4227,250 @@ public class CardEffectRegistry {
         }
     }
 
+    // ===================================================================
+    // ★★★Batch 68(裁定308): 手札からコストを支払わず場に出す —— 共通の仕組み
+    // ===================================================================
+
     /**
-     * 《英術・スケアロック》の最終段 —— 素材を確定させて進化ミニオンを効果で場に出す(★Batch 53)。
+     * 「手札から場に出す」の途中経過(★Batch 68)。
      *
-     * ★<b>手札から抜くのは、場に出すことが確定した後である。</b>
-     * 抜いてから出せないと分かると、カードがどのゾーンにも居ない瞬間が生まれる
-     * (51 の「先に場から取り除くと行き先の無いカードが生まれる」と同じ形)。
+     * <p>この処理は<b>途中で本人の選択を挟むことがある</b> ——
+     * 進化ミニオンを出すには素材を選ばせなければならないからである(裁定226)。
+     * 割り込みを跨いで持ち越す文脈は {@code PendingChoice.payload}(文字列1本)だけなので、
+     * <b>4つの値を1本に畳んで運ぶ</b>。
+     *
+     * @param sourceCardId    この処理を起こしたカード。ログの名前と後始末(福音のドロー)に使う
+     * @param evolutionCardId 今まさに素材を問うている進化カード。素材の段でだけ非 null
+     * @param remaining       まだ出していない残りのカードID(選ばれた順)
+     * @param summoned        ここまでに<b>実際に場へ出た</b>数。《神の福音》のドロー枚数になる
      */
-    private void resolveScarelockMaterials(EffectContext ctx, String cardId, List<String> chosen) {
-        if (cardId == null) {
+    private record PutFromHandState(String sourceCardId, String evolutionCardId,
+            List<String> remaining, int summoned) {
+
+        /** payload の形式は {@code <sourceCardId>|<evolutionCardId>|<残りのID列>|<出した数>} */
+        private String encode() {
+            return String.join("|", sourceCardId,
+                    evolutionCardId == null ? "" : evolutionCardId,
+                    String.join(",", remaining), String.valueOf(summoned));
+        }
+
+        static PutFromHandState decode(String payload) {
+            // ★limit に -1 を渡す —— 既定の split は末尾の空要素を落とすので、
+            //   「残り無し・0体」の {@code A||0} が3要素になって添字が壊れる
+            String[] parts = payload.split("\\|", -1);
+            List<String> rest = parts[2].isEmpty()
+                    ? List.of() : new ArrayList<>(List.of(parts[2].split(",")));
+            return new PutFromHandState(parts[0], parts[1].isEmpty() ? null : parts[1],
+                    rest, Integer.parseInt(parts[3]));
+        }
+    }
+
+    /**
+     * 手札から場に出す候補(★Batch 68。裁定308)。返すのは<b>手札の位置</b>である。
+     *
+     * <p>★<b>使用条件と候補の両方がこの1つを呼ぶ</b>(裁定130)。
+     * 67 は「使用条件と絞り込みの両方を直す」で済ませたが、2箇所に同じ規則が書かれている限り
+     * 片方だけ直る事故はいつでも起きる。68 は<b>規則そのものを1箇所にした</b>。
+     *
+     * <p>★<b>進化ミニオンは「今この瞬間、素材を確保できる」ものだけが候補になる</b>
+     * (裁定308 b の但し書き)。これは盤面に依存する規則なので宣言時には決められない ——
+     * 割り込みへ移した理由そのものである。
+     */
+    private List<String> putFromHandCandidates(PlayerState owner, Predicate<CardMaster> filter) {
+        List<String> positions = new ArrayList<>();
+        for (int i = 0; i < owner.getHand().size(); i++) {
+            CardMaster m = cards.findById(owner.getHand().get(i));
+            if (!m.type().isMinion() || !filter.test(m)) {
+                continue;
+            }
+            if (m.type() == CardType.EVOLUTION && !evolutionMaterialsAvailable(owner, m.id())) {
+                continue;
+            }
+            positions.add(String.valueOf(i));
+        }
+        return positions;
+    }
+
+    /** 手札から場に出すミニオンを選ばせる(★Batch 68。裁定308) */
+    private void requestPutFromHand(EffectContext ctx, String sourceCardId, int min, int max,
+            Predicate<CardMaster> filter, String prompt) {
+        List<String> candidates = putFromHandCandidates(ctx.owner(), filter);
+        if (candidates.isEmpty()) {
+            ctx.room().addLog("【%s】: 場に出せるミニオンが手札にありません"
+                    .formatted(cards.findById(sourceCardId).name()));
             return;
         }
+        int upper = Math.min(max, candidates.size());
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
+                PendingChoice.Kind.HAND, candidates, Math.min(min, upper), upper,
+                ResumePoint.PUT_FROM_HAND_SELECT, prompt).withPayload(sourceCardId));
+    }
+
+    /**
+     * 選ばれたカードを<b>選ばれた順に</b>場へ出す(★Batch 68)。
+     *
+     * <p>★進化に当たったらそこで<b>止めて</b>素材を問い、残りは payload に預ける。
+     * 戻ってきたら {@link #resolveEvolutionMaterialFromHand} がこの続きを呼ぶ ——
+     * つまりこのメソッドは<b>再入する</b>。
+     */
+    private void putFromHandSequence(EffectContext ctx, PutFromHandState state) {
+        List<String> queue = new ArrayList<>(state.remaining());
+        int summoned = state.summoned();
+        while (!queue.isEmpty()) {
+            String cardId = queue.remove(0);
+            if (!ctx.owner().getHand().contains(cardId)) {
+                continue; // 選択中に手札を離れた(通常は起きない)
+            }
+            if (cards.findById(cardId).type() == CardType.EVOLUTION) {
+                PutFromHandState next = new PutFromHandState(
+                        state.sourceCardId(), cardId, queue, summoned);
+                if (requestEvolutionMaterialFromHand(ctx, next)) {
+                    return; // 問い合わせを出した。続きは resolveChoice が引き継ぐ
+                }
+                continue; // 素材が足りなくなっていた。次のカードへ進む
+            }
+            if (putOneFromHand(ctx, state.sourceCardId(), cardId, null)) {
+                summoned++;
+            }
+        }
+        finishPutFromHand(ctx, state.sourceCardId(), summoned);
+    }
+
+    /**
+     * 手札の1枚を効果で場に出す(★Batch 68)。実際に場へ出たなら true。
+     *
+     * <p>★<b>手札から抜くのは、場に出すことが確定した後である</b>(53 から変わらない)。
+     * 抜いてから出せないと分かると、カードがどのゾーンにも居ない瞬間が生まれる
+     * (51 の「先に場から取り除くと行き先の無いカードが生まれる」と同じ形)。
+     *
+     * <p>★{@code putIntoFieldByEffect} の {@code null} には<b>2つの意味がある</b>
+     * (50 の落とし穴) —— 「場が満杯」と「光霊・モアニールに山札の下へ置き換えられた」。
+     * 前者は呼ぶ前に {@code isFieldEntryBlocked} で分けておき、
+     * 後者はカードの行き先が既に決まっているので手札へ戻さない。
+     */
+    private boolean putOneFromHand(EffectContext ctx, String sourceCardId, String cardId,
+            List<MinionInstance> materials) {
+        String sourceName = cards.findById(sourceCardId).name();
+        String cardName = cards.findById(cardId).name();
+        if (ctx.actions().isFieldEntryBlocked(ctx.room(), ctx.owner())) {
+            ctx.room().addLog("【%s】: 場がいっぱいのため【%s】は場に出せませんでした"
+                    .formatted(sourceName, cardName));
+            return false;
+        }
+        ctx.owner().getHand().remove(cardId);
+        // ★★Batch 68(裁定311): 手札から出すので【召喚時】も発動する。
+        //   ★<b>裁定245(効果で出した進化は【召喚時】を発動しない)と衝突する。</b>
+        //   311 のほうが新しく「手札から出ているときは<b>すべて</b>発動する」と言っているので、
+        //   番号の大きい裁定を優先した(qte-rulings の「新しい行が古い行に勝つ」)。
+        //   ★裁定312 で確認を依頼している(notes/batch68-ruling-requests.md)。
+        MinionInstance put = materials == null
+                ? ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId,
+                        FieldEntryOrigin.HAND)
+                : ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId, materials,
+                        false, FieldEntryOrigin.HAND);
+        if (put == null) {
+            // 場に出られなかった。素材は場に残っている(裁定232)ので、カードは手札へ戻す
+            if (!ctx.owner().getDeck().contains(cardId)) {
+                ctx.owner().getHand().add(cardId);
+            }
+            ctx.room().addLog("【%s】: 【%s】は場に出られませんでした".formatted(sourceName, cardName));
+            return false;
+        }
+        ctx.room().addLog(materials == null
+                ? "【%s】: 【%s】が効果で場に出ました".formatted(sourceName, cardName)
+                : "【%s】: 【%s】が効果で進化召喚されました".formatted(sourceName, cardName));
+        return true;
+    }
+
+    /**
+     * 進化ミニオンの素材を問う(★Batch 68)。問い合わせを出したなら true。
+     *
+     * <p>候補を作った時点では素材が足りていた。ここで足りないのは
+     * <b>選択中に盤面が変わった場合だけ</b>である(《英術・スケアロック》53 から同じ)。
+     */
+    private boolean requestEvolutionMaterialFromHand(EffectContext ctx, PutFromHandState state) {
+        String cardId = state.evolutionCardId();
+        String sourceName = cards.findById(state.sourceCardId()).name();
+        EvolutionSpec spec = evolutions.get(cardId);
+        if (spec == null) {
+            ctx.room().addLog("【%s】: 進化素材が足りなくなったため、場に出せませんでした"
+                    .formatted(sourceName));
+            return false;
+        }
+        List<String> materials = ctx.owner().getMinionZone().stream()
+                .filter(spec.material())
+                .map(MinionInstance::getInstanceId)
+                .toList();
+        if (materials.size() < spec.minMaterials()) {
+            ctx.room().addLog("【%s】: 進化素材が足りなくなったため、場に出せませんでした"
+                    .formatted(sourceName));
+            return false;
+        }
+        // ★★Batch 64: どの進化カードを出そうとしているかは payload が運ぶ。
+        // 63 までは PlayerState.pendingEvolutionCardId というこのカード専用の
+        // フィールドに置いていた —— 「候補では表せない文脈」を運ぶ器が
+        // PendingChoice に無かったためである。器ができたので、専用の箱は撤去した
+        int max = Math.min(spec.maxMaterials(), materials.size());
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
+                PendingChoice.Kind.MINION, materials, spec.minMaterials(), max,
+                ResumePoint.EVOLUTION_MATERIAL_FROM_HAND,
+                "【%s】の進化素材を選んでください(%s)"
+                        .formatted(cards.findById(cardId).name(), spec.description()))
+                .withPayload(state.encode()));
+        return true;
+    }
+
+    /**
+     * 素材を確定させて進化ミニオンを効果で場に出し、残りがあれば続ける(★Batch 53 → 68 で共通化)。
+     *
+     * <p>★★<b>旧 {@code resolveScarelockMaterials} である</b>(裁定196: 消した名前は書き残す)。
+     * 53 から 67 まで《英術・スケアロック》専用だったが、68 で
+     * 《聖なる降誕の儀式》《神の福音》が同じものを要るようになったので名前を一般化した。
+     * 測っていた性質は1つも減っていない。
+     */
+    private void resolveEvolutionMaterialFromHand(EffectContext ctx, String payload,
+            List<String> chosen) {
+        if (payload == null) {
+            return;
+        }
+        PutFromHandState state = PutFromHandState.decode(payload);
+        String cardId = state.evolutionCardId();
+        String sourceName = cards.findById(state.sourceCardId()).name();
+        int summoned = state.summoned();
+
         List<MinionInstance> materials = new ArrayList<>();
         for (String instanceId : chosen) {
             ctx.owner().getMinionZone().stream()
                     .filter(m -> m.getInstanceId().equals(instanceId))
                     .findFirst().ifPresent(materials::add);
         }
-        EvolutionSpec spec = evolutions.get(cardId);
+        EvolutionSpec spec = cardId == null ? null : evolutions.get(cardId);
         if (spec == null || materials.size() < spec.minMaterials()) {
-            ctx.room().addLog("【英術・スケアロック】: 進化素材が足りなくなったため、場に出せませんでした");
-            return;
+            ctx.room().addLog("【%s】: 進化素材が足りなくなったため、場に出せませんでした"
+                    .formatted(sourceName));
+        } else if (!ctx.owner().getHand().contains(cardId)) {
+            // 選択中に手札を離れた(通常は起きない)
+        } else if (putOneFromHand(ctx, state.sourceCardId(), cardId, materials)) {
+            summoned++;
         }
-        int handIndex = ctx.owner().getHand().indexOf(cardId);
-        if (handIndex < 0) {
-            return; // 選択中に手札を離れた(通常は起きない)
+        // ★残りがあれば続ける。《英術・スケアロック》の残りは常に空なので、
+        //   このまま finishPutFromHand へ抜ける(53 の姿と同じ)
+        putFromHandSequence(ctx, new PutFromHandState(
+                state.sourceCardId(), null, state.remaining(), summoned));
+    }
+
+    /**
+     * 「手札から出す」の後始末(★Batch 68)。
+     *
+     * <p>★<b>ここに載るのは「出した数」に依存する後半だけである。</b>
+     * 現在の使い手は《神の福音》の「出した数だけ引く」1枚 ——
+     * 本文が「出す」と「引く」を繋いでいるので、<b>出し終えてからでないと枚数が決まらない</b>。
+     * 割り込みを跨ぐと「効果の続き」を書く場所がここしか無くなる、という構造上の帰結である。
+     */
+    private void finishPutFromHand(EffectContext ctx, String sourceCardId, int summoned) {
+        if ("QTE-M-LIGHT-12".equals(sourceCardId) && summoned > 0) {
+            ctx.actions().drawCards(ctx.room(), ctx.owner(), summoned);
         }
-        ctx.owner().getHand().remove(handIndex);
-        MinionInstance put = ctx.actions()
-                .putIntoFieldByEffect(ctx.room(), ctx.owner(), cardId, materials);
-        if (put == null) {
-            // 場に出られなかった。素材は場に残っている(裁定232)ので、カードは手札へ戻す。
-            // ★モアニールの置換で山札の下へ行った場合は行き先が決まっているので戻さない
-            if (!ctx.owner().getDeck().contains(cardId)) {
-                ctx.owner().getHand().add(cardId);
-            }
-            ctx.room().addLog("【英術・スケアロック】: 【%s】は場に出られませんでした"
-                    .formatted(cards.findById(cardId).name()));
-            return;
-        }
-        ctx.room().addLog("【英術・スケアロック】: 【%s】が効果で進化召喚されました"
-                .formatted(cards.findById(cardId).name()));
     }
 
     // ---------------------------------------------------------------
@@ -4360,7 +4711,12 @@ public class CardEffectRegistry {
         // ★【破壊時】の2枚は<b>本人が選ぶ</b>。相手のターン中にも発火するが、
         //   裁定214 により本人への問い合わせでよい(50 までは自動決定しかできなかった)。
         // ★手札が2枚に満たなければ、あるだけ捨てる(裁定191・217 と同じ形)
-        register("QTE-M-WATER-32", TriggerType.ON_SUMMON,
+        // ★★Batch 68(裁定307): ON_SUMMON → <b>ON_ENTER</b>。
+        //   本文「【進化】（水文明ではないミニオン1体）カードを2枚引く。」の
+        //   「カードを2枚引く」は<b>誘発の印を1つも持たない</b>。
+        //   マスター裁定307 により、印を持たない効果の既定は ON_ENTER(登場時)である ——
+        //   67 の時点で《光の召喚士》は ON_ENTER、このカードは ON_SUMMON と割れていた。
+        register("QTE-M-WATER-32", TriggerType.ON_ENTER,
                 ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2));
         register("QTE-M-WATER-32", TriggerType.ON_DESTROYED, ctx -> {
             int count = Math.min(2, ctx.owner().getHand().size());
@@ -4494,7 +4850,8 @@ public class CardEffectRegistry {
                     ctx.owner().getHand().add(id);
                     continue;
                 }
-                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id,
+                        FieldEntryOrigin.HAND); // ★Batch 68(裁定311)
             }
             requestScarelockEvolution(ctx);
         });
@@ -4543,9 +4900,20 @@ public class CardEffectRegistry {
         //
         // ★★<b>賢魂の効果が、使用しているカード自身を場に出す唯一の例</b>である。
         //   6コスト 1/6【守護】が、2コストで【召喚時】の2ドロー抜き・2ダメージ入りで出る。
-        // ★本文の「そのミニオンの【召喚時】は使えない」は、
-        //   効果による「場に出す」は【召喚時】を発動しない(裁定245)という既定と一致する ——
-        //   <b>本文が念を押しているだけで、例外を作ってはいない。</b>
+        // ★本文の「そのミニオンの【召喚時】は使えない」は、67 までは
+        //   効果による「場に出す」は【召喚時】を発動しない(裁定245)という既定と一致しており、
+        //   <b>本文が念を押しているだけで、例外を作ってはいない</b>と読めていた。
+        //
+        // ★★★<b>Batch 68(裁定311)で立場が変わった。</b>
+        //   裁定311 は「手札から出ているときはすべて【召喚時】が発動する」と定めた。
+        //   【賢魂】は<b>手札のカードを使う</b>ので、既定に従えばこの1枚も発動してしまう ——
+        //   つまり本文の一文は、いまや<b>本物の例外</b>である。
+        // ★だからこの呼び出しは {@link FieldEntryOrigin#OTHER} のままである
+        //   (引数を渡さない4引数版が OTHER を渡す)。
+        //   総合ルール2-7「カードの本文は総合ルールに優先する」に拠る、
+        //   <b>235枚でただ1つの明示的な打ち消し</b>である。
+        //   ★番人: {@code Batch68SummonFromHandTest} が「テントの下から出たミニオンは
+        //   【召喚時】を発動しない」を測る。渡し忘れではなく<b>本文どおり</b>だと示すためである。
         register("QTE-M-DARK-38", TriggerType.ON_SUMMON,
                 ctx -> ctx.actions().drawCards(ctx.room(), ctx.owner(), 2));
         soulSpells.put("QTE-M-DARK-38", SoulSpellSpec.of(ctx -> {
@@ -4591,7 +4959,8 @@ public class CardEffectRegistry {
                     ctx.owner().getHand().add(id); // 出せなかった分は手札に戻す(神の福音と同じ)
                     continue;
                 }
-                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id);
+                ctx.actions().putIntoFieldByEffect(ctx.room(), ctx.owner(), id,
+                        FieldEntryOrigin.HAND); // ★Batch 68(裁定311)
             }
         });
         soulSpells.put("QTE-M-LIGHT-32",
@@ -4818,13 +5187,54 @@ public class CardEffectRegistry {
         triggers.computeIfAbsent(cardId, k -> new EnumMap<>(TriggerType.class)).put(trigger, effect);
     }
 
-    /** プレイ時の対象指定仕様。要求しないカードは空のTargetSpecを返す */
+    /** そのカードが要求する対象の仕様。要求しないカードは空のTargetSpecを返す */
     public TargetSpec targetSpecOf(String cardId) {
         return targetSpecs.getOrDefault(cardId, TargetSpec.of());
     }
 
+    /**
+     * ★★★<b>使用を宣言する時点で選ばせる対象</b>(★Batch 68。裁定282)。
+     *
+     * <p>63 までは {@link #targetSpecOf} と同じものだった。裁定282 により
+     * <b>ミニオン・進化ミニオンの誘発効果の対象は、場に出てから選ぶ</b>ことになったので、
+     * この2種別については<b>宣言時には何も要求しない</b>。
+     *
+     * <p>宣言時に対象を選ぶのは、以後<b>スペル・ウェポン・リーダーの起動能力・
+     * 【賢魂】としての使用・特殊召喚の代替コスト</b>だけである ——
+     * どれも「場に出る」ことと結びついていない効果であり、
+     * <b>選んだ瞬間と効果が走る瞬間の間に盤面が動かない</b>。
+     *
+     * <p>★<b>境界をこの1メソッドに閉じ込めた。</b>呼び出し側(通常召喚・進化召喚・
+     * 禁忌からの使用・墓地からの召喚・ビューの生成)はどれも
+     * 「宣言時に何を選ばせるか」を自分で判断しない —— 判断が5箇所に散ると、
+     * 新しい経路が増えたときに<b>1つだけ古い規則のまま残る</b>(裁定163)。
+     *
+     * <p>★{@code CardType.isMinion()} を使っているので、<b>進化ミニオンも自動的に含まれる</b>
+     * (裁定310 で確認した「進化はミニオンの一種である」がここでも効く)。
+     */
+    public TargetSpec declarationTargetSpecOf(String cardId) {
+        if (cards.findById(cardId).type().isMinion()) {
+            return TargetSpec.of();
+        }
+        return targetSpecOf(cardId);
+    }
+
     public SpecialSummonSpec specialSummonOf(String cardId) {
         return specialSummons.get(cardId);
+    }
+
+    /**
+     * このカードがその誘発を登録しているか(★Batch 68)。
+     *
+     * <p>★<b>効果の中身は返さない。</b>返すと「試験が実装を呼んで実装を測る」形になり、
+     * 本物の入口を通す約束(裁定187)が崩れる。
+     * 番人が要るのは<b>種別の対応表</b>だけである ——
+     * 「対象を要求するミニオンは【召喚時】と【登場時】を同時に持たない」
+     * ({@code Batch68SummonTargetTest})のように、
+     * 盤面を作っても測れない<b>構造</b>を固定するために使う。
+     */
+    public boolean hasTrigger(String cardId, TriggerType trigger) {
+        return triggers.getOrDefault(cardId, Map.of()).containsKey(trigger);
     }
 
     /** スペルの解決。効果が未登録のスペルは実装漏れとして拒否する(黙って何も起きないのが最悪) */
@@ -4906,8 +5316,140 @@ public class CardEffectRegistry {
         Consumer<EffectContext> effect = triggers
                 .getOrDefault(minion.getMaster().id(), Map.of())
                 .get(trigger);
-        if (effect != null) {
-            effect.accept(ctx);
+        if (effect == null) {
+            return;
         }
+        // ★★★Batch 68(裁定282): 対象を要る効果は、ここで問い合わせを積んで戻る。
+        //
+        // ★<b>判定を fire() の入口に置いた理由は《悪夢》と同じである</b>(上の注記) ——
+        // ON_SUMMON を焚く場所は通常召喚・進化召喚・特殊召喚・禁忌・墓地からの召喚と
+        // 複数あり、呼び出し側で分岐すると<b>足し忘れた経路だけが素通りする</b>(裁定163)。
+        // ここは ON_SUMMON / ON_ENTER が必ず通る1点である。
+        //
+        // ★<b>「まだ選んでいない」の判定は ctx.targets() の中身で行う。</b>
+        // 選び終えて再開したときは {@code ResumePoint.SUMMON_TARGETS} が
+        // 選択結果を詰めた文脈で呼び直すので、ここは素通りして効果が走る。
+        if (needsTargetChoice(ctx, minion, trigger)) {
+            return;
+        }
+        effect.accept(ctx);
+    }
+
+    /**
+     * 【召喚時】【登場時】の対象を、場に出てから問い合わせる(★Batch 68。裁定282)。
+     *
+     * @return 問い合わせを積んだ(=効果は今は走らせない)なら true
+     */
+    private boolean needsTargetChoice(EffectContext ctx, MinionInstance minion, TriggerType trigger) {
+        // ★★<b>誘発の種別で絞る。</b>{@code targetSpecs} はカードに1本しか無く、
+        //   そこに書いてあるのは<b>【召喚時】【登場時】の対象</b>である。
+        //   種別を見ないと、同じカードの【破壊時】や【攻撃時】まで
+        //   「まだ対象を選んでいない」と読まれて、効果の代わりに問い合わせが積まれる ——
+        //   《サモンズライト》(【召喚時】1ダメージ +【破壊時】蘇生)で実際に起きた。
+        if (trigger != TriggerType.ON_SUMMON && trigger != TriggerType.ON_ENTER) {
+            return false;
+        }
+        boolean alreadyChosen = ctx.targets() != null && !ctx.targets().selections().isEmpty();
+        if (alreadyChosen) {
+            return false;
+        }
+        TargetSpec spec = targetSpecOf(minion.getMaster().id());
+        if (spec.requirements().isEmpty()) {
+            return false;
+        }
+        // ★1件の PendingChoice は1つの要求しか運べない。要求を2つ以上持つカードは
+        //   本文の順序どおりに問う形へ書き換えてあり、ここで積むのは常に先頭の1件である
+        //   (《生贄を求める邪鬼》《手札を喰らう大蟹》。ResumePoint の注記)。
+        TargetSpec.Requirement req = spec.requirements().get(0);
+        List<String> candidates = targets.candidatesFor(ctx.state(), ctx.owner(), req);
+        if (candidates.isEmpty()) {
+            // ★成立しない選択肢は並べない(裁定302)。効果は不発である
+            ctx.room().addLog("【%s】: 選べる対象が居ないため、効果は発動しませんでした"
+                    .formatted(minion.getMaster().name()));
+            return true;
+        }
+        int max = Math.min(req.count(), candidates.size());
+        int min = req.upTo() || req.optional() ? 0 : max;
+        String payload = summonTargetPayload(minion, trigger);
+        if (min == max && candidates.size() == min) {
+            // ★選ぶ余地が本当に無いときだけ自動で決める(12b・51 からの流儀)。
+            //   upTo は min=0 なのでここには来ない ——「選ばない」も選択肢だからである
+            resumeSummonTargets(ctx, payload, candidates);
+            return true;
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(),
+                PendingChoice.of(targets.pendingKindOf(req.kind()), candidates, min, max,
+                        ResumePoint.SUMMON_TARGETS, req.prompt()).withPayload(payload));
+        return true;
+    }
+
+    /** {@code <instanceId>|<TriggerType>}(★Batch 68) */
+    private String summonTargetPayload(MinionInstance minion, TriggerType trigger) {
+        return minion.getInstanceId() + "|" + trigger.name();
+    }
+
+    /**
+     * 場のミニオンを1体選ばせる(★Batch 68)。
+     *
+     * <p>対象を2つ以上要求するカードの<b>2つ目以降</b>のための入口である
+     * (《生贄を求める邪鬼》《手札を喰らう大蟹》)。
+     * 1つ目は {@link ResumePoint#SUMMON_TARGETS} の共通経路が扱う。
+     *
+     * <p>★候補は {@link TargetCandidates} が列挙する —— 【潜伏】の判定もあちらにある。
+     * 候補が0件なら問わない(裁定302)。1件なら選ぶ余地が無いので自動で決める。
+     */
+    private void requestMinionChoice(EffectContext ctx, TargetSpec.Side side,
+            ResumePoint resumeAt, String prompt) {
+        TargetSpec.Requirement req = TargetSpec.Requirement.of(
+                TargetSpec.Kind.MINION, side, 1, false, prompt);
+        List<String> candidates = targets.candidatesFor(ctx.state(), ctx.owner(), req);
+        if (candidates.isEmpty()) {
+            ctx.room().addLog("選べるミニオンが居ないため、この効果は発動しませんでした");
+            return;
+        }
+        PendingChoice choice = PendingChoice.one(
+                PendingChoice.Kind.MINION, candidates, resumeAt, prompt);
+        if (candidates.size() == 1) {
+            resolveChoice(ctx, choice, candidates);
+            return;
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), choice);
+    }
+
+    /** 両者の場から1体(《手札を喰らう大蟹》の「ミニオン1体」。裁定156(2))。★Batch 68 */
+    private void requestAnyMinionChoice(EffectContext ctx, ResumePoint resumeAt, String prompt) {
+        requestMinionChoice(ctx, TargetSpec.Side.ANY, resumeAt, prompt);
+    }
+
+    /** 相手の場から1体(《生贄を求める邪鬼》の「相手のミニオンを1体」)。★Batch 68 */
+    private void requestOpponentMinionChoice(EffectContext ctx, ResumePoint resumeAt, String prompt) {
+        requestMinionChoice(ctx, TargetSpec.Side.OPPONENT, resumeAt, prompt);
+    }
+
+    /**
+     * 対象が揃ったので、そのミニオンの誘発効果を最初から走らせ直す(★Batch 68)。
+     *
+     * <p>★<b>ここが 68 の設計の肝である。</b>再開でやることは
+     * 「選ばれたものから {@link ResolvedTargets} を組み、{@link #fire} を呼び直す」だけであり、
+     * <b>カードごとの再開コードを1行も書いていない</b>。
+     * 15枚の効果は {@code ctx.targets()} を読むだけで、それがいつ選ばれたかを知らない。
+     */
+    private void resumeSummonTargets(EffectContext ctx, String payload, List<String> chosen) {
+        String[] parts = payload.split("\\|", 2);
+        String instanceId = parts[0];
+        TriggerType trigger = TriggerType.valueOf(parts[1]);
+        MinionInstance minion = ctx.owner().getMinionZone().stream()
+                .filter(m -> m.getInstanceId().equals(instanceId))
+                .findFirst().orElse(null);
+        if (minion == null) {
+            // ★選んでいる間に発生源が場を離れることがある(相手ターンの【破壊時】など)。
+            //   64 の待ち行列では「手前の選択の解決で盤面が動く」のが普通に起きる
+            ctx.room().addLog("効果の発生源が場を離れていたため、この選択は何も起こしませんでした");
+            return;
+        }
+        TargetSpec.Requirement req = targetSpecOf(minion.getMaster().id()).requirements().get(0);
+        ResolvedTargets resolved = new ResolvedTargets(List.of(
+                targets.selectionFrom(ctx.state(), ctx.owner(), req, chosen)));
+        fire(trigger, minion, ctx.withSource(minion).withTargets(resolved));
     }
 }

@@ -18,5 +18,26 @@ package com.example.qte.master;
  * 型を共有しないという判断はそのまま維持する —— 片方の都合がもう片方の制約にならないようにするためである。
  */
 public enum CardType {
-    LEADER, MINION, EVOLUTION, SPELL, WEAPON
+    LEADER, MINION, EVOLUTION, SPELL, WEAPON;
+
+    /**
+     * ミニオンの一種か(★Batch 67)。
+     *
+     * <p><b>進化ミニオンもミニオンである。</b> 総合ルール 2-1 が
+     * 「進化ミニオンはメインデッキ40枚に算入する」と定めているとおり、
+     * 進化は召喚の仕方が違うだけで種族としてはミニオンの一種である。
+     *
+     * <p>この述語を置いたのは、《禁忌の墓地利用》の本文
+     * 「自分の墓地にある<b>ミニオンでないカード</b>を2枚選び」を実装するにあたって、
+     * 「ミニオンでない」の判定が<b>2箇所</b>に要ったからである ——
+     * 使用条件({@code CardEffectRegistry.playConditions})と
+     * 対象の検証({@code GameService.checkFilter})である。
+     * 同じ規則を2箇所に書くと、片方だけが直された状態が何バッチも続く(裁定130)。
+     *
+     * <p>★<b>「ミニオンでない」を {@code != MINION} と書いてはいけない。</b>
+     * その書き方は進化ミニオンを「ミニオンでないカード」に数えてしまう。
+     */
+    public boolean isMinion() {
+        return this == MINION || this == EVOLUTION;
+    }
 }

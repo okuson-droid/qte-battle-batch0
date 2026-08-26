@@ -487,8 +487,9 @@ class FireEarthVer11EffectTest {
         AutoGameFixture f = newGame();
         payMana(f.me(), 2);
         MinionInstance target = f.putOnField(f.you(), BEHEMOTH);
-        game.playCard(f.room(), "me", f.giveHand(f.me(), BUNNAGURI),
-                List.of(minions(target.getInstanceId())), false);
+        // ★★Batch 68(裁定282): 【召喚時】の対象は場に出てから選ぶ
+        game.playCard(f.room(), "me", f.giveHand(f.me(), BUNNAGURI), List.of(), false);
+        f.answerChoice(game, "me", target.getInstanceId());
         assertThat(target.getDamage()).isEqualTo(1);
     }
 
@@ -497,8 +498,9 @@ class FireEarthVer11EffectTest {
     void 分那愚利は相手の場が空でも召喚できる() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 2);
-        game.playCard(f.room(), "me", f.giveHand(f.me(), BUNNAGURI),
-                List.of(minions()), false);
+        // ★★Batch 68: 相手の場が空なら候補0件 —— 問い合わせすら立たない(裁定302)
+        game.playCard(f.room(), "me", f.giveHand(f.me(), BUNNAGURI), List.of(), false);
+        assertThat(f.me().getPendingChoice()).as("候補0件なので問わない").isNull();
         assertThat(f.fieldIds(f.me())).containsExactly(BUNNAGURI);
     }
 

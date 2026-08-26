@@ -308,6 +308,20 @@ public class GameViewBuilder {
                     CardMaster m = cards.findById(mana.getCardId());
                     label = mana.isFaceUp() ? m.name() : m.name() + "(裏向き)";
                 }
+                // ★★Batch 68(裁定282): 割り込みで<b>ウェポン</b>を選ぶ経路ができた
+                // (《天界の守護神 ゾディアック》の【召喚時】)。
+                // 候補は "SELF" / "OPPONENT" という<b>側の名前</b>である ——
+                // ウェポンは1人1つなので、ミニオンのような instanceId を持たない。
+                // ★<b>どちらの側かを必ず添える。</b>同名のウェポンを両者が装備していることは
+                //   普通に起きるので、名前だけでは押し間違える
+                case WEAPON -> {
+                    PlayerState side = "SELF".equals(id)
+                            ? player : state.opponentOf(player.getPlayerId());
+                    CardMaster weapon = side.getEquippedWeapon();
+                    // 選んでいる間に外れている場合(通常は起きない)は側の名前をそのまま出す
+                    label = weapon == null ? id
+                            : "%s(%s)".formatted(weapon.name(), side == player ? "自分" : "相手");
+                }
                 // ★Batch 64: はい/いいえ。候補は1件だけで、選べば「はい」である。
                 // クライアントは kind を見て2つのボタンに描き替えるので、ここの文言は保険にすぎない
                 case CONFIRM -> label = "はい";
@@ -362,7 +376,7 @@ public class GameViewBuilder {
         // ★Batch 52: 進化ミニオンの素材条件。手札以外(禁忌デッキ)のカードにも添える ——
         // 禁忌からの進化召喚も出し方は同じである(マスター裁定 E1)
         EvolutionSpec evolution = effects.evolutionOf(master.id());
-        TargetSpec spec = effects.targetSpecOf(master.id());
+        TargetSpec spec = effects.declarationTargetSpecOf(master.id());
         com.example.qte.effect.EnhancedCostSpec enhanced = effects.enhancedCostOf(master.id());
         // ★Batch 54:【賢魂：n】としての姿(裁定152)。
         // ★<b>2つの条件がそろって初めて導線を出す</b> —— テキストに【賢魂：n】があり、

@@ -23,6 +23,7 @@ import com.example.qte.effect.ResolvedTargets;
 import com.example.qte.effect.SoulSpellSpec;
 import com.example.qte.effect.SpecialSummonSpec;
 import com.example.qte.effect.StatCalculator;
+import com.example.qte.effect.TargetCandidates;
 import com.example.qte.effect.TargetChoice;
 import com.example.qte.effect.TargetSpec;
 import com.example.qte.effect.TriggerType;
@@ -95,6 +96,14 @@ public class GameService {
 
     /** 攻撃・破壊・ドロー・使用の可否を盤面から判定する層(光文明の置換・禁止効果) */
     private final RuleGuards guards;
+
+    /**
+     * 対象の絞り込みと候補の列挙(★Batch 68。裁定282)。
+     *
+     * <p>★<b>宣言時の検証(このクラス)と、割り込みの候補列挙({@code CardEffectRegistry})が
+     * 同じものを見る。</b>規則が2箇所に分かれないための1本である(裁定130)。
+     */
+    private final TargetCandidates candidates;
     private final Random random = new Random();
 
     // ---------------------------------------------------------------
@@ -599,7 +608,7 @@ public class GameService {
         // 検証(状態を変えない)→ 支払い → 手札除去 → 場に出す → 効果、の順を守る。
         // 検証で弾かれた場合に状態が一切変わっていないことを保証するため
         ValidatedTargets validated = validateTargets(state, player, handIndex,
-                effects.targetSpecOf(master.id()), choices);
+                effects.declarationTargetSpecOf(master.id()), choices);
         payCost(player, stats.effectiveCost(state, player, master));
         // ★Batch 58: ここにあった【剛火の将】の割引の消費は、Ver1.1 で起動能力そのものが
         // 本文から消えたため削除した(rework-triage.md 区分5)
@@ -629,7 +638,7 @@ public class GameService {
         requireCanEnterField(state, player);
         List<MinionInstance> materials = resolveMaterials(player, master, materialIds);
         ValidatedTargets validated = validateTargets(state, player, handIndex,
-                effects.targetSpecOf(master.id()), choices);
+                effects.declarationTargetSpecOf(master.id()), choices);
         payCost(player, stats.effectiveCost(state, player, master));
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
         summonToField(room, state, player, master, resolved, false, materials);
@@ -701,7 +710,7 @@ public class GameService {
         int extraCost = enhanced ? enhancedSpec.extraCost() : 0;
 
         ValidatedTargets validated = validateTargets(state, player, handIndex,
-                effects.targetSpecOf(master.id()), choices);
+                effects.declarationTargetSpecOf(master.id()), choices);
         // 【死者蘇生】は「生贄にした自分のミニオンの数だけコスト-1」であり、
         // 支払う額が選択結果に依存する。StatCalculatorが参照できる場所に数を置いてから支払う
         if (SACRIFICE_SPELL_ID.equals(master.id())) {
@@ -947,7 +956,7 @@ public class GameService {
         List<MinionInstance> materials = master.type() == CardType.EVOLUTION
                 ? resolveMaterials(player, master, materialIds) : List.of();
         ValidatedTargets validated = validateTargets(state, player, -1,
-                effects.targetSpecOf(master.id()), choices);
+                effects.declarationTargetSpecOf(master.id()), choices);
         validateTabooCost(player, master.cost(), manaIndexes);
 
         payTabooCost(room, player, manaIndexes);
@@ -1147,8 +1156,8 @@ public class GameService {
         List<MinionInstance> materials = evolution
                 ? resolveMaterials(player, master, materialIds) : List.of();
         // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である。
-        // ★Batch 60: 墓地の自己除外は手札の位置では表せないので、専用の門で塞ぐ
-        requireTrashSourceNotTargeted(trashIndex, spec.targets().requirements(), choices);
+        // ★★Batch 68: ここにあった requireTrashSourceNotTargeted の呼び出しを撤去した
+        //   (理由は summonFromGrave の同じ箇所に書いてある)
         ValidatedTargets validated = validateTargets(state, player, -1, spec.targets(), choices);
         payCost(player, spec.mpCost());
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
@@ -1216,8 +1225,15 @@ public class GameService {
         requireCanEnterField(state, player);
         // ★Batch 60(裁定278(c)): ここから先は通常召喚(playMinion)と同じ順序である ——
         // 検証(状態を変えない)→ 支払い → 墓地から取り除く → 場に出す → 効果。
-        TargetSpec spec = effects.targetSpecOf(master.id());
-        requireTrashSourceNotTargeted(trashIndex, spec.requirements(), choices);
+        // ★★★Batch 68(裁定282): この spec は<b>常に空になった</b> ——
+        //   ミニオンの宣言時対象は無くなり、【召喚時】の対象は場に出てから問われる。
+        //   したがってこの入口が受け取る choices も常に空である(引数は互換のために残す)。
+        //   ★<b>Batch 60 の門(requireTrashSourceNotTargeted)はここで撤去した</b> ——
+        //   「出どころ自身が墓地の候補に混じる」は、検証より前にカードが墓地を離れる
+        //   ようになったことで<b>構造ごと起こらなくなった</b>。
+        //   守っていた性質は Batch68SummonTargetTest が
+        //   「墓地から出したカード自身は【召喚時】の候補に現れない」として測り直している(裁定196)。
+        TargetSpec spec = effects.declarationTargetSpecOf(master.id());
         // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である
         ValidatedTargets validated = validateTargets(state, player, -1, spec, choices);
         payCost(player, stats.effectiveCost(state, player, master));
@@ -1236,44 +1252,26 @@ public class GameService {
         afterCardUsed(room, state, player, false);
     }
 
-    /**
-     * 墓地から出すカード自身を、そのカードの対象に選ぶことを禁じる(★Batch 60)。
-     *
-     * <h2>なぜ要るのか</h2>
-     *
-     * 墓地を出どころにする2つの入口({@link #summonFromGrave} /
-     * {@link #specialSummonFromGrave})は、<b>対象の検証を済ませてから</b>
-     * 出すカードを墓地から取り除く。順序を逆にすると、検証で弾かれたときに
-     * 状態が変わってしまうためである(通常召喚と同じ「検証 → 支払い → 除去」の順)。
-     *
-     * <p>その結果、検証の時点では出すカード自身がまだ墓地に居る。
-     * {@code Kind.TRASH} の要求はそれを<b>普通の候補として見てしまう</b> ——
-     * つまり「墓地から出るのに、出た後の効果でもう一度墓地から拾われる」1枚が作れる。
-     *
-     * <p>今の235枚では実害が出ない。{@code Kind.TRASH} の【召喚時】を持つ唯一のミニオンは
-     * 《墓場の怨念集合体》で、その要求は {@code SPELL_CARD} で絞られており、
-     * ミニオンである自分自身は絞り込みで落ちるからである。
-     * ★<b>だからこそここで塞ぐ。</b>絞り込みが偶然守っているだけの穴は、
-     * 次に「墓地のミニオンを拾う【召喚時】」が1枚増えた瞬間に開く。
-     *
-     * @param trashIndex 出どころとして指定された墓地の位置
-     * @param reqs       そのカードが要求する対象の一覧
-     * @param choices    クライアントから届いた生の選択(検証前。信用しない)
-     */
-    private void requireTrashSourceNotTargeted(int trashIndex,
-            List<TargetSpec.Requirement> reqs, List<TargetChoice> choices) {
-        if (choices == null || reqs.isEmpty()) {
-            return;
-        }
-        for (int i = 0; i < reqs.size() && i < choices.size(); i++) {
-            if (reqs.get(i).kind() != TargetSpec.Kind.TRASH) {
-                continue;
-            }
-            if (choices.get(i).trashIndexes().contains(trashIndex)) {
-                throw new IllegalArgumentException("墓地から出すカード自身は対象に選べません");
-            }
-        }
-    }
+    // ===================================================================
+    // ★★★Batch 68(裁定196): 撤去した番人 —— requireTrashSourceNotTargeted
+    // ===================================================================
+    //
+    // Batch 60 が置いた門である。「墓地から出すカード自身を、そのカードの
+    // 【召喚時】の対象に選べてしまう」を弾いていた。
+    //
+    // ★<b>なぜ要らなくなったか。</b>あの穴は<b>順序</b>から生まれていた ——
+    //   66 までは「対象を検証してから墓地のカードを取り除く」順だったので、
+    //   検証の瞬間、出すカード自身がまだ墓地に居た。
+    //   裁定282 で【召喚時】の対象は<b>ミニオンが場に出てから</b>選ぶことになり、
+    //   候補を数える時点ではカードはとっくに墓地を離れている。
+    //   ★つまり<b>塞ぐ穴そのものが構造ごと消えた</b>。
+    //   守るコードを消したのではなく、守る必要のある状態が作れなくなった。
+    //
+    // ★<b>測っていた性質は減らしていない。</b>
+    //   {@code Batch68SummonTargetTest#墓地から召喚したカード自身は召喚時の候補に現れない}
+    //   が同じことを、今度は<b>候補の側から</b>測る。
+    //   例外の文言「墓地から出すカード自身は対象に選べません」は、もうどこにも無い。
+    // ===================================================================
 
     /** 素材を取らない召喚(通常のミニオン・蘇生・禁忌)。進化以外はすべてこちらを通る */
     private MinionInstance summonToField(GameRoom room, GameState state, PlayerState player,
@@ -1472,11 +1470,19 @@ public class GameService {
                     room.addLog("【%s】は凍結しました(次のターン攻撃不可)".formatted(target.getMaster().name()));
                 }
             }
-            case EXCALIBUR -> { // 聖剣エクスカリバー: 自分の【守護】ミニオンすべての体力を2回復
+            // 聖剣エクスカリバー: 自分の【守護】ミニオンすべての体力を<b>全て回復</b>する。
+            //
+            // ★Batch 67(裁定303 の3例目): 2回復 → <b>全快</b>。
+            // Ver1.1 の本文は「体力を全て回復」であり、66 までの実装(2回復)は
+            // Ver0.4 のままだった。コメントも「2回復」と書いており、両方が古かった。
+            // ★<b>回復量に最大体力そのものを渡している。</b>MinionInstance.heal は
+            // ダメージを減らす形なので、最大体力ぶん渡せば damage は必ず 0 になる
+            // (0 未満にはならない)—— 「全快」に専用の器を増やす必要はない(裁定178)。
+            case EXCALIBUR -> {
                 player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.GUARD))
-                        .forEach(m -> m.heal(2));
-                room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が2回復しました");
+                        .forEach(m -> m.heal(m.getMaxHp()));
+                room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が全回復しました");
             }
             case QUAKE_HAMMER -> resolveQuakeHammerAttack(room, player, opponent);
             default -> {
@@ -1994,9 +2000,8 @@ public class GameService {
                         ResolvedTargets.TargetedMinion tm = findOnSide(state, player, req.side(), id);
                         // 【潜伏】: 相手のカードや能力の対象にならない(自分は対象にできる)。
                         // ホーリー・シグナルはテキストでこれを上書きするため、IGNORES_STEALTHがあれば通す
-                        boolean stealthBlocked = tm.owner() != player && tm.minion().hasKeyword(Keyword.STEALTH)
-                                && !req.filters().contains(TargetSpec.Filter.IGNORES_STEALTH);
-                        if (stealthBlocked) {
+                        // ★Batch 68: 潜伏の判定も TargetCandidates 1箇所にある(候補の列挙側と共有)
+                        if (candidates.isStealthBlocked(player, req, tm.owner(), tm.minion())) {
                             throw new IllegalArgumentException("【潜伏】持ちは相手の効果の対象になりません");
                         }
                         checkFilter(state, player, req, tm.minion().getMaster(), tm.minion());
@@ -2107,90 +2112,20 @@ public class GameService {
 
     /**
      * 絞り込み判定。複数条件はAND。
-     * minionがnullでない場合(場のミニオン)は、印刷値ではなく現在の状態を見る条件も評価する。
-     * state/playerはHIGHEST_ATTACK_OPPONENTのように盤面全体を参照する条件のために必要。
+     *
+     * <p>★★<b>Batch 68: 規則そのものは {@link TargetCandidates} へ移した。</b>
+     * 裁定282 により【召喚時】【登場時】の対象が割り込みへ移り、
+     * 「今の盤面でどれが選べるか」を<b>列挙する側</b>が同じ規則を要るようになったためである。
+     * ここに規則を残したまま列挙側にも書けば、<b>同じ絞り込みが2箇所に生まれる</b>(裁定130)。
+     *
+     * <p>★<b>断る文言もあちらにある。</b>検証はその戻り値を例外にするだけであり、
+     * 文言で照合している試験({@code Batch67TextImplTest} など)はそのまま通る。
      */
     private void checkFilter(GameState state, PlayerState player, TargetSpec.Requirement req,
             CardMaster master, MinionInstance minion) {
-        for (TargetSpec.Filter filter : req.filters()) {
-            switch (filter) {
-                case KNOWLEDGE -> requireKeyword(master, minion, Keyword.KNOWLEDGE, "【知識】");
-                case GUARD -> requireKeyword(master, minion, Keyword.GUARD, "【守護】");
-                case MINION_CARD -> {
-                    if (master.type() != CardType.MINION) {
-                        throw new IllegalArgumentException("ミニオンカードを選んでください");
-                    }
-                }
-                case HP_5_OR_LESS -> {
-                    // 現在HPで判定する(ダメージを受けた大型ミニオンも対象になる)
-                    int hp = minion != null ? minion.getCurrentHp()
-                            : (master.hp() == null ? Integer.MAX_VALUE : master.hp());
-                    if (hp > 5) {
-                        throw new IllegalArgumentException("HP5以下のミニオンを選んでください");
-                    }
-                }
-                case COST_4_OR_LESS -> {
-                    if (master.cost() == null || master.cost() > 4) {
-                        throw new IllegalArgumentException("コスト4以下のカードを選んでください");
-                    }
-                }
-                case COST_3_OR_LESS -> {
-                    if (master.cost() == null || master.cost() > 3) {
-                        throw new IllegalArgumentException("コスト3以下のカードを選んでください");
-                    }
-                }
-                case SPELL_CARD -> {
-                    if (master.type() != CardType.SPELL) {
-                        throw new IllegalArgumentException("スペルカードを選んでください");
-                    }
-                }
-                case LIGHT_CIVILIZATION -> {
-                    if (master.civilization() != com.example.qte.master.Civilization.LIGHT) {
-                        throw new IllegalArgumentException("光文明のカードを選んでください");
-                    }
-                }
-                // ★Batch 49: ギガマウス・バイト(手札から水文明のミニオンを出す)
-                case WATER_CIVILIZATION -> {
-                    if (master.civilization() != com.example.qte.master.Civilization.WATER) {
-                        throw new IllegalArgumentException("水文明のカードを選んでください");
-                    }
-                }
-                case COST_7_OR_LESS -> {
-                    if (master.cost() == null || master.cost() > 7) {
-                        throw new IllegalArgumentException("コスト7以下のカードを選んでください");
-                    }
-                }
-                case HIGHEST_ATTACK_OPPONENT -> {
-                    // ホーリー・シグナル: 相手の場で現在攻撃力が最も高いミニオンだけを選べる
-                    PlayerState targetSide = state.opponentOf(player.getPlayerId());
-                    int max = targetSide.getMinionZone().stream()
-                            .mapToInt(m -> stats.effectiveAttack(state, targetSide, m))
-                            .max().orElse(Integer.MIN_VALUE);
-                    int thisAttack = minion != null ? stats.effectiveAttack(state, targetSide, minion)
-                            : Integer.MIN_VALUE;
-                    if (thisAttack < max) {
-                        throw new IllegalArgumentException("相手の場で最も攻撃力の高いミニオンを選んでください");
-                    }
-                }
-                case IGNORES_STEALTH -> {
-                    // 判定そのものはvalidateTargetsのMINION分岐で行う。ここではフィルタとして
-                    // 素通りさせるだけ(絞り込み条件ではなく、潜伏チェックの上書き指示のため)
-                }
-                // ★Batch 52: 機神兵長茶爺(場の進化ミニオンの下に手札を入れる)
-                case EVOLUTION_MINION -> {
-                    if (master.type() != CardType.EVOLUTION) {
-                        throw new IllegalArgumentException("進化ミニオンを選んでください");
-                    }
-                }
-            }
-        }
-    }
-
-    private void requireKeyword(CardMaster master, MinionInstance minion, Keyword keyword, String label) {
-        // 場のミニオンは付与されたキーワードも含めて判定する
-        boolean has = minion != null ? minion.hasKeyword(keyword) : master.hasKeyword(keyword);
-        if (!has) {
-            throw new IllegalArgumentException(label + "を持つカードを選んでください");
+        String reason = candidates.rejectReason(state, player, req, master, minion);
+        if (reason != null) {
+            throw new IllegalArgumentException(reason);
         }
     }
 

@@ -235,12 +235,22 @@ class EvolutionEffectTest {
     // 3. リボーンライヴ・ノア(QTE-M-DARK-30)
     // ==================================================================
 
+    /**
+     * ★★★Batch 68(裁定282)で<b>2手</b>になった ——
+     * 【召喚時】の対象は<b>ノアが場に出てから</b>選ぶ。
+     * 66 までは進化召喚の宣言と一緒に渡していた。
+     *
+     * <p>★これは<b>進化ミニオンでこそ効く直し</b>である。宣言時の検証は
+     * 素材を場から外す<b>前</b>に走っていたので、素材にしたミニオンを
+     * 対象に選べてしまう危うさが構造として残っていた(裁定258 の罠)。
+     */
     @Test
     void ノアは召喚時に選んだ墓地のミニオンを3体場に出す() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 8);
         f.me().getTrash().addAll(List.of(PLAIN_MINION, PLAIN_MINION, PLAIN_MINION, PLAIN_MINION));
-        evolve(f, NOA, List.of(trash(0, 1, 2)), f.putOnField(f.me(), DARK_HP4));
+        evolve(f, NOA, f.putOnField(f.me(), DARK_HP4));
+        f.answerChoice(game, "me", "0", "1", "2");
         assertThat(f.me().getMinionZone()).as("ノア + 蘇生3体").hasSize(4);
         assertThat(f.me().getTrash()).as("4枚のうち3枚が墓地を離れた").hasSize(1);
     }
@@ -254,7 +264,8 @@ class EvolutionEffectTest {
         AutoGameFixture f = newGame();
         payMana(f.me(), 8);
         f.me().getTrash().addAll(List.of(PLAIN_MINION, PLAIN_MINION));
-        evolve(f, NOA, List.of(trash(0, 1)), f.putOnField(f.me(), DARK_HP4));
+        evolve(f, NOA, f.putOnField(f.me(), DARK_HP4));
+        f.answerChoice(game, "me", "0", "1");
         List<MinionInstance> revived = f.me().getMinionZone().stream()
                 .filter(m -> PLAIN_MINION.equals(m.getMaster().id())).toList();
         assertThat(revived).hasSize(2);
@@ -287,7 +298,8 @@ class EvolutionEffectTest {
     void ノアが場に居れば他の効果で墓地から出たミニオンも突進を得る() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 9);
-        evolve(f, NOA, List.of(trash()), f.putOnField(f.me(), DARK_HP4));
+        // ★★Batch 68: 墓地が空なので【召喚時】の候補は0件 —— 問い合わせは立たない(裁定302)
+        evolve(f, NOA, f.putOnField(f.me(), DARK_HP4));
         f.me().getTrash().add(PLAIN_MINION);
         MinionInstance summonsLight = f.putOnField(f.me(), "QTE-M-DARK-34");
         game.playCard(f.room(), "me", f.giveHand(f.me(), MAGMA),
@@ -298,13 +310,20 @@ class EvolutionEffectTest {
         assertThat(revived.hasKeyword(Keyword.RUSH)).isTrue();
     }
 
-    /** 墓地に3体居なければ、居るだけ出す(裁定191) */
+    /**
+     * 墓地に3体居なければ、居るだけ出す(裁定191)。
+     *
+     * <p>★★Batch 68: 墓地が1枚しか無い場合、候補も1件になる。
+     * ノアの要求は {@code upTo}(0〜3体)なので<b>「選ばない」も選択肢である</b> ——
+     * 自動では決まらず、ちゃんと問い合わせが立つ(裁定302 の裏返し)。
+     */
     @Test
     void ノアは墓地が足りなければ居るだけ出す() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 8);
         f.me().getTrash().add(PLAIN_MINION);
-        evolve(f, NOA, List.of(trash(0)), f.putOnField(f.me(), DARK_HP4));
+        evolve(f, NOA, f.putOnField(f.me(), DARK_HP4));
+        f.answerChoice(game, "me", "0");
         assertThat(f.me().getMinionZone()).hasSize(2);
     }
 

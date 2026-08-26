@@ -36,6 +36,23 @@ public class MinionInstance {
      */
     private final boolean fromTaboo;
 
+    /**
+     * ★★Batch 68(裁定311): <b>召喚ではなく効果で場に出た</b>か。
+     *
+     * <h2>なぜ「【召喚時】が発動したか」では代用できないのか</h2>
+     *
+     * 63 までは「効果で出た = 【召喚時】が発動しない」だったので、
+     * この2つは同じことを指していた。裁定311 が
+     * <b>手札から効果で出た場合にも【召喚時】を発動させた</b>ことで、両者は分かれた ——
+     * 《光の召喚士》に出された《ガイル・フォックス》は【召喚時】が発動するが、
+     * <b>そのカード自身は使用されていない</b>。
+     *
+     * <p>★<b>この違いが効くのは「このターン使用したカードの枚数」を読む効果だけである</b>
+     * (使用カウンタは解決中の自分自身をまだ数えていない。裁定1)。
+     * 現在の使い手は《ガイル・フォックス》1枚である。
+     */
+    private boolean enteredByEffect = false;
+
     /** このターンに攻撃した回数。アンタップフェイズで0に戻す。上限はStatCalculator.maxAttacksが評価する */
     private int attacksUsedThisTurn = 0;
 
@@ -286,5 +303,14 @@ public class MinionInstance {
 
     public void tap() {
         this.tapped = true;
+    }
+
+    /**
+     * 「召喚ではなく効果で場に出た」の印を付ける(★Batch 68。裁定311)。
+     * {@code GameActions.putIntoFieldByEffect} が、誘発を焚く<b>前に</b>呼ぶ ——
+     * 【召喚時】の中からこの値を読むためである。
+     */
+    public void markEnteredByEffect() {
+        this.enteredByEffect = true;
     }
 }

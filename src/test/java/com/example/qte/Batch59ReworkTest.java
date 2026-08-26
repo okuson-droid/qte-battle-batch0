@@ -207,9 +207,12 @@ class Batch59ReworkTest {
         AutoGameFixture f = newGame();
         payMana(f.me(), 5);
         int summoner = f.giveHand(f.me(), LIGHT_SUMMONER);
-        int mage = f.giveHand(f.me(), SEARING_MAGE);
+        f.giveHand(f.me(), SEARING_MAGE);
 
-        game.playCard(f.room(), "me", summoner, List.of(hand(mage)), false);
+        // ★★Batch 68(裁定282): 《光の召喚士》は【登場時】に対象を選ぶミニオンなので、
+        //   出す1体は<b>召喚士が場に出てから</b>問われる
+        game.playCard(f.room(), "me", summoner, List.of(), false);
+        f.answerChoice(game, "me", f.handPosition(f.me(), SEARING_MAGE));
 
         assertThat(f.fieldIds(f.me())).as("効果で場に出ている").contains(SEARING_MAGE);
         assertThat(f.me().getLp()).as("★召喚していないのに自傷が起きる = ON_ENTER である")
@@ -277,11 +280,16 @@ class Batch59ReworkTest {
     void ガイルフォックスは効果で場に出た場合は使用3枚以上で潜伏を得る() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 5);
-        f.me().setCardsUsedThisTurn(3);
+        // ★★Batch 68: <b>数え方が1枚ずれた。</b>【登場時】の対象が割り込みへ移った(裁定282)ので、
+        //   フォックスが場に出るのは《光の召喚士》の使用が数え終わった<b>後</b>である。
+        //   2枚 +《光の召喚士》自身 = 3枚 が、本文の言う「3枚以上」を満たす最小の形になる。
+        f.me().setCardsUsedThisTurn(2);
         int summoner = f.giveHand(f.me(), LIGHT_SUMMONER);
-        int fox = f.giveHand(f.me(), GALE_FOX);
+        f.giveHand(f.me(), GALE_FOX);
 
-        game.playCard(f.room(), "me", summoner, List.of(hand(fox)), false);
+        // ★★Batch 68(裁定282): 出す1体は召喚士が場に出てから問われる
+        game.playCard(f.room(), "me", summoner, List.of(), false);
+        f.answerChoice(game, "me", f.handPosition(f.me(), GALE_FOX));
 
         MinionInstance entered = f.me().getMinionZone().stream()
                 .filter(m -> GALE_FOX.equals(m.getMaster().id())).findFirst().orElseThrow();
@@ -293,11 +301,14 @@ class Batch59ReworkTest {
     void ガイルフォックスは効果で場に出た場合に使用2枚では潜伏を得ない() {
         AutoGameFixture f = newGame();
         payMana(f.me(), 5);
-        f.me().setCardsUsedThisTurn(2);
+        // ★★Batch 68: 上と同じ理由で1枚ずれた。1枚 +《光の召喚士》 = 2枚 で「3枚以上」に届かない
+        f.me().setCardsUsedThisTurn(1);
         int summoner = f.giveHand(f.me(), LIGHT_SUMMONER);
-        int fox = f.giveHand(f.me(), GALE_FOX);
+        f.giveHand(f.me(), GALE_FOX);
 
-        game.playCard(f.room(), "me", summoner, List.of(hand(fox)), false);
+        // ★★Batch 68(裁定282): 出す1体は召喚士が場に出てから問われる
+        game.playCard(f.room(), "me", summoner, List.of(), false);
+        f.answerChoice(game, "me", f.handPosition(f.me(), GALE_FOX));
 
         MinionInstance entered = f.me().getMinionZone().stream()
                 .filter(m -> GALE_FOX.equals(m.getMaster().id())).findFirst().orElseThrow();
