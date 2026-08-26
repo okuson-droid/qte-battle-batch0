@@ -134,15 +134,12 @@ public class GameService {
         }
         PlayerState player = new PlayerState(slot.getPlayerId(), slot.getDisplayName(), leader);
         player.setDeckName(slot.getDeckName());
-        if (slot.getDeck() != null) {
-            // 読み込まれたデッキファイル(検証済み)を使う
-            player.getDeck().addAll(deckFactory.createMainDeckFrom(slot.getDeck()));
-            player.getTabooDeck().addAll(deckFactory.createTabooDeckFrom(slot.getDeck()));
-        } else {
-            // デッキ未指定: 文明ごとのプリセット
-            player.getDeck().addAll(deckFactory.createMainDeck(leader));
-            player.getTabooDeck().addAll(deckFactory.createTabooDeck(leader));
-        }
+        // ★★Batch 66: デッキファイル(検証済み)しか無い。
+        //   プリセット(おまかせ)は退役したので、分岐そのものが消えている。
+        //   ここへ来る時点でデッキが載っていることは GameRoom.bothReady() が保証する
+        //   (載っていなければ試合が生成されない)。
+        player.getDeck().addAll(deckFactory.createMainDeckFrom(slot.getDeck()));
+        player.getTabooDeck().addAll(deckFactory.createTabooDeckFrom(slot.getDeck()));
         return player;
     }
 

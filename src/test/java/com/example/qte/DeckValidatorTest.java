@@ -5,9 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,11 +13,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import com.example.qte.deck.DeckDefinition;
 import com.example.qte.deck.DeckValidator;
-import com.example.qte.game.DeckFactory;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
 import com.example.qte.master.Civilization;
+import com.example.qte.support.SampleDecks;
 
 /**
  * デッキ構築の検証({@link DeckValidator})の試験(Batch 46b で新設)。
@@ -30,10 +28,16 @@ import com.example.qte.master.Civilization;
  * そのカードは「存在しないカードID」になる</b>。コンパイルは通ってしまうので、
  * 気づくのは対戦を始めたときである。
  *
- * <p>プリセットデッキ6本(各40枚 + 禁忌8枚)を検証層に通すと、
- * {@link DeckFactory} に書かれた <b>151行ぶんのID</b>が実在し、文明が揃い、
- * スペルの効果が登録済みであることまでまとめて確かめられる。
+ * <p>6文明ぶんのデッキ(各40枚 + 禁忌8枚)を検証層に通すと、カードIDが実在し、
+ * 文明が揃っていることまでまとめて確かめられる。
  * 変換の答え合わせとしては、これがいちばん実物に近い。
+ *
+ * <p>★★<b>Batch 66: デッキの出どころを {@code support.SampleDecks} に替えた。</b>
+ * 65 まではここが本番側の {@code DeckFactory} のプリセットデッキを組み直していた。
+ * プリセットは 66 で退役した(通常モードはデッキファイル必須になった)ので、
+ * 試験は<b>カードマスタから直に</b>デッキを組む。
+ * ★組む対象はプリセットより広い —— その文明の<b>デッキに入れられる全カード</b>を
+ * 順に積むので、プリセットに載っていなかったカードもここを通る。
  *
  * <p>合わせて、46b で入れた2つの決めごとも測る。
  * <ul>
@@ -48,9 +52,6 @@ class DeckValidatorTest {
     DeckValidator validator;
 
     @Autowired
-    DeckFactory deckFactory;
-
-    @Autowired
     CardMasterRepository cards;
 
     // ------------------------------------------------------------------
@@ -58,28 +59,30 @@ class DeckValidatorTest {
     // ------------------------------------------------------------------
 
     @Test
-    void 全6文明のプリセットデッキが検証を通る() {
+    void 全6文明のデッキが検証を通る() {
         // ★台帳ID169種の機械変換(46b)の実地確認。1件でもずれていれば
         // 「存在しないカードがあります」で落ちる。
         for (Civilization civ : DeckValidator.implementedCivilizations()) {
             CardMaster leader = firstLeaderOf(civ);
-            assertThatCode(() -> validator.validate(presetDeck(leader)))
-                    .as(civ.getDisplayName() + "文明のプリセットデッキ")
+            assertThatCode(() -> validator.validate(sampleDeck(leader)))
+                    .as(civ.getDisplayName() + "文明のデッキ")
                     .doesNotThrowAnyException();
         }
     }
 
     @Test
     void 選択できるリーダーはすべて実在して検証を通る() {
-        // ロビーのリーダー選択に出る全リーダー(★46b で12枚から18枚に増えた)。
+        // 全リーダー(★46b で12枚から18枚に増えた)。
+        // ★Batch 66: ロビーのリーダー選択そのものは退役した(リーダーはデッキファイルが決める)。
+        //   それでも18枚すべてでデッキが組めることは、カードデータの健全性の測り方として残す。
         List<CardMaster> leaders = DeckValidator.implementedCivilizations().stream()
                 .flatMap(civ -> cards.findByCivilization(civ).stream())
                 .filter(c -> c.type() == CardType.LEADER)
                 .toList();
         assertThat(leaders).hasSize(18);
         for (CardMaster leader : leaders) {
-            assertThatCode(() -> validator.validate(presetDeck(leader)))
-                    .as(leader.name() + " のプリセットデッキ")
+            assertThatCode(() -> validator.validate(sampleDeck(leader)))
+                    .as(leader.name() + " のデッキ")
                     .doesNotThrowAnyException();
         }
     }
@@ -97,7 +100,7 @@ class DeckValidatorTest {
     @Test
     void 進化ミニオンはメインデッキに入れられる() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-30"); // 海淵獣シラーカ
+        DeckDefinition deck = replaceOneMainCard(sampleDeck(leader), "QTE-M-WATER-30"); // 海淵獣シラーカ
         assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
     }
 
@@ -110,7 +113,7 @@ class DeckValidatorTest {
     @Test
     void 進化ミニオンは禁忌デッキにも入れられる() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition base = presetDeck(leader);
+        DeckDefinition base = sampleDeck(leader);
         List<String> taboo = new ArrayList<>(base.taboo());
         taboo.set(0, "QTE-M-FIRE-30"); // 不敗鉄人闘太
         DeckDefinition deck = new DeckDefinition(
@@ -127,7 +130,7 @@ class DeckValidatorTest {
         // ★46b で「4枚以上入れられる」の例外表を撤廃した。該当カードは 0 枚なので、
         // いまや抜け道は無い。表を復活させるとこのテストが落ちる。
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition base = presetDeck(leader);
+        DeckDefinition base = sampleDeck(leader);
         List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
         main.set(0, new DeckDefinition.Entry(main.get(0).cardId(), 5));
         DeckDefinition deck = new DeckDefinition(
@@ -147,7 +150,7 @@ class DeckValidatorTest {
     @Test
     void ゾンストライカーも5枚は入れられない() {
         CardMaster leader = firstLeaderOf(Civilization.DARK);
-        DeckDefinition base = presetDeck(leader);
+        DeckDefinition base = sampleDeck(leader);
         List<DeckDefinition.Entry> main = new ArrayList<>(base.main());
         int at = -1;
         for (int i = 0; i < main.size(); i++) {
@@ -155,7 +158,7 @@ class DeckValidatorTest {
                 at = i;
             }
         }
-        assertThat(at).as("闇のプリセットにゾンストライカーがいる").isNotNegative();
+        assertThat(at).as("闇のデッキにゾンストライカーがいる").isNotNegative();
         main.set(at, new DeckDefinition.Entry("QTE-M-DARK-16", 5));
         DeckDefinition deck = new DeckDefinition(
                 base.name(), base.leaderCardId(), main, base.taboo());
@@ -188,7 +191,7 @@ class DeckValidatorTest {
     @Test
     void 効果が未実装のスペルもメインデッキに入れられる() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-36"); // 潮獣ビシャカワ
+        DeckDefinition deck = replaceOneMainCard(sampleDeck(leader), "QTE-M-WATER-36"); // 潮獣ビシャカワ
         assertThatCode(() -> validator.validate(deck)).doesNotThrowAnyException();
     }
 
@@ -196,7 +199,7 @@ class DeckValidatorTest {
     void 効果が未実装のスペルは禁忌デッキにも入れられる() {
         // ★片方の経路だけ開けて満足しないよう、禁忌側でも測る(進化の試験と同じ形)。
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition base = presetDeck(leader);
+        DeckDefinition base = sampleDeck(leader);
         List<String> taboo = new ArrayList<>(base.taboo());
         taboo.set(0, "QTE-M-FIRE-37"); // リペア・チューナー(火の未実装スペル)
         DeckDefinition deck = new DeckDefinition(
@@ -209,7 +212,7 @@ class DeckValidatorTest {
         // ★スペルの門を開けても、文明の検査は残っている。ピュア・エレメント(文明なし)は
         // デッキに入るカードではないので、ここで止まる。
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-NONE-01");
+        DeckDefinition deck = replaceOneMainCard(sampleDeck(leader), "QTE-M-NONE-01");
         assertThatThrownBy(() -> validator.validate(deck))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -217,7 +220,7 @@ class DeckValidatorTest {
     @Test
     void リーダーはメインデッキに入れられない() {
         CardMaster leader = firstLeaderOf(Civilization.WATER);
-        DeckDefinition deck = replaceOneMainCard(presetDeck(leader), "QTE-M-WATER-15"); // 流転の智者
+        DeckDefinition deck = replaceOneMainCard(sampleDeck(leader), "QTE-M-WATER-15"); // 流転の智者
         assertThatThrownBy(() -> validator.validate(deck))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("リーダーはメインデッキに入れられません");
@@ -235,14 +238,9 @@ class DeckValidatorTest {
                         civilization + " のリーダーが見つからない"));
     }
 
-    /** プリセット(DeckFactory)から、検証層に渡せる形のデッキファイルを組み立てる */
-    private DeckDefinition presetDeck(CardMaster leader) {
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        deckFactory.createMainDeck(leader).forEach(id -> counts.merge(id, 1, Integer::sum));
-        List<DeckDefinition.Entry> main = counts.entrySet().stream()
-                .map(e -> new DeckDefinition.Entry(e.getKey(), e.getValue()))
-                .toList();
-        return new DeckDefinition("テスト", leader.id(), main, deckFactory.createTabooDeck(leader));
+    /** 検証層に渡せる形のデッキファイルを組み立てる(★Batch 66: 出どころはカードマスタ) */
+    private DeckDefinition sampleDeck(CardMaster leader) {
+        return SampleDecks.deckFor(cards, leader);
     }
 
     /** メインデッキの1枚だけを差し替える(合計40枚を保つ) */
@@ -250,7 +248,7 @@ class DeckValidatorTest {
      * メインデッキの1枚を {@code cardId} に差し替える。合計40枚は保つ。
      *
      * <p>★<b>Batch 60: 差し込むカードが既にデッキに居る場合に対応した。</b>
-     * 60 でプリセットを Ver1.1 化した結果、その文明のカードは<b>ほぼ全種類がプリセットに入った</b> ——
+     * 60 でプリセットを Ver1.1 化した結果、その文明のカードは<b>ほぼ全種類がデッキに入った</b> ——
      * 「デッキに無いカードを1枚足す」が成り立たなくなり、
      * 行が重複して {@code DeckValidator} に弾かれていた。
      * 既にある行なら枚数を1増やし、無ければ行を足す。

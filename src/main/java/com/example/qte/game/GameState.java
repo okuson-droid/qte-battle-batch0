@@ -91,6 +91,20 @@ public class GameState {
         this.player2 = player2;
     }
 
+    /**
+     * この試合のプレイヤーか(★Batch 66)。
+     *
+     * <p>★<b>「観戦者かどうか」の判断はここが正である。</b>部屋の受付({@code GameRoom} の席)は
+     * <b>試合が始まる前の帳簿</b>であり、盤面の持ち主を決めているのは
+     * この2人の {@code playerId} である。観戦者の判定を受付側で行うと、
+     * 同じ問いに答えが2つできる(設計判断28) ——
+     * 実際、66 の作業中に試験用の足場(席を持たない部屋)が
+     * <b>プレイヤーを観戦者と判定させて</b>落ちた。
+     */
+    public boolean hasPlayer(String playerId) {
+        return player1.getPlayerId().equals(playerId) || player2.getPlayerId().equals(playerId);
+    }
+
     public PlayerState playerOf(String playerId) {
         if (player1.getPlayerId().equals(playerId)) {
             return player1;

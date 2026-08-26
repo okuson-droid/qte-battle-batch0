@@ -5,7 +5,7 @@
   1. package 宣言とディレクトリの一致
   3. コード中のカードIDがカードマスタに実在するか
   5. メソッド参照の解決(actions. effects. stats. guards. の呼び出し先が存在するか)
-  6. デッキプリセットの合計枚数と同名制限
+  6. デッキプリセットが退役していること(★Batch 66)
 """
 import json
 import re
@@ -125,39 +125,31 @@ if bad:
     failures.append('メソッド参照')
 
 # ---------------------------------------------------------------
-# 6. デッキプリセットの合計枚数と同名制限
+# 6. ★★Batch 66: デッキプリセットの検査を退役させた
+#
+#   65 まで、この節は DeckFactory の静的マップ(6文明ぶんのスターター40枚 +
+#   禁忌2本)を読み、合計枚数と同名制限を数えていた。
+#
+#   ★66 でプリセットデッキそのものが退役した。通常モードは<b>デッキファイル必須</b>になり、
+#     配るデッキが1本も無くなったためである(マスター指示)。
+#   ★数える相手が消えた検査は、残しても「プリセットを1件も検出できませんでした」と
+#     言い続けるだけである。使い手を失った器はそのバッチで撤去する(裁定178)。
+#
+#   ★<b>失われた保証</b>: 「40枚・同名4枚以内」をコードのデータに対して数える場所は
+#     これで無くなった。ただし同じ規則は DeckValidator が<b>実際に持ち込まれる
+#     デッキファイル全部</b>に当てており(そちらが本番の門である)、
+#     DeckValidatorTest / Batch66LobbyTest が本物の入口から測っている。
 # ---------------------------------------------------------------
 print()
-print('=== 6. デッキプリセットの合計枚数と同名制限 ===')
+print('=== 6. デッキプリセット(★Batch 66 で退役) ===')
 deck_src = (JAVA / 'com/example/qte/game/DeckFactory.java').read_text(encoding='utf-8')
-# ★Batch 46b: 同名4枚の例外を撤廃した。Ver1.1 の本文から
-# 「このカードは4枚以上入れられる」が消えており、該当は235枚中0枚である。
-# 例外の集合そのものを空にしておくと、復活したときにここが落ちる。
-UNLIMITED = set()
-bad = 0
-# DeckFactory はプリセットを静的マップで持つ。XXX.put("QTE-xxxx", n) を定数名ごとに集計する
-presets = {}
-for m in re.finditer(r'(\w+)\.put\(\s*"(QTE-[\w-]+)"\s*,\s*(\d+)\s*\)', deck_src):
-    presets.setdefault(m.group(1), Counter())[m.group(2)] += int(m.group(3))
-if not presets:
-    print('  ★ プリセットを1件も検出できませんでした(DeckFactoryの書式が変わった可能性)')
-    bad += 1
-for name, counts in sorted(presets.items()):
-    total = sum(counts.values())
-    is_taboo = 'TABOO' in name.upper()
-    expected = 8 if is_taboo else 40
-    limit = 1 if is_taboo else 4
-    status = 'OK' if total == expected else '★'
-    if total != expected:
-        bad += 1
-    print(f'  {status} {name}: 合計 {total} 枚 (期待 {expected})')
-    for cid, cnt in counts.items():
-        if cnt > limit and cid not in UNLIMITED:
-            print(f'      ★ 同名制限違反: {cid} が {cnt} 枚 (上限 {limit})')
-            bad += 1
-print(f'  → 問題 {bad} 件')
-if bad:
-    failures.append('デッキプリセット')
+leftovers = re.findall(r'(\w+)\.put\(\s*"(QTE-[\w-]+)"\s*,\s*(\d+)\s*\)', deck_src)
+if leftovers:
+    # ★退役の消し残りを見張る番人に作り替えた。「無いこと」を測る側に回っている
+    print(f'  ★ DeckFactory にプリセットの記述が {len(leftovers)} 行残っている')
+    failures.append('デッキプリセットの消し残り')
+else:
+    print('  OK: プリセットは退役済み(デッキはファイルから読む)')
 
 print()
 print('=' * 50)

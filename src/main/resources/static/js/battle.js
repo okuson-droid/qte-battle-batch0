@@ -31,6 +31,15 @@ let latestView = null;
 let selectedAttackerId = null;
 
 /**
+ * ★★Batch 66: 自分が誰であるか。
+ *
+ * 65 まではサーバがページ生成時に埋め込む const だった。66 からは
+ * localStorage(復帰)か席選択画面(初回)が決めるので、決まるまで null である。
+ * ★観戦者の id もここに入る —— 配信の宛先はプレイヤーと同じ形だからである。
+ */
+let PLAYER_ID = null;
+
+/**
  * 対象選択の進行状態。
  * { action: 'play-card'|'special-summon', handIndex, specs: [要求...],
  *   collected: [確定済み選択...], current: {handIndexes:[], minionIds:[]} }
@@ -92,7 +101,11 @@ client.onConnect = () => {
 };
 
 client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)');
-client.activate();
+
+// ★★Batch 66: 接続の開始は「0) 在席」の末尾へ移した(startViewerSession)。
+//   ここに置くと、まだ評価されていない const(OCCUPANT_STORAGE_KEY)を掴んで
+//   ReferenceError になる —— 詳しくは 0 章の末尾に書いた。
+
 // ★Batch 42: カード定義(文明色・効果テキスト)。失敗しても対戦は続けられる
 loadCardLibrary();
 
@@ -133,6 +146,294 @@ document.addEventListener('keydown', (e) => {
 function setConnectionStatus(text) {
     document.getElementById('connection-status').textContent = text;
 }
+
+// ---------------------------------------------------------------
+// ★★★0) 在席(Batch 66)
+// ---------------------------------------------------------------
+//
+// ★手動モードの manual-battle.js「0) 在室」を通常モードへ写したものである。
+//   写した理由は 21b と同じ ——<b>盤面ページの直リンクで来た人にも、
+//   必ず席選択を通させたい</b>。分岐で守ると、経路が増えるたびに漏れる。
+//
+// ★★<b>通常モードにはゲートが2枚ある。</b>
+//   1枚目が席選択(手動モードと同じ)、2枚目が<b>デッキの読み込み</b>である。
+//   後者は手動モードに無い —— あちらは盤面の入れ物なので、デッキが無くても遊べる。
+//   通常モードはサーバが山札を配るので、デッキが無いと試合そのものが作れない。
+//
+// ★★★<b>復帰の鍵は localStorage である。</b>65 まで、通常モードの playerId は
+//   URL のクエリに載っていた(/rooms/{id}/play?playerId=...)。あの形は
+//   <b>URL を共有すると相手の席として入れてしまう</b>うえ、URL を失うと戻れなかった。
+
+const OCCUPANT_STORAGE_KEY = `qte-auto-occupant-${ROOM_ID}`;
+
+let gateResolve = null;
+
+function gateEl(id) {
+    return document.getElementById(id);
+}
+
+function loadSavedOccupant() {
+    try {
+        const raw = localStorage.getItem(OCCUPANT_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return parsed && parsed.playerId ? parsed : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function saveOccupant(playerId, displayName) {
+    localStorage.setItem(OCCUPANT_STORAGE_KEY, JSON.stringify({ playerId, displayName }));
+}
+
+function showGateError(message) {
+    const box = gateEl('seat-gate-error');
+    box.textContent = message;
+    box.classList.remove('d-none');
+}
+
+function clearGateError() {
+    gateEl('seat-gate-error').classList.add('d-none');
+}
+
+function setGateBusy(busy) {
+    for (const button of gateEl('seat-gate-buttons').querySelectorAll('button')) {
+        button.disabled = busy || button.dataset.occupied === 'true';
+    }
+}
+
+/**
+ * 席ボタンの状態を1箇所で決める。
+ *
+ * ★埋まっている席のボタンは無効化し、在席者名を出す。
+ * 「押せるが失敗する」より「押せないと分かる」ほうが速い。
+ * 無効の理由は dataset.occupied に残す —— setGateBusy が通信中の一時的な無効化と
+ * 取り違えて、埋まっている席まで有効に戻してしまわないようにするためである。
+ *
+ * ★★<b>対戦が始まった部屋では両席とも押せない</b>(通常モードだけの条件)。
+ * 手動モードには「始まる」という状態が無いのでこの分岐も無い。
+ */
+function applyGateSeats(summary) {
+    const names = { A: summary.seatAName, B: summary.seatBName };
+    for (const seatId of ['A', 'B']) {
+        const button = gateEl('seat-gate-' + seatId.toLowerCase());
+        const name = names[seatId];
+        const occupied = !!name || summary.started;
+        button.dataset.occupied = occupied ? 'true' : 'false';
+        button.disabled = occupied;
+        button.textContent = name
+            ? `席${seatId}: ${name}`
+            : (summary.started ? `席${seatId}(対戦中)` : `席${seatId}に座る`);
+    }
+    const spectate = gateEl('seat-gate-spectate');
+    // ★観戦を許さない部屋では観戦ボタンを出さない。届く宛先が存在しないためである
+    spectate.classList.toggle('d-none', !summary.spectatorAllowed);
+    spectate.dataset.occupied = 'false';
+}
+
+/** 入室前の席選択。決着(入室成功)まで盤面は描かない。 */
+function openJoinGate(summary) {
+    gateEl('seat-gate-room').textContent = summary.roomName || '(名称未設定)';
+    gateEl('seat-gate-code').textContent = ROOM_ID;
+    gateEl('seat-gate-name-wrap').classList.remove('d-none');
+    gateEl('seat-gate-buttons').classList.remove('d-none');
+    clearGateError();
+    applyGateSeats(summary);
+    gateEl('seat-gate').classList.remove('d-none');
+    return new Promise((resolve) => { gateResolve = resolve; });
+}
+
+/** 部屋が見つからない等、席選択そのものが成立しないとき。 */
+function showGateFatal(message) {
+    gateEl('seat-gate-room').textContent = '入れませんでした';
+    gateEl('seat-gate-code').textContent = ROOM_ID;
+    gateEl('seat-gate-name-wrap').classList.add('d-none');
+    gateEl('seat-gate-buttons').classList.add('d-none');
+    showGateError(message);
+    gateEl('seat-gate').classList.remove('d-none');
+}
+
+gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
+    const button = e.target.closest('button');
+    if (!button || button.disabled) return;
+    // ★観戦ボタンには data-seat が無い。null が「席に着かない」を表す
+    const seat = button.dataset.seat || null;
+    const name = gateEl('seat-gate-name').value.trim();
+    // ★サーバも同じ検証をする(GameRoom.join)。ここは往復を1回省く操作補助である
+    if (seat !== null && name === '') {
+        showGateError('席に着くには名前が必要です');
+        return;
+    }
+    clearGateError();
+    setGateBusy(true);
+    try {
+        const res = await fetch(`/auto/api/rooms/${ROOM_ID}/occupants`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ displayName: name || null, seat, spectate: seat === null }),
+        });
+        if (!res.ok) throw new Error((await res.json()).message || '入室できませんでした');
+        const data = await res.json();
+        saveOccupant(data.playerId, data.displayName);
+        gateEl('seat-gate').classList.add('d-none');
+        gateResolve(data.playerId);
+    } catch (err) {
+        showGateError(err.message);
+        setGateBusy(false);
+    }
+});
+
+/** playerId を確定させてから解決する。localStorage にあればそれを使い、無ければ席選択へ。 */
+async function resolveViewer() {
+    const saved = loadSavedOccupant();
+    if (saved) {
+        // ★復帰は席選択を経ない。同じ人が同じ席へ戻るだけだからである
+        return saved.playerId;
+    }
+    const res = await fetch(`/auto/api/rooms/${ROOM_ID}`);
+    if (!res.ok) {
+        throw new Error((await res.json()).message || '部屋が見つかりません');
+    }
+    return openJoinGate(await res.json());
+}
+
+// ---------------------------------------------------------------
+// ★★★0-2) デッキ読み込みのゲート(Batch 66)
+// ---------------------------------------------------------------
+//
+// ★★<b>プリセット(おまかせ)が退役したので、デッキはここで必ず読む。</b>
+//   65 まではロビーのフォームが受け取っており、選ばなければ文明ごとの
+//   プリセットデッキが配られていた。66 はその配布をやめた(マスター指示)。
+//
+// ★<b>相手待ちの画面も兼ねる。</b>両席がデッキを読み終えて初めて試合が生成される
+//   (GameRoom.bothReady)。片方だけ読み終えて沈黙するのが、いちばん分かりにくい。
+
+/** 席に着いている人か。★観戦者は席が null である */
+function viewerSeat() {
+    return latestView && latestView.room ? latestView.room.viewerSeat : null;
+}
+
+function viewerIsSpectator() {
+    return !!(latestView && latestView.room && latestView.room.viewerSpectator);
+}
+
+function seatSummaryLine(view) {
+    const room = view.room;
+    if (!room) return '';
+    const line = (label, seat) => {
+        if (!seat || !seat.name) return `${label}: 空き`;
+        return `${label}: ${seat.name}${seat.deckLoaded ? '(デッキ読込済)' : '(デッキ待ち)'}`;
+    };
+    return line('席A', room.seatA) + ' / ' + line('席B', room.seatB);
+}
+
+/**
+ * デッキゲートの出し入れ。★render から毎回呼ばれる(状態はビューが持つ)。
+ *
+ * ★<b>観戦者には出さない。</b>観戦者にデッキは無い。
+ * ★<b>試合が始まったら出さない。</b>山札はもう配られており、載せ替えても効かない
+ *   (サーバも断る。LobbyController.importDeck)。
+ */
+function renderDeckGate(view) {
+    const gate = gateEl('deck-gate');
+    const waiting = view.status === 'WAITING' && !viewerIsSpectator() && !!viewerSeat();
+    gate.classList.toggle('d-none', !waiting);
+    if (!waiting) return;
+    gateEl('deck-gate-code').textContent = view.roomId;
+    gateEl('deck-gate-seat').textContent = '席' + viewerSeat();
+    gateEl('deck-gate-seats').textContent = seatSummaryLine(view);
+    const mine = viewerSeat() === 'A' ? view.room.seatA : view.room.seatB;
+    const file = gateEl('deck-gate-file');
+    if (mine && mine.deckLoaded) {
+        file.classList.add('d-none');
+        gateEl('deck-gate-status').textContent =
+            '読み込み済みです。相手がデッキを読み込むと対戦が始まります。';
+    } else {
+        file.classList.remove('d-none');
+        if (!file.dataset.busy) {
+            gateEl('deck-gate-status').textContent =
+                'デッキメーカーで保存したデッキファイル(.json)を選んでください。';
+        }
+    }
+}
+
+function showDeckGateError(message) {
+    const box = gateEl('deck-gate-error');
+    box.textContent = message;
+    box.classList.remove('d-none');
+}
+
+gateEl('deck-gate-file').addEventListener('change', (e) => {
+    const input = e.target;
+    const file = input.files && input.files[0];
+    if (!file) return;
+    gateEl('deck-gate-error').classList.add('d-none');
+    input.dataset.busy = '1';
+    gateEl('deck-gate-status').textContent = '読み込み中...';
+    const reader = new FileReader();
+    reader.onload = async () => {
+        try {
+            // ★中身の検査はサーバがする(DeckFileReader → DeckValidator)。
+            //   ここで枚数を数えると、規則が2箇所に割れる(裁定130)
+            const res = await fetch(
+                `/auto/api/rooms/${ROOM_ID}/deck?playerId=${encodeURIComponent(PLAYER_ID)}`,
+                { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: reader.result });
+            if (!res.ok) throw new Error((await res.json()).message || 'デッキを読み込めませんでした');
+            const data = await res.json();
+            gateEl('deck-gate-status').textContent =
+                `${data.deckName} / ${data.leaderName} / メイン${data.mainCount}枚・禁忌${data.tabooCount}枚`;
+            // ★配信を待たずに自分で閉じない。サーバのビューが「読み込み済み」を
+            //   運んでくるまで開けておく —— 画面が自分で状態を決めると、
+            //   失敗した読み込みでも閉じてしまう
+            send('ready', {});
+        } catch (err) {
+            showDeckGateError(err.message);
+            gateEl('deck-gate-status').textContent =
+                'デッキメーカーで保存したデッキファイル(.json)を選んでください。';
+        } finally {
+            delete input.dataset.busy;
+            input.value = '';
+        }
+    };
+    reader.readAsText(file);
+});
+
+// ---------------------------------------------------------------
+// ★★★0-3) 接続の開始(Batch 66)
+// ---------------------------------------------------------------
+//
+// ★★<b>ここに置く理由がある。</b>65 までは PLAYER_ID をサーバがページ生成時に
+//   埋め込んでいたので、スクリプトの先頭(1章)で activate() してよかった。
+//   66 からは localStorage か席選択画面が決めるので、決まるまで待つ。
+//
+// ★★★<b>66 の作業中に踏んだ穴</b>: この呼び出しを 1章(接続)にそのまま残したところ、
+//   resolveViewer が <b>まだ評価されていない const</b>(OCCUPANT_STORAGE_KEY)を掴んで
+//   ReferenceError を投げた。JavaScript の const は「宣言より前では触れない」
+//   (一時的死角)からである。関数宣言は巻き上がるので<b>呼べてしまう</b> ——
+//   呼べるのに中身が死んでいる、といういちばん見えにくい形になる。
+//
+// ★★<b>そして下の catch がそれを飲み込んだ。</b>画面には「入れませんでした」と出るので、
+//   <b>部屋が無いときと区別が付かない</b>。実際 verify は盤面の全項目が
+//   一斉に落ちる形でしか教えてくれなかった(ゲートが盤面を覆ってクリックを吸うため)。
+//   ★<b>受け止める catch は、書いた本人の間違いも受け止める。</b>
+//     だから受け止めた中身は捨てずに console にも出す。
+function startViewerSession() {
+    resolveViewer()
+        .then((viewerId) => {
+            PLAYER_ID = viewerId;
+            client.activate();
+        })
+        .catch((e) => {
+            // ★握りつぶさない。原因が「部屋が無い」なのか「こちらの間違い」なのかは、
+            //   出しておかないと次の人には区別できない
+            console.error('在席の解決に失敗した', e);
+            showGateFatal(e.message || 'この部屋に入れませんでした');
+        });
+}
+
+startViewerSession();
 
 // ===============================================================
 // ★★★1-5) 効果音(Batch 62・裁定283〜289)
@@ -1875,8 +2176,9 @@ function render(view) {
     renderSelection();
     renderMulligan(view);
     renderLog(view.log);
+    renderDeckGate(view);
     if (!view.you) {
-        showMessage('相手の入室を待っています。部屋コードを伝えてください: ' + view.roomId);
+        showMessage(waitingMessage(view));
         return;
     }
     renderOpponent(view.opponent, view);
@@ -2010,6 +2312,26 @@ function renderMulligan(view) {
     }
 }
 
+/**
+ * 盤面がまだ無いときに出す一言(★Batch 66)。
+ *
+ * ★65 までは「相手の入室を待っています。部屋コードを伝えてください」の1通りだった。
+ * 66 は待つ理由が3つある —— 席が埋まっていない / デッキが揃っていない / 観戦者である。
+ * <b>理由が違うのに同じ文言を出すと、何を待っているのか分からない。</b>
+ */
+function waitingMessage(view) {
+    const room = view.room;
+    if (!room) return '対戦の準備を待っています。';
+    if (room.viewerSpectator) {
+        return '観戦中です。両者がデッキを読み込むと対戦が始まります。';
+    }
+    const seated = (room.seatA && room.seatA.name ? 1 : 0) + (room.seatB && room.seatB.name ? 1 : 0);
+    if (seated < 2) {
+        return '相手の入室を待っています。部屋コードを伝えてください: ' + view.roomId;
+    }
+    return '両者のデッキが揃うと対戦が始まります: ' + seatSummaryLine(view);
+}
+
 function renderHeader(view) {
     const indicator = document.getElementById('phase-indicator');
     if (view.status === 'PLAYING') {
@@ -2022,6 +2344,13 @@ function renderHeader(view) {
 }
 
 function renderControls(view) {
+    // ★★Batch 66: 観戦者には操作の導線を出さない。
+    //   ★<b>これは見た目の話であって、守りではない</b> —— 観戦者は playerId を持たないので、
+    //     画面を書き換えて操作を送っても GameState が知らない id として弾かれる。
+    //   自動進行は「自分の番に押せる操作が無いとき次のフェイズへ進む」機能であり、
+    //   自分の番を持たない観戦者には意味が無い。
+    document.getElementById('btn-auto-mode')
+        .classList.toggle('d-none', !!(view.room && view.room.viewerSpectator));
     document.getElementById('choose-order-area').classList.toggle('d-none', !view.chooseOrder);
     const controls = document.getElementById('turn-controls');
     const choosing = !!(view.you && view.you.pendingChoice);
@@ -2306,11 +2635,23 @@ function renderSelf(you, view) {
 
     const hand = document.getElementById('my-hand');
     hand.innerHTML = '';
-    (you.hand || []).forEach((card, index) => {
-        const el = createHandCardEl(card, index, view);
-        el.onclick = () => onHandCardClick(index);
-        hand.appendChild(el);
-    });
+    if (you.hand === null || you.hand === undefined) {
+        // ★★Batch 66: 観戦者には下段の手札の<b>中身が届かない</b>(相手として見えるぶんだけ)。
+        //   そこを空のままにすると「手札0枚」に見えるので、相手の帯と同じ裏面の列を出す。
+        //   ★枚数は handCount から採る —— 中身が無いことと枚数が分からないことは別である。
+        for (let i = 0; i < you.handCount; i++) {
+            const b = document.createElement('div');
+            b.className = 'auto-back';
+            fillCardBack(b);
+            hand.appendChild(b);
+        }
+    } else {
+        you.hand.forEach((card, index) => {
+            const el = createHandCardEl(card, index, view);
+            el.onclick = () => onHandCardClick(index);
+            hand.appendChild(el);
+        });
+    }
 
     // 禁忌デッキ(所有者のみ中身が届く)
     const tabooRow = document.getElementById('my-taboo');

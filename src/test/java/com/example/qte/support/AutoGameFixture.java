@@ -52,7 +52,10 @@ public final class AutoGameFixture {
         this.cards = cards;
         PlayerState me = new PlayerState("me", "わたし", cards.findById(myLeaderId));
         PlayerState you = new PlayerState("you", "あいて", cards.findById(opponentLeaderId));
-        this.room = new GameRoom("test-room");
+        // ★Batch 66: 部屋は属性(部屋名・観戦・鍵)を持つようになった。
+        //   足場が組む盤面は受付を通らないので、名前は「試験」で足りる
+        this.room = new GameRoom("test-room",
+                new com.example.qte.room.GameRoomOptions("試験", true, false));
         this.state = new GameState("test-room", me, you);
         room.setGameState(state);
         state.setStatus(GameStatus.PLAYING);

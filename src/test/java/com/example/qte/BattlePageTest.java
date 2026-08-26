@@ -2,21 +2,25 @@ package com.example.qte;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
+
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import tools.jackson.databind.ObjectMapper;
+
 /**
- * 通常モードの盤面が実際に描けることの試験(★Batch 62)。
+ * 通常モードの盤面が実際に描けることの試験(★Batch 62 で新設)。
  *
  * <h2>なぜ要るのか</h2>
  *
- * 62 で {@code battle.html} に音の設定モーダルを足した(裁定289)。
  * ★<b>Thymeleaf の書き間違いは Java のコンパイルを通る</b> ——
  * 壊れていることが分かるのは、誰かがブラウザで盤面を開いて 500 を見たときである
  * (61 で実際に踏んだ。{@code th:each} と {@code th:replace} を同じタグに書いていた)。
@@ -24,25 +28,16 @@ import org.springframework.web.context.WebApplicationContext;
  * <p>★機械検証(verify)が見ているのは<b>テンプレートから作ったハーネス</b>であって、
  * Spring がテンプレートを解決できるかではない。この2つは別のものである。
  *
- * <h2>何を測るか</h2>
+ * <h2>★Batch 66: 盤面の入口が変わった</h2>
  *
- * <ul>
- * <li>盤面が 200 で返ること(★<b>本物の入口を通る</b> ——
- *     部屋を作ってリダイレクト先を辿る。テスト専用の抜け道を作らない)</li>
- * <li>音の設定の markup が出ていること(★62 で足したもの)</li>
- * <li>★<b>JS の版数が上がっていること</b>(裁定284 の周辺。
- *     版数を上げ忘れると、古い JS を掴んだ人には音が無いままになる)</li>
- * </ul>
+ * 65 までの盤面は {@code /rooms/{id}/play?playerId=...} であり、
+ * <b>誰であるかを URL が運んでいた</b>。66 からは運ばない ——
+ * 席選択のゲートと localStorage が決める(手動モードの 19a と同じ)。
  */
 @SpringBootTest
 class BattlePageTest {
 
-    /**
-     * 部屋を作るときに選ぶリーダー(《傷痕の闘帝》)。
-     * ★リーダーの指定は<b>必須である</b>(デッキファイルを読ませない場合)。
-     * どのリーダーでもこの試験の結論は変わらないので、実装済み文明の1枚を代表に使う。
-     */
-    private static final String LEADER_CARD_ID = "QTE-M-FIRE-15";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     @Autowired
     WebApplicationContext context;
@@ -57,12 +52,17 @@ class BattlePageTest {
      * 「コントローラが 200 を返せるか」ではなく「テストが組んだ物を描けるか」を測ることになる。
      */
     private String battleHtml() throws Exception {
-        MvcResult created = mvc().perform(MockMvcRequestBuilders.post("/rooms")
-                .param("playerName", "テスト")
-                .param("leaderCardId", LEADER_CARD_ID)).andReturn();
-        String location = created.getResponse().getRedirectedUrl();
-        assertThat(location).as("部屋作成のリダイレクト先").isNotNull().contains("/play");
-        MvcResult page = mvc().perform(MockMvcRequestBuilders.get(location)).andReturn();
+        MvcResult created = mvc().perform(MockMvcRequestBuilders.post("/auto/api/rooms")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"displayName":"テスト","roomName":"盤面の確認","seat":"A"}
+                        """)).andReturn();
+        assertThat(created.getResponse().getStatus()).as("部屋作成の応答").isEqualTo(200);
+        String roomId = JSON.readTree(
+                created.getResponse().getContentAsString(StandardCharsets.UTF_8))
+                .get("roomId").asText();
+        MvcResult page = mvc().perform(
+                MockMvcRequestBuilders.get("/rooms/%s/play".formatted(roomId))).andReturn();
         assertThat(page.getResponse().getStatus()).as("盤面の応答").isEqualTo(200);
         return page.getResponse().getContentAsString();
     }
@@ -85,11 +85,38 @@ class BattlePageTest {
         assertThat(html).as("状態行").contains("id=\"sound-modal-status\"");
     }
 
+    /**
+     * ★★Batch 66: 席選択とデッキ読み込みのゲートが盤面に載っていること。
+     * <b>盤面ページ内のゲートにしてあるのは、直リンクで来た人にも必ず通させるためである。</b>
+     * ここが無いと、URL を知っているだけの人が席も名前も無しに盤面へ入る。
+     */
+    @Test
+    void 通常モードの盤面に席選択とデッキ読み込みのゲートがある() throws Exception {
+        String html = battleHtml();
+        assertThat(html).as("席選択のゲート").contains("id=\"seat-gate\"");
+        assertThat(html).as("席A").contains("id=\"seat-gate-a\"");
+        assertThat(html).as("席B").contains("id=\"seat-gate-b\"");
+        assertThat(html).as("観戦").contains("id=\"seat-gate-spectate\"");
+        assertThat(html).as("デッキ読み込みのゲート").contains("id=\"deck-gate\"");
+        assertThat(html).as("デッキファイルの入力欄").contains("id=\"deck-gate-file\"");
+    }
+
+    /**
+     * ★★Batch 66: 盤面は playerId を埋め込まない。
+     * <b>埋め込みが残っていると、URL を共有した相手が自分の席として入れる。</b>
+     */
+    @Test
+    void 通常モードの盤面はplayerIdを埋め込まない() throws Exception {
+        String html = battleHtml();
+        assertThat(html).as("PLAYER_ID の埋め込み").doesNotContain("const PLAYER_ID");
+        assertThat(html).as("ROOM_ID は今も埋め込む").contains("const ROOM_ID");
+    }
+
     @Test
     void 通常モードの盤面のJSの版数が上がっている() throws Exception {
         String html = battleHtml();
-        // ★62 で battle.js に音を足したので v=26 のままではいけない
-        assertThat(html).doesNotContain("battle.js?v=26");
+        // ★66 で battle.js に席選択とデッキ読み込みを足したので v=29 のままではいけない
+        assertThat(html).doesNotContain("battle.js?v=29");
         assertThat(html).contains("battle.js?v=");
     }
 }

@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=48)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=49)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -229,12 +229,76 @@
     </div>
 </div>
 
+<!--
+  ★★Batch 66: 席選択のゲート(手動モードの #seat-gate を通常モードへ写したもの)。
+
+  独立ページではなく盤面ページ内のゲートにしてある。こうしておくと
+  /rooms/{roomId}/play の直リンクで来た人も<b>構造的に必ずここを通る</b>
+  (「盤面の前に必ず通る」を分岐ではなく構造で保証する)。
+  localStorage に playerId がある人は素通りして即復帰する。
+
+  ★手動モードとの違いは2つである。
+    (1) 部屋の種類が無い(全公開部屋を作らないため。GameRoomOptions を参照)
+    (2) 観戦者から席への昇格が無い —— 通常モードの席は GameState の2人と
+        1対1であり、始まったあとに動かすと盤面の持ち主が消える
+-->
+<div id="seat-gate" class="auto-gate d-none">
+    <div class="auto-gate-body" role="dialog" aria-modal="true" aria-labelledby="seat-gate-room">
+        <h5 class="mb-1" id="seat-gate-room">部屋</h5>
+        <div class="small text-muted mb-2">部屋 <span id="seat-gate-code"></span></div>
+        <div id="seat-gate-error" class="alert alert-danger py-1 px-2 small d-none"></div>
+        <div class="mb-2" id="seat-gate-name-wrap">
+            <label class="form-label small mb-1" for="seat-gate-name">あなたの名前(必須)</label>
+            <input id="seat-gate-name" type="text" class="form-control form-control-sm" maxlength="20">
+        </div>
+        <div class="d-flex flex-column gap-1" id="seat-gate-buttons">
+            <button id="seat-gate-a" class="btn btn-sm btn-outline-light" data-seat="A">席Aに座る</button>
+            <button id="seat-gate-b" class="btn btn-sm btn-outline-light" data-seat="B">席Bに座る</button>
+            <button id="seat-gate-spectate" class="btn btn-sm btn-outline-info">観戦する</button>
+        </div>
+        <div class="d-flex justify-content-between mt-2">
+            <a class="btn btn-sm btn-outline-secondary" th:href="@{/auto}">ロビーへ戻る</a>
+        </div>
+    </div>
+</div>
+
+<!--
+  ★★Batch 66: デッキ読み込みのゲート。
+  席に着いた人は、デッキファイルを読み込むまで盤面へ進めない
+  (プリセット「おまかせ」が退役したので、デッキの出どころはファイル1つだけである)。
+  ★<b>相手が読み終わるのを待つ画面でもある</b> —— 両席が読み終わって初めて試合が生成される
+  (GameRoom.bothReady)。片方だけ読み終わって沈黙するのがいちばん分かりにくい。
+-->
+<div id="deck-gate" class="auto-gate d-none">
+    <div class="auto-gate-body auto-gate-wide" role="dialog" aria-modal="true"
+         aria-labelledby="deck-gate-title">
+        <h5 class="mb-1" id="deck-gate-title">デッキファイルを読み込む</h5>
+        <div class="small text-muted mb-2">
+            部屋 <span id="deck-gate-code"></span> / <span id="deck-gate-seat"></span>
+        </div>
+        <div id="deck-gate-error" class="alert alert-danger py-1 px-2 small d-none"></div>
+        <div class="mb-2">
+            <input type="file" id="deck-gate-file" class="form-control form-control-sm" accept=".json">
+            <div class="form-text" id="deck-gate-status">
+                デッキメーカーで保存したデッキファイル(.json)を選んでください。
+            </div>
+        </div>
+        <div class="small mb-2" id="deck-gate-seats"></div>
+        <div class="d-flex justify-content-between mt-2">
+            <a class="btn btn-sm btn-outline-secondary" th:href="@{/auto}">ロビーへ戻る</a>
+            <a class="btn btn-sm btn-outline-info" th:href="@{/deck-maker}"
+               target="_blank" rel="noopener">デッキメーカーを開く</a>
+        </div>
+    </div>
+</div>
+
 <script th:inline="javascript">
+    // ★★Batch 66: PLAYER_ID はもうサーバから渡さない。localStorage と入室APIで
+    //   クライアント自身が決める(手動モードの 19a と同じ。battle.js の「0) 在席」を参照)。
     const ROOM_ID = /*[[${roomId}]]*/ '';
-    const PLAYER_ID = /*[[${playerId}]]*/ '';
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=29)}"></script>
+<script th:src="@{/js/battle.js(v=30)}"></script>
 </body>
 </html>

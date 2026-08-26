@@ -31,13 +31,25 @@ public class GameWsController {
     private final GameService gameService;
     private final GameBroadcaster broadcaster;
 
-    /** 入室したクライアントの購読準備完了通知。両者揃ったら試合を生成する */
+    /**
+     * 入室したクライアントの購読準備完了通知。両者揃ったら試合を生成する。
+     *
+     * <p>★<b>Batch 66: 観戦者もこれを送る。</b>観戦者に「準備完了」は無いが、
+     * 送らせないと<b>最初のビューが届くのが誰かの次の操作まで待ちになる</b>
+     * (配信は誰かが動いたときにしか起きない)。席に着いていない人は
+     * 準備の旗を立てず、{@code execute} の末尾の配信だけを受け取る。
+     * ★席にも観戦者にも見つからない id は、理由を返して弾く。
+     */
     @MessageMapping("/room/{roomId}/ready")
     public void ready(@DestinationVariable String roomId, ActionRequest request) {
         execute(roomId, request, room -> {
-            room.findSlot(request.playerId())
-                    .orElseThrow(() -> new IllegalStateException("この部屋に入室していません"))
-                    .setReady(true);
+            var slot = room.findSlot(request.playerId()).orElse(null);
+            if (slot == null) {
+                room.findSpectator(request.playerId()).orElseThrow(
+                        () -> new IllegalStateException("この部屋に入室していません"));
+                return;
+            }
+            slot.setReady(true);
             gameService.startIfBothReady(room);
         });
     }

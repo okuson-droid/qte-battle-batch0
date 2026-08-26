@@ -7,6 +7,7 @@ import com.example.qte.game.view.GameView;
 import com.example.qte.game.view.GameViewBuilder;
 import com.example.qte.room.GameRoom;
 import com.example.qte.room.PlayerSlot;
+import com.example.qte.room.Spectator;
 
 import lombok.RequiredArgsConstructor;
 
@@ -43,13 +44,27 @@ public class GameBroadcaster {
         }
     }
 
-    /** 部屋の全プレイヤーに、それぞれの視点のビューを配信する */
+    /**
+     * 部屋の全員に、それぞれの視点のビューを配信する。
+     *
+     * <p>★<b>Batch 66: 観戦者も宛先になった。</b>観戦者ぶんの絞り込みは
+     * {@code GameViewBuilder} が1本で行う —— この層が「観戦者にはこれを送らない」を
+     * 判断しはじめると、フィルタが配信層とビルダー層に割れる(設計判断9)。
+     * <b>ここの仕事は「誰に送るか」だけであり、「何を見せるか」ではない。</b>
+     */
     public void broadcast(GameRoom room) {
         for (PlayerSlot slot : room.getSlots()) {
-            GameView view = viewBuilder.build(room, slot.getPlayerId());
-            messagingTemplate.convertAndSend(destinationOf(room.getRoomId(), slot.getPlayerId()),
-                    WsMessage.ofView(view));
+            sendViewTo(room, slot.getPlayerId());
         }
+        for (Spectator spectator : room.getSpectators()) {
+            sendViewTo(room, spectator.spectatorId());
+        }
+    }
+
+    private void sendViewTo(GameRoom room, String viewerId) {
+        GameView view = viewBuilder.build(room, viewerId);
+        messagingTemplate.convertAndSend(destinationOf(room.getRoomId(), viewerId),
+                WsMessage.ofView(view));
     }
 
     /** 特定プレイヤーへのエラー通知(ルール違反の操作を拒否したとき) */

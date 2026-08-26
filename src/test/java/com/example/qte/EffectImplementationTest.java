@@ -9,14 +9,16 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
+import com.example.qte.deck.DeckValidator;
 import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectImplementation;
 import com.example.qte.effect.StatCalculator;
-import com.example.qte.game.DeckFactory;
 import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardType;
+import com.example.qte.master.Civilization;
+import com.example.qte.support.SampleDecks;
 
 /**
  * 「効果未実装」の印の判定({@link EffectImplementation})の試験(★Batch 47 で新設)。
@@ -47,8 +49,6 @@ class EffectImplementationTest {
     @Autowired
     CardMasterRepository cards;
 
-    @Autowired
-    DeckFactory deckFactory;
 
     // ------------------------------------------------------------------
     // 枚数(裁定162 の例外。人が決めた数を置く)
@@ -478,7 +478,12 @@ class EffectImplementationTest {
     // ------------------------------------------------------------------
 
     /**
-     * ★<b>プリセットに載っていることは実装済みの根拠にならない</b>(裁定175 の続き)。
+     * ★<b>デッキに入れられることは実装済みの根拠にならない</b>(裁定175 の続き)。
+     *
+     * <p>★★<b>Batch 66: 走査の対象をプリセットから「デッキに入れられる全カード」へ広げた。</b>
+     * 65 まではここが {@code DeckFactory} のプリセットデッキ(6文明ぶん)を読んでいた。
+     * プリセットは 66 で退役したが、<b>測っていた性質は消えていない</b> ——
+     * むしろ対象は広がった。プリセットに載っていなかったカードもここを通る。
      *
      * 46b までの数え方は「Java のどこかにIDが書いてあれば実装済み」だったので、
      * {@code DeckFactory} に書かれた1行のせいで印が消えるカードがあった。
@@ -490,33 +495,31 @@ class EffectImplementationTest {
      * 50 でスペル側の試験に起きたこと(裁定209)が、そのままミニオン側にも起きたのである。
      * <b>「まだ未実装であること」を題材にした試験は、種別を問わず必ず陳腐化する。</b>
      *
-     * <p>代わりに測るのは、プリセットに現れるカードが<b>特別扱いされていないこと</b>である。
-     * 登録にも宣言にも無いカードが1枚でもプリセットに紛れていれば、それには印が付く。
-     * ★1枚も紛れていない状態(=プリセットが全部実装済み)も正しい答えなので、
+     * <p>代わりに測るのは、デッキに入れられるカードが<b>特別扱いされていないこと</b>である。
+     * 登録にも宣言にも無いカードが1枚でもあれば、それには印が付く。
+     * ★1枚も無い状態(=デッキに入るカードが全部実装済み)も正しい答えなので、
      * ここでは非空を要求しない —— 代わりに「プリセットを実際に読んだ」ことのほうを確かめる
      * (裁定186: 仕事をしていないことを自分で区別できなければならない)。
      */
     @Test
-    void プリセットに載っていることは実装済みの根拠にならない() {
-        List<CardMaster> leaders = cards.getAllCards().stream()
-                .filter(c -> c.type() == CardType.LEADER).toList();
+    void デッキに入れられることは実装済みの根拠にならない() {
         int inspected = 0;
-        for (CardMaster leader : leaders) {
-            for (String cardId : deckFactory.createMainDeck(leader)) {
+        for (Civilization civ : DeckValidator.implementedCivilizations()) {
+            for (CardMaster card : SampleDecks.deckableOf(cards, civ)) {
                 inspected++;
-                CardMaster card = cards.findById(cardId);
                 if (!CardTextKeywords.hasEffectSentence(card.text())
-                        || effects.isRegistered(cardId)
-                        || EffectImplementation.ruleSideCards().contains(cardId)) {
+                        || effects.isRegistered(card.id())
+                        || EffectImplementation.ruleSideCards().contains(card.id())) {
                     continue;
                 }
                 assertThat(implementation.isUnimplemented(card))
                         .as(card.name() + " は登録にも宣言にも無いので、"
-                                + "プリセットに載っていても印が付かなければならない")
+                                + "デッキに入れられても印が付かなければならない")
                         .isTrue();
             }
         }
-        assertThat(inspected).as("プリセットデッキを実際に読んだ(空振りでないこと)").isPositive();
+        assertThat(inspected).as("デッキに入れられるカードを実際に読んだ(空振りでないこと)")
+                .isPositive();
     }
 
     /**

@@ -21,6 +21,8 @@ import com.example.qte.master.CardMasterRepository;
 import com.example.qte.master.CardTextKeywords;
 import com.example.qte.master.Keyword;
 import com.example.qte.room.GameRoom;
+import com.example.qte.room.PlayerSlot;
+import com.example.qte.room.SeatId;
 
 import lombok.RequiredArgsConstructor;
 
@@ -47,13 +49,32 @@ public class GameViewBuilder {
      */
     private final com.example.qte.effect.EffectImplementation implementation;
 
-    /** viewerId のプレイヤーに配信するビューを組み立てる */
+    /**
+     * viewerId の人に配信するビューを組み立てる。
+     *
+     * <p>★<b>Batch 66: viewerId は「席に着いた人」とは限らない。</b>
+     * 観戦者({@code Spectator})の id もここへ来る。観戦者に見せるのは
+     * <b>両席とも「相手として見えるぶん」だけ</b>である ——
+     * つまり手札の中身も裏向きマナの中身も禁忌デッキの中身も入らない。
+     * ★これは新しい規則ではなく、{@link #buildPlayerView} の
+     * {@code isSelf = false} をそのまま両側に当てただけである。
+     * 観戦専用の「見せてよい範囲」を書き足すと、
+     * <b>フィルタが2本になった時点でどちらかが必ず遅れる</b>(設計判断9)。
+     */
     public GameView build(GameRoom room, String viewerId) {
+        PlayerSlot viewerSlot = room.findSlot(viewerId).orElse(null);
+        RoomView roomView = buildRoomView(room, viewerSlot);
         GameState state = room.getGameState();
         if (state == null) {
-            // 対戦相手の入室待ち: 盤面はまだ存在しない
+            // 席の埋まり待ち / デッキの読み込み待ち: 盤面はまだ存在しない
             return new GameView(room.getRoomId(), GameStatus.WAITING.name(), 0, null, null,
-                    false, false, false, null, null, null, List.copyOf(room.getLog()));
+                    false, false, false, null, roomView, null, null,
+                    List.copyOf(room.getLog()));
+        }
+        // ★観戦者かどうかは<b>盤面が知っている</b>(GameState.hasPlayer)。
+        //   部屋の席は試合が始まる前の帳簿であり、同じ問いに答えを2つ持たせない
+        if (!state.hasPlayer(viewerId)) {
+            return buildSpectatorView(room, state, roomView);
         }
         PlayerState you = state.playerOf(viewerId);
         PlayerState opponent = state.opponentOf(viewerId);
@@ -79,9 +100,64 @@ public class GameViewBuilder {
                 chooseOrder,
                 mulligan,
                 winnerName,
+                roomView,
                 buildPlayerView(state, you, true, myTurn),
                 buildPlayerView(state, opponent, false, myTurn),
                 List.copyOf(room.getLog()));
+    }
+
+    /**
+     * 観戦者のビュー(★Batch 66)。
+     *
+     * <p>★下段({@code you})が<b>席A</b>、上段({@code opponent})が<b>席B</b>である。
+     * 観戦者に「自分」は無いので、どちらを下に置くかは決めの問題になる ——
+     * 決めを毎回変えると、観戦者が2人いるときに違う盤面を見ることになる。
+     * 席は不変(座り直しは無い)なので、席で固定すれば必ず同じ絵になる。
+     *
+     * <p>★{@code myTurn} は必ず false である。攻撃可否・使用可否のハイライトは
+     * すべて {@code attackerSide = isSelf && viewerTurn} から生えているので、
+     * これだけで<b>観戦者の画面には操作の導線が1つも出ない</b>。
+     * ★<b>それでも守っているのはサーバである</b> —— 観戦者は playerId を持たないので、
+     * 仮に画面を書き換えて操作を送っても {@code state.playerOf} が知らない id を弾く。
+     */
+    private GameView buildSpectatorView(GameRoom room, GameState state, RoomView roomView) {
+        PlayerState seatA = state.getPlayer1();
+        PlayerState seatB = state.getPlayer2();
+        String winnerName = state.getWinnerPlayerId() == null ? null
+                : state.playerOf(state.getWinnerPlayerId()).getDisplayName();
+        return new GameView(
+                room.getRoomId(),
+                state.getStatus().name(),
+                state.getTurnNumber(),
+                state.getPhase().name(),
+                state.getPhase().getDisplayName(),
+                false,
+                false,
+                false,
+                winnerName,
+                roomView,
+                buildPlayerView(state, seatA, false, false),
+                buildPlayerView(state, seatB, false, false),
+                List.copyOf(room.getLog()));
+    }
+
+    /** 受付の情報(★Batch 66)。盤面の有無によらず同じ組み立てを通る */
+    private RoomView buildRoomView(GameRoom room, PlayerSlot viewerSlot) {
+        return new RoomView(
+                room.getOptions().name(),
+                room.getOptions().spectatorAllowed(),
+                room.spectatorCount(),
+                seatView(room, SeatId.A),
+                seatView(room, SeatId.B),
+                viewerSlot == null ? null : viewerSlot.getSeat().name(),
+                viewerSlot == null);
+    }
+
+    private RoomView.SeatView seatView(GameRoom room, SeatId seat) {
+        return room.slotOfSeat(seat)
+                .map(s -> new RoomView.SeatView(
+                        s.getDisplayName(), s.isDeckLoaded(), s.isReady()))
+                .orElseGet(RoomView.SeatView::empty);
     }
 
     private PlayerView buildPlayerView(GameState state, PlayerState player, boolean isSelf, boolean viewerTurn) {

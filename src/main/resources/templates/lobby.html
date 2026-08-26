@@ -1,6 +1,18 @@
 <!DOCTYPE html>
-<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<html lang="ja" data-bs-theme="dark" xmlns:th="http://www.thymeleaf.org">
 <head>
+    <!--
+      ★★Batch 66: 通常モードのロビーを手動モードの形へ揃えた(マスター指示)。
+      揃えたのは4つ —— 暗色・部屋一覧・部屋の属性(観戦/鍵)・デッキの受け取り位置。
+      揃えなかったのは1つだけ ——<b>全公開(一人回し)部屋</b>。
+      理由は GameRoomOptions の Javadoc に書いた(情報の非対称そのものを壊すため)。
+
+      ★<html> の data-bs-theme="dark" は Bootstrap 5.3 の色モード切替である。
+      これだけでフォーム部品・テーブル・カードの既定色がまとめて暗色側へ寄る。
+      ただし<b>ハーネスは Bootstrap を落とす</b>ので、これに頼りきると
+      「ハーネスでだけ白いロビー」を検証することになる(31 の教訓)。
+      そのため主要な色は下の <style> に自分で書き、この属性は仕上げとして使う。
+    -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ロビー(通常対戦) — クイン・タブーエレメント</title>
@@ -14,12 +26,65 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
+    <!--
+      ★★色は手動モードのロビーと<b>同じ値</b>を使う(#212529 / #f8f9fa ほか)。
+      近い色を新しく作らない。2つの黒があると、どちらが正か分からなくなる。
+      ★battle.css には書かない。あれは盤面とデッキメーカーの共有ファイルであり、
+        ロビーは読み込んでいない。読み込ませると共有範囲が理由なく広がる。
+      ★★これは manual-lobby.html の <style> の<b>複製である</b>(裁定111 と同じ形)。
+        共有 CSS にしなかったのは、版数の系統を増やさないためである(62・65 と同じ判断)。
+        ★そのかわり verify が<b>両方のロビーの実測色を突き合わせる</b>(裁定130)。
+    -->
+    <style>
+        /* ★スクロールバー・フォーム部品の既定色をブラウザ側にも伝える */
+        :root { color-scheme: dark; }
+
+        /* ★★★Batch 66 が見つけたもの: この宣言は<b>65 まで一度も効いていなかった</b>。
+           body には class="bg-dark text-light" が付いており、
+           Bootstrap(実ページ)とハーネスのスタブ(検証)の<b>どちらにも</b> .bg-dark / .text-light がある。
+           クラスセレクタ(0,1,0)は要素セレクタ(0,0,1)に勝つので、
+           ここに書いた色は常に負けていた —— <b>値が同じだったので誰も気づかなかった</b>。
+           ★これは 65 のマナ行と同じ形である(設計判断28) ——
+             同じ性質の値を2箇所に置くと、挙動を決めるのは「意図」ではなく「詳細度」になる。
+           ★★<b>66 の壊し検証がこれを見つけた。</b>「ロビーを白背景に戻す」改変を当てても
+             検証が落ちなかった —— 落ちないのは番人が弱いからではなく、
+             <b>壊した行がそもそも効いていなかった</b>からである。
+           ★直し方は「勝てるセレクタにする」である(body.bg-dark = 0,1,1)。
+             色の値は1文字も変えていないので、見た目は 65 と同じである。 */
+        body.bg-dark { background-color: #212529; color: #f8f9fa; }
+
+        /* ★カードは本文よりわずかに明るい面にする。同じ色だと枠線だけが仕切りになり、
+           枠線を落とすCDN障害時に構造が消える */
+        .card { background-color: #2b3035; border-color: #495057; }
+        .card-header { background-color: #343a40; border-bottom-color: #495057; }
+
+        /* ★テーブルは Bootstrap が CSS 変数経由で色を決めるため、変数と実色の両方を書く。
+           変数だけだとハーネス(Bootstrap なし)で効かず、実色だけだと実ページで負ける */
+        .table { color: #f8f9fa; --bs-table-color: #f8f9fa;
+                 --bs-table-bg: transparent; --bs-table-border-color: #495057; }
+
+        .form-control, .form-select { background-color: #2b3035; border-color: #6c757d; color: #f8f9fa; }
+        .form-control::placeholder { color: #adb5bd; }
+
+        /* ★薄い文字は #6c757d のままだと黒地で 3.4:1 しかなく、4.5:1 の判定に落ちる。
+           盤面と同じ #adb5bd(黒地で約 7.4:1)へ寄せる */
+        .text-muted, .form-text { color: #adb5bd !important; }
+
+        a { color: #6ea8fe; }
+
+        /* ★Bootstrap の色モードは outline 系ボタンの色を暗色側へ寄せてくれない。
+           #0d6efd は黒地で 2.6:1 しかないので、ここで明るい側の青に置き換える */
+        .btn-outline-primary { color: #6ea8fe; border-color: #6ea8fe; }
+
+        /* ★エラー帯も両方の環境で同じ色になるよう、ここで固定する */
+        .alert-danger { color: #ea868f; background-color: #2c0b0e; border-color: #842029; }
+    </style>
 </head>
-<body class="bg-light">
-<div class="container py-4" style="max-width: 760px">
-    <h1 class="mb-1">クイン・タブーエレメント</h1>
+<body class="bg-dark text-light">
+<div class="container py-4" style="max-width: 900px">
+    <h1 class="mb-1">クイン・タブーエレメント — 通常対戦</h1>
     <p class="text-muted mb-3">
-        部屋を作って、表示された部屋コードを対戦相手に伝えてください。
+        カード効果の判定をアプリが行うモードです(未完成)。
         <!--/* ★Batch 63: デッキを組む場所は両モード共通のデッキメーカー1つになった
                 (通常モード専用のデッキビルダー /deck-builder は退役)。
                 ★これは Thymeleaf のパーサ水準コメントであり、配信されるHTMLには残らない ——
@@ -29,64 +94,107 @@
         <a th:href="@{/cards}">カード一覧</a> /
         <a th:href="@{/}">手動モード</a>
     </p>
+    <!--/* ★★Batch 66: デッキは必須である。プリセット(おまかせ)は退役した。
+           ★この一文がロビーに要る理由は、デッキを読み込む場所が「この画面ではない」から。
+             「どこで読ませるのか」を書いておかないと、席に着いた人が盤面で迷う。
+           ★★これは Thymeleaf のパーサ水準コメントである(素の <!-- --> ではない) ——
+             素で書くと「おまかせ」「プリセット」という<b>退役した言葉がページに出てしまい</b>、
+             「導線が残っていない」を測る試験を黙らせる(裁定114 と同じ形)。
+             ★66 の作業中に実際に踏んだ。番人が仕事をした例である。 */-->
+    <p class="text-muted small mb-3" id="deck-required-note">
+        対戦にはデッキファイルが必要である。デッキメーカーで組んで保存し、
+        席に着いたあと盤面で読み込む。
+    </p>
 
-    <div class="alert alert-danger" th:if="${errorMessage}" th:text="${errorMessage}"></div>
+    <div id="status" class="alert alert-danger d-none"></div>
 
+    <!-- ============ 部屋一覧 ============ -->
     <div class="card mb-4">
-        <div class="card-header"><strong>部屋を作る(プレイヤー1)</strong></div>
+        <div class="card-header d-flex align-items-center">
+            <strong>部屋一覧</strong>
+            <!-- ★自動ポーリングはしない。更新は手動ボタンで行う(手動モードと同じ規約) -->
+            <button id="refresh-rooms" class="btn btn-sm btn-outline-light ms-auto">更新</button>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-sm mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>部屋名</th>
+                        <th style="width:190px">席</th>
+                        <th style="width:80px">観戦</th>
+                        <th style="width:60px">鍵</th>
+                        <th style="width:80px">状態</th>
+                        <th style="width:150px"></th>
+                    </tr>
+                </thead>
+                <!-- ★部屋IDの列は無い。IDが鍵を兼ねるため一覧には出さない -->
+                <tbody id="room-list">
+                    <tr><td colspan="6" class="text-muted small">読み込み中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ============ 部屋を作る ============ -->
+    <div class="card mb-4">
+        <div class="card-header"><strong>部屋を作る</strong></div>
         <div class="card-body">
-            <form th:action="@{/rooms}" method="post" class="row g-3" onsubmit="return prepareDeck(this)">
+            <form id="create-form" class="row g-3" onsubmit="return false">
                 <div class="col-md-6">
-                    <label class="form-label">プレイヤー名</label>
-                    <input type="text" name="playerName" class="form-control" placeholder="例: オクソン">
+                    <label class="form-label" for="create-room-name">部屋名</label>
+                    <input type="text" id="create-room-name" class="form-control" maxlength="40"
+                           placeholder="例: 検証用">
+                    <div class="form-text">必須です。一覧に出る唯一の手がかりになります。</div>
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label">リーダー(デッキ未読込のとき)</label>
-                    <select name="leaderCardId" class="form-select">
-                        <option th:each="leader : ${leaders}" th:value="${leader.id}"
-                                th:text="${leader.civilization.displayName} + ' / ' + ${leader.name}">リーダー</option>
+                <div class="col-md-3">
+                    <label class="form-label" for="create-seat">自分が座る席</label>
+                    <select id="create-seat" class="form-select">
+                        <option value="A" selected>席A</option>
+                        <option value="B">席B</option>
                     </select>
                 </div>
-                <div class="col-12">
-                    <label class="form-label">デッキファイル(任意)</label>
-                    <input type="file" class="form-control" accept=".json" onchange="readDeck(this)">
-                    <div class="form-text deck-status">未選択の場合はプリセットデッキ(おまかせ)で対戦します</div>
-                    <input type="hidden" name="deckJson">
+                <div class="col-md-3">
+                    <label class="form-label" for="create-name">あなたの名前</label>
+                    <input type="text" id="create-name" class="form-control" maxlength="20"
+                           placeholder="例: オクソン">
+                    <div class="form-text">必須です。</div>
                 </div>
                 <div class="col-12">
-                    <button type="submit" class="btn btn-primary">部屋を作成して入室</button>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="create-spectator" checked>
+                        <label class="form-check-label" for="create-spectator">観戦を許可する</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="create-locked">
+                        <label class="form-check-label" for="create-locked">
+                            入室に部屋IDを要求する(IDが鍵になります)
+                        </label>
+                    </div>
+                </div>
+                <div class="col-12">
+                    <button type="submit" id="create-submit" class="btn btn-primary">部屋を作成して入室</button>
                 </div>
             </form>
         </div>
     </div>
 
+    <!-- ============ 部屋IDで直接入る ============ -->
     <div class="card">
-        <div class="card-header"><strong>部屋に入る(プレイヤー2)</strong></div>
+        <div class="card-header"><strong>部屋IDで入る</strong></div>
         <div class="card-body">
-            <form th:action="@{/rooms/join}" method="post" class="row g-3" onsubmit="return prepareDeck(this)">
+            <p class="text-muted small mb-2">
+                一覧の [入る] を押すとここに部屋IDが入ります。
+                鍵つきの部屋はIDを教わって直接打ち込んでください。
+                名前と席は次の画面で選びます。
+            </p>
+            <form id="join-form" class="row g-3" onsubmit="return false">
                 <div class="col-md-4">
-                    <label class="form-label">部屋コード</label>
-                    <input type="text" name="roomId" class="form-control text-uppercase" placeholder="ABC123" required>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">プレイヤー名</label>
-                    <input type="text" name="playerName" class="form-control">
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label">リーダー(デッキ未読込のとき)</label>
-                    <select name="leaderCardId" class="form-select">
-                        <option th:each="leader : ${leaders}" th:value="${leader.id}"
-                                th:text="${leader.civilization.displayName} + ' / ' + ${leader.name}">リーダー</option>
-                    </select>
+                    <label class="form-label" for="join-room">部屋ID</label>
+                    <input type="text" id="join-room" class="form-control text-uppercase"
+                           placeholder="ABC123" required>
                 </div>
                 <div class="col-12">
-                    <label class="form-label">デッキファイル(任意)</label>
-                    <input type="file" class="form-control" accept=".json" onchange="readDeck(this)">
-                    <div class="form-text deck-status">未選択の場合はプリセットデッキ(おまかせ)で対戦します</div>
-                    <input type="hidden" name="deckJson">
-                </div>
-                <div class="col-12">
-                    <button type="submit" class="btn btn-success">入室する</button>
+                    <button type="submit" id="join-submit" class="btn btn-success">席選択へ進む</button>
                 </div>
             </form>
         </div>
@@ -94,54 +202,179 @@
 </div>
 
 <script>
-    // デッキファイルはブラウザ側で読み取り、隠しフィールドに載せて通常のフォーム送信で届ける。
-    // 中身の正当性はサーバのDeckValidatorが判定する(ここでの確認は表示のためだけ)。
+    // ★★Batch 66: この画面は入室しない(部屋を作るときだけ例外)。
+    //   部屋を選んで盤面ページへ送るところまでを担当し、名前・席の決定と入室APIの
+    //   呼び出しは席選択画面(battle.js)が行う。手動モードの 21b と同じ役割分担である。
+    //
+    //   ★<b>デッキはこの画面で受け取らない。</b>65 まではここでファイルを読んで
+    //     隠しフィールドに載せ、部屋作成と同じ送信で届けていた。
+    //     66 からは席に着いたあと盤面で読み込む(手動モードと同じ位置・マスター指示)。
+
+    function showError(message) {
+        const box = document.getElementById('status');
+        box.textContent = message;
+        box.classList.remove('d-none');
+    }
+
+    function clearError() {
+        document.getElementById('status').classList.add('d-none');
+    }
+
+    function saveOccupant(roomId, playerId, displayName) {
+        localStorage.setItem('qte-auto-occupant-' + roomId,
+            JSON.stringify({ playerId, displayName }));
+    }
+
+    function goToRoom(roomId) {
+        location.href = '/rooms/' + roomId + '/play';
+    }
+
+    // ---- 部屋一覧 ----
+
+    function seatCell(name, seatId) {
+        return name ? `${seatId}:${name}` : `${seatId}:空き`;
+    }
 
     /**
-     * ★★Batch 63: デッキファイルの要約。欄の名前はデッキメーカーが書く形式
-     * (taboo-elemental-deck v2)に揃えてある。62 まではここが count / name を見ており、
-     * デッキメーカーで組んだデッキを選ぶと「メインNaN枚」と表示されたまま送信され、
-     * サーバに弾かれていた —— 通常モードで読み込めなかった事象の、画面側の顔である。
+     * 一覧の1行を組み立てる。
      *
-     * ★機械検証(verify 63)はこの関数を取り出して、デッキメーカーの<b>実際の書き出し</b>に
-     * 当てる。だから名前付きの関数として切り出してある(その場に書くと取り出せない)。
+     * ★★[入る] は<b>遷移しない</b>(マスター指示)。下の「部屋IDで入る」欄に
+     *   部屋IDを差し込んで焦点を移すだけである。通常モードの入室は席とデッキを伴うので、
+     *   入口を1本(部屋IDの欄 → 席選択画面)にしておくほうが迷わない。
      */
-    function deckSummary(deck) {
-        if (!deck || deck.format !== 'taboo-elemental-deck') {
-            return null;
-        }
-        const main = (deck.main || []).reduce((sum, e) => sum + (e.qty || 1), 0);
-        return { name: deck.deckName || '(名前なし)', main: main, taboo: (deck.taboo || []).length };
-    }
-
-    function readDeck(input) {
-        const form = input.closest('form');
-        const status = form.querySelector('.deck-status');
-        const hidden = form.querySelector('input[name="deckJson"]');
-        const file = input.files[0];
-        if (!file) {
-            hidden.value = '';
-            status.textContent = '未選択の場合はプリセットデッキ(おまかせ)で対戦します';
+    function renderRooms(rooms) {
+        const body = document.getElementById('room-list');
+        body.innerHTML = '';
+        if (rooms.length === 0) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td colspan="6" class="text-muted small">'
+                + '部屋がありません。下のフォームから作成してください。</td>';
+            body.appendChild(tr);
             return;
         }
-        const reader = new FileReader();
-        reader.onload = () => {
-            hidden.value = reader.result;
-            try {
-                const summary = deckSummary(JSON.parse(reader.result));
-                status.textContent = summary === null
-                    ? 'デッキメーカーで保存したデッキファイルを選んでください'
-                    : `読み込み: ${summary.name} / メイン${summary.main}枚・禁忌${summary.taboo}枚`;
-            } catch (e) {
-                status.textContent = 'このファイルはJSONとして読めません';
+        for (const room of rooms) {
+            const tr = document.createElement('tr');
+            tr.dataset.roomName = room.roomName;
+
+            const name = document.createElement('td');
+            name.textContent = room.roomName;
+            tr.appendChild(name);
+
+            const seats = document.createElement('td');
+            seats.className = 'small';
+            seats.textContent = seatCell(room.seatAName, 'A') + ' / ' + seatCell(room.seatBName, 'B');
+            tr.appendChild(seats);
+
+            const spectators = document.createElement('td');
+            spectators.className = 'small';
+            spectators.textContent = room.spectatorAllowed ? `可(${room.spectatorCount}人)` : '不可';
+            tr.appendChild(spectators);
+
+            const locked = document.createElement('td');
+            locked.className = 'small';
+            locked.textContent = room.locked ? 'あり' : '—';
+            tr.appendChild(locked);
+
+            // ★通常モードだけの列である。始まってしまった部屋には座れない(観戦はできる)
+            const started = document.createElement('td');
+            started.className = 'small';
+            started.textContent = room.started ? '対戦中' : '待機中';
+            tr.appendChild(started);
+
+            const action = document.createElement('td');
+            if (room.roomId) {
+                const btn = document.createElement('button');
+                btn.className = 'btn btn-sm btn-outline-primary room-enter';
+                btn.textContent = '入る';
+                btn.addEventListener('click', () => fillJoinRoomId(room.roomId));
+                action.appendChild(btn);
+            } else {
+                // ★鍵つき: 一覧に部屋IDが載っていない。下の欄でIDを打ってもらう
+                const hint = document.createElement('span');
+                hint.className = 'text-muted small room-locked-hint';
+                hint.textContent = 'IDが必要';
+                action.appendChild(hint);
             }
-        };
-        reader.readAsText(file);
+            tr.appendChild(action);
+            body.appendChild(tr);
+        }
     }
 
-    function prepareDeck(form) {
-        return true; // ファイル読み込みはonchangeで完了している
+    function fillJoinRoomId(roomId) {
+        const input = document.getElementById('join-room');
+        input.value = roomId;
+        input.focus();
     }
+
+    async function loadRooms() {
+        const button = document.getElementById('refresh-rooms');
+        button.disabled = true;
+        try {
+            const res = await fetch('/auto/api/rooms');
+            if (!res.ok) throw new Error('部屋一覧を取得できませんでした');
+            renderRooms(await res.json());
+            clearError();
+        } catch (e) {
+            showError(e.message);
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    document.getElementById('refresh-rooms').addEventListener('click', loadRooms);
+    loadRooms();
+
+    // ---- 部屋を作る ----
+
+    document.getElementById('create-form').addEventListener('submit', async () => {
+        const button = document.getElementById('create-submit');
+        button.disabled = true;
+        try {
+            const roomName = document.getElementById('create-room-name').value.trim();
+            const name = document.getElementById('create-name').value.trim();
+            // ★サーバも同じ検証をする(GameRoomOptions / GameRoom.join)。
+            //   ここでの検査は往復を1回省く操作補助にすぎない(設計判断27)
+            if (roomName === '') throw new Error('部屋名を入力してください');
+            if (name === '') throw new Error('名前を入力してください');
+            const res = await fetch('/auto/api/rooms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    displayName: name,
+                    roomName: roomName,
+                    spectatorAllowed: document.getElementById('create-spectator').checked,
+                    requireRoomId: document.getElementById('create-locked').checked,
+                    seat: document.getElementById('create-seat').value,
+                }),
+            });
+            if (!res.ok) throw new Error((await res.json()).message || '部屋を作成できませんでした');
+            const data = await res.json();
+            // 作成者はこの時点で席に着いている。席選択画面は localStorage を見て素通りする
+            saveOccupant(data.roomId, data.playerId, data.displayName);
+            goToRoom(data.roomId);
+        } catch (e) {
+            showError(e.message);
+            button.disabled = false;
+        }
+    });
+
+    // ---- 部屋IDで入る ----
+
+    document.getElementById('join-form').addEventListener('submit', async () => {
+        const button = document.getElementById('join-submit');
+        button.disabled = true;
+        try {
+            const roomId = document.getElementById('join-room').value.trim().toUpperCase();
+            if (roomId === '') throw new Error('部屋IDを入力してください');
+            // ★存在確認だけ先に済ませる。入室(名前・席)は次の画面で行う
+            const res = await fetch('/auto/api/rooms/' + encodeURIComponent(roomId));
+            if (!res.ok) throw new Error((await res.json()).message || '部屋が見つかりません');
+            goToRoom(roomId);
+        } catch (e) {
+            showError(e.message);
+            button.disabled = false;
+        }
+    });
 </script>
 </body>
 </html>

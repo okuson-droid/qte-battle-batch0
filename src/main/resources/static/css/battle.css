@@ -175,7 +175,11 @@
    ★:focus ではなく :focus-visible である。マウスでボタンを押しただけの
      ときに枠が出るのは、22 のクリック規約(左=見る)の邪魔になる。 */
 .info-modal-body :focus-visible,
-.manual-gate-body :focus-visible {
+.manual-gate-body :focus-visible,
+/* ★Batch 66: 通常モードの席選択・デッキ読み込みのゲートも同じ見え方にする。
+   ★<b>新しい規則を書いたのではなく、同じ規則の宛先を1つ増やしただけ</b>である ——
+     ここで .auto-gate-body 用の outline を別に書くと、値が2つになる(設計判断28)。 */
+.auto-gate-body :focus-visible {
     outline: 2px solid #ffd166;
     outline-offset: 1px;
 }
@@ -559,17 +563,28 @@ body.manual-drag-active .manual-band {
 /* 席選択ゲート(設計書 2-1)。
    ★z-index は帯(1040)・全面表示(1050)より上に置く。入室が済むまで盤面には
    一切触らせない、という画面である以上、何かの下に潜ってはならない。 */
-.manual-gate {
+/* ★★Batch 66: 通常モードのゲート(.auto-gate)を<b>同じ宣言に相乗りさせた</b>。
+   battle.css は両モードの共有ファイルであり、ここに .auto-gate 用の似た値を
+   別に書けば「2つの黒」ができる(31・65 と同じ罠)。セレクタを1つ足すだけなら
+   値は1組のままである ——<b>複製ではなく、宛先が増えただけ</b>。 */
+.manual-gate,
+.auto-gate {
     position: fixed; inset: 0; z-index: 1060; background: rgba(0, 0, 0, 0.75);
     display: flex; align-items: center; justify-content: center;
 }
-.manual-gate-body {
+.manual-gate-body,
+.auto-gate-body {
     width: 380px; max-width: 92vw; background: #212529; color: #f8f9fa;
     border: 1px solid #495057; border-radius: 6px; padding: 16px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
 }
 /* ★埋まっている席のボタンは無効。押せないことが見て分かる必要がある(2-1) */
-.manual-gate-body button:disabled { opacity: 0.45; }
+.manual-gate-body button:disabled,
+.auto-gate-body button:disabled { opacity: 0.45; }
+
+/* ★Batch 66: 通常モードのゲートは席選択とデッキ読み込みの2枚を切り替える。
+   幅はデッキの読み込み結果(デッキ名・リーダー名・枚数)が入るぶんだけ広い */
+.auto-gate-body.auto-gate-wide { width: 460px; }
 
 /* 在室者チップ列(2-3)。クリックでポップオーバーが開くことを見せる */
 .manual-occupant-chips { cursor: pointer; }

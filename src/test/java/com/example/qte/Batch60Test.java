@@ -3,7 +3,6 @@ package com.example.qte;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -11,19 +10,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-import com.example.qte.deck.DeckValidator;
 import com.example.qte.effect.CardEffectRegistry;
-import com.example.qte.effect.EvolutionSpec;
 import com.example.qte.effect.TargetChoice;
-import com.example.qte.game.DeckFactory;
 import com.example.qte.game.GameService;
 import com.example.qte.game.ManaCard;
 import com.example.qte.game.MinionInstance;
 import com.example.qte.game.PlayerState;
-import com.example.qte.master.CardMaster;
 import com.example.qte.master.CardMasterRepository;
-import com.example.qte.master.CardType;
-import com.example.qte.master.Civilization;
 import com.example.qte.support.AutoGameFixture;
 
 /**
@@ -98,8 +91,6 @@ class Batch60Test {
     @Autowired
     CardMasterRepository cards;
 
-    @Autowired
-    DeckFactory decks;
 
     private AutoGameFixture newGame(String myLeaderId) {
         AutoGameFixture f = new AutoGameFixture(cards, myLeaderId, PLAIN_LEADER);
@@ -221,94 +212,18 @@ class Batch60Test {
     }
 
     // ==================================================================
-    // プリセットデッキの Ver1.1 化(旧 P5 の積み残し)
+    // ★★Batch 66: プリセットデッキの3件をここから外した。
     //
-    //   46b で Ver1.1(235枚)へ移ったあとも、プリセットは Ver0.4 の169枚のままだった。
-    //   P5 が終わったので、6文明とも「その文明の新カード10種」を全部入れてある。
+    //   60 は「プリセットが6文明とも Ver1.1 の新カード10種と進化3種を積み、
+    //   進化の素材が同じデッキに居ること」を測っていた。
+    //   ★<b>66 でプリセットデッキそのものが退役した</b>(通常モードはデッキファイル必須)。
+    //   測る相手が消えたので、試験も一緒に外す —— 残すと
+    //   「今も配られているデッキがある」と次に読む人に思わせる(裁定178・196)。
+    //
+    //   ★<b>失われた保証を書き残しておく</b>: 「新カードが実際にデッキへ入る形になっているか」
+    //   を確かめる場所は、これで無くなった。デッキを組むのは人間(デッキメーカー)であり、
+    //   組まれたデッキが検証を通ることは DeckValidatorTest が測っている。
     // ==================================================================
-
-    @Test
-    void プリセットは6文明とも新カード10種をすべて積んでいる() {
-        Map<Civilization, List<String>> missing = new LinkedHashMap<>();
-        for (Civilization civ : DeckValidator.implementedCivilizations()) {
-            List<String> deck = decks.createMainDeck(leaderOf(civ));
-            List<String> notIncluded = cards.findByCivilization(civ).stream()
-                    .filter(c -> c.type() != CardType.LEADER)
-                    .filter(c -> newInVer11(c.id()))
-                    .map(CardMaster::id)
-                    .filter(id -> !deck.contains(id))
-                    .toList();
-            if (!notIncluded.isEmpty()) {
-                missing.put(civ, notIncluded);
-            }
-        }
-        assertThat(missing).as("プリセットに入っていない Ver1.1 の新カード").isEmpty();
-    }
-
-    @Test
-    void プリセットは6文明とも進化ミニオンを3種積んでいる() {
-        for (Civilization civ : DeckValidator.implementedCivilizations()) {
-            List<String> deck = decks.createMainDeck(leaderOf(civ));
-            List<String> evolutions = deck.stream().distinct()
-                    .filter(id -> cards.findById(id).type() == CardType.EVOLUTION)
-                    .toList();
-            assertThat(evolutions).as(civ + " の進化ミニオン").hasSize(3);
-        }
-    }
-
-    /**
-     * ★<b>進化を入れただけでは足りない。</b>素材条件を満たすミニオンが同じデッキに居なければ、
-     * その進化は<b>手札で死ぬ</b>(裁定166 が 46b〜51 に進化をデッキから弾いていた理由そのもの)。
-     * 素材の述語はサーバが持っているので、それをそのまま当てて確かめる。
-     *
-     * <p>★<b>禁忌デッキも数える。</b>《海淵獣ゾクシム》の素材は「水文明<b>ではない</b>ミニオン1体」で、
-     * メインデッキはリーダーと同じ文明しか入らない(総合ルール1-2)以上、
-     * 素材は<b>禁忌デッキから来るしかない</b>。
-     * ★この1枚が、禁忌デッキ(1-3: リーダーと異なる文明8枚)を前提に設計されている証拠である ——
-     * メインだけ見て「素材が居ない」と判断すると、カードのほうを疑ってしまう。
-     */
-    @Test
-    void プリセットの進化ミニオンには素材にできる仲間が同じデッキに居る() {
-        Map<String, String> orphan = new LinkedHashMap<>();
-        for (Civilization civ : DeckValidator.implementedCivilizations()) {
-            CardMaster leader = leaderOf(civ);
-            List<String> deck = new java.util.ArrayList<>(decks.createMainDeck(leader));
-            deck.addAll(decks.createTabooDeck(leader));
-            List<MinionInstance> candidates = deck.stream().distinct()
-                    .map(cards::findById)
-                    .filter(c -> c.type() == CardType.MINION || c.type() == CardType.EVOLUTION)
-                    .map(c -> new MinionInstance(c, 1))
-                    .toList();
-            for (String id : deck.stream().distinct().toList()) {
-                EvolutionSpec spec = effects.evolutionOf(id);
-                if (spec == null) {
-                    continue;
-                }
-                long usable = candidates.stream()
-                        .filter(m -> !m.getMaster().id().equals(id))
-                        .filter(spec.material())
-                        .count();
-                if (usable < spec.minMaterials()) {
-                    orphan.put(id + " " + cards.findById(id).name(), spec.description());
-                }
-            }
-        }
-        assertThat(orphan).as("素材にできる仲間が同じデッキに1体も居ない進化ミニオン").isEmpty();
-    }
-
-    /** Ver1.1 で増えた66枚か(番号30〜39 が新カードの並びである) */
-    private boolean newInVer11(String cardId) {
-        return cards.findById(cardId).text() != null
-                && java.util.regex.Pattern.compile("-(3[0-9])$").matcher(cardId).find();
-    }
-
-    /** その文明の最初のリーダー(プリセットは文明で選ばれるので、どれでもよい) */
-    private CardMaster leaderOf(Civilization civ) {
-        return cards.findByCivilization(civ).stream()
-                .filter(c -> c.type() == CardType.LEADER)
-                .findFirst()
-                .orElseThrow();
-    }
 
     // ==================================================================
     // 277. 神風の大号令(QTE-M-WIND-12)—— マスター裁定277(a)

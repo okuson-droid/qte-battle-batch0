@@ -1,5 +1,6 @@
-harness.html
-harness-lobby.html
-harness-deckmaker.html
+# ★★Batch 66: ハーネスは build_harness.py が原本から作る生成物である。
+#   ★65 まで1枚ずつ書いていたので、66 で harness-auto-lobby.html を足したとき
+#     <b>ここへの追記を忘れて未追跡ファイルとして現れた</b>。
+#   ★名前の形で書けば、次にハーネスが増えても書き足し忘れが起きない。
+harness*.html
 layout*.png
-harness-battle.html

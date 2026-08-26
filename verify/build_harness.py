@@ -43,6 +43,18 @@ html = html.replace(
 )
 
 
+def _strip_parser_comments(text):
+    """Thymeleaf のパーサ水準コメント <!--/* ... */--> を落とす(★Batch 66)。
+
+    ★これは飾りではない。実ページでは Thymeleaf がこれを<b>配信前に消す</b>ので、
+      落とさないハーネスは<b>実ページより多くの文字を持つ</b>ことになる。
+      66 で実際に踏んだ —— 「退役した言葉(おまかせ・プリセット)がページに残っていない」を
+      ハーネスで測ったら、テンプレートのコメントに書いた言葉を拾って落ちた。
+      ★ハーネスは「実ページと同じ物」でなければ、測った結果が実ページの保証にならない(31 の教訓)。
+    """
+    return re.sub(r"<!--/\*.*?\*/-->", "", text, flags=re.S)
+
+
 def _sub_once(text, pattern, replacement, what):
     """Thymeleaf のリンクを実ファイルの相対パスへ書き換える(★Batch 60)。
 
@@ -201,6 +213,7 @@ stub = """
 """
 html = html.replace("</head>", stub + "</head>")
 
+html = _strip_parser_comments(html)
 OUT.write_text(html, encoding="utf-8")
 print(f"wrote {OUT} ({len(html)} bytes)")
 
@@ -261,8 +274,37 @@ lobby = lobby.replace(
     "    function goToRoom(roomId) {\n        location.href = '/manual/battle/' + roomId;\n    }",
     "    function goToRoom(roomId) {\n        window.__navigated.push(roomId);\n    }",
 )
+lobby = _strip_parser_comments(lobby)
 LOBBY_OUT.write_text(lobby, encoding="utf-8")
 print(f"wrote {LOBBY_OUT} ({len(lobby)} bytes)")
+
+# ---------------------------------------------------------------------------
+# ★★Batch 66: 通常モードのロビー(lobby.html)のハーネス。
+#
+# ★手動モードのロビーと<b>同じスタブを当てる</b>。65 までの通常モードのロビーは
+#   白背景の HTML フォーム2枚であり、比べる相手が無かった。66 で形を揃えたので、
+#   同じ下地に載せて<b>両者の実測を突き合わせられる</b>ようになった(裁定130)。
+# ★遷移の差し替えも手動モードと同じ形にしてある(実際に遷移すると検証が続かない)。
+# ---------------------------------------------------------------------------
+AUTO_LOBBY_TEMPLATE = ROOT / "src/main/resources/templates/lobby.html"
+AUTO_LOBBY_OUT = pathlib.Path(__file__).resolve().parent / "harness-auto-lobby.html"
+
+auto_lobby = AUTO_LOBBY_TEMPLATE.read_text(encoding="utf-8")
+auto_lobby = auto_lobby.replace(
+    '<link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">',
+    "",
+)
+auto_lobby = re.sub(r'\s+th:href="[^"]*"', ' href="#"', auto_lobby)
+auto_lobby = auto_lobby.replace("</head>", lobby_stub + "</head>")
+auto_lobby = _sub_once(
+    auto_lobby,
+    r"    function goToRoom\(roomId\) \{\n        location\.href = '/rooms/' \+ roomId \+ '/play';\n    \}",
+    "    function goToRoom(roomId) {\n        window.__navigated.push(roomId);\n    }",
+    "lobby.html の goToRoom",
+)
+auto_lobby = _strip_parser_comments(auto_lobby)
+AUTO_LOBBY_OUT.write_text(auto_lobby, encoding="utf-8")
+print(f"wrote {AUTO_LOBBY_OUT} ({len(auto_lobby)} bytes)")
 
 # ---------------------------------------------------------------------------
 # ★★★Batch 39: デッキメーカー(manual-deck-maker.html)のハーネス。
@@ -283,6 +325,7 @@ deck = _sub_once(
 )
 deck = re.sub(r'\s+th:href="[^"]*"', ' href="#"', deck)
 deck = deck.replace(' th:inline="none"', "")
+deck = _strip_parser_comments(deck)
 DECK_OUT.write_text(deck, encoding="utf-8")
 print(f"wrote {DECK_OUT} ({len(deck)} bytes)")
 
@@ -321,8 +364,16 @@ battle = _sub_once(
     '<script src="/js/battle.js"></script>',
     "battle.html の battle.js",
 )
-battle = battle.replace("/*[[${roomId}]]*/ ''", "'TESTRM'")
-battle = battle.replace("/*[[${playerId}]]*/ ''", "'P1'")
+battle = _sub_once(
+    battle,
+    r"/\*\[\[\$\{roomId\}\]\]\*/ ''",
+    "'TESTRM'",
+    "battle.html の ROOM_ID",
+)
+# ★★Batch 66: battle.html はもう playerId を埋め込まない(席選択画面が決める)。
+#   65 まではここに playerId を差し込む replace があったが、単純な文字列置換なので
+#   <b>テンプレートが変わっても黙って0件になる</b>。_sub_once で書き直したうえで、
+#   在席は下のスタブが localStorage に先置きする(手動モードのハーネスと同じ形)。
 battle = battle.replace('th:text="${roomId}">------', ">TESTRM")
 battle = re.sub(r'\s+th:href="[^"]*"', ' href="#"', battle)
 
@@ -357,6 +408,23 @@ battle_stub = """
          padding: 4px 10px; border-radius: 4px; cursor: pointer; }
   .alert { padding: 8px 12px; border-radius: 6px; background: #2a2f34;
            border: 1px solid #495057; }
+  /* ★Batch 66: 席選択・デッキ読み込みのゲートが使う Bootstrap ユーティリティ。
+     代替に漏れがあると「ハーネスでだけ壊れる」(20c 以来の罠) */
+  .flex-column { flex-direction: column; }
+  .gap-1 { gap: 4px; }
+  .justify-content-between { justify-content: space-between; }
+  .mb-0 { margin-bottom: 0; }
+  .py-1 { padding-top: 4px; padding-bottom: 4px; }
+  .px-2 { padding-left: 8px; padding-right: 8px; }
+  .form-label { display: block; }
+  .form-control { width: 100%; box-sizing: border-box; background: #2b3035;
+                  color: #f8f9fa; border: 1px solid #6c757d; }
+  .form-control-sm { font-size: 0.875em; }
+  .form-text { color: #adb5bd; }
+  .btn-outline-info { color: #6edff6; border: 1px solid #6edff6; background: transparent; }
+  .btn-outline-light { color: #f8f9fa; border: 1px solid #f8f9fa; background: transparent; }
+  .btn-outline-secondary { color: #dee2e6; border: 1px solid #6c757d; background: transparent; }
+  .alert-danger { color: #ea868f; background-color: #2c0b0e; border: 1px solid #842029; }
 </style>
 <script>
   window.__sent = [];
@@ -374,8 +442,19 @@ battle_stub = """
       }
     },
   };
+  // ★★Batch 66: 席選択のゲートを開かせないため、在席を先に保存しておく
+  //   (手動モードのハーネスが qte-manual-occupant-TESTRM でやっているのと同じ)。
+  //   ★?seatgate を付けたときだけ<b>触らない</b> —— 触らない=検証側が localStorage を
+  //     操作して「初回(席選択が開く)」を作れる、という意味である。
+  if (!new URLSearchParams(location.search).has('seatgate')) {
+    localStorage.setItem('qte-auto-occupant-TESTRM',
+        JSON.stringify({ playerId: 'P1', displayName: 'テスト' }));
+  } else {
+    localStorage.removeItem('qte-auto-occupant-TESTRM');
+  }
 </script>
 """
 battle = battle.replace("</head>", battle_stub + "</head>")
+battle = _strip_parser_comments(battle)
 BATTLE_OUT.write_text(battle, encoding="utf-8")
 print(f"wrote {BATTLE_OUT} ({len(battle)} bytes)")

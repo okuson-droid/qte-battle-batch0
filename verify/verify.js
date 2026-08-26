@@ -32,6 +32,29 @@ const ROOM_LIST = [
   { roomId: 'CCC333', roomName: 'たいせん', type: 'VERSUS', spectatorAllowed: true,
     locked: false, seatAName: 'あかり', seatBName: 'ばんり', spectatorCount: 2 },
 ];
+/**
+ * ★★Batch 66: 通常モードの部屋一覧 API(`/auto/api/rooms`)の応答。
+ *
+ * 手動モードの {@link ROOM_LIST} と<b>形が違う</b> —— 通常モードには
+ * 部屋の「種類」が無く(全公開部屋を作らない)、代わりに `started`(対戦中か)がある。
+ * ★<b>ここを手動モードと同じ形にしてはいけない。</b>同じにすると、
+ * 揃えるべきでないところまで揃っていることを検証が保証してしまう。
+ */
+const AUTO_ROOM_LIST = [
+  { roomId: 'AAA111', roomName: 'あいてる部屋', spectatorAllowed: true,
+    locked: false, seatAName: null, seatBName: null, spectatorCount: 0, started: false },
+  { roomId: null, roomName: 'かぎつき対戦', spectatorAllowed: false,
+    locked: true, seatAName: 'あかり', seatBName: null, spectatorCount: 0, started: false },
+  { roomId: 'CCC333', roomName: 'たいせん', spectatorAllowed: true,
+    locked: false, seatAName: 'あかり', seatBName: 'ばんり', spectatorCount: 2, started: true },
+  // ★★盤面のハーネスが名乗る部屋(harness-battle.html の ROOM_ID)。
+  //   ★<b>これが無いと席選択ゲートは「入れませんでした」の顔になる</b> ——
+  //     開いてはいるので「ゲートが開く」だけを見る検証は通ってしまい、
+  //     席のボタンを1つも測らないまま合格になる(66 の作業中に実際に踏んだ)。
+  { roomId: 'TESTRM', roomName: 'ハーネスの部屋', spectatorAllowed: true,
+    locked: false, seatAName: 'あかり', seatBName: null, spectatorCount: 0, started: false },
+];
+
 const RES = path.join(ROOT, 'src/main/resources');
 
 /**
@@ -139,8 +162,23 @@ function startServer() {
       res.end(JSON.stringify(ROOM_LIST));
       return;
     }
+    // ★★Batch 66: 通常モードのロビーも実際に一覧APIを叩く(手動モードと同じ形)
+    if (url === '/auto/api/rooms') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(AUTO_ROOM_LIST));
+      return;
+    }
+    // ★部屋1件(「部屋IDで入る」の存在確認と、盤面の席選択ゲートが読む)
+    if (url.startsWith('/auto/api/rooms/')) {
+      const id = url.slice('/auto/api/rooms/'.length);
+      const found = AUTO_ROOM_LIST.find((r) => r.roomId === id);
+      res.writeHead(found ? 200 : 400, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(found || { message: '部屋が見つかりません: ' + id }));
+      return;
+    }
     let file;
     if (url === '/harness-lobby.html') file = path.join(__dirname, 'harness-lobby.html');
+    else if (url === '/harness-auto-lobby.html') file = path.join(__dirname, 'harness-auto-lobby.html');
     else if (url === '/harness-battle.html') file = path.join(__dirname, 'harness-battle.html');
     else if (url === '/harness-deckmaker.html') file = path.join(__dirname, 'harness-deckmaker.html');
     else if (url === '/' || url === '/harness.html') file = path.join(__dirname, 'harness.html');
@@ -3516,6 +3554,186 @@ async function clearZoom(page) {
   check('ロビーでJSエラーが出ない', lobbyErrors.length === 0, lobbyErrors.join(' | '));
   await lobby.close();
 
+  // ---- ★★★66. 通常モードのロビー(Batch 66・マスター指示) ----
+  //
+  // ★65 までの通常モードのロビーは白背景の HTML フォーム2枚だった。
+  //   66 で手動モードの形へ揃えたので、<b>同じ下地に載せて突き合わせられる</b>。
+  // ★★突き合わせるのは「同じコードであること」ではなく<b>同じ見え方であること</b>である
+  //   (裁定130。65 のマナ行と同じ扱い —— 複製に番人を付ける)。
+  const autoLobby = await browser.newPage({ viewport: { width: 1000, height: 900 } });
+  const autoLobbyErrors = [];
+  autoLobby.on('pageerror', (e) => autoLobbyErrors.push(String(e)));
+  autoLobby.on('console', (m) => { if (m.type() === 'error') autoLobbyErrors.push(m.text()); });
+  await autoLobby.goto(`http://127.0.0.1:${port}/harness-auto-lobby.html`);
+  await autoLobby.waitForTimeout(200);
+
+  check('★通常モードのロビーが部屋一覧を描く(66)',
+    (await autoLobby.locator('#room-list tr').count()) === AUTO_ROOM_LIST.length,
+    `rows=${await autoLobby.locator('#room-list tr').count()}`);
+  const autoLobbyText = await autoLobby.locator('#room-list').textContent();
+  check('★一覧に部屋名・席の埋まり・観戦・鍵・状態が出る(66)',
+    autoLobbyText.includes('たいせん')
+      && autoLobbyText.includes('A:あかり') && autoLobbyText.includes('B:ばんり')
+      && autoLobbyText.includes('可(2人)') && autoLobbyText.includes('不可')
+      && autoLobbyText.includes('対戦中') && autoLobbyText.includes('待機中'),
+    autoLobbyText.replace(/\s+/g, ' '));
+  check('★★通常モードの一覧にも部屋IDが1つも出ない(66・鍵つき)',
+    !autoLobbyText.includes('AAA111') && !autoLobbyText.includes('CCC333'),
+    autoLobbyText.replace(/\s+/g, ' '));
+  check('★鍵つき部屋には「入る」を出さずIDを要求する(66)',
+    (await autoLobby.locator('#room-list tr').nth(1).locator('.room-enter').count()) === 0
+      && (await autoLobby.locator('#room-list tr').nth(1).locator('.room-locked-hint').count()) === 1);
+
+  // ★★[入る] は<b>遷移しない</b>(マスター指示)。下の欄へ部屋IDを差し込むだけである
+  await autoLobby.locator('#room-list tr').first().locator('.room-enter').click();
+  await autoLobby.waitForTimeout(40);
+  check('★★「入る」は遷移せず入室欄へ部屋IDを差し込む(66・マスター指示)',
+    (await autoLobby.locator('#join-room').inputValue()) === 'AAA111'
+      && (await autoLobby.evaluate(() => window.__navigated.length)) === 0,
+    `value=${await autoLobby.locator('#join-room').inputValue()}`);
+  check('★差し込んだ欄に焦点が移る(打ち直さずに進める)',
+    (await autoLobby.evaluate(() => document.activeElement && document.activeElement.id))
+      === 'join-room');
+
+  // ★差し込まれたIDでそのまま進めること。存在確認は本物の API 経路を通る
+  await autoLobby.locator('#join-submit').click();
+  await autoLobby.waitForTimeout(80);
+  check('★入室欄から盤面ページへ送られる(66)',
+    (await autoLobby.evaluate(() => window.__navigated)).join(',') === 'AAA111');
+
+  // 部屋作成の必須項目。サーバへ行く前に画面で止める(サーバも同じ検証をする)
+  await autoLobby.locator('#create-submit').click();
+  await autoLobby.waitForTimeout(60);
+  check('★通常モードの部屋は部屋名なしで作成できない(66)',
+    (await autoLobby.locator('#status').textContent()).includes('部屋名'),
+    await autoLobby.locator('#status').textContent());
+  await autoLobby.locator('#create-room-name').fill('あたらしい対戦');
+  await autoLobby.locator('#create-submit').click();
+  await autoLobby.waitForTimeout(60);
+  check('★通常モードの部屋は名前なしでも作成できない(66)',
+    (await autoLobby.locator('#status').textContent()).includes('名前'),
+    await autoLobby.locator('#status').textContent());
+
+  // ★★★2つのロビーの見え方を突き合わせる(裁定130 の番人)。
+  //   色は<b>実測</b>で比べる —— クラス名を見る判定は、代替の漏れがあっても通る(31)。
+  const autoLobbyTheme = await autoLobby.evaluate(() => ({
+    body: getComputedStyle(document.body).backgroundColor,
+    text: getComputedStyle(document.body).color,
+    card: getComputedStyle(document.querySelector('.card')).backgroundColor,
+    header: getComputedStyle(document.querySelector('.card-header')).backgroundColor,
+    muted: getComputedStyle(document.querySelector('.text-muted')).color,
+    link: getComputedStyle(document.querySelector('a')).color,
+  }));
+  check('★★通常モードのロビーの背景が盤面と同じ黒である(66)',
+    autoLobbyTheme.body === 'rgb(33, 37, 41)'
+      && autoLobbyTheme.text === 'rgb(248, 249, 250)',
+    JSON.stringify(autoLobbyTheme));
+  check('★★★2つのロビーの地色と文字色が一致する(66・裁定130 の番人)',
+    autoLobbyTheme.body === lobbyTheme.body && autoLobbyTheme.text === lobbyTheme.text,
+    JSON.stringify({ auto: autoLobbyTheme, manual: lobbyTheme }));
+
+  // ★盤面と同じ 4.5:1 をこちらの文字にも当てる(手動モードのロビーと同じ判定)
+  const autoLobbyContrast = await autoLobby.evaluate(() => {
+    const parse = (c) => {
+      const m = (c || '').match(/[\d.]+/g);
+      if (!m) return [0, 0, 0, 0];
+      const v = m.map(Number);
+      return [v[0], v[1], v[2], v.length > 3 ? v[3] : 1];
+    };
+    const bodyBg = parse(getComputedStyle(document.body).backgroundColor);
+    const eff = (el) => {
+      let n = el;
+      while (n && n !== document.documentElement) {
+        const c = parse(getComputedStyle(n).backgroundColor);
+        if (c[3] >= 0.98) return c;
+        n = n.parentElement;
+      }
+      return bodyBg;
+    };
+    const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    const L = (v) => 0.2126 * lin(v[0]) + 0.7152 * lin(v[1]) + 0.0722 * lin(v[2]);
+    const out = [];
+    const targets = ['h1', 'p', '.form-label', '.form-text', '.form-check-label',
+      'th', '#room-list td', '#room-list .room-locked-hint', '#refresh-rooms',
+      '.room-enter', '#create-submit', '#join-submit', '.card-header'];
+    for (const sel of targets) {
+      for (const el of document.querySelectorAll(sel)) {
+        const t = (el.textContent || '').trim();
+        if (!t) continue;
+        const fg = parse(getComputedStyle(el).color);
+        const bg = eff(el);
+        const ratio = (Math.max(L(fg), L(bg)) + 0.05) / (Math.min(L(fg), L(bg)) + 0.05);
+        if (ratio < 4.5) out.push({ sel, text: t.slice(0, 12), ratio: Math.round(ratio * 100) / 100 });
+      }
+    }
+    return out;
+  });
+  check('★通常モードのロビーの文字もコントラスト比 4.5:1 以上(66)',
+    autoLobbyContrast.length === 0, JSON.stringify(autoLobbyContrast));
+
+  // ★★サンプルデッキ(おまかせ)の排除。文言もプルダウンも残っていないこと
+  const autoLobbyHtml = await autoLobby.content();
+  check('★★通常モードのロビーにプリセットデッキの導線が残っていない(66・マスター指示)',
+    !autoLobbyHtml.includes('おまかせ') && !autoLobbyHtml.includes('プリセット')
+      && !autoLobbyHtml.includes('leaderCardId'),
+    'おまかせ/プリセット/leaderCardId のいずれかが残っている');
+
+  check('通常モードのロビーでJSエラーが出ない',
+    autoLobbyErrors.length === 0, autoLobbyErrors.join(' | '));
+  await autoLobby.close();
+
+  // ---- ★★★66-2. 盤面の席選択ゲート(Batch 66) ----
+  //
+  // ★★<b>ゲートを盤面ページの中に置いたのは、直リンクで来た人にも必ず通させるためである。</b>
+  //   在席が localStorage に無ければ開き、あれば開かない —— この2つを両方測る。
+  //   片方だけだと「常に開く」「常に開かない」を見分けられない(裁定186)。
+  const gatePage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const gateErrors = [];
+  gatePage.on('pageerror', (e) => gateErrors.push(String(e)));
+  await gatePage.goto(`http://127.0.0.1:${port}/harness-battle.html?seatgate`);
+  await gatePage.waitForTimeout(200);
+  const gateShown = async (page) => !(await page.locator('#seat-gate').evaluate(
+    (el) => el.classList.contains('d-none')));
+  check('★★在席が無いと席選択のゲートが開く(66)', await gateShown(gatePage));
+  check('★ゲートに部屋名と部屋IDが出る(66)',
+    (await gatePage.locator('#seat-gate-room').textContent()) === 'ハーネスの部屋'
+      && (await gatePage.locator('#seat-gate-code').textContent()) === 'TESTRM',
+    await gatePage.locator('#seat-gate-room').textContent());
+  // ★★埋まっている席は押せず、在席者名が出る。空席は押せる。
+  //   ★<b>「押せない席」と「押せる席」を両方測る</b> —— 片方だけだと
+  //     「全部押せない」「全部押せる」を見分けられない(裁定186)。
+  check('★★埋まっている席は押せず在席者名が出る / 空席は押せる(66)',
+    (await gatePage.locator('#seat-gate-a').isDisabled())
+      && (await gatePage.locator('#seat-gate-a').textContent()).includes('あかり')
+      && !(await gatePage.locator('#seat-gate-b').isDisabled()),
+    JSON.stringify({
+      a: await gatePage.locator('#seat-gate-a').textContent(),
+      b: await gatePage.locator('#seat-gate-b').textContent(),
+    }));
+  check('★観戦を許す部屋では観戦のボタンが出る(66)',
+    !(await gatePage.locator('#seat-gate-spectate').evaluate(
+      (el) => el.classList.contains('d-none'))));
+  // ★★<b>誰であるかが決まるまで PLAYER_ID は null である</b>(接続を始めない条件そのもの)。
+  //   ★__sent を見ても分からない —— ハーネスの STOMP スタブは onConnect を呼ばないので、
+  //     ready はどちらの場合も送られない。「送られていない」を根拠にすると
+  //     <b>常に通る空振りの試験</b>になる(裁定186)。
+  check('★★在席が決まるまで誰でもない(66)',
+    (await gatePage.evaluate(() => PLAYER_ID)) === null,
+    String(await gatePage.evaluate(() => PLAYER_ID)));
+  await gatePage.close();
+
+  const noGatePage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  noGatePage.on('pageerror', (e) => gateErrors.push(String(e)));
+  await noGatePage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await noGatePage.waitForTimeout(200);
+  check('★★在席があればゲートを開かない(66・復帰)',
+    !(await gateShown(noGatePage)));
+  check('★★★誰であるかは localStorage が決める(URL からは来ない)(66)',
+    (await noGatePage.evaluate(() => PLAYER_ID)) === 'P1',
+    String(await noGatePage.evaluate(() => PLAYER_ID)));
+  check('席選択まわりでJSエラーが出ない', gateErrors.length === 0, gateErrors.join(' | '));
+  await noGatePage.close();
+
   // ---- ★★Batch 36: battle.css の color-scheme(34 の質問1・マスター裁定) ----
   //
   // ★見るのは宣言そのものではなく、<b>宣言してよい条件が成り立っていること</b>である。
@@ -6674,30 +6892,71 @@ async function clearZoom(page) {
     javaFormat !== undefined && exportedDeck !== null && exportedDeck.format === javaFormat,
     JSON.stringify({ javaFormat, exported: exportedDeck && exportedDeck.format }));
 
-  // ---- 63-3. ★★★ロビーの要約を、実物の書き出しに当てる ----
+  // ---- 63-3. ★★★デッキの枚数を数えるのは<b>サーバだけ</b>である(★Batch 66 で書き直した) ----
   //
-  // ★lobby.html の deckSummary を<b>取り出して実行する</b>。ソースに count が無いことを
-  //   走査で確かめるのではなく、実際に数えさせて 40/8 が出るかを見る(裁定131)。
-  const lobbyHtml = fs.readFileSync(path.join(RES, 'templates/lobby.html'), 'utf8');
-  const summarySrc = (lobbyHtml.match(/function deckSummary\(deck\) \{[\s\S]*?\n    \}/) || [])[0];
-  const summary = summarySrc === undefined || exportedDeck === null ? null
-    : await deckPage.evaluate(([src, deck]) => {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(`${src}; return deckSummary;`)();
-      return fn(deck);
-    }, [summarySrc, exportedDeck]);
-  check('★★★ロビーの要約はデッキメーカーの書き出しを 40/8 と数える(63)',
-    summary !== null && summary.main === 40 && summary.taboo === 8,
-    JSON.stringify({ found: summarySrc !== undefined, summary }));
-  // ★形式が違うファイルには null を返す(黙って0枚と数えない)
-  const summaryOther = summarySrc === undefined ? 'x'
-    : await deckPage.evaluate((src) => {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(`${src}; return deckSummary;`)();
-      return fn({ formatVersion: 1, name: '旧', main: [{ cardId: 'X', count: 4 }] });
-    }, summarySrc);
-  check('★★旧形式のファイルを黙って0枚と数えない(63)', summaryOther === null,
-    JSON.stringify(summaryOther));
+  // ★★<b>63 が測っていたものは 66 で場所ごと消えた。</b>
+  //   63 の時点では lobby.html に deckSummary(main/taboo を数える関数)が在り、
+  //   検証はそれを取り出して実物の書き出しに当てていた。
+  //   66 でデッキの受け取りが盤面へ移り、<b>画面は中身を1枚も数えなくなった</b> ——
+  //   ファイルをそのままサーバへ渡し、返ってきた枚数を出すだけである(裁定130)。
+  //
+  // ★<b>だから測る先を変える。</b>「数える関数が正しく数えるか」ではなく
+  //   <b>「画面が数えていないこと」と「サーバの答えをそのまま出すこと」</b>を測る。
+  //   ★枚数が正しいことは JUnit(LobbyPageTest)が本物のサーバで測っている ——
+  //     ここでブラウザに数えさせたら、それは<b>2つ目の数え方</b>を作ることになる。
+  // ★★<b>この2つは既に読まれている</b>(6970 行あたりで battle.js を読む節がある)。
+  //   65 の教訓「番人が無いと思ったら、まず在るかどうかを見る」の<b>変数版</b>である ——
+  //   66 でも同じ形で踏んだ(const の二重宣言を Node が拒んで気づいた)。
+  const lobbyTemplateSrc = fs.readFileSync(path.join(RES, 'templates/lobby.html'), 'utf8');
+  const battleJsForDeck = fs.readFileSync(path.join(RES, 'static/js/battle.js'), 'utf8');
+  check('★★★ロビーはデッキの中身を数えない(66・数える場所はサーバ1つ)',
+    !/function\s+deckSummary/.test(lobbyTemplateSrc) && !/readDeck/.test(lobbyTemplateSrc),
+    'lobby.html に deckSummary / readDeck が残っている');
+  check('★★盤面もデッキの中身を数えない(66)',
+    !/function\s+deckSummary/.test(battleJsForDeck),
+    'battle.js に deckSummary が残っている');
+  // ★★<b>「送っている」ところまで測る。</b>「数えていない」だけだと、
+  //   ファイルを読み込む導線そのものが消えていても通ってしまう(裁定186)。
+  const deckPost = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const deckPostErrors = [];
+  deckPost.on('pageerror', (e) => deckPostErrors.push(String(e)));
+  await deckPost.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await deckPost.waitForTimeout(150);
+  const deckPostResult = await deckPost.evaluate(async (deck) => {
+    const sent = [];
+    const original = window.fetch;
+    window.fetch = async (url, init) => {
+      sent.push({ url: String(url), body: init && init.body });
+      return {
+        ok: true,
+        json: async () => ({
+          roomId: 'TESTRM', seat: 'A', deckName: 'サーバが答えた名前',
+          leaderName: 'サーバが答えたリーダー', mainCount: 40, tabooCount: 8,
+        }),
+      };
+    };
+    const input = document.getElementById('deck-gate-file');
+    const file = new File([JSON.stringify(deck)], 'deck.json', { type: 'application/json' });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+    await new Promise((r) => setTimeout(r, 200));
+    window.fetch = original;
+    return { sent, status: document.getElementById('deck-gate-status').textContent };
+  }, exportedDeck);
+  const deckPostCall = deckPostResult.sent.find((c) => c.url.includes('/deck?'));
+  check('★★★盤面はデッキファイルを丸ごとサーバへ送る(66)',
+    !!deckPostCall && deckPostCall.url.includes('/auto/api/rooms/TESTRM/deck')
+      && deckPostCall.body === JSON.stringify(exportedDeck),
+    JSON.stringify({ urls: deckPostResult.sent.map((c) => c.url) }));
+  check('★★画面に出る枚数はサーバが答えた値である(66・裁定130)',
+    deckPostResult.status.includes('40') && deckPostResult.status.includes('8')
+      && deckPostResult.status.includes('サーバが答えた名前'),
+    deckPostResult.status);
+  check('デッキ読み込みでJSエラーが出ない',
+    deckPostErrors.length === 0, deckPostErrors.join(' | '));
+  await deckPost.close();
 
   // ---- 63-4. ★退役したデッキビルダーのファイルが残っていない ----
   //
