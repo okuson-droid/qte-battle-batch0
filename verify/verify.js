@@ -4896,6 +4896,33 @@ async function clearZoom(page) {
     render(view);
   }, v);
 
+  /**
+   * ★★★Batch 70(裁定319): クリックからのプレイは<b>確定を挟む</b>ようになった。
+   * 42・52・54 の節はどれも「クリックしたら飛ぶ」を前提に書かれていたので、
+   * <b>払うマナを選んで確定するところまで</b>を1本にまとめて挟み直す。
+   * ★実マウスで押す —— 関数を直接呼ぶと「ボタンが出ていない」を緑にしてしまう。
+   * ★確定そのものを測るのは 42-5 と 70 系である(ここは通過点として扱う)。
+   */
+  const payAndConfirm = async () => {
+    const need = await autoPage.evaluate(() =>
+      (manaPay ? manaPay.cost - manaPay.picked.length : -1));
+    if (need < 0) return false;
+    for (let i = 0; i < need; i++) {
+      const box = await autoPage
+        .locator('#my-mana-row .mana-tile.auto-pay-candidate:not(.auto-pay-picked)')
+        .first().boundingBox();
+      await autoPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await autoPage.waitForTimeout(15);
+    }
+    // ★ボタンが出ていない実装(=確定を挟まない姿)でも検証全体を止めない
+    const btn = await autoPage.locator('#btn-confirm-pay').boundingBox();
+    if (btn) {
+      await autoPage.mouse.click(btn.x + btn.width / 2, btn.y + btn.height / 2);
+      await autoPage.waitForTimeout(40);
+    }
+    return true;
+  };
+
   // ---- 42-1. 面が .mcard で描かれ、色の正が :root にある ----
   const handView = autoView({
     you: autoPlayer({
@@ -5162,6 +5189,21 @@ async function clearZoom(page) {
     autoStates.badge.includes('凍結') && autoStates.hurt, JSON.stringify(autoStates));
 
   // ---- 42-5. 状態ロジックが生きている(playable → クリックで送信。実マウス) ----
+  // ★★Batch 70: マナが1枚も無いと「払うマナを選ぶ」段が作れないので、
+  //   この項目だけ<b>マナを置いた盤面</b>で測る(42 の handView にマナは無い)
+  const payView = autoView({
+    you: autoPlayer({
+      hand: handView.you.hand, minions: handView.you.minions,
+      availableMp: 5, totalMana: 5,
+      manaZone: Array.from({ length: 5 }, () => ({
+        faceUp: true, tapped: false, temporary: false,
+        cardId: 'QTE-M-FIRE-6', name: '炎の従者',
+      })),
+      manaPayOrder: [0, 1, 2, 3, 4],
+    }),
+    opponent: handView.opponent,
+  });
+  await autoDeliver(payView);
   const playableInfo = await autoPage.evaluate(() => {
     window.__sent.length = 0;
     const el = document.querySelector('#my-hand .auto-card');
@@ -5170,11 +5212,50 @@ async function clearZoom(page) {
   const handBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
   await autoPage.mouse.click(handBox.x + handBox.width / 2, handBox.y + handBox.height / 2);
   await autoPage.waitForTimeout(50);
+  // ★★★Batch 70(裁定319): <b>クリックだけでは送らなくなった。</b>
+  //   42 からここは「クリックしたら play-card が飛ぶ」を測っていたが、
+  //   裁定319 が「クリックからのプレイには必ず確認を挟む」と決めた ——
+  //   <b>飛ばないことも含めて</b>測り直す。
+  const beforeConfirm = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    paying: !!manaPay,
+    payKind: manaPay && manaPay.kind,
+    cost: manaPay && manaPay.cost,
+    confirmShown: !document.getElementById('btn-confirm-pay').classList.contains('d-none'),
+    confirmDisabled: document.getElementById('btn-confirm-pay').disabled,
+  }));
+  // ★払うマナを実マウスで選んでから確定する
+  const payCount = beforeConfirm.cost;
+  for (let i = 0; i < payCount; i++) {
+    const tile = await autoPage.locator('#my-mana-row .mana-tile.auto-pay-candidate')
+      .nth(i).boundingBox();
+    await autoPage.mouse.click(tile.x + tile.width / 2, tile.y + tile.height / 2);
+    await autoPage.waitForTimeout(20);
+  }
+  const payPicked = await autoPage.evaluate(() => ({
+    picked: manaPay ? manaPay.picked.length : -1,
+    disabled: document.getElementById('btn-confirm-pay').disabled,
+  }));
+  // ★同じ理由でここも守る(ボタンが無い実装に戻したときに検証全体を止めない)
+  const payBtnBox = await autoPage.locator('#btn-confirm-pay').boundingBox();
+  if (payBtnBox) {
+    await autoPage.mouse.click(payBtnBox.x + payBtnBox.width / 2,
+      payBtnBox.y + payBtnBox.height / 2);
+    await autoPage.waitForTimeout(50);
+  }
   const played = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
-  check('★★手札の playable とクリック送信が 42 でも生きている(状態ロジック無変更の証明)',
-    playableInfo.playable && played && played.destination.endsWith('/play-card')
-      && played.body.handIndex === 0,
-    JSON.stringify({ playableInfo, played }));
+  check('★★★クリックからのプレイは確定を挟む —— 押しただけでは飛ばない(★70・裁定319)',
+    playableInfo.playable && beforeConfirm.sent === 0 && beforeConfirm.paying
+      && beforeConfirm.payKind === 'PLAY' && beforeConfirm.cost === 2
+      && beforeConfirm.confirmShown && beforeConfirm.confirmDisabled === true
+      && payPicked.picked === 2 && payPicked.disabled === false,
+    JSON.stringify({ playableInfo, beforeConfirm, payPicked }));
+  check('★★確定を押すと play-card が飛び、選んだマナが載る(★70・裁定319)',
+    played && played.destination.endsWith('/play-card')
+      && played.body.handIndex === 0
+      && Array.isArray(played.body.manaIndexes) && played.body.manaIndexes.length === 2,
+    JSON.stringify(played));
+  await autoDeliver(handView);   // ★42 の続きは元の盤面で測る
 
   // ---- 42-6. 攻撃の選択(BATTLE フェイズ・実マウス) ----
   const battleView = autoView({
@@ -5347,6 +5428,10 @@ async function clearZoom(page) {
   // 禁忌カードのクリック → tabooPay 開始 → 帯が開いたまま・選択の問いが右列に出る
   await autoPage.evaluate(() => { toggleTabooRow(); });   // 開く
   await autoPage.waitForTimeout(30);
+  // ★★Batch 70: 支払い中の光りは<b>実測の色</b>で測る。比べる相手は
+  //   「同じタイルの、支払いに入る前の色」である(同じ盤面の中で比べる・裁定41)
+  const manaBorderBefore = await autoPage.evaluate(() =>
+    getComputedStyle(document.querySelector('#my-mana-row .mana-tile')).borderColor);
   const tabooCardBox = await autoPage.locator('#my-taboo .auto-card').first().boundingBox();
   await autoPage.mouse.click(tabooCardBox.x + tabooCardBox.width / 2,
     tabooCardBox.y + tabooCardBox.height / 2);
@@ -5357,17 +5442,30 @@ async function clearZoom(page) {
   const chipBox2 = await autoPage.locator('#btn-taboo-toggle').boundingBox();
   await autoPage.mouse.click(chipBox2.x + chipBox2.width / 2, chipBox2.y + chipBox2.height / 2);
   await autoPage.waitForTimeout(50);
-  const paying = await autoPage.evaluate(() => ({
-    payActive: !!tabooPay,
-    stripOpen: !document.getElementById('taboo-strip').classList.contains('d-none'),
-    prompt: document.getElementById('selection-prompt').textContent,
-    payable: document.querySelectorAll('#my-mana-row .mana-tile.taboo-payable').length,
-  }));
-  check('★★★支払い中は閉じる操作をしても帯が閉じない・マナが支払い可能に光る(43)',
-    paying.payActive && paying.stripOpen && paying.prompt.includes('禁忌コスト')
-      && paying.payable === 8,
-    JSON.stringify(paying));
-  await autoPage.evaluate(() => { cancelTabooPayment(); toggleTabooRow(); });
+  const paying = await autoPage.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#my-mana-row .mana-tile')];
+    const lit = tiles.filter(t => t.classList.contains('auto-pay-candidate'));
+    const plain = tiles.filter(t => !t.classList.contains('auto-pay-candidate'));
+    const border = (el) => getComputedStyle(el).borderColor;
+    return {
+      payActive: !!manaPay,
+      payKind: manaPay && manaPay.kind,
+      stripOpen: !document.getElementById('taboo-strip').classList.contains('d-none'),
+      prompt: document.getElementById('selection-prompt').textContent,
+      payable: lit.length,
+      // ★★★Batch 70 が見つけた穴: 43 以来この光りは .mana-chip に書かれていて、
+      //   44 でマナが .mana-tile に変わってから<b>1度も効いていなかった</b>。
+      //   ★クラスの数を数えるだけでは緑のまま素通りする —— <b>実測の色</b>で測る
+      litBorder: lit.length ? border(lit[0]) : null,
+      plainBorder: plain.length ? border(plain[0]) : null,
+    };
+  });
+  check('★★★支払い中は閉じる操作をしても帯が閉じない・マナが支払い可能に光る(43・★70 で実測に変えた)',
+    paying.payActive && paying.payKind === 'TABOO' && paying.stripOpen
+      && paying.prompt.includes('禁忌コスト') && paying.payable === 8
+      && paying.litBorder !== manaBorderBefore,
+    JSON.stringify({ paying, manaBorderBefore }));
+  await autoPage.evaluate(() => { cancelManaPayment(); toggleTabooRow(); });
 
   // ---- 45-1. ログは畳まれ、バーのクリックで全文が開き、Esc で閉じる(旧 43-5 の置き換え) ----
   const logDefault = await autoPage.evaluate(() => ({
@@ -5570,7 +5668,13 @@ async function clearZoom(page) {
   //   だからここで測るのは「送られた一覧のとおりに光るか」であって、条件の中身ではない。
   const evoView = autoView({
     you: autoPlayer({
-      availableMp: 9,
+      availableMp: 9, totalMana: 9,
+      // ★Batch 70: クリックからのプレイは払うマナを選ぶ段を通る(裁定319)
+      manaZone: Array.from({ length: 9 }, () => ({
+        faceUp: true, tapped: false, temporary: false,
+        cardId: 'QTE-M-FIRE-6', name: '炎の従者',
+      })),
+      manaPayOrder: [0, 1, 2, 3, 4, 5, 6, 7, 8],
       hand: [
         autoCard('QTE-M-WATER-30', '海淵獣シラーカ', {
           type: 'EVOLUTION', civilization: 'WATER', cost: 3, attack: 2, hp: 2,
@@ -5592,6 +5696,7 @@ async function clearZoom(page) {
   await autoPage.mouse.click(evoHandBox.x + evoHandBox.width / 2,
     evoHandBox.y + evoHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  await payAndConfirm();   // ★Batch 70(裁定319): 素材選択の手前に確定が挟まる
   const evoPick = await autoPage.evaluate(() => {
     const tiles = [...document.querySelectorAll('#my-minions .auto-card')];
     return {
@@ -5625,6 +5730,7 @@ async function clearZoom(page) {
   await autoPage.mouse.click(evoHandBox.x + evoHandBox.width / 2,
     evoHandBox.y + evoHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  await payAndConfirm();
   const evoBadBox = await autoPage.locator('#my-minions .auto-card').nth(1).boundingBox();
   await autoPage.mouse.click(evoBadBox.x + evoBadBox.width / 2,
     evoBadBox.y + evoBadBox.height / 2);
@@ -5798,6 +5904,7 @@ async function clearZoom(page) {
   await autoPage.mouse.click(soulHandBox.x + soulHandBox.width / 2,
     soulHandBox.y + soulHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  await payAndConfirm();   // ★Batch 70(裁定319)
   const soulSent = await autoPage.evaluate(() => ({
     sent: window.__sent[window.__sent.length - 1] || null,
     confirms: window.__confirms,
@@ -5813,7 +5920,22 @@ async function clearZoom(page) {
   // ★<b>キャンセルなら通常の使用に落ちる</b>(そうでない側。裁定181) ——
   //   これが無いと「賢魂を持つカードは賢魂でしか使えない」実装でも上の項目は通る。
   //   ★賢魂を持たないカードでは確認そのものが出ないことも同時に測る
-  await autoDeliver(soulView);
+  // ★★Batch 70: この項目は<b>印刷コスト5で通常使用する</b>側を測るので、
+  //   マナが5枚ある盤面で行う(soulView は禁忌の「n枚で払う」を見せるため3枚にしてある)。
+  //   ★69 までは払うマナを選ばずに送れたので3枚でも通っていた —— 裁定319 でそこが変わった
+  const soulRichView = autoView({
+    you: autoPlayer({
+      availableMp: 5, handCount: 2, hand: [soulCard, plainHandCard],
+      tabooCount: 1, taboo: [soulCard], totalMana: 5,
+      manaZone: Array.from({ length: 5 }, () => ({
+        name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10',
+        tapped: false, faceUp: true, temporary: false,
+      })),
+      manaPayOrder: [0, 1, 2, 3, 4],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(soulRichView);
   await autoPage.evaluate(() => {
     window.__confirms = [];
     window.confirm = (msg) => { window.__confirms.push(String(msg)); return false; };
@@ -5822,10 +5944,12 @@ async function clearZoom(page) {
   await autoPage.mouse.click(soulHandBox.x + soulHandBox.width / 2,
     soulHandBox.y + soulHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  await payAndConfirm();   // ★Batch 70(裁定319)。賢魂をキャンセルした先も確定を通る
   const plainHandBox = await autoPage.locator('#my-hand .auto-card').nth(1).boundingBox();
   await autoPage.mouse.click(plainHandBox.x + plainHandBox.width / 2,
     plainHandBox.y + plainHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  await payAndConfirm();
   const soulFallback = await autoPage.evaluate(() => ({
     destinations: window.__sent.map((s) => s.destination.split('/').pop()),
     confirms: window.__confirms.length,
@@ -5845,10 +5969,8 @@ async function clearZoom(page) {
     document.querySelector('#my-taboo .auto-card').click();
   });
   await autoPage.waitForTimeout(60);
-  const tabooManaBox = await autoPage.locator('#my-mana-row .mana-tile').first().boundingBox();
-  await autoPage.mouse.click(tabooManaBox.x + tabooManaBox.width / 2,
-    tabooManaBox.y + tabooManaBox.height / 2);
-  await autoPage.waitForTimeout(60);
+  // ★Batch 70(裁定319): 禁忌も自動確定をやめたので、1枚選んでから[確定]を押す
+  await payAndConfirm();
   const tabooSoulSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
   check('★★禁忌の【賢魂】は n 枚のマナを退けて play-taboo-soul へ飛ぶ(54・マスター裁定 A6)',
     !!tabooSoulSent && tabooSoulSent.destination.endsWith('/play-taboo-soul')
@@ -6519,6 +6641,438 @@ async function clearZoom(page) {
       && (midOverflow.overflowY === 'auto' || midOverflow.overflowY === 'scroll')
       && midOverflow.pageScroll <= midOverflow.innerH + 1,
     JSON.stringify(midOverflow));
+
+  // =========================================================================
+  // ★★★Batch 70: 手札からの操作を2つの入口にする(裁定315〜323)と
+  //   ホバーの取りこぼし(指摘1)
+  //
+  // ★★<b>実装の値を1つも書かない</b>(裁定41)。色は「同じ盤面の中で違うこと」、
+  //   払うマナは「サーバが送った順の先頭 n 件と一致すること」、
+  //   位置は「矩形が重ならないこと」で測る。
+  // ★★★<b>ドラッグは合成イベントを使わない</b>(19b hotfix2・20a の教訓)。
+  //   realDrag が page.mouse.down/move/up で実際に運ぶ。
+  // =========================================================================
+
+  const payMana = (n, over = {}) => Array.from({ length: n }, () => ({
+    name: 'マグマ・ストレート', cardId: 'QTE-M-FIRE-10',
+    tapped: false, faceUp: true, temporary: false, ...over,
+  }));
+  const dropHand = [
+    autoCard('QTE-M-FIRE-6', 'ドラッグ用ミニオン', { cost: 2 }),
+    autoCard('QTE-M-WATER-9', 'ドラッグ用スペル',
+      { type: 'SPELL', civilization: 'WATER', cost: 1, attack: null, hp: null }),
+    autoCard('QTE-M-DARK-13', 'ドラッグ用ウェポン',
+      { type: 'WEAPON', civilization: 'DARK', cost: 2, attack: 3, hp: null }),
+  ];
+  // ★マナは 一時1 / 裏向き1 / 表向き3。★順は<b>サーバが決めて送る</b>ものであり、
+  //   ここでは「その順のとおりに光るか」しか測らない(規則を書き写さない)
+  const dropMana = [
+    ...payMana(3),
+    { name: '裏の1枚', cardId: 'QTE-M-FIRE-6', tapped: false, faceUp: false, temporary: false },
+    { name: 'ピュア・エレメント', cardId: 'QTE-M-FIRE-6', tapped: false, faceUp: true, temporary: true },
+  ];
+  const dropView = autoView({
+    you: autoPlayer({
+      hand: dropHand, handCount: 3,
+      minions: [autoMinion('m0', '素材A'), autoMinion('m1', '素材B')],
+      manaZone: dropMana, totalMana: 5, availableMp: 5,
+      manaPayOrder: [4, 3, 0, 1, 2],   // 一時 → 裏向き → 表向き(裁定315・316)
+      tabooPayOrder: [0, 1, 2, 3],     // 表向き → 裏向き(裁定317)
+      taboo: [autoCard('QTE-M-DARK-10', '禁忌ミニオン', { civilization: 'DARK', cost: 1 })],
+      tabooCount: 1,
+      trash: [autoCard('QTE-M-FIRE-6', '墓地の1枚', { cost: 2 })], trashCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(dropView);
+
+  // ---- 70-1. ★★★ホバーの取りこぼし3箇所(指摘1・実マウス) ----
+  //   ★69 は場のミニオンと手札にしか呼び出しを足さなかった。
+  //     禁忌の帯はクラス(.auto-card-hand)まで同じなのに、<b>作る関数が別</b>だったので漏れた
+  const hoverOn = async (sel) => {
+    const box = await autoPage.locator(sel).first().boundingBox();
+    await autoPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await autoPage.waitForTimeout(450);
+    const state = await autoPage.evaluate(() => {
+      const el = document.getElementById('auto-hover');
+      const b = el.getBoundingClientRect();
+      return {
+        open: !el.classList.contains('d-none'),
+        left: el.classList.contains('auto-hover-left'),
+        name: (document.querySelector('#auto-hover-card .mcard-name') || {}).textContent || '',
+        rect: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
+      };
+    });
+    await autoPage.mouse.move(2, 2);
+    await autoPage.waitForTimeout(60);
+    return state;
+  };
+  await autoPage.evaluate(() => { tabooOpen = true; syncTabooRow(); });
+  await autoPage.waitForTimeout(40);
+  const hoverTaboo = await hoverOn('#my-taboo .auto-card');
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  await autoPage.waitForTimeout(40);
+  const hoverPile = await hoverOn('#my-piles .auto-pile:nth-child(2)');
+  check('★★★禁忌の帯とパイルの一番上にもホバープレビューが出る(70・指摘1)',
+    hoverTaboo.open && hoverTaboo.name.includes('禁忌ミニオン')
+      && hoverPile.open && hoverPile.name.includes('墓地の1枚')
+      && hoverTaboo.left === false && hoverPile.left === false,
+    JSON.stringify({ hoverTaboo, hoverPile }));
+
+  // ---- 70-2. ★★★ゾーン一覧の中では、面がモーダルに重ならない位置へ逃げる ----
+  //   ★69 の A-3 は「パイルの隣に出て自分を覆う」を心配していたが、<b>実測では外れていた</b>
+  //     (面は x:748〜980、右列は x:988〜)。実際に重なるのは<b>モーダルのほう</b>である
+  await autoPage.evaluate(() => showZoneFaces('墓地(1枚)', latestView.you.trash));
+  await autoPage.waitForTimeout(60);
+  const hoverZone = await hoverOn('.auto-zone-card');
+  const modalRect = await autoPage.evaluate(() => {
+    const b = document.querySelector('.info-modal-body').getBoundingClientRect();
+    return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+  });
+  await autoPage.evaluate(() => hideModal());
+  const overlaps = (a, b) => !(a.right <= b.left || b.right <= a.left
+    || a.bottom <= b.top || b.bottom <= a.top);
+  check('★★★ゾーン一覧でもホバーが出て、モーダル本体と重ならない(70・指摘1)',
+    hoverZone.open && hoverZone.left === true
+      && !overlaps(hoverZone.rect, modalRect),
+    JSON.stringify({ hoverZone, modalRect }));
+
+  // ---- 70-3. ★★スペルの枠は常設で、ミニオンが並んでも潰れない(裁定320) ----
+  await autoDeliver(autoView({
+    you: autoPlayer({
+      hand: dropHand, manaZone: dropMana, totalMana: 5, availableMp: 5,
+      manaPayOrder: [4, 3, 0, 1, 2],
+      minions: Array.from({ length: 6 }, (_, i) => autoMinion('f' + i, '場' + i)),
+    }),
+    opponent: autoPlayer({ displayName: 'あいて',
+      minions: Array.from({ length: 6 }, (_, i) => autoMinion('g' + i, '敵' + i)) }),
+  }));
+  const spellSlot = await autoPage.evaluate(() => {
+    const r = (sel) => {
+      const b = document.querySelector(sel).getBoundingClientRect();
+      return { left: b.left, right: b.right, top: b.top, bottom: b.bottom, w: b.width };
+    };
+    const cards = [...document.querySelectorAll('#my-minions .auto-card')];
+    return {
+      slot: r('#spell-drop'), row: r('#my-minions'), opp: r('#opp-minions'),
+      lastCardRight: cards.length ? cards[cards.length - 1].getBoundingClientRect().right : null,
+      cards: cards.length,
+      pageScroll: document.documentElement.scrollHeight, innerH: window.innerHeight,
+    };
+  });
+  check('★★スペルの枠は自分のミニオン行の右に常設され、6体並べても重ならない(70・裁定320)',
+    spellSlot.cards === 6 && spellSlot.slot.w > 0
+      && spellSlot.lastCardRight <= spellSlot.slot.left
+      && Math.abs(spellSlot.slot.right - spellSlot.opp.right) <= 1
+      && Math.abs(spellSlot.slot.top - spellSlot.row.top) <= 1
+      && spellSlot.pageScroll <= spellSlot.innerH + 1,
+    JSON.stringify(spellSlot));
+
+  // ---- 70-4. ★★★掴むと、種別に合った落とし先<b>だけ</b>が光る(裁定318) ----
+  await autoDeliver(dropView);
+  const readyFor = async (nth) => {
+    const box = await autoPage.locator('#my-hand .auto-card').nth(nth).boundingBox();
+    await autoPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await autoPage.mouse.down();
+    await autoPage.mouse.move(box.x + box.width / 2, box.y - 40, { steps: 8 });
+    await autoPage.waitForTimeout(40);
+    const ready = await autoPage.evaluate(() =>
+      ['my-minions', 'spell-drop', 'my-leader', 'my-mana-row']
+        .filter(id => document.getElementById(id).classList.contains('auto-drop-ready')));
+    const planned = await autoPage.evaluate(() =>
+      [...document.querySelectorAll('#my-mana-row .mana-tile')]
+        .map((t, i) => (t.classList.contains('auto-pay-planned') ? i : -1))
+        .filter(i => i >= 0));
+    await autoPage.mouse.up();
+    await autoPage.waitForTimeout(40);
+    return { ready, planned };
+  };
+  const dragMinion = await readyFor(0);
+  const dragSpell = await readyFor(1);
+  const dragWeapon = await readyFor(2);
+  check('★★★掴むと種別に合った落とし先だけが光る(70・裁定318)',
+    JSON.stringify(dragMinion.ready) === JSON.stringify(['my-minions'])
+      && JSON.stringify(dragSpell.ready) === JSON.stringify(['spell-drop'])
+      && JSON.stringify(dragWeapon.ready) === JSON.stringify(['my-leader']),
+    JSON.stringify({ dragMinion, dragSpell, dragWeapon }));
+
+  // ---- 70-5. ★★★払われる予定のマナは、サーバが送った順の先頭 n 件である(裁定315・316) ----
+  //   ★<b>順序をここに書き写さない。</b>ビューの manaPayOrder と突き合わせる ——
+  //     クライアントに規則を持たせたら、この検査は「同じ間違い」を2回するだけになる
+  const plannedExpect = await autoPage.evaluate(() => ({
+    order: latestView.you.manaPayOrder,
+    minionCost: latestView.you.hand[0].cost,
+    spellCost: latestView.you.hand[1].cost,
+  }));
+  check('★★★ドラッグ中に光るマナは、サーバの支払い順の先頭 n 件である(70・裁定315・316)',
+    JSON.stringify(dragMinion.planned.slice().sort())
+        === JSON.stringify(plannedExpect.order.slice(0, plannedExpect.minionCost).sort())
+      && JSON.stringify(dragSpell.planned.slice().sort())
+        === JSON.stringify(plannedExpect.order.slice(0, plannedExpect.spellCost).sort())
+      && dragMinion.planned.length === plannedExpect.minionCost,
+    JSON.stringify({ dragMinion: dragMinion.planned, dragSpell: dragSpell.planned, plannedExpect }));
+
+  // ---- 70-6. ★★★ドラッグは確認を挟まず、マナの指定を送らない(裁定321・315) ----
+  await autoDeliver(dropView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card', '#my-minions', { tx: 700 });
+  const droppedMinion = await autoPage.evaluate(() => ({
+    sent: window.__sent[window.__sent.length - 1] || null,
+    paying: !!manaPay,
+    ready: document.getElementById('my-minions').classList.contains('auto-drop-ready'),
+  }));
+  check('★★★ドラッグで落とすと確認なしでプレイされ、マナの指定は空である(70・裁定321・315)',
+    !!droppedMinion.sent && droppedMinion.sent.destination.endsWith('/play-card')
+      && droppedMinion.sent.body.handIndex === 0
+      && Array.isArray(droppedMinion.sent.body.manaIndexes)
+      && droppedMinion.sent.body.manaIndexes.length === 0
+      && droppedMinion.paying === false && droppedMinion.ready === false,
+    JSON.stringify(droppedMinion));
+
+  // ★スペルは<b>スペルの枠</b>へ、ウェポンは<b>リーダー</b>へ落ちる(裁定318)
+  await autoDeliver(dropView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card:nth-child(2)', '#spell-drop');
+  const droppedSpell = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  await autoDeliver(dropView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card:nth-child(3)', '#my-leader');
+  const droppedWeapon = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★スペルは枠へ・ウェポンはリーダーへ落ちる(70・裁定318)',
+    !!droppedSpell && droppedSpell.body.handIndex === 1
+      && !!droppedWeapon && droppedWeapon.body.handIndex === 2,
+    JSON.stringify({ droppedSpell, droppedWeapon }));
+
+  // ---- 70-7. ★★★裏向きマナが墓地送りになる禁忌は、ドラッグでも止まる(裁定317・321) ----
+  //   ★<b>裁定321 の唯一の例外である。</b>取り返しのつかない支払いは確認を挟む
+  const burnView = autoView({
+    you: autoPlayer({
+      hand: dropHand, manaZone: dropMana, totalMana: 5, availableMp: 5,
+      manaPayOrder: [4, 3, 0, 1, 2],
+      // ★裏向き(位置3)から払う順にしてある = 墓地送りが起きる盤面
+      tabooPayOrder: [3, 0, 1, 2],
+      taboo: [autoCard('QTE-M-DARK-10', '禁忌ミニオン', { civilization: 'DARK', cost: 1 })],
+      tabooCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(burnView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+  });
+  await autoPage.waitForTimeout(40);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#my-minions', { tx: 700 });
+  const burned = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    paying: !!manaPay,
+    warn: manaPay ? manaPay.warn : null,
+    prompt: document.getElementById('selection-prompt').textContent,
+    picked: manaPay ? manaPay.picked : null,
+    confirmShown: !document.getElementById('btn-confirm-pay').classList.contains('d-none'),
+  }));
+  await autoPage.evaluate(() => { cancelManaPayment(); tabooOpen = false; syncTabooRow(); });
+  check('★★★裏向きマナが墓地送りになる禁忌のドラッグは、確認で止まる(70・裁定317・321)',
+    burned.sent === 0 && burned.paying === true && !!burned.warn
+      && burned.prompt.includes('⚠') && burned.confirmShown
+      && JSON.stringify(burned.picked) === JSON.stringify([3]),
+    JSON.stringify(burned));
+
+  // ★<b>そうでない側</b>(裁定181): 表向きから払える禁忌は止まらずに飛ぶ
+  await autoDeliver(dropView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+  });
+  await autoPage.waitForTimeout(40);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#my-minions', { tx: 700 });
+  const tabooDropped = await autoPage.evaluate(() => ({
+    sent: window.__sent[window.__sent.length - 1] || null, paying: !!manaPay,
+  }));
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  check('★★表向きから払える禁忌のドラッグは止まらずに飛ぶ(70・裁定317 のそうでない側)',
+    !!tabooDropped.sent && tabooDropped.sent.destination.endsWith('/play-taboo')
+      && tabooDropped.sent.body.tabooIndex === 0
+      && tabooDropped.sent.body.manaIndexes.length === 0
+      && tabooDropped.paying === false,
+    JSON.stringify(tabooDropped));
+
+  // ---- 70-8. ★★★進化は素材の上にしか落とせない(裁定318・322) ----
+  const evoDropView = autoView({
+    you: autoPlayer({
+      manaZone: payMana(5), totalMana: 5, availableMp: 5, manaPayOrder: [0, 1, 2, 3, 4],
+      hand: [autoCard('QTE-M-WATER-30', 'ドラッグ用進化', {
+        type: 'EVOLUTION', civilization: 'WATER', cost: 3, attack: 2, hp: 2,
+        evolutionMaterialIds: ['m0'], evolutionMin: 1, evolutionMax: 1,
+        evolutionText: '水文明のミニオン1体',
+      })],
+      minions: [autoMinion('m0', '素材A'), autoMinion('m1', '素材でないB')],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(evoDropView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card', '#my-minions .auto-card:nth-child(2)');
+  const evoBad = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    message: document.getElementById('message-area').textContent,
+  }));
+  await autoDeliver(evoDropView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card', '#my-minions .auto-card:nth-child(1)');
+  const evoGood = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★★進化は素材の上に落としたときだけ通り、素材でない場所では止まる(70・裁定318・322)',
+    evoBad.sent === 0 && evoBad.message.includes('素材')
+      && !!evoGood && evoGood.destination.endsWith('/play-card')
+      && JSON.stringify(evoGood.body.materialIds) === JSON.stringify(['m0'])
+      && evoGood.body.manaIndexes.length === 0,
+    JSON.stringify({ evoBad, evoGood }));
+
+  // ---- 70-9. ★★★マナチャージ(裁定323)。フェイズで落とし先が切り替わる ----
+  const chargeView = autoView({
+    phase: 'MANA_CHARGE', phaseDisplay: 'マナチャージ',
+    you: autoPlayer({
+      hand: dropHand, manaZone: payMana(3), totalMana: 3, availableMp: 3,
+      manaPayOrder: [0, 1, 2],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(chargeView);
+  const chargeReady = await readyFor(0);
+  await autoDeliver(chargeView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card', '#my-mana-row');
+  const chargeDropped = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  // ★クリックのほうは確認を挟む(裁定323)
+  await autoDeliver(chargeView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  const chargeBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(chargeBox.x + chargeBox.width / 2, chargeBox.y + chargeBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const chargeClicked = await autoPage.evaluate(() => ({
+    sent: window.__sent.length, kind: manaPay && manaPay.kind,
+    confirmShown: !document.getElementById('btn-confirm-pay').classList.contains('d-none'),
+    disabled: document.getElementById('btn-confirm-pay').disabled,
+  }));
+  // ★確定ボタンが出ていないとき(=確認を挟まない実装に戻したとき)でも検証を止めない ——
+  //   ここで例外を投げると<b>後ろの検査が走らないまま EMPTY になる</b>(68 の教訓)
+  const chargeBtn = await autoPage.locator('#btn-confirm-pay').boundingBox();
+  if (chargeBtn) {
+    await autoPage.mouse.click(chargeBtn.x + chargeBtn.width / 2,
+      chargeBtn.y + chargeBtn.height / 2);
+    await autoPage.waitForTimeout(40);
+  }
+  const chargeConfirmed = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
+  check('★★★マナチャージフェイズは落とし先がマナゾーンに切り替わる(70・裁定323)',
+    JSON.stringify(chargeReady.ready) === JSON.stringify(['my-mana-row'])
+      && chargeReady.planned.length === 0
+      && !!chargeDropped && chargeDropped.destination.endsWith('/charge-mana')
+      && chargeDropped.body.handIndex === 0,
+    JSON.stringify({ chargeReady, chargeDropped }));
+  check('★★★クリックのマナチャージは確認を挟む(70・裁定323)',
+    chargeClicked.sent === 0 && chargeClicked.kind === 'CHARGE'
+      && chargeClicked.confirmShown && chargeClicked.disabled === false
+      && !!chargeConfirmed && chargeConfirmed.destination.endsWith('/charge-mana'),
+    JSON.stringify({ chargeClicked, chargeConfirmed }));
+
+  // ---- 70-10. ★★★「今プレイしているカード」(指摘2) ----
+  //   ★<b>ホバーとは別の要素である</b>(器を使い回すと手の動きで消える)。
+  //   ★<b>盤面のカードを覆わない</b>ことも同時に測る —— 覆うと候補が押せなくなる
+  const playingView = autoView({
+    you: autoPlayer({
+      minions: Array.from({ length: 6 }, (_, i) => autoMinion('p' + i, '場' + i)),
+      manaZone: payMana(3), totalMana: 3, availableMp: 3, manaPayOrder: [0, 1, 2],
+      pendingChoice: {
+        kind: 'MINION', min: 1, max: 1, queued: 1,
+        prompt: 'ダメージを与えるミニオンを選んでください',
+        sourceCardId: 'QTE-M-WATER-9',
+        candidates: [{ index: 0, label: '場0', keywords: [], minionInstanceId: 'p0' }],
+      },
+    }),
+    opponent: autoPlayer({ displayName: 'あいて',
+      minions: Array.from({ length: 6 }, (_, i) => autoMinion('q' + i, '敵' + i)) }),
+  });
+  await autoDeliver(playingView);
+  const playing = await autoPage.evaluate(() => {
+    const el = document.getElementById('auto-playing');
+    const b = el.getBoundingClientRect();
+    const cards = [...document.querySelectorAll('#my-minions .auto-card, #opp-minions .auto-card')];
+    const hit = cards.filter((c) => {
+      const r = c.getBoundingClientRect();
+      return !(b.right <= r.left || r.right <= b.left || b.bottom <= r.top || r.bottom <= b.top);
+    }).length;
+    return {
+      open: !el.classList.contains('d-none'),
+      name: (document.querySelector('#auto-playing-card .mcard-name') || {}).textContent || '',
+      large: !!document.querySelector('#auto-playing-card .mcard.mcard-large'),
+      separate: document.getElementById('auto-playing')
+        !== document.getElementById('auto-hover'),
+      hoverHidden: document.getElementById('auto-hover').classList.contains('d-none'),
+      covered: hit,
+      pointer: getComputedStyle(el).pointerEvents,
+    };
+  });
+  // ★手を動かしてもプレイ中の面は消えない(ホバーと同じ器なら消える)
+  const minionBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.move(minionBox.x + minionBox.width / 2, minionBox.y + minionBox.height / 2);
+  await autoPage.waitForTimeout(450);
+  const playingAfterHover = await autoPage.evaluate(() => ({
+    open: !document.getElementById('auto-playing').classList.contains('d-none'),
+    name: (document.querySelector('#auto-playing-card .mcard-name') || {}).textContent || '',
+    hoverOpen: !document.getElementById('auto-hover').classList.contains('d-none'),
+  }));
+  await autoPage.mouse.move(2, 2);
+  check('★★★問い合わせ中は「プレイ中のカード」が出て、盤面のカードを覆わない(70・指摘2)',
+    playing.open && playing.large && playing.name.includes('スプラッシュ・ドロー')
+      && playing.separate && playing.hoverHidden
+      && playing.covered === 0 && playing.pointer === 'none',
+    JSON.stringify(playing));
+  check('★★★手を動かしてもプレイ中の面は消えない(70・器をホバーと分けた理由)',
+    playingAfterHover.open && playingAfterHover.name.includes('スプラッシュ・ドロー')
+      && playingAfterHover.hoverOpen === false,
+    JSON.stringify(playingAfterHover));
+  // ★<b>そうでない側</b>: 問い合わせが無ければ出ない
+  await autoDeliver(dropView);
+  const playingGone = await autoPage.evaluate(() =>
+    document.getElementById('auto-playing').classList.contains('d-none'));
+  check('★問い合わせが無いときは「プレイ中のカード」を出さない(70・そうでない側)',
+    playingGone === true, String(playingGone));
+
+  // ---- 70-11. ★★★対象選択(MANA)の光りも実際に効いている ----
+  //   ★★<b>70 が見つけた穴の残り半分である。</b>43 の .mana-chip.mana-selectable も
+  //     44 以降どのタイルにも当たっていなかった —— クラスは付くのに光らない。
+  //     ★<b>実測の色で測る</b>(クラスの数を数えると緑のまま素通りする・設計判断45)
+  await autoDeliver(autoView({
+    you: autoPlayer({
+      manaZone: payMana(3), totalMana: 3, availableMp: 3, manaPayOrder: [0, 1, 2],
+      hand: [autoCard('QTE-M-EARTH-9', 'マナを選ばせるカード', {
+        civilization: 'EARTH', cost: 1,
+        targets: [{ kind: 'MANA', side: 'SELF', count: 1, optional: false, upTo: false,
+          filters: [], prompt: '自分のマナを1枚選んでください' }],
+      })],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  }));
+  const manaPlain = await autoPage.evaluate(() =>
+    getComputedStyle(document.querySelector('#my-mana-row .mana-tile')).borderColor);
+  const manaHandBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+  await autoPage.mouse.click(manaHandBox.x + manaHandBox.width / 2,
+    manaHandBox.y + manaHandBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  await payAndConfirm();   // ★裁定319 の確定を通ってから対象選択に入る
+  const manaSelectable = await autoPage.evaluate(() => {
+    const tiles = [...document.querySelectorAll('#my-mana-row .mana-tile')];
+    const lit = tiles.filter(t => t.classList.contains('mana-selectable'));
+    return {
+      count: lit.length,
+      border: lit.length ? getComputedStyle(lit[0]).borderColor : null,
+      prompt: document.getElementById('selection-prompt').textContent,
+    };
+  });
+  await autoPage.evaluate(() => cancelSelection());
+  check('★★★対象選択のマナの光りが実際に効いている(70 が見つけた穴・43 から効いていなかった)',
+    manaSelectable.count === 3 && manaSelectable.border !== null
+      && manaSelectable.border !== manaPlain
+      && manaSelectable.prompt.includes('マナ'),
+    JSON.stringify({ manaSelectable, manaPlain }));
 
   check('★通常モードの盤面(69 の追加ぶん)でJSエラーが出ない',
     autoErrors.length === 0, autoErrors.join(' | '));

@@ -533,7 +533,7 @@ public class CardEffectRegistry {
                     .getOrDefault(minion.getMaster().id(), Map.of())
                     .get(TriggerType.ON_CARD_USED);
             if (effect != null) {
-                effect.accept(ctx.withSource(minion));
+                runEffect(minion.getMaster().id(), ctx.withSource(minion), effect);
             }
         }
         if (owner.getEquippedWeapon() != null) {
@@ -541,7 +541,7 @@ public class CardEffectRegistry {
                     .getOrDefault(owner.getEquippedWeapon().id(), Map.of())
                     .get(TriggerType.ON_CARD_USED);
             if (effect != null) {
-                effect.accept(ctx);
+                runEffect(owner.getEquippedWeapon().id(), ctx, effect);
             }
         }
     }
@@ -593,7 +593,7 @@ public class CardEffectRegistry {
             if (effect == null || !ctx.owner().getMinionZone().contains(watcher)) {
                 continue;
             }
-            effect.accept(ctx, destroyedCardId);
+            runEffect(watcher.getMaster().id(), ctx, destroyedCardId, effect);
         }
         // ★Batch 57: 「自分の」と書かれていない監視効果(執念の暗殺者)は、
         // 破壊されたミニオンの<b>持ち主でない側</b>の場でも発火する(裁定156(2))。
@@ -608,7 +608,7 @@ public class CardEffectRegistry {
             if (effect == null || !otherSide.owner().getMinionZone().contains(watcher)) {
                 continue;
             }
-            effect.accept(otherSide, destroyedCardId);
+            runEffect(watcher.getMaster().id(), otherSide, destroyedCardId, effect);
         }
     }
 
@@ -805,7 +805,7 @@ public class CardEffectRegistry {
                 .getOrDefault(weaponId, Map.of())
                 .get(TriggerType.ON_EQUIP);
         if (effect != null) {
-            effect.accept(ctx);
+            runEffect(weaponId, ctx, effect);
         }
     }
 
@@ -841,7 +841,7 @@ public class CardEffectRegistry {
                     .getOrDefault(minion.getMaster().id(), Map.of())
                     .get(TriggerType.ON_OPPONENT_DRAW);
             if (effect != null) {
-                effect.accept(ctx);
+                runEffect(minion.getMaster().id(), ctx, effect);
             }
         }
     }
@@ -855,7 +855,7 @@ public class CardEffectRegistry {
                 .getOrDefault(weapon.id(), Map.of())
                 .get(trigger);
         if (effect != null) {
-            effect.accept(ctx);
+            runEffect(weapon.id(), ctx, effect);
         }
     }
 
@@ -3808,6 +3808,13 @@ public class CardEffectRegistry {
      * @param chosen  選ばれた候補の識別子。choice.candidates() の部分集合
      */
     public void resolveChoice(EffectContext ctx, PendingChoice choice, List<String> chosen) {
+        // ★★Batch 70: 再開の間も「解決しているカード」は同じである。
+        //   ★ここを通さないと、<b>答えたあとに続けて出る問い合わせ</b>だけ
+        //     プレイ中の表示が消える(《リボーンライヴ・ノア》のような多段のカードで起きる)。
+        runEffect(choice.sourceCardId(), ctx, c -> resumeChoice(c, choice, chosen));
+    }
+
+    private void resumeChoice(EffectContext ctx, PendingChoice choice, List<String> chosen) {
         switch (choice.resumeAt()) {
             case MISSIONARY_SUMMON -> {
                 // 公開領域の中身を取り出して確定させる(選択待ちの間だけ置かれていたもの)
@@ -5238,12 +5245,73 @@ public class CardEffectRegistry {
     }
 
     /** スペルの解決。効果が未登録のスペルは実装漏れとして拒否する(黙って何も起きないのが最悪) */
+    // ===== ★★★Batch 70: 効果を呼ぶ唯一の口 —— ここから(番人 Batch70PlayingCardTest) =====
+
+    /**
+     * ★★★Batch 70(指摘2): 効果のラムダを呼ぶ<b>唯一の口</b>。
+     *
+     * <p>呼ぶ手前で「いま解決しているカード」を {@code GameState} に積み、抜けたら必ず戻す。
+     * 積んだ値は {@code GameActions.requestChoice} が問い合わせに写し取り、
+     * クライアントが<b>「プレイ中のカード」の面</b>を描くのに使う。
+     *
+     * <p>★<b>戻すのに前の値を使う(null で潰さない)。</b>効果の解決は入れ子になりうる ——
+     * 《冥界神ハデス》の全体破壊が《不滅のネクロマンサー》の【破壊時】を呼ぶ、という形である。
+     * 内側が抜けたときに外側のカードへ戻らないと、外側の問い合わせが<b>内側のカード名で出る</b>。
+     *
+     * <p>★★<b>直呼び({@code effect.accept(ctx)})を残さないこと。</b>
+     * 残すと、そのカードのときだけ「プレイ中の表示」が黙って出なくなる(69 の教訓・途中)。
+     * {@code Batch70PlayingCardTest} が、このファイルと {@code GameService} に
+     * 直呼びが1つも無いことを見張る。
+     *
+     * @param cardId 解決しているカードのID。分からないなら null(そのときは表示が出ないだけである)
+     */
+    public void runEffect(String cardId, EffectContext ctx, Consumer<EffectContext> effect) {
+        GameState state = ctx.state();
+        if (state == null) {
+            effect.accept(ctx);
+            return;
+        }
+        String previous = state.getResolvingCardId();
+        state.setResolvingCardId(cardId);
+        try {
+            effect.accept(ctx);
+        } finally {
+            state.setResolvingCardId(previous);
+        }
+    }
+
+    /** 引数を1つ取る効果({@code anyMinionDestroyedWatchers})用の同じ口(★Batch 70) */
+    public void runEffect(String cardId, EffectContext ctx, String argument,
+            BiConsumer<EffectContext, String> effect) {
+        runEffect(cardId, ctx, c -> effect.accept(c, argument));
+    }
+
+    /**
+     * 【召喚時】【登場時】の発火(★Batch 70 でこの形にした)。
+     *
+     * <p>★<b>対象の問い合わせも「解決中」の内側で行う。</b>68 が足した
+     * {@link #needsTargetChoice} は、効果を走らせる<b>手前</b>で問い合わせを積んで戻る ——
+     * つまり<b>いちばん問い合わせが立つ場所が、効果を呼ぶ前</b>にある。
+     * ここを {@code runEffect} の外に置くと、15枚の【召喚時】だけ
+     * 「プレイ中のカード」が空のまま出る(69 の教訓・途中)。
+     */
+    private void runSummonEffect(MinionInstance minion, TriggerType trigger,
+            EffectContext ctx, Consumer<EffectContext> effect) {
+        runEffect(minion.getMaster().id(), ctx, c -> {
+            if (!needsTargetChoice(c, minion, trigger)) {
+                effect.accept(c);
+            }
+        });
+    }
+
+    // ===== ★★★Batch 70: 効果を呼ぶ唯一の口 —— ここまで =====
+
     public void resolveSpell(String cardId, EffectContext ctx) {
         Consumer<EffectContext> effect = spellEffects.get(cardId);
         if (effect == null) {
             throw new IllegalStateException("このスペルの効果は未実装です(Batch 4で対応)");
         }
-        effect.accept(ctx);
+        runEffect(cardId, ctx, effect);
     }
 
     /** スペルの解決時効果が登録済みか */
@@ -5329,10 +5397,7 @@ public class CardEffectRegistry {
         // ★<b>「まだ選んでいない」の判定は ctx.targets() の中身で行う。</b>
         // 選び終えて再開したときは {@code ResumePoint.SUMMON_TARGETS} が
         // 選択結果を詰めた文脈で呼び直すので、ここは素通りして効果が走る。
-        if (needsTargetChoice(ctx, minion, trigger)) {
-            return;
-        }
-        effect.accept(ctx);
+        runSummonEffect(minion, trigger, ctx, effect);
     }
 
     /**

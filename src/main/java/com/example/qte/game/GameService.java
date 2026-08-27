@@ -431,6 +431,20 @@ public class GameService {
 
     public void playCard(GameRoom room, String playerId, int handIndex,
             List<TargetChoice> choices, boolean enhanced, List<String> materialIds) {
+        playCard(room, playerId, handIndex, choices, enhanced, materialIds, List.of());
+    }
+
+    /**
+     * 手札のカードをプレイする。
+     *
+     * @param manaIndexes ★Batch 70(裁定319): 払うマナの位置。
+     *                    <b>空なら自動</b>({@link ManaPayment#normalOrder} の順)であり、
+     *                    69 までの呼び出しはすべてこちらである。
+     *                    クリックからのプレイだけが位置を指定して送ってくる。
+     */
+    public void playCard(GameRoom room, String playerId, int handIndex,
+            List<TargetChoice> choices, boolean enhanced, List<String> materialIds,
+            List<Integer> manaIndexes) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -451,10 +465,11 @@ public class GameService {
         }
 
         switch (master.type()) {
-            case MINION -> playMinion(room, state, player, handIndex, master, choices);
-            case EVOLUTION -> playEvolution(room, state, player, handIndex, master, choices, materialIds);
-            case SPELL -> playSpell(room, state, player, handIndex, master, choices, enhanced);
-            case WEAPON -> playWeapon(room, state, player, handIndex, master);
+            case MINION -> playMinion(room, state, player, handIndex, master, choices, manaIndexes);
+            case EVOLUTION -> playEvolution(room, state, player, handIndex, master, choices,
+                    materialIds, manaIndexes);
+            case SPELL -> playSpell(room, state, player, handIndex, master, choices, enhanced, manaIndexes);
+            case WEAPON -> playWeapon(room, state, player, handIndex, master, manaIndexes);
             default -> throw new IllegalStateException("このカードはプレイできません");
         }
         player.setPlayedCardThisTurn(true);
@@ -484,6 +499,12 @@ public class GameService {
      * すべて通常のスペルと同じ道具を通る(マスター裁定 A2)。
      */
     public void playSoulCard(GameRoom room, String playerId, int handIndex, List<TargetChoice> choices) {
+        playSoulCard(room, playerId, handIndex, choices, List.of());
+    }
+
+    /** ★Batch 70(裁定319): 払うマナを指定できる入口。空なら自動({@link ManaPayment#normalOrder}) */
+    public void playSoulCard(GameRoom room, String playerId, int handIndex,
+            List<TargetChoice> choices, List<Integer> manaIndexes) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -498,7 +519,7 @@ public class GameService {
         SoulSpellSpec soul = requireSoul(state, player, master);
 
         ValidatedTargets validated = validateTargets(state, player, handIndex, soul.targets(), choices);
-        payCost(player, stats.effectiveSoulCost(state, player, master, soulCostOf(master)));
+        payCost(player, stats.effectiveSoulCost(state, player, master, soulCostOf(master)), manaIndexes);
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
         // 【詠唱の宝珠】のような「次に唱えるスペル」限定の効果は、ここで使い切る。
         // コストの計算が終わった後に消すこと(playSpell と同じ順序)
@@ -559,8 +580,9 @@ public class GameService {
         room.addLog("%sが【%s】を【賢魂：%d】として唱えました"
                 .formatted(player.getDisplayName(), master.name(), soulCostOf(master)));
         player.setPendingSpellDisposition(null);
-        soul.effect().accept(new EffectContext(room, state, player,
-                state.opponentOf(player.getPlayerId()), null, resolved, actions, false, fromTaboo));
+        effects.runEffect(master.id(), new EffectContext(room, state, player,
+                state.opponentOf(player.getPlayerId()), null, resolved, actions, false, fromTaboo),
+                soul.effect());
         SpellDisposition disposition = player.getPendingSpellDisposition();
         player.setPendingSpellDisposition(null);
         // ★効果自身がこのカードの行き先を決めきったなら、もう動かさない(《スタンディングテント》)
@@ -599,7 +621,8 @@ public class GameService {
     }
 
     private void playMinion(GameRoom room, GameState state, PlayerState player,
-            int handIndex, CardMaster master, List<TargetChoice> choices) {
+            int handIndex, CardMaster master, List<TargetChoice> choices,
+            List<Integer> manaIndexes) {
         requirePhase(state, TurnPhase.MAIN);
         if (player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
@@ -609,7 +632,7 @@ public class GameService {
         // 検証で弾かれた場合に状態が一切変わっていないことを保証するため
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.declarationTargetSpecOf(master.id()), choices);
-        payCost(player, stats.effectiveCost(state, player, master));
+        payCost(player, stats.effectiveCost(state, player, master), manaIndexes);
         // ★Batch 58: ここにあった【剛火の将】の割引の消費は、Ver1.1 で起動能力そのものが
         // 本文から消えたため削除した(rework-triage.md 区分5)
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
@@ -633,13 +656,13 @@ public class GameService {
      */
     private void playEvolution(GameRoom room, GameState state, PlayerState player,
             int handIndex, CardMaster master, List<TargetChoice> choices,
-            List<String> materialIds) {
+            List<String> materialIds, List<Integer> manaIndexes) {
         requirePhase(state, TurnPhase.MAIN);
         requireCanEnterField(state, player);
         List<MinionInstance> materials = resolveMaterials(player, master, materialIds);
         ValidatedTargets validated = validateTargets(state, player, handIndex,
                 effects.declarationTargetSpecOf(master.id()), choices);
-        payCost(player, stats.effectiveCost(state, player, master));
+        payCost(player, stats.effectiveCost(state, player, master), manaIndexes);
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
         summonToField(room, state, player, master, resolved, false, materials);
     }
@@ -689,7 +712,8 @@ public class GameService {
     }
 
     private void playSpell(GameRoom room, GameState state, PlayerState player,
-            int handIndex, CardMaster master, List<TargetChoice> choices, boolean enhanced) {
+            int handIndex, CardMaster master, List<TargetChoice> choices, boolean enhanced,
+            List<Integer> manaIndexes) {
         if (state.getPhase() != TurnPhase.MAIN && state.getPhase() != TurnPhase.SUB) {
             throw new IllegalStateException("スペルはメイン/サブフェイズでのみ使用できます");
         }
@@ -717,7 +741,7 @@ public class GameService {
             player.setPendingSacrificeCount(validated.minions().get(0).size());
         }
         try {
-            payCost(player, stats.effectiveCost(state, player, master) + extraCost);
+            payCost(player, stats.effectiveCost(state, player, master) + extraCost, manaIndexes);
         } finally {
             player.setPendingSacrificeCount(0); // MP不足で弾かれた場合も必ず戻す
         }
@@ -920,8 +944,9 @@ public class GameService {
         if (asSoul) {
             SoulSpellSpec soul = requireSoul(state, player, master);
             ValidatedTargets soulTargets = validateTargets(state, player, -1, soul.targets(), choices);
-            validateTabooCost(player, soulCostOf(master), manaIndexes);
-            payTabooCost(room, player, manaIndexes);
+            List<Integer> soulPay = resolveTabooPayment(player, soulCostOf(master), manaIndexes);
+            validateTabooCost(player, soulCostOf(master), soulPay);
+            payTabooCost(room, player, soulPay);
             ResolvedTargets soulResolved = removePlayedAndTargets(player, -1, soulTargets);
             player.getTabooDeck().remove(tabooIndex);
             player.setPlayedCardThisTurn(true);
@@ -957,9 +982,10 @@ public class GameService {
                 ? resolveMaterials(player, master, materialIds) : List.of();
         ValidatedTargets validated = validateTargets(state, player, -1,
                 effects.declarationTargetSpecOf(master.id()), choices);
-        validateTabooCost(player, master.cost(), manaIndexes);
+        List<Integer> pay = resolveTabooPayment(player, master.cost(), manaIndexes);
+        validateTabooCost(player, master.cost(), pay);
 
-        payTabooCost(room, player, manaIndexes);
+        payTabooCost(room, player, pay);
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
         player.getTabooDeck().remove(tabooIndex);
         player.setPlayedCardThisTurn(true);
@@ -993,6 +1019,31 @@ public class GameService {
      *   - すでに裏向きのマナを墓地へ送る(3-5)。マナが1枚永久に減る
      * ピュア・エレメント由来の一時マナは禁忌コストに使用できない(カードテキスト)。
      */
+    /**
+     * 禁忌コストの支払いを決める(★Batch 70。裁定317・321)。
+     *
+     * <p>69 までは<b>クライアントが必ず位置を指定してくる</b>前提だった
+     * (禁忌の支払いは 43 から手で選ぶ形だったためである)。
+     * 裁定317 が「禁忌も自動で払えるようにする」と決め、
+     * 裁定321 がドラッグに確認を挟まないと決めたので、<b>指定が空で来る道</b>ができた。
+     *
+     * <p>★空のときは {@link ManaPayment#tabooOrder}(表向き → 裏向き)の先頭から取る。
+     * ★<b>順序をここに書かない</b> —— クライアントの強調表示も同じ順序をビューから読む(裁定130)。
+     */
+    private List<Integer> resolveTabooPayment(PlayerState player, int cost, List<Integer> manaIndexes) {
+        List<Integer> given = manaIndexes == null ? List.of() : manaIndexes;
+        if (!given.isEmpty() || cost == 0) {
+            return given;
+        }
+        List<Integer> order = ManaPayment.tabooOrder(player);
+        if (order.size() < cost) {
+            throw new IllegalStateException(
+                    "禁忌コストの支払いに使えるマナが足りません(必要%d枚/使用可能%d枚)"
+                            .formatted(cost, order.size()));
+        }
+        return List.copyOf(order.subList(0, cost));
+    }
+
     private void validateTabooCost(PlayerState player, int cost, List<Integer> manaIndexes) {
         List<Integer> indexes = manaIndexes == null ? List.of() : manaIndexes;
         if (indexes.size() != cost) {
@@ -1044,6 +1095,16 @@ public class GameService {
 
     public void specialSummon(GameRoom room, String playerId, int handIndex,
             List<TargetChoice> choices, List<String> materialIds) {
+        specialSummon(room, playerId, handIndex, choices, materialIds, List.of());
+    }
+
+    /**
+     * ★Batch 70(裁定319): 払うマナを指定できる入口。空なら自動である。
+     * ★<b>ここで払うのは代替コストの MP 部分</b>({@code spec.mpCost()})であり、
+     *   多くのカードでは 0 である —— 0 のときは指定も空でよい。
+     */
+    public void specialSummon(GameRoom room, String playerId, int handIndex,
+            List<TargetChoice> choices, List<String> materialIds, List<Integer> manaIndexes) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -1080,16 +1141,19 @@ public class GameService {
                 ? resolveMaterials(player, master, materialIds) : List.of();
 
         ValidatedTargets validated = validateTargets(state, player, handIndex, spec.targets(), choices);
-        payCost(player, spec.mpCost()); // 多くは0だが、極炎竜ヴォルカニクスのようにMPを要するものもある
+        // 多くは0だが、極炎竜ヴォルカニクスのようにMPを要するものもある
+        payCost(player, spec.mpCost(), manaIndexes);
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
         room.addLog("%sが【%s】を特殊召喚".formatted(player.getDisplayName(), master.name()));
         // 代替コストの支払い(手札を山札の下へ・ミニオンを手札に戻す等)
-        spec.costEffect().accept(contextOf(room, state, player, null, resolved));
+        effects.runEffect(master.id(), contextOf(room, state, player, null, resolved),
+                spec.costEffect());
 
         MinionInstance summoned = summonToField(room, state, player, master, resolved, false, materials);
         // 特殊召喚で出したときのみ発生する追加効果(背水の炎壁・這い寄る生霊の自壊予約)。
         // 通常の【召喚時】とは別枠であり、出したミニオン自身をsourceとして渡す
-        spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
+        effects.runEffect(master.id(), contextOf(room, state, player, summoned, resolved),
+                spec.onSpecialSummon());
         player.setPlayedCardThisTurn(true);
         // 特殊召喚もカードの使用として数える(a1)。ミニオンのためスペルフラグはfalse
         afterCardUsed(room, state, player, false);
@@ -1163,10 +1227,12 @@ public class GameService {
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
         player.getTrash().remove(trashIndex);
         room.addLog("%sが墓地から【%s】を特殊召喚".formatted(player.getDisplayName(), master.name()));
-        spec.costEffect().accept(contextOf(room, state, player, null, resolved));
+        effects.runEffect(master.id(), contextOf(room, state, player, null, resolved),
+                spec.costEffect());
 
         MinionInstance summoned = summonToField(room, state, player, master, resolved, false, materials);
-        spec.onSpecialSummon().accept(contextOf(room, state, player, summoned, resolved));
+        effects.runEffect(master.id(), contextOf(room, state, player, summoned, resolved),
+                spec.onSpecialSummon());
         player.setPlayedCardThisTurn(true);
         afterCardUsed(room, state, player, false);
     }
@@ -1328,9 +1394,9 @@ public class GameService {
 
     /** ウェポンの装備。装備済みなら古いウェポンは即座に墓地へ(総合ルール2-5) */
     private void playWeapon(GameRoom room, GameState state, PlayerState player,
-            int handIndex, CardMaster master) {
+            int handIndex, CardMaster master, List<Integer> manaIndexes) {
         requirePhase(state, TurnPhase.MAIN);
-        payCost(player, stats.effectiveCost(state, player, master));
+        payCost(player, stats.effectiveCost(state, player, master), manaIndexes);
         takeFromHand(player, handIndex);
         equipWeapon(room, player, master, false);
     }
@@ -1636,7 +1702,8 @@ public class GameService {
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
         player.setLeaderAbilityUsedThisTurn(true);
         room.addLog("%sがリーダー起動能力を使用".formatted(player.getDisplayName()));
-        spec.effect().accept(contextOf(room, state, player, null, resolved));
+        effects.runEffect(player.getLeader().id(),
+                contextOf(room, state, player, null, resolved), spec.effect());
         // 起動能力の発動もカードの使用として数える(発注者確認済みの横断ルール。a1)
         afterCardUsed(room, state, player, false);
     }
@@ -1679,7 +1746,8 @@ public class GameService {
         // 「使ったら即タップ」という直感に合わせる)
         minion.tap();
         room.addLog("%sが【%s】の能力を使用".formatted(player.getDisplayName(), minion.getMaster().name()));
-        spec.effect().accept(contextOf(room, state, player, minion, resolved));
+        effects.runEffect(minion.getMaster().id(),
+                contextOf(room, state, player, minion, resolved), spec.effect());
         // 起動能力の発動もカードの使用として数える(a1)
         afterCardUsed(room, state, player, false);
     }
@@ -2180,21 +2248,67 @@ public class GameService {
         return new ResolvedTargets(selections);
     }
 
+    /** 指定なしの支払い(自動)。★順序の正は {@link ManaPayment} である(★Batch 70) */
     private void payCost(PlayerState player, int cost) {
+        payCost(player, cost, List.of());
+    }
+
+    /**
+     * 通常のコスト(MP)を支払う。
+     *
+     * <h2>★★★Batch 70: 「どれを払うか」という概念が入った</h2>
+     *
+     * 69 まではここが<b>マナゾーンの先頭から未タップのものを順にタップする</b>だけで、
+     * 表裏も一時マナも1つも見ていなかった。裁定315・316 が順序を決め、
+     * 裁定319 が<b>人が選べる道</b>を足したので、この1本が2つの入口を受ける形になった。
+     *
+     * <ul>
+     *   <li>{@code manaIndexes} が空 …… 自動。{@link ManaPayment#normalOrder} の先頭から払う
+     *       (ドラッグでのプレイ・効果からの支払い・従来の呼び出しすべて)</li>
+     *   <li>{@code manaIndexes} に指定あり …… その位置のマナをタップする(クリックからのプレイ)</li>
+     * </ul>
+     *
+     * ★<b>順序の規則はここに書かない。</b>{@link ManaPayment} が唯一の正であり、
+     * クライアントの強調表示も同じ順序をビュー経由で読む(裁定130)。
+     *
+     * @param manaIndexes 払うマナの位置。空なら自動
+     */
+    private void payCost(PlayerState player, int cost, List<Integer> manaIndexes) {
         if (player.getAvailableMp() < cost) {
             throw new IllegalStateException("MPが足りません(必要%d/使用可能%d)"
                     .formatted(cost, player.getAvailableMp()));
         }
-        int remaining = cost;
-        for (ManaCard mana : player.getManaZone()) {
-            if (remaining == 0) {
-                break;
+        List<Integer> chosen = manaIndexes == null ? List.of() : manaIndexes;
+        List<Integer> indexes = chosen.isEmpty()
+                ? ManaPayment.normalOrder(player).subList(0, cost)
+                : validateManaSelection(player, cost, chosen);
+        for (int index : indexes) {
+            player.getManaZone().get(index).tap();
+        }
+    }
+
+    /**
+     * 人が選んだ支払いを検証する(★Batch 70。裁定319)。
+     *
+     * ★<b>クライアントが送ってきた位置をそのまま信じない</b>(設計判断27)。
+     * 枚数・範囲・重複・タップ済みのすべてをここで弾く ——
+     * 通っていない位置でタップすると、盤面のマナと支払いが静かにずれる。
+     */
+    private List<Integer> validateManaSelection(PlayerState player, int cost, List<Integer> manaIndexes) {
+        if (manaIndexes.size() != cost) {
+            throw new IllegalArgumentException("払うマナは%d枚を指定してください(指定%d枚)"
+                    .formatted(cost, manaIndexes.size()));
+        }
+        Set<Integer> seen = new HashSet<>();
+        for (int index : manaIndexes) {
+            if (index < 0 || index >= player.getManaZone().size() || !seen.add(index)) {
+                throw new IllegalArgumentException("不正なマナの指定です");
             }
-            if (!mana.isTapped()) {
-                mana.tap();
-                remaining--;
+            if (player.getManaZone().get(index).isTapped()) {
+                throw new IllegalArgumentException("タップ済みのマナは支払いに使えません");
             }
         }
+        return manaIndexes;
     }
 
     private String peekHand(PlayerState player, int handIndex) {

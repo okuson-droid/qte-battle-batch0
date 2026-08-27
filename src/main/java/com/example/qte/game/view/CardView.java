@@ -15,6 +15,12 @@ import com.example.qte.master.Keyword;
  * @param canSpecialSummon  今この瞬間、特殊召喚の条件を満たしているか(サーバ判定)
  * @param specialTargets    特殊召喚時に要求される対象選択
  * @param specialSummonText 特殊召喚の確認ダイアログ用の説明文
+ * @param specialSummonMpCost ★Batch 70(裁定319): 特殊召喚の代替コストのうち<b>MPで払う分</b>。
+ *                          多くのカードでは 0 である(代替コストは手札やミニオンで払う)。
+ *                          ★クライアントが要るのは「クリックからのプレイのときに
+ *                          <b>何枚のマナを選ばせるか</b>」を知るためだけである ——
+ *                          枚数を知らないと確定の段が作れない。
+ *                          ★特殊召喚できないカードでは 0
  * @param combinedTotal     対象要求をまたいだ選択数の合計制約(0なら制約なし。サイクロン・リフレッシュ)
  * @param enhancedCost      追加コストによる強化使用の追加コスト(0なら強化使用なし。回帰の風穴・風弾の跳弾)
  * @param enhancedText      強化使用の確認ダイアログ用の説明文(強化使用がなければnull)
@@ -61,6 +67,7 @@ public record CardView(
         boolean canSpecialSummon,
         List<TargetReqView> specialTargets,
         String specialSummonText,
+        int specialSummonMpCost,
         int combinedTotal,
         int enhancedCost,
         String enhancedText,

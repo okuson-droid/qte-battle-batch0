@@ -1478,7 +1478,14 @@ public class GameActions {
      * (裁定68「発火点を増やさない」と同じ形)。照合は {@code GameService.resolveChoice} が行う。
      */
     public void requestChoice(GameRoom room, PlayerState owner, PendingChoice choice) {
-        owner.enqueuePendingChoice(withZoneSnapshot(owner, choice));
+        // ★★★Batch 70(指摘2): 「今どのカードを解決しているか」をここで写し取る。
+        //   ★問い合わせを<b>作る</b>場所は20箇所以上あるが、<b>積む</b>口はこの1つしかない ——
+        //     控え(expectedCardIds)を 64 がここで取っているのとまったく同じ理由である。
+        //   ★出どころは GameState.resolvingCardId であり、書き込むのは
+        //     CardEffectRegistry.runEffect だけである(裁定130)。
+        PendingChoice stamped = choice.withSourceCardId(room.getGameState() == null
+                ? null : room.getGameState().getResolvingCardId());
+        owner.enqueuePendingChoice(withZoneSnapshot(owner, stamped));
         room.addLog("%s: %s".formatted(owner.getDisplayName(), choice.prompt()));
     }
 

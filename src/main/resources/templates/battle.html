@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=50)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=51)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -65,7 +65,20 @@
                    ここが足したのは「その系統をミニオン行にも当てる」という<b>クラス2つ</b>だけで、
                    色の値は1つも新しく決めていない(一致は verify 69-2 が実測で見張る)。 -->
             <div id="opp-minions" class="minion-row auto-minions auto-field-opponent"></div>
-            <div id="my-minions" class="minion-row auto-minions auto-field-self"></div>
+            <!-- ★★★Batch 70(裁定320): スペル(と【賢魂】)のドロップ先を<b>常設する</b>。
+                 裁定318 が「スペルは盤面右へ落とす」と決め、裁定320 が
+                 「あいている場所ではなく決まった場所にする」と決めた ——
+                 可変にすると盤面の状態でドロップ先が動き、落とし損ねが増える。
+                 ★<b>自分の行にだけ置く。</b>相手の行は 966px のままで、右端は揃う。
+                   実測: 中央列 966px のうちミニオン6体が使うのは 602px であり、
+                   120px の枠を常設しても足りる(先に端の盤面を作って測った・65 の教訓)。
+                 ★<b>右列ではない</b> —— そこは Batch 69 の進行表が使っている。 -->
+            <div class="auto-field-line">
+                <div id="my-minions" class="minion-row auto-minions auto-field-self"></div>
+                <div id="spell-drop" class="auto-spell-drop">
+                    <span>スペル<br>【賢魂】<br>をここへ</span>
+                </div>
+            </div>
 
             <div class="auto-strip my-side">
                 <div class="auto-strip-info">
@@ -118,6 +131,11 @@
                             onclick="confirmRequirement()">この内容で確定</button>
                     <button id="btn-open-trash" class="btn btn-sm btn-outline-dark ms-2 d-none"
                             onclick="openTrashPicker()">墓地を開く</button>
+                    <!-- ★★★Batch 70(裁定319・323): クリックからのプレイ・マナチャージは
+                         必ずここで確定する。★<b>マナが1通りでも自動確定しない</b> ——
+                         誤操作の防止は「選ぶ余地の有無」とは別の軸である(裁定319 の理由)。 -->
+                    <button id="btn-confirm-pay" class="btn btn-sm btn-warning ms-2 d-none"
+                            onclick="confirmManaPayment()">確定</button>
                     <button class="btn btn-sm btn-outline-dark ms-2" onclick="cancelSelection()">キャンセル</button>
                 </div>
                 <div id="reveal-area" class="alert alert-warning py-2 d-none">
@@ -183,6 +201,17 @@
 <!-- ★Batch 44: ホバープレビュー(B-1)。クリックを吸わない(pointer-events: none) -->
 <div id="auto-hover" class="auto-hover d-none">
     <div id="auto-hover-card" class="auto-zoom-card"></div>
+</div>
+
+<!-- ★★★Batch 70(指摘2): 「今プレイしているカード」。
+     ★<b>#auto-hover とは別の要素である。</b>同じ器を使い回すと
+       「乗せた先で入れ替わる」性質を引き継ぎ、手を動かした瞬間に消えてしまう。
+     ★出るのは<b>問い合わせが来ている間だけ</b>で、そのあいだホバーは止まっている
+       (hoverBlocked)ので、2つが同時に出ることはない。
+     ★スペルでもミニオンの【召喚時】でも出す(マスター確認)。 -->
+<div id="auto-playing" class="auto-playing d-none">
+    <div class="auto-playing-label">プレイ中</div>
+    <div id="auto-playing-card" class="auto-zoom-card"></div>
 </div>
 
 <!-- 汎用の情報モーダル(墓地・マナ・リーダー能力の一覧表示に使う) -->
@@ -314,6 +343,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=32)}"></script>
+<script th:src="@{/js/battle.js(v=33)}"></script>
 </body>
 </html>

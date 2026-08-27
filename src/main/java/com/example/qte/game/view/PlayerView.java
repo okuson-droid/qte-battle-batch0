@@ -24,6 +24,18 @@ import java.util.List;
  * @param leaderFrozen  リーダーが凍結中か
  * @param leaderAbility リーダー起動能力の状態(能力を持たないリーダーはnull)
  * @param revealedCards 一時公開領域のカード(降臨の伝道師などが公開中の束。空なら公開なし)
+ * @param manaPayOrder  ★Batch 70(裁定315・316): 通常のコストを<b>自動で払うときの順</b>。
+ *                      マナゾーン内の位置を、払われる順に並べたものである。
+ *                      ★<b>クライアントは規則を持たない</b> —— コストが n なら先頭 n 件が
+ *                      「これから払われるマナ」であり、ドラッグ中にそこを強調表示する。
+ *                      規則をクライアントへ書き写すと、サーバの払い方が変わった日に
+ *                      強調表示だけが黙って嘘になる(67 の教訓・写し)。★自分のビューにのみ入る
+ * @param tabooPayOrder ★Batch 70(裁定317): 禁忌コストを自動で払うときの順(表向き → 裏向き)。
+ *                      ★自分のビューにのみ入る。
+ *                      ★★<b>「裏向きが墓地送りになるか」という真偽値はここに載せない。</b>
+ *                      何枚払うかはカードごとに違うので、真偽値1つでは足りない ——
+ *                      クライアントは<b>この順の先頭 n 件</b>の表裏を
+ *                      {@code manaZone}(公開情報)から見て警告を出す(裁定317)
  * @param pendingChoice 割り込み選択の問い合わせ(a9)。選択待ちでなければnull
  */
 public record PlayerView(
@@ -37,6 +49,8 @@ public record PlayerView(
         int availableMp,
         int totalMana,
         List<ManaView> manaZone,
+        List<Integer> manaPayOrder,
+        List<Integer> tabooPayOrder,
         List<MinionView> minions,
         int trashCount,
         List<String> trashCardNames,
@@ -88,6 +102,11 @@ public record PlayerView(
      * @param prompt     案内文
      * @param queued     ★Batch 64: 待っている問い合わせの総数(この1件を含む)。
      *                   2以上なら「答えてもまだ次がある」ということである
+     * @param sourceCardId ★Batch 70(指摘2): この問い合わせを出したカードのID。
+     *                   クライアントは<b>「プレイ中のカード」の面</b>をここから描く。
+     *                   ★分からないときは null(そのときは面が出ないだけである)。
+     *                   ★スペルでもミニオンの【召喚時】でも同じ値が入る(マスター確認)——
+     *                   「今どのカードを解決しているか」は種別で変わる性質ではない
      */
     public record PendingChoiceView(
             String kind,
@@ -95,7 +114,8 @@ public record PlayerView(
             int min,
             int max,
             String prompt,
-            int queued) {
+            int queued,
+            String sourceCardId) {
 
         /**
          * 候補1件のビュー。

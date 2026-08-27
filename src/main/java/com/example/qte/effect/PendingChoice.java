@@ -51,6 +51,12 @@ import java.util.List;
  * @param prompt          クライアントに表示する案内文
  * @param expectedCardIds 候補と同じ長さの、作った瞬間のカードID。位置で指すゾーン
  *                        (HAND/TRASH/REVEALED/MANA)のときだけ入る。空なら照合しない
+ * @param sourceCardId    ★Batch 70(指摘2): <b>この問い合わせを出したカードのID</b>。
+ *                        画面に「今プレイしているカード」の面を出すために使う。
+ *                        ★書き込むのは {@code GameActions.requestChoice} 1箇所だけであり、
+ *                        値の出どころは {@code GameState.resolvingCardId} である ——
+ *                        問い合わせを<b>作る</b>場所は20箇所以上あるが、<b>積む</b>口は1つしかない。
+ *                        ★分からないときは null(そのときは面が出ないだけである)
  * @param payload         再開に要る、候補以外の値(★Batch 64)。
  *                        《不滅のネクロマンサー》の「どのミニオンを蘇生するか」など。
  *                        不要ならnull
@@ -63,7 +69,8 @@ public record PendingChoice(
         ResumePoint resumeAt,
         String prompt,
         List<String> expectedCardIds,
-        String payload) {
+        String payload,
+        String sourceCardId) {
 
     /** 「はい」を表す唯一の候補(CONFIRM)。選ばなければ「いいえ」である */
     public static final String CONFIRM_YES = "YES";
@@ -86,20 +93,20 @@ public record PendingChoice(
      */
     public static PendingChoice of(Kind kind, List<String> candidates, int min, int max,
             ResumePoint resumeAt, String prompt) {
-        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, List.of(), null);
+        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, List.of(), null, null);
     }
 
     /** 候補の中から1つだけ選ばせる(選ばない選択肢はない) */
     public static PendingChoice one(Kind kind, List<String> candidates,
             ResumePoint resumeAt, String prompt) {
-        return new PendingChoice(kind, candidates, 1, 1, resumeAt, prompt, List.of(), null);
+        return new PendingChoice(kind, candidates, 1, 1, resumeAt, prompt, List.of(), null, null);
     }
 
     /** 0個からmax個まで選ばせる(「〜してもよい」「最大N枚まで」) */
     public static PendingChoice upTo(Kind kind, List<String> candidates, int max,
             ResumePoint resumeAt, String prompt) {
         return new PendingChoice(kind, candidates, 0, Math.min(max, candidates.size()),
-                resumeAt, prompt, List.of(), null);
+                resumeAt, prompt, List.of(), null, null);
     }
 
     /**
@@ -111,17 +118,28 @@ public record PendingChoice(
      */
     public static PendingChoice confirm(ResumePoint resumeAt, String prompt) {
         return new PendingChoice(Kind.CONFIRM, List.of(CONFIRM_YES), 0, 1,
-                resumeAt, prompt, List.of(), null);
+                resumeAt, prompt, List.of(), null, null);
     }
 
     /** 再開に要る値を添えた同じ選択を返す(★Batch 64) */
     public PendingChoice withPayload(String value) {
-        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, expectedCardIds, value);
+        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, expectedCardIds,
+                value, sourceCardId);
     }
 
     /** 作った瞬間のゾーンの中身を控えた同じ選択を返す(★Batch 64。{@code GameActions.requestChoice} が呼ぶ) */
     public PendingChoice withExpectedCardIds(List<String> cardIds) {
-        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, cardIds, payload);
+        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, cardIds,
+                payload, sourceCardId);
+    }
+
+    /**
+     * 出したカードを控えた同じ選択を返す(★Batch 70)。
+     * ★呼ぶのは {@code GameActions.requestChoice} だけである。
+     */
+    public PendingChoice withSourceCardId(String cardId) {
+        return new PendingChoice(kind, candidates, min, max, resumeAt, prompt, expectedCardIds,
+                payload, cardId);
     }
 
     /** この選択の候補が「ゾーン内の位置」であるか(★Batch 64。控えを取る対象かどうか) */

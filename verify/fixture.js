@@ -287,7 +287,9 @@ function autoCard(cardId, name, overrides = {}) {
     cost: 3, effectiveCost: null, attack: 2, hp: 3,
     keywords: [], text: '',
     targets: [], canSpecialSummon: false, specialTargets: [],
-    specialSummonText: null, combinedTotal: 0, enhancedCost: 0, enhancedText: null,
+    // ★Batch 70(裁定319): 特殊召喚の代替コストのうち MP で払う分。多くは0である
+    specialSummonText: null, specialSummonMpCost: 0,
+    combinedTotal: 0, enhancedCost: 0, enhancedText: null,
     // ★Batch 47: 「効果未実装」の印。判定はサーバが済ませて真偽値だけを送る
     effectUnimplemented: false,
     // ★Batch 52: 進化の素材条件。候補の instanceId はサーバが絞り込んで送る ——
@@ -321,6 +323,9 @@ function autoPlayer(overrides = {}) {
     displayName: 'テスト', leaderName: '傷痕の闘帝', leaderCardId: 'QTE-M-FIRE-15',
     lp: 20, deckCount: 30, handCount: 0, hand: [],
     availableMp: 5, totalMana: 5, manaZone: [],
+    // ★★Batch 70(裁定315〜317): 「これから払われるマナ」の順。サーバが決めて送る値であり、
+    //   クライアントは先頭 n 件を取るだけである(払い方の規則を持たない)
+    manaPayOrder: [], tabooPayOrder: [],
     minions: [], trashCount: 0, trashCardNames: [], trash: [],
     lostCount: 0, lostCardNames: [], lost: [], tabooCount: 0, taboo: [],
     manaCharged: false, cannotUseCards: false, mulliganDone: true,

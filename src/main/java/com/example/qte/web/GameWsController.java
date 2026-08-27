@@ -73,7 +73,7 @@ public class GameWsController {
     public void playCard(@DestinationVariable String roomId, PlayCardRequest request) {
         execute(roomId, request.playerId(), room -> gameService.playCard(
                 room, request.playerId(), request.handIndex(), request.targets(), request.enhanced(),
-                request.materialIds()));
+                request.materialIds(), request.manaIndexes()));
     }
 
     /**
@@ -86,7 +86,8 @@ public class GameWsController {
     @MessageMapping("/room/{roomId}/play-soul")
     public void playSoul(@DestinationVariable String roomId, PlayCardRequest request) {
         execute(roomId, request.playerId(), room -> gameService.playSoulCard(
-                room, request.playerId(), request.handIndex(), request.targets()));
+                room, request.playerId(), request.handIndex(), request.targets(),
+                request.manaIndexes()));
     }
 
     /** 禁忌カードの使用(メインフェイズのみ・マナで直接コストを支払う) */
@@ -113,7 +114,7 @@ public class GameWsController {
     public void specialSummon(@DestinationVariable String roomId, PlayCardRequest request) {
         execute(roomId, request.playerId(), room -> gameService.specialSummon(
                 room, request.playerId(), request.handIndex(), request.targets(),
-                request.materialIds()));
+                request.materialIds(), request.manaIndexes()));
     }
 
     /**
@@ -249,11 +250,22 @@ public class GameWsController {
      * @param materialIds ★Batch 52。進化召喚の素材にする自分の場のミニオンの instanceId。
      *                    進化ミニオン以外では空(または未送信)である
      */
+    /**
+     * @param manaIndexes ★Batch 70(裁定319): 払うマナの位置。
+     *                    <b>クリックからのプレイだけが送ってくる</b> ——
+     *                    ドラッグ&ドロップは空で送り、サーバが
+     *                    {@code ManaPayment.normalOrder} の順に自動で払う(裁定315・316)。
+     */
     public record PlayCardRequest(String playerId, int handIndex,
-            List<TargetChoice> targets, boolean enhanced, List<String> materialIds) {
+            List<TargetChoice> targets, boolean enhanced, List<String> materialIds,
+            List<Integer> manaIndexes) {
 
         public List<String> materialIds() {
             return materialIds == null ? List.of() : materialIds;
+        }
+
+        public List<Integer> manaIndexes() {
+            return manaIndexes == null ? List.of() : manaIndexes;
         }
     }
 

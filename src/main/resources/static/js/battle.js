@@ -57,12 +57,38 @@ let mulliganPicks = [];
 let choicePicks = [];
 
 /**
- * 禁忌コストの支払い進行状態。
- * { tabooIndex, cost, manaIndexes: [], specs: [対象要求...] }
- * 禁忌は「コスト支払い(マナ選択) → 対象選択 → 送信」の2段階になるため、
- * 前段をこの変数、後段を既存のpendingが担当する。
+ * ★★★Batch 70: <b>確定を待っている操作</b>(裁定319・321・323)。
+ *
+ * <h2>69 までは禁忌専用だった</h2>
+ *
+ * この変数は 43 から {@code tabooPay}(禁忌コストの支払い)という名前で、
+ * 禁忌カードだけが「マナを選ぶ → 対象を選ぶ → 送る」という2段の道を通っていた。
+ * ★裁定319 が「クリックからのプレイには<b>必ず</b>確認を挟む」と決め、
+ *   裁定323 が「マナチャージも、クリックなら確認を挟む」と決めたので、
+ *   <b>確定を待つ状態が3種類</b>になった。
+ * ★★<b>3つを別々の変数にしなかった。</b>確定・キャンセルの導線が3組に増えると、
+ *   「今何を待っているのか」の判定が3箇所に散る(裁定130)。
+ *   種類は {@code kind} で分け、器は1つにしてある。
+ *
+ * <h2>形</h2>
+ *
+ * <pre>
+ * { kind: 'PLAY' | 'TABOO' | 'CHARGE',
+ *   cost,            // 選ばせるマナの枚数(CHARGE は 0)
+ *   picked: [],      // 選んだマナの位置
+ *   warn,            // 出しておく警告(裁定317。null なら無い)
+ *   card,            // 面と名前を出すためのカード(CHARGE でも入る)
+ *   handIndex,       // PLAY / CHARGE
+ *   tabooIndex,      // TABOO
+ *   action, specs, extra, evolutionFlow }   // 確定したあとに進む先(PLAY / TABOO)
+ * </pre>
+ *
+ * ★<b>ドラッグからのプレイはここを通らない</b>(裁定321: 落とす行為が確認を兼ねる)——
+ *   ただし裁定317 の警告(裏向きマナが墓地送りになる)だけは例外で、
+ *   そのときは<b>自動の払い方をあらかじめ選んだ状態</b>でここへ入る。
+ *   警告と手動選択を別の器にしないのは、どちらも「確定を待っている」からである。
  */
-let tabooPay = null;
+let manaPay = null;
 
 /**
  * ★Batch 52: 進化召喚の素材選択(裁定154)。
@@ -951,7 +977,12 @@ function onHandCardClick(index) {
         return;
     }
     if (latestView.phase === 'MANA_CHARGE') {
-        send('charge-mana', { handIndex: index });
+        // ★★★Batch 70(裁定323): マナチャージも確認を挟む。
+        //   66 まではここが「即座に charge-mana を送る」1行だった ——
+        //   マナチャージは<b>1ターン1回で手札へ戻らない</b>ので、取り返しがつかない。
+        //   ★ドラッグには確認を挟まない(裁定321・323)。あちらは落とす行為が確認である
+        beginManaPayment({ kind: 'CHARGE', cost: 0, card: latestView.you.hand[index],
+            handIndex: index });
         return;
     }
     if (latestView.phase !== 'MAIN' && latestView.phase !== 'SUB') {
@@ -965,9 +996,12 @@ function onHandCardClick(index) {
     // 進化素材の選択より前でなければならない(賢魂として使うなら素材は要らない)。
     // ★サーバが soulCost を送ってきたときだけ導線を出す。
     //   テキストを解析して自分で判断しない(規則はクライアントに置かない。裁定234)
+    // ★★Batch 70: これは<b>確認ではなく「どちらの姿で使うか」の宣言</b>である。
+    //   裁定321 が挟むなと言っているのは前者であり、後者は入口を問わず要る
+    //   (ドラッグでは落とし先が宣言になる。裁定318)
     if (card.soulCost != null) {
         if (confirm(soulPrompt(card))) {
-            beginSelection('play-soul', index, card.soulTargets, {});
+            beginPlayFromHand(index, card, 'play-soul', card.soulTargets, {}, false);
             return;
         }
     }
@@ -987,12 +1021,38 @@ function onHandCardClick(index) {
         enhanced = confirm(card.enhancedText + `\n\nOK = 追加コスト+${card.enhancedCost}を払う / キャンセル = 通常使用`);
     }
     const extra = enhanced ? { enhanced: true } : { enhanced: false };
-    // ★Batch 52: 進化ミニオンは、対象選択より先に素材を決める
-    if (card.type === 'EVOLUTION') {
-        beginEvolutionSelection(action, index, specs, extra, card);
-        return;
+    beginPlayFromHand(index, card, action, specs, extra, card.type === 'EVOLUTION');
+}
+
+/**
+ * ★★★Batch 70(裁定319): クリックからのプレイは、必ずマナの選択と確定を通る。
+ *
+ * ★<b>置く場所を禁忌と同じにした。</b>禁忌は 43 から
+ * 「クリック → マナを選ぶ → 対象を選ぶ → 送る」であり、
+ * 指摘5 の「クリック後に支払うマナを手動で選んで確定ボタンを押したらプレイされる」も同じ並びである。
+ * ★2つの入口(クリック / ドラッグ)で<b>払い方だけが違い、あとの道は同じ</b>になる。
+ */
+function beginPlayFromHand(handIndex, card, action, specs, extra, evolutionFlow) {
+    beginManaPayment({
+        kind: 'PLAY', cost: playCostOf(card, action, extra), card,
+        handIndex, action, specs, extra, evolutionFlow,
+    });
+}
+
+/**
+ * このプレイで払うマナの枚数。
+ * ★<b>コストの計算はしていない</b> —— 実効コストも賢魂のコストも特殊召喚の MP も、
+ *   サーバが計算してビューに載せた値をそのまま読むだけである(裁定234)。
+ */
+function playCostOf(card, action, extra) {
+    if (action === 'play-soul') {
+        return card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost;
     }
-    beginSelection(action, index, specs, extra);
+    if (action === 'special-summon') {
+        return card.specialSummonMpCost || 0;
+    }
+    const base = card.effectiveCost != null ? card.effectiveCost : card.cost;
+    return base + ((extra && extra.enhanced) ? card.enhancedCost : 0);
 }
 
 /**
@@ -1250,7 +1310,7 @@ function confirmRequirement() {
 
 function cancelSelection() {
     pending = null;
-    tabooPay = null;
+    manaPay = null;   // ★Batch 70: 確定待ち(プレイ・禁忌・マナチャージ)もここで降りる
     evolution = null;
     hideModal();
     render(latestView);
@@ -1375,7 +1435,7 @@ function pickWeapon(side) {
 
 /**
  * ★Batch 43: 禁忌の帯の開閉。既定は畳む(1画面レイアウトの前提)。
- * 支払い中(tabooPay)は render() が強制的に開く —— マナを選ぶ間、
+ * 支払い中(manaPay の TABOO)は render() が強制的に開く —— マナを選ぶ間、
  * どの禁忌カードを使おうとしているかが見えていないと操作にならない。
  */
 let tabooOpen = false;
@@ -1384,7 +1444,7 @@ function toggleTabooRow() {
     syncTabooRow();
 }
 function syncTabooRow() {
-    if (tabooPay) tabooOpen = true;
+    if (manaPay && manaPay.kind === 'TABOO') tabooOpen = true;
     document.getElementById('taboo-strip').classList.toggle('d-none', !tabooOpen);
     document.getElementById('btn-taboo-toggle')
         .classList.toggle('auto-chip-active', tabooOpen);
@@ -1392,7 +1452,7 @@ function syncTabooRow() {
 
 function onTabooCardClick(index) {
     if (hasPendingChoice()) return;
-    if (pending || tabooPay || !latestView || !latestView.myTurn) return;
+    if (pending || manaPay || !latestView || !latestView.myTurn) return;
     if (latestView.phase !== 'MAIN') {
         showMessage('禁忌カードはメインフェイズにのみ使用できます');
         return;
@@ -1415,39 +1475,371 @@ function onTabooCardClick(index) {
         showMessage(`禁忌コストの支払いに使えるマナが足りません(必要${cost}枚)`);
         return;
     }
-    tabooPay = { tabooIndex: index, cost, manaIndexes: [], specs, action };
-    if (cost === 0) {
-        finishTabooPayment();
-        return;
-    }
+    // ★★Batch 70(裁定319): コスト0でも自動で確定しない。
+    //   「選ぶ余地が無いから自動でよい」は<b>効果の解決中の選択</b>についての流儀であって、
+    //   プレイそのものを始めてよいかという層には効かない(69 の見立てはここで外れた)
+    beginManaPayment({ kind: 'TABOO', cost, card, tabooIndex: index, action, specs });
+}
+
+/**
+ * ★★★Batch 70: 確定待ちに入る唯一の口(裁定319・321・323)。
+ * ★<b>コストが0でも、候補が1通りしか無くても、ここで止まる。</b>
+ */
+function beginManaPayment(spec) {
+    manaPay = Object.assign({ picked: [], warn: null, cost: 0 }, spec);
     render(latestView);
 }
 
-function pickTabooMana(index) {
-    if (!tabooPay) return;
+/** このマナを今の支払いに充てられるか。★種類ごとの違いはこの1箇所だけである */
+function payCandidate(mana) {
+    if (!manaPay) return false;
+    if (manaPay.kind === 'TABOO') return !mana.temporary;   // 一時マナは禁忌に使えない
+    if (manaPay.kind === 'PLAY') return !mana.tapped;       // 通常の支払いはタップである
+    return false;                                           // CHARGE は選ぶマナが無い
+}
+
+function pickPayMana(index) {
+    if (!manaPay || manaPay.cost === 0) return;
     const mana = latestView.you.manaZone[index];
-    if (mana.temporary) {
-        showMessage('【ピュア・エレメント】は禁忌のコストにできません');
+    if (!payCandidate(mana)) {
+        showMessage(manaPay.kind === 'TABOO'
+            ? '【ピュア・エレメント】は禁忌のコストにできません'
+            : 'タップ済みのマナは支払いに使えません');
         return;
     }
-    if (tabooPay.manaIndexes.includes(index)) return;
-    tabooPay.manaIndexes.push(index);
-    if (tabooPay.manaIndexes.length >= tabooPay.cost) {
-        finishTabooPayment();
+    const at = manaPay.picked.indexOf(index);
+    if (at >= 0) {
+        manaPay.picked.splice(at, 1);   // ★もう一度押せば外れる(選び直せない確定は作らない)
     } else {
-        render(latestView);
+        if (manaPay.picked.length >= manaPay.cost) {
+            showMessage(`払うマナは${manaPay.cost}枚です(外してから選び直してください)`);
+            return;
+        }
+        manaPay.picked.push(index);
     }
-}
-
-function finishTabooPayment() {
-    const { tabooIndex, manaIndexes, specs, action } = tabooPay;
-    tabooPay = null;
-    beginSelection(action || 'play-taboo', null, specs, { tabooIndex, manaIndexes });
-}
-
-function cancelTabooPayment() {
-    tabooPay = null;
     render(latestView);
+}
+
+/**
+ * ★★★Batch 70: 確定(裁定319・323)。
+ * ★<b>ここが「プレイを始めてよい」の唯一の門である。</b>
+ *   通ったあとは 69 までと同じ道(進化素材 → 対象選択 → 送信)に合流する。
+ */
+function confirmManaPayment() {
+    if (!manaPay) return;
+    if (manaPay.picked.length !== manaPay.cost) {
+        showMessage(`払うマナを${manaPay.cost}枚選んでください(${manaPay.picked.length}/${manaPay.cost})`);
+        return;
+    }
+    const pay = manaPay;
+    manaPay = null;
+    if (pay.kind === 'CHARGE') {
+        send('charge-mana', { handIndex: pay.handIndex });
+        return;
+    }
+    if (pay.kind === 'TABOO') {
+        beginSelection(pay.action || 'play-taboo', null, pay.specs,
+            { tabooIndex: pay.tabooIndex, manaIndexes: pay.picked });
+        return;
+    }
+    const extra = Object.assign({}, pay.extra || {}, { manaIndexes: pay.picked });
+    if (pay.evolutionFlow) {
+        beginEvolutionSelection(pay.action, pay.handIndex, pay.specs, extra, pay.card);
+        return;
+    }
+    beginSelection(pay.action, pay.handIndex, pay.specs, extra);
+}
+
+function cancelManaPayment() {
+    manaPay = null;
+    render(latestView);
+}
+
+// ---------------------------------------------------------------
+// ★★★Batch 70: 手札・禁忌からのドラッグ&ドロップ(指摘3〜5・裁定318〜323)
+//
+// ★★<b>入口は2つになった。</b>クリック(確認つき・裁定319)とドラッグ(確認なし・裁定321)で、
+//   <b>違うのは払い方だけ</b>である —— 落としたあとの道(進化素材 → 対象選択 → 送信)は同じ。
+//
+// ★★★<b>ドラッグ中に render() を呼ばない。</b>render() は #my-hand を作り直すので、
+//   掴んでいる要素そのものが DOM から消え、ブラウザがドラッグを中断する
+//   (手動モードの 19b hotfix2 が「ドラッグ中に祖先の pointer-events を変えると
+//    dragstart の直後に dragend が来る」で踏んだのと同じ性質の事故である)。
+//   だから見た目の更新は<b>クラスの付け外しだけ</b>で行う。
+//
+// ★★★<b>落とした場所は e.target では決まらない</b>(20a の A4)。
+//   dragstart の e.target は「指を置いた要素」ではなく、ブラウザが祖先方向へ探して
+//   見つけた draggable=true の要素である。進化の素材のように
+//   「どのカードの上に落ちたか」が要る場面は document.elementFromPoint で取る。
+// ---------------------------------------------------------------
+
+/** 掴んでいるもの。{ from: 'HAND'|'TABOO', index, card, zones: [...], hoverZone } */
+let dragging = null;
+
+/** ドロップ先の器。★id と役割の対応はここ1箇所だけが持つ(裁定130) */
+const DROP_ZONES = [
+    { zone: 'FIELD', id: 'my-minions' },     // ミニオン・進化(裁定318)
+    { zone: 'SPELL', id: 'spell-drop' },     // スペル・【賢魂】(裁定318・320)
+    { zone: 'LEADER', id: 'my-leader' },     // ウェポン(裁定318)
+    { zone: 'MANA', id: 'my-mana-row' },     // マナチャージ(裁定323)
+];
+
+/** 裁定318: 落とし先は<b>種別で決まる</b>。種別に合わない落とし先は存在しないのと同じである */
+function dropZoneOfType(type) {
+    if (type === 'WEAPON') return 'LEADER';
+    if (type === 'SPELL') return 'SPELL';
+    return 'FIELD';   // MINION / EVOLUTION
+}
+
+/**
+ * 手札のカードが今どう使えるか。
+ * ★<b>手札の光り(createHandCardEl)とドロップ先の判定が同じここを読む</b> ——
+ *   2箇所に書くと「光っているのに落とせない」が黙って生まれる(裁定130)。
+ */
+function handCardPlayability(card, view) {
+    const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
+    const affordable = cost <= view.you.availableMp;
+    // ★Batch 54: 賢魂として使えるなら、ミニオンとして払えなくても使える(裁定152)
+    const soulAffordable = card.soulCost != null
+        && (card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost)
+            <= view.you.availableMp;
+    const charge = !!view.myTurn && view.phase === 'MANA_CHARGE';
+    const main = !!view.myTurn && view.phase === 'MAIN' && card.type !== 'LEADER'
+        && (affordable || card.canSpecialSummon || soulAffordable);
+    const sub = !!view.myTurn && view.phase === 'SUB'
+        && (card.type === 'SPELL' ? affordable : soulAffordable);
+    return { affordable, soulAffordable, charge, main, sub, playable: charge || main || sub };
+}
+
+/** マナチャージができる状態か。★判定は 43 から在るこの1本を呼ぶ(裁定130) */
+function canChargeMana(view) {
+    return !!view.myTurn && view.phase === 'MANA_CHARGE'
+        && !view.you.manaCharged && view.you.totalMana < 15;
+}
+
+/**
+ * このカードを落とせる場所の一覧(裁定318・320・322・323)。
+ * ★空なら掴ませない —— 落とせない場所しか無いのに掴めると、離すたびに何も起きない。
+ */
+function dropZonesFor(card, from, view) {
+    if (!view || !view.you || !view.myTurn || view.mulligan) return [];
+    if (pending || evolution || manaPay || hasPendingChoice()) return [];
+    if (view.phase === 'MANA_CHARGE') {
+        // ★裁定323 + 総合ルール「手札から1枚」。禁忌デッキは手札ではない
+        return (from === 'HAND' && canChargeMana(view)) ? ['MANA'] : [];
+    }
+    const zones = [];
+    if (from === 'TABOO') {
+        if (view.phase !== 'MAIN') return [];   // 3-3: 禁忌はメインフェイズのみ
+        const payable = view.you.manaZone.filter(m => !m.temporary).length;
+        if (card.soulCost != null && card.soulCost <= payable) zones.push('SPELL');
+        if (card.cost <= payable) zones.push(dropZoneOfType(card.type));
+        return [...new Set(zones)];
+    }
+    const p = handCardPlayability(card, view);
+    if (p.soulAffordable && (view.phase === 'MAIN' || view.phase === 'SUB')) zones.push('SPELL');
+    if (view.phase === 'MAIN' && card.type !== 'LEADER'
+            && (p.affordable || card.canSpecialSummon)) {
+        zones.push(dropZoneOfType(card.type));
+    }
+    if (view.phase === 'SUB' && card.type === 'SPELL' && p.affordable) zones.push('SPELL');
+    return [...new Set(zones)];
+}
+
+/** 今つかんでいるカードを、今指している落とし先で使ったときのコスト */
+function draggingCost() {
+    if (!dragging) return 0;
+    const card = dragging.card;
+    const asSoul = dragging.hoverZone === 'SPELL' && card.soulCost != null && card.type !== 'SPELL';
+    if (dragging.from === 'TABOO') {
+        // 禁忌はコスト軽減を受けない(マナの枚数で払う)ので印刷値を使う
+        return asSoul ? card.soulCost : card.cost;
+    }
+    if (asSoul) {
+        return card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost;
+    }
+    return card.effectiveCost != null ? card.effectiveCost : card.cost;
+}
+
+/**
+ * これから自動で払われるマナの位置(裁定315〜317)。
+ * ★★<b>順序はサーバから来たものをそのまま使う。</b>クライアントは
+ *   「先頭から n 件」しか知らない —— 払い方の規則を書き写すと、
+ *   サーバの払い方が変わった日に<b>強調表示だけが黙って嘘になる</b>(67 の教訓・写し)。
+ */
+function plannedManaIndexes() {
+    if (!dragging || !latestView || !latestView.you) return [];
+    // ★マナチャージにコストは無い(裁定323)。
+    //   ★<b>指がまだどこにも乗っていないときも見る</b> —— マナチャージフェイズは
+    //     落とし先がマナゾーンしか無いので、掴んだ瞬間から光らせてはいけない
+    if (dragging.hoverZone === 'MANA'
+            || dragging.zones.every(z => z === 'MANA')) {
+        return [];
+    }
+    const you = latestView.you;
+    const order = dragging.from === 'TABOO' ? (you.tabooPayOrder || []) : (you.manaPayOrder || []);
+    return order.slice(0, draggingCost());
+}
+
+/**
+ * 裁定317 の警告。禁忌の支払いで<b>裏向きのマナが墓地送りになる</b>なら真。
+ * ★順序はサーバから来た tabooPayOrder であり、表裏はビューの公開情報である ——
+ *   「どれを払うか」も「裏向きなら墓地へ行くか」もこちらでは決めていない。
+ */
+function tabooPayBurns(cost) {
+    const you = latestView && latestView.you;
+    if (!you) return false;
+    return (you.tabooPayOrder || []).slice(0, cost)
+        .some(i => you.manaZone[i] && !you.manaZone[i].faceUp);
+}
+
+/** ドラッグを始められるなら draggable にして、掴んだときの手当てを付ける */
+function attachDrag(el, from, index, card) {
+    const zones = dropZonesFor(card, from, latestView);
+    if (zones.length === 0) {
+        el.draggable = false;
+        return;
+    }
+    el.draggable = true;
+    el.addEventListener('dragstart', (e) => {
+        dragging = { from, index, card, zones, hoverZone: null };
+        // ★中身は使わない(同じページの中の話である)が、空だとドラッグが成立しないブラウザがある
+        e.dataTransfer.setData('text/plain', from + ':' + index);
+        e.dataTransfer.effectAllowed = 'move';
+        el.classList.add('auto-dragging');
+        markDropZones();
+        refreshPlannedMana();
+    });
+    el.addEventListener('dragend', () => endDrag());
+}
+
+/** 落とせる場所に印を付ける。★render() を通さない(ドラッグ中に DOM を作り直さない) */
+function markDropZones() {
+    DROP_ZONES.forEach(({ zone, id }) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle('auto-drop-ready', !!dragging && dragging.zones.includes(zone));
+        if (!dragging) el.classList.remove('auto-drop-over');
+    });
+}
+
+/** 「これから払われるマナ」の印を付け直す。★同じ理由で render() を通さない */
+function refreshPlannedMana() {
+    const planned = plannedManaIndexes();
+    document.querySelectorAll('#my-mana-row .mana-tile').forEach((tile, i) => {
+        tile.classList.toggle('auto-pay-planned', planned.includes(i));
+    });
+}
+
+function endDrag() {
+    dragging = null;
+    markDropZones();
+    document.querySelectorAll('.auto-card.auto-dragging')
+        .forEach(el => el.classList.remove('auto-dragging'));
+    document.querySelectorAll('#my-mana-row .mana-tile.auto-pay-planned')
+        .forEach(el => el.classList.remove('auto-pay-planned'));
+}
+
+/**
+ * ドロップ先を1つ登録する。★<b>ページの読み込み時に1回だけ</b>呼ぶ ——
+ * この4つの器は描画で作り直されない(作り直されるのは中身だけである)。
+ */
+function registerDropZone(zone, id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('dragover', (e) => {
+        if (!dragging || !dragging.zones.includes(zone)) return;
+        e.preventDefault();
+        if (dragging.hoverZone !== zone) {
+            dragging.hoverZone = zone;
+            refreshPlannedMana();   // ★賢魂かミニオンかで払う枚数が変わる(裁定318)
+        }
+        el.classList.add('auto-drop-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('auto-drop-over'));
+    el.addEventListener('drop', (e) => {
+        if (!dragging || !dragging.zones.includes(zone)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        // ★落ちた場所は座標から取る(20a の A4)。進化の素材はこれでしか分からない
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const card = under && under.closest ? under.closest('#my-minions .auto-card') : null;
+        const droppedOn = card ? card.dataset.instanceId : null;
+        const dropped = dragging;
+        endDrag();
+        playByDrop(dropped, zone, droppedOn);
+    });
+}
+
+DROP_ZONES.forEach(({ zone, id }) => registerDropZone(zone, id));
+
+/**
+ * ★★★Batch 70: 落としたものを実際にプレイする(裁定318・321・322)。
+ *
+ * ★<b>確認は挟まない</b>(裁定321) —— ただし裁定317 の警告だけは例外で必ず出す。
+ * ★<b>「どちらの姿で使うか」は確認ではない。</b>【賢魂】は落とし先で決まり(裁定318)、
+ *   特殊召喚と強化使用は落としたあとに尋ねる —— どちらも
+ *   「本当にやるか」ではなく「どの規則で使うか」の問いだからである。
+ */
+function playByDrop(d, zone, droppedOnInstanceId) {
+    const card = d.card;
+    if (zone === 'MANA') {
+        send('charge-mana', { handIndex: d.index });   // 裁定323: ドラッグに確認は無い
+        return;
+    }
+    const asSoul = zone === 'SPELL' && card.soulCost != null && card.type !== 'SPELL';
+    if (d.from === 'TABOO') {
+        const action = asSoul ? 'play-taboo-soul' : 'play-taboo';
+        const specs = asSoul ? card.soulTargets : card.targets;
+        const cost = asSoul ? card.soulCost : card.cost;
+        if (tabooPayBurns(cost)) {
+            // ★★裁定317: 裏向きのマナは墓地へ行き、二度と戻らない。
+            //   ★確認の器を新しく作らない —— 自動の払い方をあらかじめ選んだ状態で
+            //     確定待ちへ入れる。人はそのまま[確定]でも、選び直してもよい
+            beginManaPayment({
+                kind: 'TABOO', cost, card, tabooIndex: d.index, action, specs,
+                picked: (latestView.you.tabooPayOrder || []).slice(0, cost),
+                warn: '裏向きのマナが墓地へ送られます(マナが永久に減ります)',
+            });
+            return;
+        }
+        // ★指定を空で送る。サーバが ManaPayment.tabooOrder の順に払う(裁定317)
+        beginSelection(action, null, specs, { tabooIndex: d.index, manaIndexes: [] });
+        return;
+    }
+    // ★★<b>指定を空で明示して送る。</b>「指定が無い=自動で払う」という約束を
+    //   通信の形にも残しておく —— 省略と空を混ぜると、あとから読む人が
+    //   「送り忘れ」と「自動でよい」を区別できない(裁定315・316)
+    if (asSoul) {
+        beginSelection('play-soul', d.index, card.soulTargets, { manaIndexes: [] });
+        return;
+    }
+    let action = 'play-card';
+    let specs = card.targets;
+    let enhanced = false;
+    if (card.canSpecialSummon && latestView.phase === 'MAIN'
+            && confirm(card.specialSummonText + '\n\nOK = 特殊召喚 / キャンセル = 通常プレイ')) {
+        action = 'special-summon';
+        specs = card.specialTargets;
+    } else if (card.enhancedCost > 0) {
+        enhanced = confirm(card.enhancedText
+            + `\n\nOK = 追加コスト+${card.enhancedCost}を払う / キャンセル = 通常使用`);
+    }
+    const extra = { enhanced, manaIndexes: [] };
+    if (card.type === 'EVOLUTION') {
+        // ★★裁定322: <b>落とした先が1体目の素材</b>であり、残りは今までどおり問い合わせる。
+        //   ★52 が作った素材選択の器をそのまま使う(足す物が無い)
+        if (!droppedOnInstanceId
+                || !(card.evolutionMaterialIds || []).includes(droppedOnInstanceId)) {
+            showMessage('進化は素材にできるミニオンの上に落としてください(条件: '
+                + card.evolutionText + ')');
+            return;
+        }
+        beginEvolutionSelection(action, d.index, specs, extra, card);
+        if (evolution) pickEvolutionMaterial(droppedOnInstanceId);
+        return;
+    }
+    beginSelection(action, d.index, specs, extra);
 }
 
 function useLeaderAbility() {
@@ -1506,7 +1898,9 @@ function hasAvailableActions(view) {
     const costOf = c => (c.effectiveCost != null ? c.effectiveCost : c.cost);
     switch (view.phase) {
         case 'MANA_CHARGE':
-            return !you.manaCharged && you.hand.length > 0 && you.totalMana < 15;
+            // ★Batch 70: 「置けるか」の判定は canChargeMana 1本に寄せた(裁定130)。
+            //   ドロップ先を光らせる側と、自動進行が待つ側が同じ式を読む
+            return canChargeMana(view) && you.hand.length > 0;
         case 'MAIN': {
             const abilityUsable = you.leaderAbility && you.leaderAbility.usable;
             if (you.cannotUseCards) return abilityUsable; // 起動能力はカードの使用ではない
@@ -1916,7 +2310,13 @@ function pileEl(label, opts) {
     if (opts.top) {
         cardHolder.appendChild(cardFace(faceDataFromCardView(opts.top), 'micro'));
         cardHolder.classList.add('auto-pile-stacked');
-        attachZoom(el, () => faceDataFromCardView(opts.top));
+        const topFace = () => faceDataFromCardView(opts.top);
+        attachZoom(el, topFace);
+        // ★★★Batch 70(指摘1): パイルの一番上にもホバープレビューを出す。
+        //   ★<b>出す位置は動かさない。</b>実測で、面は x:748〜980 に出て
+        //     右列(x:988〜)とは重ならない —— 69 の A-3 が心配した
+        //     「パイル自身を覆う」は起きなかった(先に測って分かったことである)
+        attachHover(el, topFace);
     } else if (opts.back) {
         cardHolder.classList.add('auto-pile-back', 'auto-pile-stacked');
         if (!fillCardBack(cardHolder)) {
@@ -2006,7 +2406,13 @@ function showZoneFaces(title, cards, graveSummon) {
             const holder = document.createElement('div');
             holder.className = 'auto-zone-card';
             holder.appendChild(cardFace(faceDataFromCardView(card), 'mini'));
-            attachZoom(holder, () => faceDataFromCardView(card));
+            const zoneFace = () => faceDataFromCardView(card);
+            attachZoom(holder, zoneFace);
+            // ★★★Batch 70(指摘1): ゾーン一覧(墓地・消滅)にもホバープレビューを出す。
+            //   ★z-index はホバー(1400)> モーダル(1000)なので上に出る。
+            //     ただし実測で<b>モーダル本体(x:383〜897)と面(x:748〜980)が重なる</b>ので、
+            //     モーダルが開いている間は左端へ逃がす(attachHover の中で決める)
+            attachHover(holder, zoneFace);
             // ★Batch 53: 墓地からの【特殊召喚】(《サモナーポップ・エンラ》)。
             // 「今それができるか」を知っているのはサーバだけなので、
             // この画面は canSpecialSummonFromGrave をそのまま信じてボタンを出す
@@ -2073,7 +2479,7 @@ let hoverTimer = null;
  * ホバープレビューを出してよいか。★判定はこの1箇所だけが持つ(裁定130)。
  *
  * ★<b>「選んでいる最中」は5つある。</b>どれも<b>盤面か手札をクリックさせている</b>状態である。
- *   宣言時の対象指定(pending)/ 進化素材(evolution)/ 禁忌コストの支払い(tabooPay)/
+ *   宣言時の対象指定(pending)/ 進化素材(evolution)/ ★支払いの確定待ち(manaPay)/
  *   マリガン / ★★<b>割り込み(hasPendingChoice)</b>。
  * ★★★<b>5つ目を書き忘れていた。</b>68 が【召喚時】の対象を割り込みへ移したので、
  *   マスターが心配した「対象を選ぶときに候補が隠れる」は<b>いちばん割り込みで起きる</b> ——
@@ -2082,7 +2488,7 @@ let hoverTimer = null;
  *     同じ式を書き写さずに<b>呼ぶ</b>(裁定130)。
  */
 function hoverBlocked() {
-    return !!pending || !!evolution || !!tabooPay || hasPendingChoice()
+    return !!pending || !!evolution || !!manaPay || hasPendingChoice()
         || !!(latestView && latestView.mulligan);
 }
 
@@ -2102,10 +2508,22 @@ function attachHover(el, dataFn) {
             const holder = document.getElementById('auto-hover-card');
             holder.innerHTML = '';
             holder.appendChild(cardFace(dataFn(), 'large'));
-            document.getElementById('auto-hover').classList.remove('d-none');
+            const hover = document.getElementById('auto-hover');
+            // ★★★Batch 70(指摘1): ゾーン一覧はモーダルの中に在る。
+            //   実測でモーダル本体(x:383〜897)と面(x:748〜980)が重なるので、
+            //   モーダルが開いている間だけ左端へ逃がす。
+            //   ★<b>判定はここ1箇所だけが持つ</b>(裁定130)——
+            //     呼び出し側に位置を決めさせると、呼び出しの数だけ規則が散る
+            hover.classList.toggle('auto-hover-left', modalOpen());
+            hover.classList.remove('d-none');
         }, 350);
     };
     el.onmouseleave = hideHover;
+}
+
+/** 情報モーダル(墓地・消滅・マナ・リーダー能力の一覧)が開いているか */
+function modalOpen() {
+    return !document.getElementById('info-modal').classList.contains('d-none');
 }
 
 // ---------------------------------------------------------------
@@ -2234,7 +2652,7 @@ function onMessage(frame) {
     if (message.type === 'ERROR') {
         showMessage(message.message);
         pending = null; // サーバに拒否された選択は最初からやり直す
-        tabooPay = null;
+        manaPay = null;
         render(latestView);
         return;
     }
@@ -2253,7 +2671,7 @@ function onMessage(frame) {
         choicePicks = [];
     }
     pending = null;
-    tabooPay = null;
+    manaPay = null;
     render(latestView);
 }
 
@@ -2277,12 +2695,51 @@ function render(view) {
     renderOpponent(view.opponent, view);
     renderSelf(view.you, view);
     renderPendingChoice(view);
+    renderPlayingCard(view);
     syncTabooRow();
 
     if (view.status === 'FINISHED') {
         showMessage('対戦終了: ' + view.winnerName + ' の勝利');
     }
     maybeAutoAdvance(view);
+}
+
+/**
+ * ★★★Batch 70(指摘2): 「今プレイしているカード」を出す。
+ *
+ * <h2>ホバープレビューとは別物である</h2>
+ *
+ * 69 は「対象を選んでいる最中はホバープレビューを出さない」と決めた。
+ * 指摘2 が求めているのは<b>その裏側</b>である ——
+ * 出さないのは「手を乗せた先」の面であって、
+ * 「今プレイしているカードそのもの」は出しっぱなしにしてほしい。
+ *
+ * ★★<b>だから器を分けた</b>(#auto-playing)。#auto-hover を使い回すと
+ *   「乗せた先で入れ替わる」性質を引き継ぎ、<b>手を動かした瞬間に消える</b>。
+ *
+ * <h2>出どころ</h2>
+ *
+ * カードIDはサーバが問い合わせに添えてくる({@code pendingChoice.sourceCardId})。
+ * ★<b>クライアントは「直前に自分が送ったカード」を覚えていない。</b>
+ *   割り込みは相手のターンにも来る(【破壊時】など)ので、
+ *   覚えていた値は<b>そのとき別のカードを指す</b>。
+ *
+ * ★面は card-library から引く(裁定144)—— ビューはIDしか運ばない。
+ * ★取得前・未知IDのときは出さない(壊さない、の系列)。
+ */
+function renderPlayingCard(view) {
+    const el = document.getElementById('auto-playing');
+    const choice = view.you && view.you.pendingChoice;
+    const lib = choice && choice.sourceCardId ? autoLibrary.get(choice.sourceCardId) : null;
+    el.classList.toggle('d-none', !lib);
+    if (!lib) return;
+    const holder = document.getElementById('auto-playing-card');
+    holder.innerHTML = '';
+    holder.appendChild(cardFace({
+        name: lib.name, type: lib.type, civilization: lib.civilization,
+        cost: lib.cost, attack: lib.attack, hp: lib.hp,
+        keywords: [], text: lib.text,
+    }, 'large'));
 }
 
 /**
@@ -2516,16 +2973,41 @@ function renderControls(view) {
     document.getElementById('btn-summon-grave').classList.toggle('d-none', !graveSummon);
 }
 
+/**
+ * ★★★Batch 70: 確定待ちの案内文。★<b>3つの種類で1本にしてある</b>(裁定130)。
+ * 裁定317 の警告(裏向きマナが墓地送りになる)はここに混ぜず、<b>先頭に立てる</b> ——
+ * 取り返しのつかない支払いは、枚数の案内と同じ扱いにしてはいけない。
+ */
+function manaPayPrompt() {
+    const name = manaPay.card ? `【${manaPay.card.name}】` : '';
+    const warn = manaPay.warn ? '⚠ ' + manaPay.warn + ' / ' : '';
+    if (manaPay.kind === 'CHARGE') {
+        return `${warn}${name}をマナゾーンに置きます(このターンはもう置けません)。よろしければ[確定]`;
+    }
+    if (manaPay.kind === 'TABOO') {
+        return `${warn}${name}の禁忌コストに充てるマナを選んでください`
+            + `(${manaPay.picked.length}/${manaPay.cost}) 表向き=裏向きにする / 裏向き=墓地へ送る`;
+    }
+    if (manaPay.cost === 0) {
+        return `${warn}${name}をプレイします(コスト0)。よろしければ[確定]`;
+    }
+    return `${warn}${name}に払うマナを選んでください(${manaPay.picked.length}/${manaPay.cost})`;
+}
+
 function renderSelection() {
     const area = document.getElementById('selection-area');
     const skipBtn = document.getElementById('btn-skip-target');
-    if (tabooPay) {
-        // 禁忌コストの支払い中(表向き→裏向き / 裏向き→墓地送り)
+    const payBtn = document.getElementById('btn-confirm-pay');
+    payBtn.classList.add('d-none');
+    if (manaPay) {
+        // ★★★Batch 70(裁定319・321・323): 確定待ち。3つの種類が同じ導線に出る
         area.classList.remove('d-none');
-        document.getElementById('selection-prompt').textContent =
-            `禁忌コストに充てるマナを選んでください(${tabooPay.manaIndexes.length}/${tabooPay.cost}) `
-            + '表向き=裏向きにする / 裏向き=墓地へ送る';
+        document.getElementById('selection-prompt').textContent = manaPayPrompt();
         skipBtn.classList.add('d-none');
+        document.getElementById('btn-confirm-target').classList.add('d-none');
+        document.getElementById('btn-open-trash').classList.add('d-none');
+        payBtn.classList.remove('d-none');
+        payBtn.disabled = manaPay.picked.length !== manaPay.cost;
         return;
     }
     if (evolution) {
@@ -2727,12 +3209,19 @@ function renderSelf(you, view) {
     manaRow.innerHTML = '';
     you.manaZone.forEach((mana, index) => {
         const tile = buildManaTile(mana);
-        if (tabooPay) {
-            if (!mana.temporary) {
-                tile.classList.add('taboo-payable');
-                tile.onclick = () => pickTabooMana(index);
+        if (manaPay) {
+            // ★★Batch 70: 禁忌も通常のプレイも同じ光りである(裁定319)。
+            //   どのマナが候補かの違いは payCandidate 1箇所だけが持つ
+            if (payCandidate(mana)) {
+                tile.classList.add('auto-pay-candidate');
+                tile.onclick = () => pickPayMana(index);
             }
-            if (tabooPay.manaIndexes.includes(index)) tile.classList.add('taboo-picked');
+            if (manaPay.picked.includes(index)) tile.classList.add('auto-pay-picked');
+        } else if (dragging && plannedManaIndexes().includes(index)) {
+            // ★★★Batch 70(裁定315〜317): ドラッグ中に「これから払われるマナ」を光らせる。
+            //   ★順序はサーバから来た manaPayOrder / tabooPayOrder をそのまま使う ——
+            //     払い方の規則をこちらに書き写さない(67 の教訓・写し)
+            tile.classList.add('auto-pay-planned');
         } else if (manaReq && manaReq.kind === 'MANA') {
             tile.classList.add('mana-selectable');
             if (pending.current.manaIndexes.includes(index)) tile.classList.add('mana-picked');
@@ -2824,16 +3313,26 @@ function createTabooCardEl(card, index, view) {
     const payable = view.you.manaZone.filter(m => !m.temporary).length;
     // ★Batch 54: 禁忌の【賢魂】は n 枚で払える(マスター裁定 A6)
     const cheapest = card.soulCost != null ? Math.min(card.cost, card.soulCost) : card.cost;
-    if (!pending && !tabooPay && view.myTurn && view.phase === 'MAIN' && payable >= cheapest) {
+    if (!pending && !manaPay && view.myTurn && view.phase === 'MAIN' && payable >= cheapest) {
         el.classList.add('playable');
     }
-    if (tabooPay && tabooPay.tabooIndex === index) el.classList.add('selected-attacker');
+    if (manaPay && manaPay.kind === 'TABOO' && manaPay.tabooIndex === index) {
+        el.classList.add('selected-attacker');
+    }
     el.appendChild(cardFace(faceDataFromCardView(card), 'full'));
     const badges = newBadgeBox();
     if (card.soulCost != null) addBadge(badges, '★賢魂:' + card.soulCost);
     addUnimplementedBadge(badges, card);
     attachBadges(el, badges);
-    attachZoom(el, () => faceDataFromCardView(card));
+    const tabooFace = () => faceDataFromCardView(card);
+    attachZoom(el, tabooFace);
+    // ★★★Batch 70(指摘1): 禁忌の帯にもホバープレビューを出す。
+    //   ★69 は手札に1行足したとき<b>隣のこの関数には足さなかった</b> ——
+    //     クラス(.auto-card-hand)まで同じなのに、作る関数が別だったからである。
+    //     69 の教訓「途中」の再演であり、44 が2箇所で止まったのとまったく同じ形である
+    attachHover(el, tabooFace);
+    // ★★★Batch 70(裁定317・318): 禁忌もドラッグできる
+    attachDrag(el, 'TABOO', index, card);
     return el;
 }
 
@@ -2877,6 +3376,9 @@ function addUnimplementedBadge(box, cardOrMinion) {
 function createMinionEl(minion) {
     const el = document.createElement('div');
     el.className = 'auto-card auto-card-minion';
+    // ★★Batch 70(裁定322): 進化を素材の上に落とすとき、<b>どのミニオンの上か</b>を
+    //   座標から引くのに使う(dragstart の e.target では取れない・20a の A4)
+    el.dataset.instanceId = minion.instanceId;
     if (minion.tapped) el.classList.add('tapped-minion');
     el.appendChild(cardFace(faceDataFromMinion(minion), 'mini'));
     // ★一時状態は面に混ぜず、バッジで上に重ねる(manual の .manual-tapped-badge と同じ考え方)
@@ -2948,20 +3450,10 @@ function createHandCardEl(card, index, view) {
         }
         if (index === pending.handIndex) el.classList.add('exhausted');
     } else if (!pending && !evolution) {
-        const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
-        const affordable = cost <= view.you.availableMp;
-        // ★Batch 54: 賢魂として使えるなら、ミニオンとして払えなくても光らせる。
-        // 賢魂はスペルの使用なのでサブフェイズでも使える(裁定152・マスター裁定 A4)
-        const soulAffordable = card.soulCost != null
-            && (card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost)
-                <= view.you.availableMp;
-        // ミニオン・スペル・ウェポンはメインフェイズにプレイ可能(ウェポンの光り漏れバグを修正)
-        const playable = view.myTurn && (
-            view.phase === 'MANA_CHARGE' ||
-            (view.phase === 'MAIN' && card.type !== 'LEADER'
-                && (affordable || card.canSpecialSummon || soulAffordable)) ||
-            (view.phase === 'SUB' && (card.type === 'SPELL' ? affordable : soulAffordable)));
-        if (playable) el.classList.add('playable');
+        // ★★Batch 70: 判定は handCardPlayability 1本に移した(裁定130)。
+        //   ドラッグの落とし先の判定(dropZonesFor)が<b>同じここを読む</b> ——
+        //   2箇所に書くと「光っているのに落とせない」が黙って生まれる
+        if (handCardPlayability(card, view).playable) el.classList.add('playable');
     }
     // ★実効コストが違うときはコストの宝石に実効値を出し、印で分かるようにする
     //   (例: 双流の幻術師)。両方の数字は title と拡大で確かめられる
@@ -2979,6 +3471,8 @@ function createHandCardEl(card, index, view) {
     attachBadges(el, badges);
     const handFace = () => faceDataFromCardView(card);
     attachZoom(el, handFace);
+    // ★★★Batch 70(指摘3): 手札からのドラッグ。落とせる先が1つも無ければ掴ませない
+    attachDrag(el, 'HAND', index, card);
     // ★★Batch 69: 手札のホバープレビュー(44 の器を呼ぶ・65 が挙げた穴)。
     //   ★手札は既に :hover で 6px 持ち上がるが、あれは「どれを指しているか」の印であり、
     //     <b>効果テキストは読めない</b>。読むには右クリックで拡大するしかなかった。

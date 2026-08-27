@@ -78,17 +78,16 @@
    変わっておらず、退役したのは<b>見た目の実装</b>だけである。 */
 
 .mana-row { display: flex; gap: 3px; flex-wrap: wrap; }
-.mana-chip {
-    width: 22px; height: 30px; border-radius: 3px;
-    background: #26a69a; border: 1px solid #80cbc4;
-}
-.mana-chip.tapped { transform: rotate(90deg); opacity: 0.5; margin: 0 5px; }
-.mana-chip.face-down { background: #455a64; }
+/* ★★★Batch 70: `.mana-chip` 一式(素の小さな四角)は<b>退役した</b>。
+   通常モードのマナは 44 で `.mana-tile`(名前つきタイル)に差し替わっており、
+   このクラスを付ける JS は 44 以降どこにも無い —— 使い手を失った器である(裁定178)。
+   ★<b>ただし「見た目が消えていたこと」は 70 まで誰も気づかなかった。</b>
+     マナの選択と禁忌の支払いの光り(.mana-chip.mana-selectable / .taboo-payable)は
+     このファイルに<b>在ったまま当たらなくなっていた</b>。
+     70 で `.auto-mana-row .mana-tile` に当てる形へ置き直してある(このファイルの末尾)。 */
 
 .log-box { background: rgba(0, 0, 0, 0.4); height: 130px; overflow-y: auto; }
 
-.mana-chip.mana-selectable { cursor: pointer; border-color: #ffca28; box-shadow: 0 0 4px #ffca28; }
-.mana-chip.mana-picked { background: #ff7043; }
 .leader-card.selected-attacker { border-color: #ff5722; box-shadow: 0 0 8px #ff5722; }
 
 /* Batch 5: 情報モーダルとマリガン選択 */
@@ -206,10 +205,11 @@
 .sound-note { color: #adb5bd; }
 .link-info { text-decoration: none; }
 
-/* Batch 7: 禁忌デッキと禁忌コスト支払い */
+/* Batch 7: 禁忌デッキと禁忌コスト支払い
+   ★Batch 70: 支払いの光り(.mana-chip.taboo-payable / .taboo-picked)はここから
+   このファイルの末尾へ移し、名前も `.auto-pay-candidate` / `.auto-pay-picked` に変えた ——
+   裁定319 により<b>通常のプレイでも同じ光りを使う</b>ようになったためである。 */
 .taboo-row { min-height: 90px; }
-.mana-chip.taboo-payable { cursor: pointer; box-shadow: 0 0 5px #ff5c8a; border-color: #ff5c8a; }
-.mana-chip.taboo-picked { background: #ad1457; }
 
 /* Batch 18b: 手動モード盤面(設計書 4-1〜4-4)。
    場のカードは画像を使わずタイル表示とする(4-3)。背景色・文字色はJSが
@@ -1954,3 +1954,83 @@ body.manual-drag-active .manual-band {
 
 /* 右列のパイル列は 280px に4つ収まる */
 .auto-side .auto-piles { justify-content: space-between; padding: 0 2px; }
+
+/* ============================================================
+   ★★★Batch 70: 手札からの操作を2つの入口にする(裁定315〜323)と、
+   ホバーの取りこぼし(指摘1)
+
+   ★★<b>70 が見つけた既存の穴を先に書く。</b>
+   マナの選択・禁忌の支払いの光りは 43 以来 `.mana-chip.mana-selectable` /
+   `.mana-chip.taboo-payable` に書かれていた。ところが 44 で通常モードのマナが
+   `.mana-chip` から <b>`.mana-tile`</b> の名前つきタイルへ差し替わっており、
+   <b>この4本のルールはどれにも当たらなくなっていた</b> ——
+   クラスは付いているのに、光っていない。
+   ★verify は「クラスが付いた要素の数」を数えていたので、<b>緑のまま素通りした</b>
+   (設計判断45 の「文字列で測ると『書いてあるが効いていない』を緑にする」の実例である)。
+   → 70 で `.auto-mana-row .mana-tile` に当てる形へ直し、
+     verify は<b>実測の色が普通のタイルと違うこと</b>で測るようにした。
+   ============================================================ */
+
+/* ---------- 支払いに選べるマナ / 選んだマナ(★禁忌と通常のプレイで共通・裁定319) ---------- */
+.auto-mana-row .mana-tile.auto-pay-candidate {
+    cursor: pointer; border-color: #ff5c8a; box-shadow: 0 0 5px #ff5c8a;
+}
+.auto-mana-row .mana-tile.auto-pay-picked { background: #ad1457; border-color: #ff8fb0; }
+/* ★ドラッグ中に「これから自動で払われるマナ」(裁定315〜317。順序の正はサーバ) */
+.auto-mana-row .mana-tile.auto-pay-planned {
+    border-color: #ffc107; box-shadow: 0 0 6px #ffc107;
+}
+/* ★43 以来の対象選択(TargetSpec.Kind.MANA)も同じ理由で当たっていなかった */
+.auto-mana-row .mana-tile.mana-selectable {
+    cursor: pointer; border-color: #ffca28; box-shadow: 0 0 4px #ffca28;
+}
+.auto-mana-row .mana-tile.mana-picked { background: #ff7043; border-color: #ffab91; }
+
+/* ---------- スペルのドロップ先(裁定320: 専用の枠を1つ常設する) ----------
+   ★「あいている場所」ではなく「決まった場所」にする —— 盤面の状態で
+     ドロップ先が動くと、落とし損ねが増えるうえ検証で位置を固定できない。
+   ★自分のミニオン行の右にだけ置く。実測で、中央列 966px のうち
+     ミニオン6体が使うのは 602px であり、120px の枠を常設しても足りる。 */
+.auto-field-line { display: flex; gap: 8px; align-items: stretch; }
+.auto-field-line > .auto-minions { flex: 1 1 0; min-width: 0; }
+.auto-spell-drop {
+    flex: 0 0 120px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    border: 2px dashed #4a4460; border-radius: 8px;
+    color: #6f6786; font-size: 11px; line-height: 1.4;
+}
+/* ---------- ドロップ先の見え方(共通) ----------
+   ★★<b>「落とせる場所」と「今その上に居る場所」を分ける。</b>
+     1つの印にすると、複数のドロップ先が同時に光っているのか
+     指がどこに居るのか読めなくなる。 */
+.auto-drop-ready { outline: 2px dashed #ffc107; outline-offset: -2px; }
+.auto-spell-drop.auto-drop-ready { border-color: #ffc107; color: #ffc107; }
+.auto-drop-over { outline: 3px solid #ffc107; outline-offset: -2px; background: rgba(255, 193, 7, 0.14); }
+/* ★掴んでいるカード自身は薄くする(どれを運んでいるか分かるようにする) */
+.auto-card.auto-dragging { opacity: 0.35; }
+
+/* ---------- 「今プレイしているカード」(指摘2) ----------
+   ★★<b>ホバープレビュー(#auto-hover)とは別の要素である。</b>
+     同じ器を使い回すと「乗せた先で入れ替わる」性質を引き継ぎ、
+     <b>プレイ中のカードが手の動きで消える</b>(batch69-ui-feedback.md B-1)。
+   ★出す場所はホバーと同じ座標でよい —— 問い合わせが出ている間は
+     ホバーそのものが止まっている(hoverBlocked)ので、2つが同時に出ることはない。
+   ★★<b>盤面のカードを覆わない</b>ことは実測で確かめてある ——
+     この面は x:748 から始まり、ミニオンは6体並んでも x:614 で終わる。 */
+.auto-playing {
+    position: fixed; right: 300px; top: 64px; z-index: 1390;
+    pointer-events: none; filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.6));
+}
+.auto-playing.d-none { display: none; }
+.auto-playing-label {
+    font-size: 11px; font-weight: 700; color: #14121d; background: #ffc107;
+    border-radius: 4px 4px 0 0; padding: 1px 6px; display: inline-block;
+}
+
+/* ---------- ホバーをモーダルの上に出すとき(★Batch 70・指摘1) ----------
+   ★z-index は 44 から 1400 で、.info-modal(1000)より上に出る。
+     ただし実測で<b>モーダル本体(x:383〜897)と面(x:748〜980)が重なる</b>ので、
+     モーダルが開いている間だけ左端へ逃がす。
+   ★判定はホバーを出す関数の中に1つだけ置く(裁定130) ——
+     呼び出し側が位置を決めると、また呼び出しの数だけ規則が散る。 */
+.auto-hover.auto-hover-left { right: auto; left: 12px; }

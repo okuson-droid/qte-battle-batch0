@@ -116,7 +116,8 @@ class BattlePageTest {
     void 通常モードの盤面のJSの版数が上がっている() throws Exception {
         String html = battleHtml();
         // ★66 で battle.js に席選択とデッキ読み込みを足したので v=29 のままではいけない
-        assertThat(html).doesNotContain("battle.js?v=29");
+        // ★★Batch 70: 手札からのドラッグ&ドロップとクリックの確定を足した(裁定318〜323)
+        assertThat(html).doesNotContain("battle.js?v=32");
         assertThat(html).contains("battle.js?v=");
     }
 
@@ -144,12 +145,12 @@ class BattlePageTest {
 
     /**
      * ★★Batch 69 は CSS も変えている(地色・縦帯・0枚のバッジ・進行表)。
-     * <b>版数を上げないと、既に開いている人の画面だけ 49 のままになる。</b>
+     * <b>版数を上げないと、既に開いている人の画面だけ 50 のままになる。</b>
      */
     @Test
     void 通常モードの盤面のCSSの版数が上がっている() throws Exception {
         String html = battleHtml();
-        assertThat(html).doesNotContain("battle.css?v=49");
+        assertThat(html).doesNotContain("battle.css?v=50");
         assertThat(html).contains("battle.css?v=");
     }
 }

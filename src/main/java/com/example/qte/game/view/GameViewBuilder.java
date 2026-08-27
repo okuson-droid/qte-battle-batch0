@@ -14,6 +14,7 @@ import com.example.qte.effect.TargetSpec;
 import com.example.qte.game.GameState;
 import com.example.qte.game.GameStatus;
 import com.example.qte.game.ManaCard;
+import com.example.qte.game.ManaPayment;
 import com.example.qte.game.MinionInstance;
 import com.example.qte.game.PlayerState;
 import com.example.qte.master.CardMaster;
@@ -204,6 +205,13 @@ public class GameViewBuilder {
                 player.getAvailableMp(),
                 player.getManaZone().size(),
                 mana,
+                // ★★★Batch 70(裁定315〜317): 「これから払われるマナ」の順。
+                //   ★<b>順序そのものを送る</b> —— クライアントは先頭 n 件を取るだけで、
+                //     払い方の規則を1つも持たない(裁定234・67 の教訓「写し」)。
+                //   ★相手のビューには入れない。自分がどのマナから払うつもりかは
+                //     操作の手の内であり、盤面の公開情報ではないためである(設計判断9)。
+                isSelf ? ManaPayment.normalOrder(player) : List.of(),
+                isSelf ? ManaPayment.tabooOrder(player) : List.of(),
                 minions,
                 player.getTrash().size(),
                 player.getTrash().stream().map(id -> cards.findById(id).name()).toList(),
@@ -330,7 +338,9 @@ public class GameViewBuilder {
             candidates.add(new PlayerView.PendingChoiceView.ChoiceCandidateView(i, label, keywords, minionInstanceId));
         }
         return new PlayerView.PendingChoiceView(choice.kind().name(), candidates,
-                choice.min(), choice.max(), choice.prompt(), player.getPendingChoiceCount());
+                choice.min(), choice.max(), choice.prompt(), player.getPendingChoiceCount(),
+                // ★★Batch 70(指摘2): 「今プレイしているカード」。控えたのは requestChoice である
+                choice.sourceCardId());
     }
 
     /** リーダー起動能力の状態。使用可否はサーバで評価する(UIはボタンの活性に使うだけ) */
@@ -402,6 +412,8 @@ public class GameViewBuilder {
                 canSpecial,
                 shown == null ? List.of() : toReqViews(shown.targets()),
                 shown == null ? null : shown.description(),
+                // ★Batch 70(裁定319): 確定の段で「何枚のマナを選ばせるか」に要る
+                shown == null ? 0 : shown.mpCost(),
                 spec.combinedTotal(),
                 enhanced == null ? 0 : enhanced.extraCost(),
                 enhanced == null ? null : enhanced.prompt(),
