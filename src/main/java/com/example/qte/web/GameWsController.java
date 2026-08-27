@@ -10,6 +10,7 @@ import com.example.qte.effect.TargetChoice;
 import com.example.qte.game.GameService;
 import com.example.qte.room.GameRoom;
 import com.example.qte.room.GameRoomManager;
+import com.example.qte.room.SeatId;
 
 import lombok.RequiredArgsConstructor;
 
@@ -202,6 +203,88 @@ public class GameWsController {
                 room -> gameService.endTurn(room, request.playerId()));
     }
 
+    // ---------------------------------------------------------------
+    // ★★★試合の出入り(Batch 72)
+    // ---------------------------------------------------------------
+    //
+    // ★<b>WebSocket に置いた。</b>66 の役割分担は「ページを開くまでと、
+    //   盤面に持ち込むファイルは HTTP / 開いたあとの操作は WebSocket」である。
+    //   席を立つ・座る・退室・投了・再戦は<b>どれも開いたあとの操作</b>であり、
+    //   しかも全員の画面を変える —— execute の末尾の配信がそのまま要る。
+    //   ★手動モードの /manual/{roomId}/seat・/leave と同じ場所である。
+
+    /**
+     * 席に着く / 席を立つ(★Batch 72)。★手動モードの {@code seat} と同じ形にしてある ——
+     * {@code seat} が null なら席を立ち、非 null ならその席に着く。
+     *
+     * <p>★<b>手動モードと違うのは「観戦できない部屋で席を立ったとき」だけである。</b>
+     * あちらは退室に読み替えるが、こちらは<b>断る</b>(マスター確認)。
+     * 通常モードには {@link #leave} が別に在り、押した人が自分で選ぶ ——
+     * 1つのボタンが部屋の設定しだいで別のことをするのは、
+     * 「押すつもりが無かった」を作る形である(設計判断47 の筋)。
+     */
+    @MessageMapping("/room/{roomId}/seat")
+    public void seat(@DestinationVariable String roomId, SeatRequest request) {
+        execute(roomId, request.playerId(), room -> {
+            if (request.seat() == null) {
+                gameService.standUp(room, request.playerId());
+            } else {
+                gameService.takeSeat(room, request.playerId(), request.seat());
+            }
+        });
+    }
+
+    /**
+     * 退室(★Batch 72)。席に着いていた人も観戦者も同じ口を通る。
+     *
+     * <h2>★★★手動モードの形は写せなかった</h2>
+     * 手動モードは {@code send('leave'); forgetOccupant(); location.href = '/';} と
+     * <b>送って即座に遷移する</b>。それが成り立つのは
+     * <b>あちらの退室が失敗しないから</b>である。
+     *
+     * <p>通常モードの退室は<b>失敗しうる</b>(対戦中の着席者は断られる)。
+     * 同じ形で書くと、断られたときの理由({@code sendError})が
+     * <b>ロビーへ遷移したあとの端末</b>へ届き、誰も読まない ——
+     * しかも localStorage は既に消えているので、<b>席に着いたまま戻れなくなる</b>。
+     * ★71 の教訓「同じ穴を塞ぐことと、同じ形で塞ぐことは別である」の2例目である。
+     *
+     * <p>→ <b>受理されたことを本人へ1通返す</b>({@code WsMessage} の type=LEFT)。
+     * クライアントはそれを見てから localStorage を消して遷移する。
+     * ★退室した本人はもう {@code broadcast} の宛先ではないので、別に送るしかない。
+     * ★★この形は切断にも強い —— 送れていなければ返事も来ないので、
+     * <b>ローカルでは何も起きない</b>(設計判断49 がそのまま効く)。
+     */
+    @MessageMapping("/room/{roomId}/leave")
+    public void leave(@DestinationVariable String roomId, ActionRequest request) {
+        execute(roomId, request.playerId(),
+                room -> gameService.leave(room, request.playerId()),
+                () -> broadcaster.sendLeft(roomId, request.playerId()));
+    }
+
+    /**
+     * 投了(★Batch 72)。★<b>いつでも押せる</b>(相手のターン中・割り込み待ち・マリガン中)。
+     * 詰まったときの逃げ道は、詰まりの原因になっている規則に左右されてはいけない。
+     */
+    @MessageMapping("/room/{roomId}/concede")
+    public void concede(@DestinationVariable String roomId, ActionRequest request) {
+        execute(roomId, request.playerId(),
+                room -> gameService.concede(room, request.playerId()));
+    }
+
+    /**
+     * 再戦の申し込み・承諾・辞退(★Batch 72)。
+     *
+     * <p>★<b>宛先は1つである。</b>3つとも「再戦」という1つの話題の手であり、
+     * 宛先を割ると {@code sfxForAction} と機械検証の照合先が3つに増える。
+     * ★{@code play-soul} を {@code play-card} と別宛先にしたのは
+     * <b>どちらの姿で使うかという宣言</b>だったからであり(裁定152)、性質が違う。
+     */
+    @MessageMapping("/room/{roomId}/rematch")
+    public void rematch(@DestinationVariable String roomId, RematchRequest request) {
+        execute(roomId, request.playerId(),
+                room -> gameService.rematch(room, request.playerId(), request.action()));
+    }
+
     // ---- 共通処理 ----
 
     private void execute(String roomId, ActionRequest request, RoomAction action) {
@@ -209,6 +292,16 @@ public class GameWsController {
     }
 
     private void execute(String roomId, String playerId, RoomAction action) {
+        execute(roomId, playerId, action, null);
+    }
+
+    /**
+     * @param onSuccess 配信のあとに1度だけ走る後始末。★Batch 72 の {@link #leave} だけが使う ——
+     *                  <b>退室した本人は配信の宛先から消えている</b>ので、
+     *                  「受理された」を伝える経路がここにしか無い。
+     *                  ★null 可。増やすときは「配信では届かない相手が居るか」を根拠にすること。
+     */
+    private void execute(String roomId, String playerId, RoomAction action, Runnable onSuccess) {
         GameRoom room = roomManager.findRoom(roomId)
                 .orElse(null);
         if (room == null) {
@@ -220,6 +313,9 @@ public class GameWsController {
                 action.apply(room);
             }
             broadcaster.broadcast(room);
+            if (onSuccess != null) {
+                onSuccess.run();
+            }
         } catch (IllegalStateException | IllegalArgumentException e) {
             // ルール違反: 状態は変更されていないので、操作者にだけ理由を返す
             broadcaster.sendError(roomId, playerId, e.getMessage());
@@ -305,5 +401,16 @@ public class GameWsController {
     }
 
     public record MinionAbilityRequest(String playerId, String instanceId, List<TargetChoice> targets) {
+    }
+
+    /**
+     * 席に着く / 立つ(★Batch 72)。{@code seat} が null なら席を立つ。
+     * ★手動モードの {@code SeatRequest} と同じ形である(型は共有していない。{@link SeatId} を参照)。
+     */
+    public record SeatRequest(String playerId, SeatId seat) {
+    }
+
+    /** 再戦(★Batch 72)。★1つの話題の3手を1つの宛先で受ける */
+    public record RematchRequest(String playerId, GameService.RematchAction action) {
     }
 }

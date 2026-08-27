@@ -1526,10 +1526,37 @@ public class GameActions {
                 state.opponentOf(owner.getPlayerId()), source, null, this);
     }
 
+    /**
+     * 決着させる。<b>決着の口はここ1本である</b>(裁定130) ——
+     * 山札切れ・効果によるLP0・ウェポン攻撃・ミニオン攻撃、
+     * ★そして Batch 72 から<b>投了</b>({@code GameService.concede})の5経路が通る。
+     *
+     * <h2>★★★Batch 72: 決着したら「待ち」を全部たたむ</h2>
+     * 72 が投了を「いつでも押せる」ものにしたことで、
+     * <b>割り込み待ちのまま決着する盤面が初めて作れるようになった</b>。
+     * 待ちを残したまま決着すると、決着後の画面に「1体選んでください」の問いと
+     * [この内容で確定] が出続け、しかも {@code resolveChoice} は決着を見ていないので
+     * <b>押せば通ってしまう</b>(64 の設計にその判定は無い)。
+     *
+     * <p>★<b>たたむのは「答えようのなくなった待ち」だけである。</b>
+     * 盤面そのもの(場・手札・LP)は1つも触らない ——
+     * 決着後も盤面を読めることは手動モードの裁定44 が決めた性質であり、
+     * 通常モードでもそこは変えない。
+     *
+     * <p>★★<b>「投了のときだけたたむ」と書かない。</b>同じ状態は
+     * 理屈のうえでは他の4経路でも作れる(誘発の途中でLPが0になる)——
+     * 起きにくいだけである。口が1本なのだから、掃除も1箇所に置く。
+     */
     public void finish(GameRoom room, PlayerState winner) {
         GameState state = room.getGameState();
         state.setStatus(GameStatus.FINISHED);
         state.setWinnerPlayerId(winner.getPlayerId());
+        state.getPlayer1().clearPendingChoices();
+        state.getPlayer2().clearPendingChoices();
+        state.setPendingAttack(null);
+        state.setTurnHandoffPending(false);
+        state.setPendingNextPlayerId(null);
+        state.setResolvingCardId(null);
         room.addLog("★ %s の勝利です ★".formatted(winner.getDisplayName()));
     }
 }

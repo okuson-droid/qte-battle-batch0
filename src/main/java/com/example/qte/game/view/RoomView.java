@@ -21,6 +21,13 @@ package com.example.qte.game.view;
  * @param seatB            席Bの状態
  * @param viewerSeat       この人が座っている席("A"/"B")。観戦者は null
  * @param viewerSpectator  この人が観戦者か
+ * @param rematchOfferedBySeat ★Batch 72: 再戦を申し込んでいる人の席("A"/"B")。無ければ null。
+ *                             ★<b>「自分が申し込んだか」に加工しない。</b>席で持てば
+ *                             {@code viewerSeat} と比べるだけで自分か相手かが決まり、
+ *                             <b>観戦者にも同じ値がそのまま届く</b>(誰が申し込んだかは
+ *                             部屋の公開情報である)。加工して送ると、
+ *                             観戦者ぶんの意味をもう1つ決めることになる(設計判断9)
+ * @param rematchOfferedByName 申し込んだ人の表示名。無ければ null
  */
 public record RoomView(
         String roomName,
@@ -29,7 +36,9 @@ public record RoomView(
         SeatView seatA,
         SeatView seatB,
         String viewerSeat,
-        boolean viewerSpectator) {
+        boolean viewerSpectator,
+        String rematchOfferedBySeat,
+        String rematchOfferedByName) {
 
     /**
      * 席1つの状態。

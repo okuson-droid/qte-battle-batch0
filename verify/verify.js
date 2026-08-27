@@ -7523,6 +7523,517 @@ async function clearZoom(page) {
 
   await connPage.close();
 
+  // ===============================================================
+  // ★★★Batch 72: 試合の出入り(席・退室・投了・再戦)
+  // ===============================================================
+  //
+  // ★★<b>照合先が2つに割れている。</b>
+  //   ・席の移動そのもの(id を保つ・不変条件・断り方)は<b>サーバの値</b> → Batch72SeatTest
+  //   ・出し分け・重なり・確認・遷移は<b>実測</b> → ここ
+  //   ★70 の教訓「回る場所を選ぶ前に、そこまで届くかを確かめる」に従って割った ——
+  //     verify のハーネスは Java を起こさないので、GameRoom を壊しても<b>ここには届かない</b>。
+
+  const exitPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const exitErrors = [];
+  exitPage.on('pageerror', (e) => exitErrors.push(String(e)));
+  await exitPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await exitPage.waitForTimeout(300);
+
+  /** 受付(RoomView)のフィクスチャ */
+  const exitRoom = (over = {}) => ({
+    roomName: 'ハーネスの部屋', spectatorAllowed: true, spectatorCount: 0,
+    seatA: { name: 'あかり', deckLoaded: true, ready: true },
+    seatB: { name: 'ばんり', deckLoaded: true, ready: true },
+    viewerSeat: 'A', viewerSpectator: false,
+    rematchOfferedBySeat: null, rematchOfferedByName: null,
+    ...over,
+  });
+  const exitView = (over = {}) => autoView({
+    you: autoPlayer({ minions: [autoMinion('m0', '自分のミニオン')] }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e0', '相手のミニオン')] }),
+    ...over,
+    room: exitRoom(over.room || {}),
+  });
+  const exitDeliver = (v) => exitPage.evaluate((view) => {
+    latestView = view;
+    render(view);
+  }, v);
+  /** ★毎回の仕切り直し。前の項目が残した状態を次の項目が自分の成果と取り違えないため(71 の教訓) */
+  const exitReset = () => exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.connected = true; socketDown = false; offlinePeeking = false;
+    closeAutoConfirm();
+    closeSeatChangeGate();
+    document.getElementById('deck-gate').classList.add('d-none');
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    window.__sent.length = 0;
+  });
+
+  // ---- 72-1. ★★★ヘッダのボタンは接続の帯と重ならない(実測。値を書かない)----
+  // ★★<b>先に端の盤面を作って測ってから置いた</b>(65・69・70・71 の教訓)。
+  //   事前実測ではヘッダの伸びしろが 940px あり、3つ足しても 714px 残った ——
+  //   ★<b>その 940 も 714 もここには書かない。</b>書けば、実装が動いたときに
+  //     検証だけが古い前提のまま残る(71 の「実測は捨てて不変量は昇格させる」)。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'PLAYING' }));
+  const exitHeader = await exitPage.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    setConnBar('切断中 — 操作は相手に届きません(再接続中)', 'offline');
+    const header = document.querySelector('.auto-header');
+    const bar = document.getElementById('auto-conn-bar').getBoundingClientRect();
+    const ids = ['btn-seat', 'btn-concede', 'btn-leave'];
+    const boxes = ids.map((id) => {
+      const el = document.getElementById(id);
+      return { id, inHeader: header.contains(el),
+        hidden: el.classList.contains('d-none'), r: el.getBoundingClientRect() };
+    });
+    const shown = boxes.filter((b) => !b.hidden);
+    const overlaps = shown.filter((b) =>
+      bar.right > b.r.left && bar.left < b.r.right
+      && bar.bottom > b.r.top && bar.top < b.r.bottom);
+    const hb = header.getBoundingClientRect();
+    const outside = shown.filter((b) => b.r.bottom > hb.bottom + 0.5 || b.r.right > hb.right);
+    // eslint-disable-next-line no-undef
+    setConnBar(null);
+    return {
+      allInHeader: boxes.every((b) => b.inHeader),
+      shown: shown.map((b) => b.id),
+      overlaps: overlaps.map((b) => b.id),
+      outside: outside.map((b) => b.id),
+      headerHeight: Math.round(hb.height),
+    };
+  });
+  check('★★★試合の出入りのボタンはヘッダに収まり、接続の帯と重ならない(72・実測で選んだ置き場所)',
+    exitHeader.allInHeader && exitHeader.shown.length > 0
+      && exitHeader.overlaps.length === 0 && exitHeader.outside.length === 0,
+    JSON.stringify(exitHeader));
+
+  // ---- 72-2. ★★★どのボタンがいつ出るか(状態ごとの出し分け)----
+  // ★★<b>席を動かせるのは盤面が無い間だけ</b>である —— 66 が「席を立てない」と書いた
+  //   理由(席は GameState の2人と1対1)は、盤面が在るあいだにしか掛かっていない。
+  // ★★★<b>決着後に抜けたい人は退室する。</b>だから FINISHED では [退室] が出て
+  //   [席を立つ] は出ない —— この2つが取り違えられていないことがこの項目の中身である。
+  const buttonState = async (view) => {
+    await exitDeliver(view);
+    return exitPage.evaluate(() => {
+      const one = (id) => {
+        const el = document.getElementById(id);
+        return el.classList.contains('d-none') ? null : el.textContent.trim();
+      };
+      return { seat: one('btn-seat'), concede: one('btn-concede'), leave: one('btn-leave') };
+    });
+  };
+  const stWaitingSeated = await buttonState(exitView({
+    status: 'WAITING', you: null, opponent: null }));
+  const stWaitingSpectator = await buttonState(exitView({
+    status: 'WAITING', you: null, opponent: null,
+    room: { viewerSeat: null, viewerSpectator: true,
+      seatB: { name: null, deckLoaded: false, ready: false } } }));
+  const stPlayingSeated = await buttonState(exitView({ status: 'PLAYING' }));
+  const stPlayingSpectator = await buttonState(exitView({
+    status: 'PLAYING', room: { viewerSeat: null, viewerSpectator: true } }));
+  const stFinished = await buttonState(exitView({ status: 'FINISHED', winnerName: 'あいて' }));
+  const stNoSpectate = await buttonState(exitView({
+    status: 'WAITING', you: null, opponent: null,
+    room: { spectatorAllowed: false } }));
+  check('★★★受付のあいだは席を立てて退室もできる。投了は出ない(72)',
+    stWaitingSeated.seat === '席を立つ' && stWaitingSeated.concede === null
+      && stWaitingSeated.leave === '退室', JSON.stringify(stWaitingSeated));
+  check('★★観戦者は空席に着ける(72・66 が作らなかった昇格)',
+    stWaitingSpectator.seat === '席に着く' && stWaitingSpectator.leave === '退室',
+    JSON.stringify(stWaitingSpectator));
+  check('★★★対戦中の着席者は席を立てず、退室もできない —— 出るのは投了だけである(72)',
+    stPlayingSeated.seat === null && stPlayingSeated.concede === '投了'
+      && stPlayingSeated.leave === null, JSON.stringify(stPlayingSeated));
+  check('★★対戦中でも観戦者は退室できる(72・盤面の持ち主ではないため)',
+    stPlayingSpectator.concede === null && stPlayingSpectator.leave === '退室',
+    JSON.stringify(stPlayingSpectator));
+  check('★★★決着後は退室できるが、席は動かせない(72・盤面はまだ在る)',
+    stFinished.seat === null && stFinished.concede === null && stFinished.leave === '退室',
+    JSON.stringify(stFinished));
+  check('★★観戦できない部屋では席を立てない —— 退室は出る(72・マスター確認)',
+    stNoSpectate.seat === null && stNoSpectate.leave === '退室',
+    JSON.stringify(stNoSpectate));
+
+  // ---- 72-3・72-4. ★★★確認を通さずには送らない / 初期フォーカスは [キャンセル] ----
+  await exitReset();
+  await exitDeliver(exitView({ status: 'PLAYING' }));
+  const concedeBox = await exitPage.locator('#btn-concede').boundingBox();
+  await exitPage.mouse.click(concedeBox.x + concedeBox.width / 2,
+    concedeBox.y + concedeBox.height / 2);
+  await exitPage.waitForTimeout(40);
+  const askedConcede = await exitPage.evaluate(() => ({
+    open: !document.getElementById('auto-confirm').classList.contains('d-none'),
+    sent: window.__sent.length,
+    focused: document.activeElement ? document.activeElement.id : null,
+    okLabel: document.getElementById('auto-confirm-ok').textContent,
+  }));
+  check('★★★投了は確認を通さずには飛ばない(72・裁定53 を通常モードでも守る)',
+    askedConcede.open && askedConcede.sent === 0 && askedConcede.okLabel === '投了する',
+    JSON.stringify(askedConcede));
+  check('★★確認の初期フォーカスは [キャンセル] である(72・裁定52)',
+    askedConcede.focused === 'auto-confirm-close', JSON.stringify(askedConcede));
+
+  // ---- 72-5. ★★取り消した確認は何も送らない / 実行すると1件だけ飛ぶ ----
+  const cancelled = await exitPage.evaluate(() => {
+    document.getElementById('auto-confirm-close').click();
+    return { sent: window.__sent.length,
+      open: !document.getElementById('auto-confirm').classList.contains('d-none') };
+  });
+  check('★★取り消した確認は何も送らない(72)',
+    cancelled.sent === 0 && !cancelled.open, JSON.stringify(cancelled));
+  await exitPage.mouse.click(concedeBox.x + concedeBox.width / 2,
+    concedeBox.y + concedeBox.height / 2);
+  await exitPage.waitForTimeout(30);
+  const executed = await exitPage.evaluate(() => {
+    document.getElementById('auto-confirm-ok').click();
+    return { sent: window.__sent.map((s) => s.destination),
+      open: !document.getElementById('auto-confirm').classList.contains('d-none') };
+  });
+  check('★★確認を実行すると投了が1件だけ飛ぶ(72)',
+    executed.sent.length === 1 && executed.sent[0].endsWith('/concede') && !executed.open,
+    JSON.stringify(executed));
+
+  // ---- 72-6. ★★★確認モーダルは切断オーバーレイより下である(実測。値を書かない)----
+  // ★★裁定56 の判断を通常モードでも守る —— 切断中は「操作が相手に届かない」のほうが
+  //   上位の情報であり、その上に確認を重ねると
+  //   <b>「実行しても何も起きない問い」を最前面に出す</b>ことになる。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'PLAYING' }));
+  const confirmZ = await exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    askConfirm('テストの問い', 'テストする', () => {});
+    client.onWebSocketClose();
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    const confirmEl = document.getElementById('auto-confirm');
+    const offline = document.getElementById('auto-offline');
+    const body = confirmEl.querySelector('.info-modal-body').getBoundingClientRect();
+    const top = document.elementFromPoint(body.x + body.width / 2, body.y + body.height / 2);
+    return {
+      confirmShown: !confirmEl.classList.contains('d-none'),
+      offlineShown: !offline.classList.contains('d-none'),
+      coveredByOffline: !!(top && offline.contains(top)),
+      topId: top ? (top.id || top.className) : '(なし)',
+    };
+  });
+  check('★★★切断オーバーレイは確認モーダルより手前に出る(72・裁定56 を通常モードでも守る)',
+    confirmZ.confirmShown && confirmZ.offlineShown && confirmZ.coveredByOffline,
+    JSON.stringify(confirmZ));
+
+  // ---- 72-7. ★★Esc で確認が閉じ、下の層へ落ちない(裁定49)----
+  await exitReset();
+  await exitDeliver(exitView({ status: 'PLAYING', log: ['ログ1', 'ログ2'] }));
+  await exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    toggleLogPanel();                  // ★下の層を開いておく
+    askConfirm('テストの問い', 'テストする', () => {});
+    /* eslint-enable no-undef */
+  });
+  await exitPage.keyboard.press('Escape');
+  await exitPage.waitForTimeout(30);
+  const escOnce = await exitPage.evaluate(() => ({
+    confirmOpen: !document.getElementById('auto-confirm').classList.contains('d-none'),
+    logOpen: !document.getElementById('log-panel').classList.contains('d-none'),
+  }));
+  check('★★Esc は確認モーダルだけを閉じ、下の層へ落ちない(72・裁定49)',
+    !escOnce.confirmOpen && escOnce.logOpen, JSON.stringify(escOnce));
+  await exitPage.keyboard.press('Escape');
+  await exitPage.waitForTimeout(30);
+
+  // ---- 72-8. ★★★決着の面 —— 右列の中段に収まり、盤面を覆わない ----
+  // ★★<b>オーバーレイにしなかった判断そのものの検証である。</b>
+  //   終わった盤面はまだ読まれている(手動モードの裁定44)——
+  //   覆っていたら、この項目の「ミニオンに手が届く」が落ちる。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'FINISHED', winnerName: 'あいて' }));
+  const resultBox = await exitPage.evaluate(() => {
+    const el = document.getElementById('auto-result');
+    const mid = document.querySelector('.auto-side-mid');
+    const minion = document.querySelector('#my-minions > *');
+    const mb = minion ? minion.getBoundingClientRect() : null;
+    const top = mb ? document.elementFromPoint(mb.x + mb.width / 2, mb.y + mb.height / 2) : null;
+    return {
+      shown: !el.classList.contains('d-none'),
+      inSideMid: mid.contains(el),
+      overflow: mid.scrollHeight > mid.clientHeight,
+      hasMinion: !!minion,
+      minionReachable: !!(top && !el.contains(top)),
+      winner: document.getElementById('auto-result-winner').textContent,
+    };
+  });
+  check('★★★決着の面は右列の中段に収まり、溢れない(72・実測で選んだ置き場所)',
+    resultBox.shown && resultBox.inSideMid && !resultBox.overflow
+      && resultBox.winner.includes('あいて'), JSON.stringify(resultBox));
+  check('★★★決着しても盤面は読める —— 面は覆わない(72・手動モードの裁定44 と同じ性質)',
+    resultBox.hasMinion && resultBox.minionReachable, JSON.stringify(resultBox));
+
+  // ---- 72-9. ★★★再戦の4つの顔 ----
+  // ★★<b>自分の申し込みには自分で答えられない。</b>答えられると、
+  //   2段(申し込み → 承諾)にした意味が消える。
+  const rematchFace = async (over) => {
+    await exitDeliver(exitView({ status: 'FINISHED', winnerName: 'あいて', room: over }));
+    return exitPage.evaluate(() => {
+      const one = (id) => !document.getElementById(id).classList.contains('d-none');
+      return {
+        note: document.getElementById('auto-result-note').textContent,
+        offer: one('btn-rematch-offer'),
+        accept: one('btn-rematch-accept'),
+        decline: one('btn-rematch-decline'),
+      };
+    });
+  };
+  const faceNone = await rematchFace({});
+  const faceMine = await rematchFace({ rematchOfferedBySeat: 'A', rematchOfferedByName: 'あかり' });
+  const faceTheirs = await rematchFace({ rematchOfferedBySeat: 'B', rematchOfferedByName: 'ばんり' });
+  const faceSpectator = await rematchFace({
+    viewerSeat: null, viewerSpectator: true,
+    rematchOfferedBySeat: 'B', rematchOfferedByName: 'ばんり' });
+  const faceAlone = await rematchFace({ seatB: { name: null, deckLoaded: false, ready: false } });
+  check('★★申し込みが無ければ [再戦を申し込む] だけが出る(72)',
+    faceNone.offer && !faceNone.accept && !faceNone.decline, JSON.stringify(faceNone));
+  check('★★★自分の申し込みには自分で答えられない(72・2段にした意味を守る)',
+    !faceMine.offer && !faceMine.accept && !faceMine.decline
+      && faceMine.note.includes('待っています'), JSON.stringify(faceMine));
+  check('★★相手の申し込みには [応じる] と [断る] が出る(72)',
+    !faceTheirs.offer && faceTheirs.accept && faceTheirs.decline
+      && faceTheirs.note.includes('ばんり'), JSON.stringify(faceTheirs));
+  check('★★観戦者には申し込みが見えるが、答える導線は出ない(72・設計判断9)',
+    !faceSpectator.offer && !faceSpectator.accept && !faceSpectator.decline
+      && faceSpectator.note.includes('ばんり'), JSON.stringify(faceSpectator));
+  check('★相手が席に居なければ再戦を申し込めない(72)',
+    !faceAlone.offer && faceAlone.note.includes('相手が席に居ない'), JSON.stringify(faceAlone));
+
+  // ---- 72-10. ★★★[応じる] は確認を通す / [断る] は通さない ----
+  // ★★<b>確認は「取り返しのつかない操作」だけに置く。</b>
+  //   申し込みは旗を立てるだけ、辞退は倒すだけで、どちらも取り返しがつく ——
+  //   全部に確認を出すと、確認そのものが読み飛ばされるようになる。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'FINISHED', winnerName: 'あいて',
+    room: { rematchOfferedBySeat: 'B', rematchOfferedByName: 'ばんり' } }));
+  const rematchGuards = await exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    window.__sent.length = 0;
+    declineRematch();
+    const afterDecline = window.__sent.length;
+    window.__sent.length = 0;
+    acceptRematch();
+    const acceptAsked = !document.getElementById('auto-confirm').classList.contains('d-none');
+    const acceptSent = window.__sent.length;
+    document.getElementById('auto-confirm-ok').click();
+    const acceptBody = window.__sent.map((s) => s.body.action);
+    closeAutoConfirm();
+    /* eslint-enable no-undef */
+    return { afterDecline, acceptAsked, acceptSent, acceptBody };
+  });
+  check('★★[断る] は確認を挟まずそのまま飛ぶ(72・取り返しがつく操作である)',
+    rematchGuards.afterDecline === 1, JSON.stringify(rematchGuards));
+  check('★★★[応じる] は確認を通すまで飛ばない —— 相手の盤面まで消えるからである(72)',
+    rematchGuards.acceptAsked && rematchGuards.acceptSent === 0
+      && rematchGuards.acceptBody.length === 1 && rematchGuards.acceptBody[0] === 'ACCEPT',
+    JSON.stringify(rematchGuards));
+
+  // ---- 72-11. ★★★切断中は投了も退室も飛ばない(71 のガードの後ろに居る)----
+  // ★★<b>畳むローカルの状態が1つも無い</b>ので、設計判断49 の「戻す」は要らない ——
+  //   確認モーダルは閉じるが、ボタンはそこに在り、押し直せる。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'PLAYING' }));
+  const exitOffline = await exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();
+    offlinePeeking = true; updateOfflineLock();     // ★覗いてボタンに届かせる
+    window.__sent.length = 0;
+    concede();
+    document.getElementById('auto-confirm-ok').click();
+    const afterConcede = window.__sent.length;
+    // ★<b>退室はここでは確認を通さずに直接叩く。</b>leaveRoom() を呼ぶと、
+    //   「送った時点で遷移する」実装(= 72-16 が禁じている形)のときに
+    //   <b>この項目の途中でページが遷移し、以降の項目が1つも走らなくなる</b>
+    //   (68 の教訓・番人の書き方)。★退室の入口そのものは 72-16 が実際に押す。
+    const afterLeave = send('leave', {}) ? -1 : window.__sent.length;
+    /* eslint-enable no-undef */
+    const bar = document.getElementById('auto-conn-bar');
+    return { afterConcede, afterLeave,
+      barAnim: getComputedStyle(bar).animationName,
+      buttonsStillThere: !document.getElementById('btn-concede').classList.contains('d-none') };
+  });
+  check('★★★切断中は投了も退室も飛ばない(72・71 のガードの後ろに居る)',
+    exitOffline.afterConcede === 0 && exitOffline.afterLeave === 0
+      && exitOffline.barAnim !== 'none' && exitOffline.buttonsStillThere,
+    JSON.stringify(exitOffline));
+
+  // ---- 72-12. ★★★席替えのゲートのあいだは切断の案内を<b>出す</b> ----
+  // ★★★<b>71 の判断の延長である。</b>あちらは「入室前のゲートでは出さない /
+  //   入室後(デッキゲート)では出す」と決めた。席替えのゲートは<b>入室後</b>であり、
+  //   同じ要素(#seat-gate)を使っていても意味が違う ——
+  //   判定を「要素が出ているか」だけにすると、ここで黙って案内が消える。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'WAITING', you: null, opponent: null,
+    room: { viewerSeat: null, viewerSpectator: true,
+      seatB: { name: null, deckLoaded: false, ready: false } } }));
+  const changeGateOffline = await exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    openSeatChangeGate();
+    client.onWebSocketClose();
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    return {
+      gateShown: !document.getElementById('seat-gate').classList.contains('d-none'),
+      // eslint-disable-next-line no-undef
+      mode: seatGateMode,
+      overlayShown: !document.getElementById('auto-offline').classList.contains('d-none'),
+      nameHidden: document.getElementById('seat-gate-name-wrap').classList.contains('d-none'),
+    };
+  });
+  check('★★★席替えのゲートは入室後なので、切断の案内を出す(72・71 の判断の延長)',
+    changeGateOffline.gateShown && changeGateOffline.mode === 'CHANGE'
+      && changeGateOffline.overlayShown && changeGateOffline.nameHidden,
+    JSON.stringify(changeGateOffline));
+
+  // ---- 72-13. ★★★切断中に席を選ぶと、ゲートが開き直って理由がゲートの中に出る ----
+  // ★★設計判断49(送れなかった操作は畳まない)の新しい使い手である。
+  //   ★<b>拒否の合図はゲートの中に出す</b> —— 71 が用意した明滅はヘッダの帯に当たるが、
+  //     このゲートは z-index 1060 でヘッダを覆っている。覆っている側が言う。
+  const changeGateDenied = await exitPage.evaluate(() => {
+    window.__sent.length = 0;
+    document.getElementById('seat-gate-b').click();
+    return {
+      sent: window.__sent.length,
+      gateShown: !document.getElementById('seat-gate').classList.contains('d-none'),
+      // eslint-disable-next-line no-undef
+      mode: seatGateMode,
+      errorShown: !document.getElementById('seat-gate-error').classList.contains('d-none'),
+      errorText: document.getElementById('seat-gate-error').textContent,
+    };
+  });
+  check('★★★切断中に席を選んでもゲートは畳まれず、理由がゲートの中に出る(72・設計判断49)',
+    changeGateDenied.sent === 0 && changeGateDenied.gateShown
+      && changeGateDenied.mode === 'CHANGE' && changeGateDenied.errorShown
+      && changeGateDenied.errorText.includes('接続'), JSON.stringify(changeGateDenied));
+
+  // ---- 72-14. ★★席替えから席を選ぶと WebSocket の seat が飛ぶ(受付 API を叩かない)----
+  // ★★<b>入室前とは決め手が違う。</b>入室前は HTTP の受付 API が playerId を発行するが、
+  //   入室後は<b>既に持っている</b> —— 同じ経路を叩くと、席が2つ生える。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'WAITING', you: null, opponent: null,
+    room: { viewerSeat: null, viewerSpectator: true,
+      seatB: { name: null, deckLoaded: false, ready: false } } }));
+  const changeGateSend = await exitPage.evaluate(async () => {
+    const calls = [];
+    const originalFetch = window.fetch;
+    window.fetch = (...args) => { calls.push(String(args[0])); return originalFetch(...args); };
+    // eslint-disable-next-line no-undef
+    openSeatChangeGate();
+    window.__sent.length = 0;
+    document.getElementById('seat-gate-b').click();
+    await new Promise((r) => setTimeout(r, 30));
+    window.fetch = originalFetch;
+    return {
+      fetches: calls,
+      sent: window.__sent.map((s) => ({ dest: s.destination, seat: s.body.seat })),
+      gateHidden: document.getElementById('seat-gate').classList.contains('d-none'),
+      // eslint-disable-next-line no-undef
+      mode: seatGateMode,
+    };
+  });
+  check('★★★席替えは WebSocket の seat で飛び、受付 API を叩かない(72・席が2つ生えない)',
+    changeGateSend.fetches.length === 0 && changeGateSend.sent.length === 1
+      && changeGateSend.sent[0].dest.endsWith('/seat') && changeGateSend.sent[0].seat === 'B'
+      && changeGateSend.gateHidden && changeGateSend.mode === 'JOIN',
+    JSON.stringify(changeGateSend));
+
+  // ---- 72-15. ★★取り返しのつかない4操作で素の confirm() を呼ばない ----
+  // ★★<b>裁定53 は「素の confirm() を書かない」である。</b>
+  //   通常モードには宣言のための confirm() が7箇所あり(【賢魂】・特殊召喚・強化)、
+  //   72 はそちらを直していない —— 層が違うからである。
+  //   ★<b>だから「4操作で呼ばない」と名指しで測る</b>(裁定186: 空振りを緑にしない)。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'FINISHED', winnerName: 'あいて',
+    room: { rematchOfferedBySeat: 'B', rematchOfferedByName: 'ばんり' } }));
+  const nativeConfirm = await exitPage.evaluate(() => {
+    const calls = [];
+    const original = window.confirm;
+    window.confirm = (t) => { calls.push(String(t)); return false; };
+    /* eslint-disable no-undef */
+    concede(); closeAutoConfirm();
+    leaveRoom(); closeAutoConfirm();
+    standUpFromSeat(); closeAutoConfirm();
+    acceptRematch(); closeAutoConfirm();
+    /* eslint-enable no-undef */
+    window.confirm = original;
+    return { calls };
+  });
+  check('★★取り返しのつかない4操作で素の confirm() を呼ばない(72・裁定53)',
+    nativeConfirm.calls.length === 0, JSON.stringify(nativeConfirm));
+
+  // ---- 72-16. ★★★退室は「送った」では動かない —— 返事を受けてから動く ----
+  // ★★★<b>手動モードの形が写せなかったところである。</b>あちらは
+  //   send('leave') の直後に localStorage を消して遷移するが、<b>あちらの退室は失敗しない</b>。
+  //   通常モードは対戦中の着席者を断る —— 先に消すと、
+  //   断られたのに<b>席を持ったまま戻れない</b>端末ができる。
+  //
+  // ★★★<b>実際の入口([退室]ボタン)から起こす。</b>最初の版は onMessage を直接叩いており、
+  //   <b>leaveRoom を1度も通っていなかった</b> —— 手動モードの形(送って即遷移)を
+  //   写す改変を当てても、この項目は緑のまま通った(壊し検証の軸36 が教えた)。
+  //   ★「イベントは実際の入口から起こす」の違反であり、
+  //     71 が踏んだ「番人が壊した枝を通っていない」の新しい顔である。
+  await exitReset();
+  await exitDeliver(exitView({ status: 'PLAYING' }));
+  const urlBefore = exitPage.url();
+  const afterSend = await exitPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    window.__sent.length = 0;
+    leaveRoom();
+    document.getElementById('auto-confirm-ok').click();
+    /* eslint-enable no-undef */
+    return {
+      sent: window.__sent.map((s) => s.destination),
+      stillStored: !!localStorage.getItem('qte-auto-occupant-TESTRM'),
+    };
+    // ★改変が入っていると、この評価の途中でページが遷移して評価ごと切れる
+  }).catch(() => ({ sent: [], stillStored: false, navigated: true }));
+  await exitPage.waitForTimeout(80);
+  check('★★★退室は送っただけでは動かない —— 返事を受けるまで記録も画面も残す(72)',
+    afterSend.sent.length === 1 && afterSend.sent[0].endsWith('/leave')
+      && afterSend.stillStored && exitPage.url() === urlBefore,
+    JSON.stringify({ ...afterSend, url: exitPage.url(), urlBefore }));
+
+  // ★★<b>以降の evaluate は必ず catch する。</b>上の実装が「送った時点で遷移する」形なら
+  //   ここは既に別のページであり、投げると<b>検証スクリプトごと死ぬ</b> ——
+  //   死ぬと後ろの項目が1つも走らないまま EMPTY になる(68 の教訓)。
+  const afterError = await exitPage.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify({ type: 'ERROR', message: '対戦中は退室できません' }) });
+    return {
+      stillStored: !!localStorage.getItem('qte-auto-occupant-TESTRM'),
+      message: document.getElementById('message-area').textContent,
+    };
+  }).catch((e) => ({ stillStored: false, message: '', threw: String(e).slice(0, 80) }));
+  await exitPage.waitForTimeout(60);
+  check('★★★断られた退室では記録を消さず、遷移もしない(72・手動モードの形は写せない)',
+    afterError.stillStored && exitPage.url() === urlBefore
+      && afterError.message.includes('退室できません'), JSON.stringify(afterError));
+
+  await exitPage.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify({ type: 'LEFT' }) });
+  }).catch(() => { /* ★遷移そのものが評価を切ることがある。判定は下の url で行う */ });
+  await exitPage.waitForTimeout(300);
+  const afterLeft = {
+    url: exitPage.url(),
+    stored: await exitPage
+      .evaluate(() => !!localStorage.getItem('qte-auto-occupant-TESTRM'))
+      .catch(() => true),
+  };
+  check('★★★受理された退室では記録を消してロビーへ戻る(72・LEFT を受けてから動く)',
+    afterLeft.url.endsWith('/auto') && !afterLeft.stored, JSON.stringify(afterLeft));
+
+  check('★試合の出入り(72)でJSエラーが出ない',
+    exitErrors.length === 0, exitErrors.join(' | '));
+
+  await exitPage.close();
+
   // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----
   CARD_LIBRARY.status = 500;
   const brokenPage = await browser.newPage({ viewport: { width: 1280, height: 1600 } });

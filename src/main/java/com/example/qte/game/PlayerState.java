@@ -482,6 +482,25 @@ public class PlayerState {
         return pendingChoices.pollFirst();
     }
 
+    /**
+     * 待ち行列を空にする(★Batch 72)。<b>{@code GameActions.finish} だけが呼ぶ。</b>
+     *
+     * <p>★<b>決着したら、待っている問い合わせはもう答えようがない。</b>
+     * 72 が投了({@code GameService.concede})を「いつでも押せる」ものにしたので、
+     * <b>割り込み待ちのまま決着する盤面が初めて作れるようになった</b> ——
+     * 残したままにすると、決着後の画面に
+     * 「1体選んでください」の問いと [この内容で確定] が出続ける。
+     * ★64 の {@code resolveChoice} は決着を見ていないので、押せば通ってしまう。
+     *
+     * <p>★通常の決着(LP0・山札切れ)でも同じことが起きうるが、
+     * <b>72 まではそうなる盤面を作りにくかっただけ</b>である。ここに置いたのは
+     * 「投了のときだけ掃除する」を書かないため(裁定130)—— 決着の口は
+     * {@code finish} 1本であり、掃除もそこに1つ置く。
+     */
+    public void clearPendingChoices() {
+        pendingChoices.clear();
+    }
+
     /** リーダー起動能力は1ターンに1回(現行の全リーダーカードの記載による) */
     @Setter
     private boolean leaderAbilityUsedThisTurn = false;

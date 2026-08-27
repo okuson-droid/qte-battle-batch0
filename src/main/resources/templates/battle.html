@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=52)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=53)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -35,6 +35,19 @@
              ★接続表示のすぐ隣に置いたのは、同じことを言う2つを離さないためである。 -->
         <div id="auto-conn-bar" class="auto-conn-bar d-none"></div>
         <span class="auto-header-spacer"></span>
+        <!-- ★★★Batch 72: 試合の出入り(席・投了・退室)。
+             ★<b>ヘッダに置いた。</b>実測でヘッダの伸びしろは 940px あり、
+               3つ足しても 714px 残る(接続の帯が出ている間でも 437px)。高さは 28px のまま。
+               ★帯(x:188〜481)とは重ならない —— verify 72-1 が矩形で見張る。
+             ★<b>どれがいつ出るかは battle.js の renderRoomControls が1箇所で決める。</b>
+               ★★それは操作補助であって守りではない(設計判断27)——
+                 断るのは GameRoom / GameService である。 -->
+        <button id="btn-seat" class="btn btn-sm btn-outline-light d-none"
+                onclick="toggleSeat()">席を立つ</button>
+        <button id="btn-concede" class="btn btn-sm btn-outline-warning d-none"
+                onclick="concede()" title="投了する(いつでも押せる)">投了</button>
+        <button id="btn-leave" class="btn btn-sm btn-outline-secondary d-none"
+                onclick="leaveRoom()">退室</button>
         <button id="btn-auto-mode" class="btn btn-sm btn-outline-light"
                 onclick="toggleAutoMode()">進行: 手動</button>
         <!-- ★★Batch 62: 音の設定(裁定67・289)。★手動モードの [♪] の複製である。
@@ -123,6 +136,25 @@
             <div id="opp-piles" class="auto-piles"></div>
 
             <div class="auto-side-mid">
+                <!-- ★★★Batch 72: 決着の面と再戦。
+                     ★<b>オーバーレイにしない。</b>終わった盤面はまだ読まれている ——
+                       何がどう決まったかを見返す時間が要る(手動モードの裁定44)。
+                       覆うと、再戦の返事をするために盤面を消すことになる。
+                     ★置き場所は実測で決めた。右列の中段は 294px あり、決着時に
+                       使われているのは 72px だけである。この面はいちばん背の高い顔
+                       (承諾待ち)で 93px であり、溢れない —— verify 72-6 が実測で見張る。
+                     ★中身の出し分けは battle.js の renderResult が1箇所で決める。 -->
+                <div id="auto-result" class="alert alert-warning py-2 d-none">
+                    <div class="mb-1"><strong>対戦終了</strong> —
+                        <span id="auto-result-winner"></span></div>
+                    <div id="auto-result-note" class="small mb-1"></div>
+                    <button id="btn-rematch-offer" class="btn btn-sm btn-warning d-none"
+                            onclick="offerRematch()">再戦を申し込む</button>
+                    <button id="btn-rematch-accept" class="btn btn-sm btn-warning d-none"
+                            onclick="acceptRematch()">応じる</button>
+                    <button id="btn-rematch-decline" class="btn btn-sm btn-outline-dark ms-1 d-none"
+                            onclick="declineRematch()">断る</button>
+                </div>
                 <div id="message-area" class="alert alert-info py-2 d-none"></div>
                 <div id="choose-order-area" class="d-none">
                     <span class="me-2">ダイスに勝ちました。先攻/後攻を選んでください:</span>
@@ -218,6 +250,40 @@
 <div id="auto-playing" class="auto-playing d-none">
     <div class="auto-playing-label">プレイ中</div>
     <div id="auto-playing-card" class="auto-zoom-card"></div>
+</div>
+
+<!--
+  ★★★Batch 72: 取り返しのつかない操作の確認(投了・席を立つ・退室・再戦に応じる)。
+
+  ★<b>裁定53 を通常モードでも守る。</b>36 が素の confirm() を捨てた理由のうち、
+    「JavaScript を止める = 止まっている間は STOMP の受信も描画も進まない」が
+    通話併用の前提(裁定16)ではそのまま効く。
+  ★★<b>これは manual-battle.html の #confirm-modal の複製である</b>(裁定111・289 と同じ落とし穴)。
+    片方だけ直さないこと。★<b>ただし CSS は複製していない</b> ——
+    z-index 1965 の規則は battle.css に 36 から在り、セレクタに .auto-confirm を
+    並べただけである(71 の「規則は1つ、名前は2つ」)。
+  ★1965 は<b>切断オーバーレイ(1970)より下</b>である(裁定56)——
+    切断中は「操作が相手に届かない」のほうが上位の情報であり、
+    その上に確認を重ねると「実行しても何も起きない問い」を最前面に出すことになる。
+  ★初期フォーカスは [キャンセル] である(裁定52)。実行に載せてはいけない。
+-->
+<div id="auto-confirm" class="info-modal auto-confirm d-none">
+    <div class="info-modal-body" role="dialog" aria-modal="true"
+         aria-labelledby="auto-confirm-title" style="max-width:380px;">
+        <div class="info-modal-head">
+            <h6 id="auto-confirm-title">確認</h6>
+            <button type="button" id="auto-confirm-x"
+                    class="btn btn-sm btn-outline-light info-modal-x"
+                    onclick="closeAutoConfirm()"
+                    aria-label="閉じる" title="閉じる">&times;</button>
+        </div>
+        <p id="auto-confirm-text" class="small mb-3"></p>
+        <div class="d-flex justify-content-end gap-1">
+            <button type="button" id="auto-confirm-ok" class="btn btn-sm btn-warning">実行</button>
+            <button type="button" id="auto-confirm-close"
+                    class="btn btn-sm btn-outline-light">キャンセル</button>
+        </div>
+    </div>
 </div>
 
 <!-- 汎用の情報モーダル(墓地・マナ・リーダー能力の一覧表示に使う) -->
@@ -376,6 +442,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=34)}"></script>
+<script th:src="@{/js/battle.js(v=35)}"></script>
 </body>
 </html>

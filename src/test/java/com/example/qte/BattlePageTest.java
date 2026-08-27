@@ -192,4 +192,56 @@ class BattlePageTest {
         assertThat(html).doesNotContain("battle.js?v=33");
         assertThat(html).contains("battle.js?v=");
     }
+
+    /**
+     * ★★★Batch 72: 試合の出入り(席・退室・投了・再戦)。<b>テンプレートに現れるぶん</b>を測る。
+     *
+     * <p>★<b>ここで測っているのは「箱が在るか」だけである。</b>
+     * どのボタンがいつ出るかは {@code battle.js} の {@code renderRoomControls} が決め、
+     * 実際に押せるか・重ならないか・確認を通すかは verify 72-1〜72-16 が実測で見張る。
+     * ★★<b>この試験を「席を立てる」の番人だと読まないこと</b>(71 と同じ注意)——
+     * 箱が在ることと、席が動くことは別である。
+     * ★席が動くこと自体は {@code Batch72SeatTest} が<b>サーバの状態で</b>測っている。
+     */
+    @Test
+    void 通常モードの盤面に試合の出入りの導線がある() throws Exception {
+        String html = battleHtml();
+        assertThat(html).as("席を立つ / 席に着く").contains("id=\"btn-seat\"");
+        assertThat(html).as("投了").contains("id=\"btn-concede\"");
+        assertThat(html).as("退室").contains("id=\"btn-leave\"");
+        assertThat(html).as("決着の面").contains("id=\"auto-result\"");
+        assertThat(html).as("再戦の申し込み").contains("id=\"btn-rematch-offer\"");
+        assertThat(html).as("再戦に応じる").contains("id=\"btn-rematch-accept\"");
+        assertThat(html).as("再戦を断る").contains("id=\"btn-rematch-decline\"");
+        // ★★確認モーダル(裁定53 を通常モードでも守る)。
+        //   ★<b>CSS は複製していない</b> —— .auto-confirm は battle.css の
+        //     .manual-confirm と同じ宣言ブロックを共有している(71 の「規則は1つ、名前は2つ」)
+        assertThat(html).as("確認モーダル").contains("id=\"auto-confirm\"");
+        assertThat(html).as("確認の実行").contains("id=\"auto-confirm-ok\"");
+        assertThat(html).as("確認の取り消し").contains("id=\"auto-confirm-close\"");
+    }
+
+    /**
+     * ★★Batch 72 は {@code battle.js} を変えている(確認モーダル・試合の出入り・
+     * 席替えのゲート・LEFT の受け取り)。
+     * <b>版数を上げないと、既に開いている人だけが 34 のまま投了もできずに遊び続ける。</b>
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が72で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=34");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★Batch 72 は CSS も変えている(確認モーダルの重ね順に .auto-confirm を相乗りさせた)。
+     * <b>版数を上げないと、既に開いている人の確認モーダルだけが
+     * 切断オーバーレイの下ではなく {@code .info-modal} の 1000 で出る。</b>
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数が72で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.css?v=52");
+        assertThat(html).contains("battle.css?v=");
+    }
 }

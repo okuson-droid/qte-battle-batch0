@@ -113,7 +113,14 @@ public class GameViewBuilder {
      * <p>★下段({@code you})が<b>席A</b>、上段({@code opponent})が<b>席B</b>である。
      * 観戦者に「自分」は無いので、どちらを下に置くかは決めの問題になる ——
      * 決めを毎回変えると、観戦者が2人いるときに違う盤面を見ることになる。
-     * 席は不変(座り直しは無い)なので、席で固定すれば必ず同じ絵になる。
+     * ★<b>席という枠は不変である</b>(A と B しか無い)ので、席で固定すれば必ず同じ絵になる。
+     *
+     * <p>★★<b>Batch 72 で訂正した。</b>66 はここに「席は不変(座り直しは無い)」と
+     * 書いていたが、72 で<b>座り直しは在る</b>(席を立つ・観戦者から席へ)。
+     * それでも上の判断は変わらない —— 固定しているのは<b>席という枠</b>であって、
+     * そこに座っている人ではないからである。
+     * ★<b>理由の文だけが古くなり、結論は正しいままだった</b>という形である
+     * (67 の教訓・写しの、いちばん穏やかな顔)。
      *
      * <p>★{@code myTurn} は必ず false である。攻撃可否・使用可否のハイライトは
      * すべて {@code attackerSide = isSelf && viewerTurn} から生えているので、
@@ -144,6 +151,9 @@ public class GameViewBuilder {
 
     /** 受付の情報(★Batch 66)。盤面の有無によらず同じ組み立てを通る */
     private RoomView buildRoomView(GameRoom room, PlayerSlot viewerSlot) {
+        // ★★Batch 72: 再戦の申し込みは「席」で送る。viewer 目線に加工しない ——
+        //   加工すると、観戦者ぶんの意味をもう1つ決めることになる(設計判断9)
+        PlayerSlot offerer = room.findSlot(room.getRematchOfferedBy()).orElse(null);
         return new RoomView(
                 room.getOptions().name(),
                 room.getOptions().spectatorAllowed(),
@@ -151,7 +161,9 @@ public class GameViewBuilder {
                 seatView(room, SeatId.A),
                 seatView(room, SeatId.B),
                 viewerSlot == null ? null : viewerSlot.getSeat().name(),
-                viewerSlot == null);
+                viewerSlot == null,
+                offerer == null ? null : offerer.getSeat().name(),
+                offerer == null ? null : offerer.getDisplayName());
     }
 
     private RoomView.SeatView seatView(GameRoom room, SeatId seat) {

@@ -34,6 +34,7 @@ import com.example.qte.master.CardType;
 import com.example.qte.master.Keyword;
 import com.example.qte.room.GameRoom;
 import com.example.qte.room.PlayerSlot;
+import com.example.qte.room.SeatId;
 import lombok.RequiredArgsConstructor;
 
 /**
@@ -134,6 +135,168 @@ public class GameService {
         room.setDiceWinnerId(winner.getPlayerId());
         room.addLog("ダイス: %s=%d / %s=%d → %sが先攻/後攻を選択します"
                 .formatted(slot1.getDisplayName(), d1, slot2.getDisplayName(), d2, winner.getDisplayName()));
+    }
+
+    // ---------------------------------------------------------------
+    // ★★★試合の出入り(Batch 72): 席・退室・投了・再戦
+    // ---------------------------------------------------------------
+    //
+    // ★<b>この4つは同じ1つの話題である。</b>「この試合に居るかどうか」を
+    //   人が自分で決められるようにする、という話である ——
+    //   66 は入るところだけを作り、<b>出るところを1つも作らなかった</b>。
+    //
+    // ★★<b>どの操作がどの時間帯に通るかは、GameState の有無で決まる。</b>
+    //
+    //   | 状態                        | 席を立つ | 席に着く | 退室 | 投了 | 再戦 |
+    //   |-----------------------------|---------|---------|------|------|------|
+    //   | WAITING (GameState == null) | ○(観戦可)| ○      | ○   | ×   | ×   |
+    //   | SETUP / PLAYING             | ×      | ×      | 観戦者のみ | ○ | × |
+    //   | FINISHED                    | ×      | ×      | ○   | ×   | ○   |
+    //
+    //   ★<b>席を動かせるのは GameState が無い間だけである。</b>
+    //     これは 66 が「席を立てない」と書いた理由そのものであり、72 でも変えていない ——
+    //     通常モードの席は {@code GameState} の2人と1対1であり、
+    //     試合の途中で動かすと盤面の持ち主が消える。
+    //   ★<b>決着後に抜けたい人は「退室」する。</b>席は空くが盤面は残るので、
+    //     残ったほうは決着した盤面を読み続けられる(手動モードの裁定44 と同じ性質)。
+
+    /**
+     * 投了する(★Batch 72)。決着の5つ目の入口である。
+     *
+     * <h2>★★★いつでも押せる(マスター確認)</h2>
+     * 相手のターン中でも、割り込み待ちでも、マリガン中でも通る ——
+     * <b>{@code requireTurnPlayer} を通さない</b>。
+     * これは手動モードの「リセットは絶対に止めない」と同じ筋である:
+     * <b>詰まったときの逃げ道は、詰まりの原因になっている規則に左右されてはいけない。</b>
+     * ★もし手番とフェイズを条件にすると、
+     * 「割り込みが解決できなくなって盤面が固まった」ときに<b>投了もできない</b>。
+     *
+     * <h2>★決着後の待ちは finish がたたむ</h2>
+     * 割り込み待ちのまま決着できるようになったのは 72 が初めてである。
+     * 掃除は {@code GameActions#finish} に置いた(決着の口は1本・裁定130)。
+     */
+    public void concede(GameRoom room, String playerId) {
+        GameState state = requireState(room);
+        if (state.getStatus() == GameStatus.FINISHED) {
+            throw new IllegalStateException("この対戦は既に決着しています");
+        }
+        if (!state.hasPlayer(playerId)) {
+            throw new IllegalArgumentException("この対戦のプレイヤーではありません");
+        }
+        PlayerState me = state.playerOf(playerId);
+        room.addLog("%s が投了しました".formatted(me.getDisplayName()));
+        actions.finish(room, state.opponentOf(playerId));
+    }
+
+    /**
+     * 席を立って観戦に降りる(★Batch 72)。
+     * ★判定そのものは {@code GameRoom.standUp} が持つ —— 受付の帳簿の話であり、
+     * ルールの執行ではない(このメソッドはログを添えるだけである)。
+     */
+    public void standUp(GameRoom room, String playerId) {
+        PlayerSlot slot = room.findSlot(playerId).orElseThrow(
+                () -> new IllegalArgumentException("この部屋の席に着いていません"));
+        SeatId before = slot.getSeat();
+        String name = slot.getDisplayName();
+        // ★ログは standUp が通ってから書く(断られたのに行が残るのを避ける)
+        room.standUp(playerId);
+        room.addLog("%s が席%s を離れて観戦に移りました".formatted(name, before));
+    }
+
+    /** 観戦者が空席に着く(★Batch 72)。判定は {@code GameRoom.takeSeat} が持つ */
+    public void takeSeat(GameRoom room, String spectatorId, SeatId seat) {
+        PlayerSlot slot = room.takeSeat(spectatorId, seat);
+        room.addLog("%s が席%s に着きました".formatted(slot.getDisplayName(), seat));
+    }
+
+    /**
+     * 退室する(★Batch 72)。★席に着いていた人も観戦者も同じ口を通る。
+     *
+     * <p>★<b>ログを先に書く。</b>{@code room.leave} を先に呼ぶと、
+     * 名前を引く相手が居なくなる。
+     */
+    public void leave(GameRoom room, String occupantId) {
+        String name = room.findSlot(occupantId).map(PlayerSlot::getDisplayName)
+                .orElseGet(() -> room.findSpectator(occupantId)
+                        .map(com.example.qte.room.Spectator::displayName)
+                        .orElseThrow(() -> new IllegalArgumentException("この部屋に入室していません")));
+        // ★★退室できるかの判定は room.leave が持つ(対戦中の着席者は断られる)。
+        //   ここで先にログを書いてしまうと、断られたのに行が残る —— だから
+        //   <b>名前だけを先に引き、ログは leave が通ってから書く</b>
+        room.leave(occupantId);
+        room.addLog("%s が退室しました".formatted(name));
+    }
+
+    /**
+     * 再戦の申し込み・承諾・辞退(★Batch 72)。
+     *
+     * <h2>★★なぜ2段なのか(マスター確認)</h2>
+     * 片方が押しただけで盤面を捨てる形も採れた。捨てたところで
+     * 両者がデッキを読み直すまで試合は始まらないので、
+     * 「デッキを読むこと」が同意を兼ねる —— という筋も通る。
+     * <b>採らなかったのは、それが「相手の見ている画面を相手の同意なしに消す」からである。</b>
+     * 決着した盤面はまだ読まれている最中かもしれない。
+     *
+     * <h2>★申し込みの旗は1本である</h2>
+     * {@code GameRoom.rematchOfferedBy}。倒すのは承諾・辞退・退室の3つであり、
+     * <b>立てる人も倒す人も居る</b> —— 71 が {@code connectionFatal} を作らなかった
+     * 判断(裁定178)の裏返しである。
+     */
+    public void rematch(GameRoom room, String playerId, RematchAction action) {
+        GameState state = requireState(room);
+        if (state.getStatus() != GameStatus.FINISHED) {
+            throw new IllegalStateException("対戦が決着してから申し込んでください");
+        }
+        PlayerSlot me = room.findSlot(playerId).orElseThrow(
+                () -> new IllegalArgumentException("この部屋の席に着いていません"));
+        switch (action) {
+            case OFFER -> {
+                if (!room.isFull()) {
+                    throw new IllegalStateException("相手が席に居ません");
+                }
+                if (room.getRematchOfferedBy() != null) {
+                    throw new IllegalStateException("すでに再戦の申し込みがあります");
+                }
+                room.setRematchOfferedBy(playerId);
+                room.addLog("%s が再戦を申し込みました".formatted(me.getDisplayName()));
+            }
+            case ACCEPT -> {
+                requireOfferFromOpponent(room, playerId);
+                // ★★resetForRematch がログを消す。だから行を足すのは<b>そのあと</b>である
+                room.resetForRematch();
+                room.addLog("再戦: 両者がデッキを読み込むと始まります");
+            }
+            case DECLINE -> {
+                requireOfferFromOpponent(room, playerId);
+                room.setRematchOfferedBy(null);
+                room.addLog("%s が再戦を断りました".formatted(me.getDisplayName()));
+            }
+        }
+    }
+
+    /**
+     * 返事ができる立場かを確かめる(★Batch 72)。
+     * ★<b>自分の申し込みには自分で答えられない。</b>答えられると、
+     * 2段にした意味(相手の同意)が消える。
+     */
+    private void requireOfferFromOpponent(GameRoom room, String playerId) {
+        String offeredBy = room.getRematchOfferedBy();
+        if (offeredBy == null) {
+            throw new IllegalStateException("再戦の申し込みがありません");
+        }
+        if (offeredBy.equals(playerId)) {
+            throw new IllegalStateException("自分の申し込みには答えられません");
+        }
+    }
+
+    /** 再戦の3手(★Batch 72)。宛先を3つに割らず、1つの話題として1本で受ける */
+    public enum RematchAction {
+        /** 申し込む */
+        OFFER,
+        /** 応じる(盤面を捨てて受付へ戻る) */
+        ACCEPT,
+        /** 断る(旗だけを倒す) */
+        DECLINE
     }
 
     private PlayerState createPlayer(PlayerSlot slot) {

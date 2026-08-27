@@ -172,6 +172,21 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    // ★★★Batch 72: 確認モーダルがいちばん上である(z-index 1965)。
+    //   ★Esc を下の層へ落とさない —— 36 の裁定49 を通常モードでも守る
+    if (isAutoConfirmOpen()) {
+        e.preventDefault();
+        closeAutoConfirm();
+        return;
+    }
+    // ★★Batch 72: 席を変えるためのゲートには<b>出口が在る</b>([やめる])ので Esc も効く。
+    //   ★入室前の席選択(JOIN)には出口が無い(裁定34)。同じ要素だが別の状態である
+    if (seatGateMode === 'CHANGE'
+            && !document.getElementById('seat-gate').classList.contains('d-none')) {
+        e.preventDefault();
+        closeSeatChangeGate();
+        return;
+    }
     const overlay = document.getElementById('auto-zoom');
     if (overlay && !overlay.classList.contains('d-none')) {
         e.preventDefault();
@@ -244,7 +259,28 @@ function isConnected() {
 }
 
 /**
- * 席選択のゲートが出ているか。
+ * 席選択ゲート(#seat-gate)がどちらの意味で開いているか(★Batch 72)。
+ *
+ * - {@code 'JOIN'} …… <b>入室前</b>。playerId をまだ持っていない。決めるのは HTTP の受付 API
+ * - {@code 'CHANGE'} …… <b>入室後</b>。観戦者が空席に着く。決めるのは WebSocket の {@code seat}
+ *
+ * ★★<b>ここに置いてある理由</b>: {@code isGateVisible()} がこの値を読むのに、
+ * あの関数は「0) 在席」より<b>前</b>の章に居る。0章に置くと、
+ * 66 が実際に踏んだ一時的死角(TDZ)を作りうる ——
+ * <b>関数宣言は巻き上がるので呼べてしまい、中身だけが死ぬ。</b>
+ * 読む側と同じ章に置けば、その順序を将来にわたって考えなくてよい。
+ */
+let seatGateMode = 'JOIN';
+
+/**
+ * <b>入室前の</b>席選択のゲートが出ているか。
+ *
+ * ★★★<b>Batch 72: モードを見るようになった。</b>72 で同じ要素(#seat-gate)が
+ * 「観戦者が席に着く」ためにも開くようになった —— そちらは<b>入室後</b>である。
+ * ★判定を「要素が出ているか」だけにしておくと、席を選んでいる最中に相手が落ちても
+ * <b>切断の案内が出ない</b>。71 がデッキゲートについて下した判断
+ * (入室後のゲートでは案内を出す)と<b>まったく同じ理由</b>であり、
+ * ここはその判断を延長しただけである。
  *
  * ★★<b>デッキ読み込みのゲート(#deck-gate)は含めない</b>(マスター確認)。
  * 手動モードが席選択ゲートを除いているのは「まだ盤面に入っていない人に
@@ -254,7 +290,7 @@ function isConnected() {
  * <b>「相手のデッキ待ち」の顔のまま黙って止まる</b>。これはいちばん分かりにくい形である。
  */
 function isGateVisible() {
-    return !gateEl('seat-gate').classList.contains('d-none');
+    return seatGateMode === 'JOIN' && !gateEl('seat-gate').classList.contains('d-none');
 }
 
 /**
@@ -365,6 +401,26 @@ function saveOccupant(playerId, displayName) {
     localStorage.setItem(OCCUPANT_STORAGE_KEY, JSON.stringify({ playerId, displayName }));
 }
 
+/**
+ * 在席の記録を捨てる(★Batch 72・退室)。
+ *
+ * ★★<b>サーバが退室を受理してから呼ぶ</b>(onMessage の LEFT)。
+ * 手動モードは {@code send('leave'); forgetOccupant(); location.href='/';} と
+ * 送って即座に消すが、あちらの退室は<b>失敗しない</b>。
+ * 通常モードの退室は対戦中の着席者に断られる —— 先に消すと、
+ * <b>断られたのに戻れない</b>端末ができる(設計解説 4-3)。
+ *
+ * ★消せなくても遷移そのものは進める。localStorage が使えない状況で
+ * 部屋に閉じ込めるほうが害が大きい。
+ */
+function forgetOccupant() {
+    try {
+        localStorage.removeItem(OCCUPANT_STORAGE_KEY);
+    } catch (e) {
+        console.error('在席の記録を消せなかった', e);
+    }
+}
+
 function showGateError(message) {
     const box = gateEl('seat-gate-error');
     box.textContent = message;
@@ -434,11 +490,71 @@ function showGateFatal(message) {
     updateOfflineLock();   // ★Batch 71: 「入れませんでした」と「再接続を待って」を重ねない
 }
 
+/**
+ * 観戦者が席に着くためにゲートを開く(★Batch 72)。
+ *
+ * ★★<b>器を新しく作っていない。</b>#seat-gate は「どちらの席が空いているか」を
+ * 出す画面としてもう在り、埋まりも「対戦中は座れない」も {@code applyGateSeats} が
+ * 1本で決めている —— 足したのは<b>モード</b>だけである
+ * (「器が無いと思ったら、まず在るかどうかを見る」・65 の教訓)。
+ *
+ * ★名前欄は隠す。入室のときに名前は決まっており、
+ * ここで変えられると「席を移ると名前も変わる」という別の話が混ざる。
+ */
+function openSeatChangeGate() {
+    const room = latestView && latestView.room;
+    if (!room) return;
+    seatGateMode = 'CHANGE';
+    gateEl('seat-gate-room').textContent = '席に着く';
+    gateEl('seat-gate-code').textContent = ROOM_ID;
+    gateEl('seat-gate-name-wrap').classList.add('d-none');
+    gateEl('seat-gate-buttons').classList.remove('d-none');
+    clearGateError();
+    applyGateSeats({
+        seatAName: room.seatA ? room.seatA.name : null,
+        seatBName: room.seatB ? room.seatB.name : null,
+        started: latestView.status !== 'WAITING',
+        spectatorAllowed: room.spectatorAllowed,
+    });
+    // ★「観戦する」ボタンは、入室後は「やめる」である —— もう観戦しているのだから、
+    //   ここで押して起きることは「席に着くのをやめる」でしかない
+    gateEl('seat-gate-spectate').textContent = 'やめる(観戦を続ける)';
+    gateEl('seat-gate').classList.remove('d-none');
+    // ★★71 の判定はモードを見る(isGateVisible)。CHANGE のあいだは切断の案内を出す
+    updateOfflineLock();
+}
+
+/** 席替えのゲートを閉じ、入室前の姿へ戻す(★Batch 72) */
+function closeSeatChangeGate() {
+    seatGateMode = 'JOIN';
+    gateEl('seat-gate').classList.add('d-none');
+    gateEl('seat-gate-name-wrap').classList.remove('d-none');
+    gateEl('seat-gate-spectate').textContent = '観戦する';
+    updateOfflineLock();
+}
+
 gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
     const button = e.target.closest('button');
     if (!button || button.disabled) return;
     // ★観戦ボタンには data-seat が無い。null が「席に着かない」を表す
     const seat = button.dataset.seat || null;
+    // ★★★Batch 72: 入室後(CHANGE)は HTTP の受付を通らない。
+    //   既に playerId を持っているので、決めるのは WebSocket の seat である。
+    if (seatGateMode === 'CHANGE') {
+        closeSeatChangeGate();
+        if (seat === null) return;   // [やめる]
+        // ★★★設計判断49: 送れなかったら畳まない。先に閉じてから送り、失敗したら開き直す。
+        //   ★<b>拒否の理由はゲートの中に出す。</b>send() の明滅はヘッダの帯と接続表示に
+        //     当たるが、このゲートは z-index 1060 で<b>ヘッダを覆っている</b> ——
+        //     71 が用意した合図がここでは1つも見えない。
+        //   ★★<b>合図の器を新しく作らない。</b>ゲートは自分のエラー欄を持っている
+        //     (#seat-gate-error)。覆っている側が言えばよい
+        if (!send('seat', { seat })) {
+            openSeatChangeGate();
+            showGateError('サーバとの接続が切れています。復帰してからもう一度お試しください。');
+        }
+        return;
+    }
     const name = gateEl('seat-gate-name').value.trim();
     // ★サーバも同じ検証をする(GameRoom.join)。ここは往復を1回省く操作補助である
     if (seat !== null && name === '') {
@@ -1130,6 +1246,133 @@ function sfxForAction(action) {
 function chooseOrder(goFirst) { send('choose-order', { goFirst }); }
 function nextPhase() { send('next-phase', {}); }
 function endTurn() { send('end-turn', {}); }
+
+// ---------------------------------------------------------------
+// ★★★2-2) 確認モーダル(Batch 72)
+// ---------------------------------------------------------------
+//
+// ★★<b>裁定53 を通常モードでも守る。</b>36 が素の confirm() を捨てた理由は3つあった ——
+//   (1) OS の見た目が黒い盤面の上に出る (2) ボタンの文言を決められない
+//   (3) ★★★<b>JavaScript を止める</b>。止まっている間は STOMP の受信も描画も進まない。
+//   通話しながら遊ぶ前提(裁定16)では (3) が効く。
+//
+// ★★<b>通常モードには素の confirm() が7箇所ある</b>(【賢魂】・特殊召喚・強化の宣言)。
+//   72 はそれを直していない —— あれは「どちらの姿で使うか」という<b>宣言</b>であって、
+//   ここで作っているもの(取り返しのつかない操作の確認)とは層が違う。
+//   ★★ただし理由(3)は宣言にも効く。<b>片肺として書き残す</b>(71 の教訓)。
+//
+// ★★<b>CSS は共有した。</b>z-index 1965 の規則は battle.css に 36 から在り、
+//   セレクタに .auto-confirm を並べただけである(71 の 4-2 と同じ)。
+//   ★1965 は<b>切断オーバーレイ(1970)より下</b>である ——
+//     切断中は「操作が相手に届かない」のほうが上位の情報であり、
+//     その上に確認を重ねると「実行しても何も起きない問い」を最前面に出すことになる(裁定56)。
+//
+// ★<b>音は鳴らさない。</b>手動モードは確認の [実行] を音の取り付け点にしているが(37 の 0-5)、
+//   通常モードの取り付け点は send() と onMessage の2つだけである(裁定68・287)。
+//   ★3つ目を増やすと、62 が「配信と再描画を区別する」ために引いた線が1本増える。
+
+let autoConfirmPending = null;
+
+/**
+ * 取り返しのつかない操作の確認(★Batch 72)。
+ *
+ * ★<b>コールバックで受ける</b>(裁定54)。使う分岐は「実行する」側しかないので、
+ * 真偽値や Promise を返しても呼び出し側に if が1つ増えるだけである。
+ * ★<b>ボタンには動詞を書く</b>(裁定55)。「はい」ではなく「投了する」。
+ * ★<b>問いは1つずつ</b> —— 開いている間の askConfirm は捨てる。
+ */
+function askConfirm(text, okLabel, onOk) {
+    if (autoConfirmPending) return false;
+    autoConfirmPending = onOk;
+    document.getElementById('auto-confirm-text').textContent = text;
+    document.getElementById('auto-confirm-ok').textContent = okLabel;
+    document.getElementById('auto-confirm').classList.remove('d-none');
+    // ★初期フォーカスは [キャンセル] である(裁定52)。
+    //   <b>破壊的操作の [実行] に初期フォーカスを載せてはいけない。</b>
+    document.getElementById('auto-confirm-close').focus();
+    return true;
+}
+
+function closeAutoConfirm() {
+    autoConfirmPending = null;
+    document.getElementById('auto-confirm').classList.add('d-none');
+}
+
+function isAutoConfirmOpen() {
+    return !document.getElementById('auto-confirm').classList.contains('d-none');
+}
+
+document.getElementById('auto-confirm-close').addEventListener('click', closeAutoConfirm);
+document.getElementById('auto-confirm-ok').addEventListener('click', () => {
+    const run = autoConfirmPending;
+    // ★先に閉じる。実行が location.href への遷移でも、後片付けは済んでいる
+    closeAutoConfirm();
+    if (run) run();
+});
+
+// ---------------------------------------------------------------
+// ★★★2-3) 試合の出入り(Batch 72): 席・退室・投了・再戦
+// ---------------------------------------------------------------
+//
+// ★★<b>どれも send() のガードの後ろに居る</b>(71)。切断中に押しても何も飛ばない。
+//   ★<b>ローカルに畳むものが1つも無い</b>ので、設計判断49 の「戻す」処理は要らない ——
+//     確認モーダルは閉じるが、ボタンはそこに在り、押し直せる。
+//     ★「保つ」と「止まらせない」でいえば、こちらは初めから何も抱えていない。
+//   ★例外は席替えのゲートだけで、あちらは開き直す(0章)。
+//
+// ★★<b>押せるかどうかの判定はビューが決める</b>(renderRoomControls)。
+//   ★<b>それは操作補助であって、守りではない</b>(設計判断27) ——
+//     断るのはサーバ(GameRoom / GameService)であり、画面はボタンを隠すだけである。
+
+/** 席を立って観戦へ降りる(★Batch 72)。★観戦できない部屋ではボタンが出ない */
+function standUpFromSeat() {
+    askConfirm('席を立って観戦に移る。席は空き、以後は盤面を操作できない。',
+        '席を立つ', () => send('seat', { seat: null }));
+}
+
+/** 席の操作(★Batch 72)。★<b>文言は自席の有無だけで決まる</b>(手動モードと同じ形) */
+function toggleSeat() {
+    if (!latestView || !latestView.room) return;
+    if (latestView.room.viewerSeat) {
+        standUpFromSeat();
+        return;
+    }
+    openSeatChangeGate();
+}
+
+/**
+ * 投了(★Batch 72)。★<b>いつでも押せる</b> ——
+ * 相手のターン中でも、割り込み待ちでも、マリガン中でも通る。
+ * 詰まったときの逃げ道は、詰まりの原因になっている規則に左右されてはいけない。
+ */
+function concede() {
+    askConfirm('投了する。この対戦は相手の勝ちになり、やり直せない。',
+        '投了する', () => send('concede', {}));
+}
+
+/**
+ * 退室(★Batch 72)。
+ *
+ * ★★<b>ここでは localStorage を消さないし、遷移もしない。</b>
+ * サーバが受理したことを {@code onMessage} の {@code LEFT} で受けてから行う ——
+ * 通常モードの退室は<b>断られうる</b>(対戦中の着席者)ので、
+ * 手動モードの「送って即遷移」を写すと、断られた端末が席を持ったまま戻れなくなる。
+ */
+function leaveRoom() {
+    askConfirm('この部屋から退室する。席は空き、盤面はこの端末から見えなくなる。',
+        '退室する', () => send('leave', {}));
+}
+
+// ★再戦の3手。★<b>確認を挟むのは [応じる] だけである</b> ——
+//   申し込みは旗を立てるだけ、辞退は旗を倒すだけで、どちらも取り返しがつく。
+//   応じると<b>相手の見ている盤面まで消える</b>ので、そこだけ確認する。
+function offerRematch() { send('rematch', { action: 'OFFER' }); }
+function declineRematch() { send('rematch', { action: 'DECLINE' }); }
+
+function acceptRematch() {
+    askConfirm('再戦に応じる。この対戦の盤面とログは消え、両者がデッキを読み込み直す。',
+        '再戦する', () => send('rematch', { action: 'ACCEPT' }));
+}
 
 /** 割り込み選択(a9)の待ちがあるか。サーバ側も同じ状態の間は他の操作を拒否する */
 function hasPendingChoice() {
@@ -2891,6 +3134,15 @@ function onMessage(frame) {
         render(latestView);
         return;
     }
+    // ★★★Batch 72: 退室が受理された。<b>ここまで来て初めて</b>記録を消して遷移する。
+    //   ★手動モードは送った時点で消して遷移するが、あちらの退室は失敗しない。
+    //     通常モードは対戦中の着席者を断るので、断られたときは
+    //     ERROR が届いて<b>この行を通らない</b>(設計解説 4-3)。
+    if (message.type === 'LEFT') {
+        forgetOccupant();
+        location.href = '/auto';
+        return;
+    }
     // ★★★Batch 62: 音の取り付け点の1つ目(裁定287)。
     //   ★<b>ここが「配信」の唯一の入口である。</b>render(latestView) は画面の操作でも
     //   走るので、あちらで差分を採ると「配信」と「再描画」を区別できない。
@@ -2919,6 +3171,12 @@ function render(view) {
     renderHeader(view);
     renderPhaseTrack(view);
     renderControls(view);
+    // ★★★Batch 72: 席・退室・投了(ヘッダ)と、決着の面(右列の中段)。
+    //   ★<b>view.you より前に呼ぶ。</b>受付の時間帯(盤面がまだ無い)にも
+    //     席と退室のボタンは要る —— 下の early return より後ろに置くと、
+    //     <b>いちばん席を動かしたい時間帯にボタンが出ない</b>
+    renderRoomControls(view);
+    renderResult(view);
     renderSelection();
     renderMulligan(view);
     renderLog(view.log);
@@ -2937,6 +3195,127 @@ function render(view) {
         showMessage('対戦終了: ' + view.winnerName + ' の勝利');
     }
     maybeAutoAdvance(view);
+}
+
+/**
+ * ★★★Batch 72: 試合の出入りのボタン(ヘッダ)。
+ *
+ * <h2>どれがいつ出るか</h2>
+ * <pre>
+ *   | 状態                | 席を立つ | 席に着く | 退室   | 投了 |
+ *   |---------------------|---------|---------|--------|------|
+ *   | WAITING (盤面なし)   | ○(観戦可)| ○(空席) | ○     | ×   |
+ *   | SETUP / PLAYING     | ×      | ×      | 観戦者のみ | ○ |
+ *   | FINISHED            | ×      | ×      | ○     | ×   |
+ * </pre>
+ *
+ * ★<b>席を動かせるのは盤面が無い間だけ</b>である。66 が「席を立てない」と書いた理由
+ * (席は {@code GameState} の2人と1対1)は、<b>盤面が在るあいだにしか掛かっていない</b>。
+ * ★決着後に抜けたい人は<b>退室</b>する —— 席は空くが盤面は残るので、
+ * 残ったほうは決着した盤面を読み続けられる。
+ *
+ * <h2>★「盤面が在るか」の見分け方</h2>
+ * {@code view.status === 'WAITING'} が「{@code GameState} がまだ無い」と同じ意味である。
+ * ★{@code GameService.startIfBothReady} は {@code SETUP} を<b>盤面を部屋に載せる前に</b>
+ * 立てるので、WAITING の盤面が配信される瞬間は存在しない。
+ * ★この一致は {@code Batch72SeatTest} が見張る —— 順序が入れ替わると
+ * <b>ここの分岐が黙って1つ増える</b>(WAITING なのに盤面が在る)。
+ *
+ * ★★<b>これは操作補助であって、守りではない</b>(設計判断27)。
+ * 断るのはサーバである({@code GameRoom} / {@code GameService})。
+ */
+function renderRoomControls(view) {
+    const seatBtn = document.getElementById('btn-seat');
+    const concedeBtn = document.getElementById('btn-concede');
+    const leaveBtn = document.getElementById('btn-leave');
+    const room = view.room;
+    if (!room) {
+        for (const b of [seatBtn, concedeBtn, leaveBtn]) b.classList.add('d-none');
+        return;
+    }
+    const seated = !!room.viewerSeat;
+    const board = view.status !== 'WAITING';
+    const finished = view.status === 'FINISHED';
+    const freeSeat = !(room.seatA && room.seatA.name) || !(room.seatB && room.seatB.name);
+
+    let seatLabel = null;
+    if (!board && seated && room.spectatorAllowed) {
+        seatLabel = '席を立つ';
+    } else if (!board && !seated && freeSeat) {
+        seatLabel = '席に着く';
+    }
+    seatBtn.classList.toggle('d-none', seatLabel === null);
+    if (seatLabel !== null) seatBtn.textContent = seatLabel;
+
+    concedeBtn.classList.toggle('d-none', !(seated && board && !finished));
+    // ★対戦中の着席者だけが退室できない(先に投了する)。観戦者はいつでも抜けられる
+    leaveBtn.classList.toggle('d-none', seated && board && !finished);
+}
+
+/**
+ * ★★★Batch 72: 決着の面(右列の中段)。
+ *
+ * <h2>なぜオーバーレイにしないのか</h2>
+ * 71 の切断オーバーレイは「操作しても届かない」を宣言するために盤面を覆う。
+ * <b>決着は違う。</b>終わった盤面は<b>まだ読まれている</b> ——
+ * 何がどう決まったのかを見返す時間が要る(手動モードの裁定44「決着後も盤面をロックしない」)。
+ * ★覆うと、再戦の返事をするために盤面を消さなければならなくなる。
+ *
+ * <p>★置き場所は実測で決めた。右列の中段は 294px あり、決着時に使われているのは
+ * 72px(案内欄33px + ログのバー33px)だけである。
+ * ★この面は<b>いちばん背の高い顔(承諾待ち)で 93px</b> であり、溢れない ——
+ * 一致は verify 72-6 が実測で見張る(値は書かない・設計判断41)。
+ *
+ * <h2>顔は4つある</h2>
+ * <ol>
+ * <li>観戦者 …… 結果と、申し込みが在ればその事実だけ。ボタンは出ない</li>
+ * <li>着席・申し込み無し …… [再戦を申し込む](相手が席に居るときだけ)</li>
+ * <li>着席・自分が申し込んだ …… 待っている旨。ボタンは出ない</li>
+ * <li>着席・相手が申し込んだ …… [応じる] [断る]</li>
+ * </ol>
+ */
+function renderResult(view) {
+    const el = document.getElementById('auto-result');
+    const on = view.status === 'FINISHED';
+    el.classList.toggle('d-none', !on);
+    if (!on) return;
+
+    const room = view.room;
+    document.getElementById('auto-result-winner').textContent =
+        (view.winnerName || '?') + ' の勝利';
+    const note = document.getElementById('auto-result-note');
+    const offerBtn = document.getElementById('btn-rematch-offer');
+    const acceptBtn = document.getElementById('btn-rematch-accept');
+    const declineBtn = document.getElementById('btn-rematch-decline');
+    for (const b of [offerBtn, acceptBtn, declineBtn]) b.classList.add('d-none');
+
+    const seated = !!(room && room.viewerSeat);
+    const offerSeat = room ? room.rematchOfferedBySeat : null;
+    const offerName = room ? room.rematchOfferedByName : null;
+    const bothSeated = !!(room && room.seatA && room.seatA.name
+        && room.seatB && room.seatB.name);
+
+    if (!seated) {
+        // ★観戦者。誰が申し込んだかは部屋の公開情報である(見えてよい)
+        note.textContent = offerSeat ? `${offerName} が再戦を申し込んでいます。` : '';
+        return;
+    }
+    if (offerSeat === null || offerSeat === undefined) {
+        if (bothSeated) {
+            note.textContent = '';
+            offerBtn.classList.remove('d-none');
+        } else {
+            note.textContent = '相手が席に居ないため、再戦を申し込めません。';
+        }
+        return;
+    }
+    if (offerSeat === room.viewerSeat) {
+        note.textContent = '再戦を申し込みました。相手の返事を待っています。';
+        return;
+    }
+    note.textContent = `${offerName} が再戦を申し込んでいます。`;
+    acceptBtn.classList.remove('d-none');
+    declineBtn.classList.remove('d-none');
 }
 
 /**

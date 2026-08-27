@@ -32,6 +32,7 @@ public class GameBroadcaster {
     /**
      * クライアントへ送るメッセージの型。
      * type=VIEW のとき view が入り、type=ERROR のとき message が入る。
+     * ★Batch 72: type=LEFT(退室が受理された)が3つ目である。どちらも入らない。
      */
     public record WsMessage(String type, GameView view, String message) {
 
@@ -41,6 +42,18 @@ public class GameBroadcaster {
 
         static WsMessage ofError(String message) {
             return new WsMessage("ERROR", null, message);
+        }
+
+        /**
+         * 退室が受理された(★Batch 72)。★view も message も持たない。
+         *
+         * <p>★<b>ERROR で代用しない。</b>ERROR は「拒否された理由」であり、
+         * 画面はそれを {@code showMessage} に出して<b>その場に留まる</b>。
+         * 退室はその逆(受理されたのでページを離れる)であって、
+         * 同じ型に2つの意味を載せると<b>どちらの向きか分からない分岐</b>が増える。
+         */
+        static WsMessage ofLeft() {
+            return new WsMessage("LEFT", null, null);
         }
     }
 
@@ -71,6 +84,19 @@ public class GameBroadcaster {
     public void sendError(String roomId, String playerId, String message) {
         messagingTemplate.convertAndSend(destinationOf(roomId, playerId),
                 WsMessage.ofError(message));
+    }
+
+    /**
+     * 退室が受理されたことを、退室した本人へ1通だけ返す(★Batch 72)。
+     *
+     * <p>★<b>{@link #broadcast} では届かない。</b>退室した時点で、その人は
+     * 席にも観戦者にも居ない —— 配信の宛先の一覧から消えている。
+     * ★だからといって「退室する前に送る」形にはしない。
+     * それは<b>まだ受理されていない</b>ものを受理したと言うことである
+     * (退室は失敗しうる。{@code GameRoom.leave} を参照)。
+     */
+    public void sendLeft(String roomId, String occupantId) {
+        messagingTemplate.convertAndSend(destinationOf(roomId, occupantId), WsMessage.ofLeft());
     }
 
     private String destinationOf(String roomId, String playerId) {

@@ -71,4 +71,19 @@ public class PlayerSlot {
     public boolean isDeckLoaded() {
         return deck != null;
     }
+
+    /**
+     * デッキを外す(★Batch 72・再戦)。{@code GameRoom.resetForRematch} だけが呼ぶ。
+     *
+     * <p>★<b>3つとも外す。</b>{@code leaderCardId} を残すと、
+     * デッキが無いのにリーダーのIDだけが残る ——
+     * 受付の画面は {@code isDeckLoaded()} を見るので表示は正しいままだが、
+     * <b>「載っていないのに一部だけ載っている」という状態</b>が盤面の外に生き残る。
+     * ★{@link #loadDeck} が3つとも書くので、外すほうも3つである(対にしておく)。
+     */
+    public void clearDeck() {
+        this.deck = null;
+        this.deckName = null;
+        this.leaderCardId = null;
+    }
 }
