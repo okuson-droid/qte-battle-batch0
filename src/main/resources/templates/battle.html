@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=51)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=52)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -28,6 +28,12 @@
     <div class="auto-header">
         <span>部屋 <strong id="room-code" class="text-warning" th:text="${roomId}">------</strong></span>
         <span class="text-muted small" id="connection-status">接続中...</span>
+        <!-- ★★Batch 71: 接続の帯(33 の 1-5 を通常モードへ)。
+             ★<b>ヘッダ行の中に置いてある。</b>手動モードは画面中央の固定ピルだが、
+             通常モードでそれをやると実測で [進行: 手動](x:786)に<b>余白0で接する</b>。
+             ここに置くと x:188〜481 に収まり、伸びしろが 285px 残る(battle.css 参照)。
+             ★接続表示のすぐ隣に置いたのは、同じことを言う2つを離さないためである。 -->
+        <div id="auto-conn-bar" class="auto-conn-bar d-none"></div>
         <span class="auto-header-spacer"></span>
         <button id="btn-auto-mode" class="btn btn-sm btn-outline-light"
                 onclick="toggleAutoMode()">進行: 手動</button>
@@ -336,6 +342,33 @@
     </div>
 </div>
 
+<!--
+  ★★★Batch 71: 切断オーバーレイ(手動モードの 33 を通常モードへ写した)。
+
+  ★★<b>これは「宣言」であって「番人」ではない。</b>
+  操作を実際に止めているのは battle.js の send() のガード1箇所である。
+  だから [盤面を確認する] を置ける —— 畳んでもガードは効いたままであり、
+  安全性は1ミリも落ちない。<b>落ちない構造にしたことが、そのボタンを置ける根拠である。</b>
+  ★逆に、覆うことを安全装置にすると、覗き見の導線を1つ足した瞬間に穴が開く
+  (通常モードの重ね順は 1000〜1500 の5層あり、「全部より上」を未来にわたって
+   守り続けることを安全装置の根拠にはできない)。
+
+  ★背景は不透明ではなく半透明である。盤面が透けることで
+  「盤面が消えたのではない・触れなくなっただけ」が伝わる。
+-->
+<div id="auto-offline" class="auto-offline d-none">
+    <div class="auto-offline-body" role="dialog" aria-modal="true"
+         aria-labelledby="auto-offline-title">
+        <div class="auto-offline-title" id="auto-offline-title">サーバとの接続が切れています</div>
+        <p class="small text-muted mb-2">
+            再接続を試みています。この間の操作は相手に届きません。
+        </p>
+        <button type="button" id="auto-offline-peek" class="btn btn-sm btn-outline-light">
+            盤面を確認する
+        </button>
+    </div>
+</div>
+
 <script th:inline="javascript">
     // ★★Batch 66: PLAYER_ID はもうサーバから渡さない。localStorage と入室APIで
     //   クライアント自身が決める(手動モードの 19a と同じ。battle.js の「0) 在席」を参照)。
@@ -343,6 +376,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=33)}"></script>
+<script th:src="@{/js/battle.js(v=34)}"></script>
 </body>
 </html>

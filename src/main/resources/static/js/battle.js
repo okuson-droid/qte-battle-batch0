@@ -121,12 +121,35 @@ const client = new StompJs.Client({
 });
 
 client.onConnect = () => {
+    // ★★Batch 71: 「初回の接続」と「再接続」を区別する(33 の 1-5 を写した)。
+    //   初回に「再接続しました」と出したら、それは<b>嘘の宣言</b>である。
+    //   宣言は事実に一致していなければ、無いほうがましである(32b のターンの帯と同じ理屈)。
+    const reconnected = connectionEstablishedOnce;
+    connectionEstablishedOnce = true;
+    socketDown = false;
+    offlinePeeking = false;
     setConnectionStatus('接続済み');
+    updateOfflineLock();
+    setConnBar(reconnected ? '再接続しました。盤面を同期しています' : null,
+        'ok', CONN_BAR_MS);
     client.subscribe(`/topic/room/${ROOM_ID}/player/${PLAYER_ID}`, onMessage);
     send('ready', {});
 };
 
-client.onWebSocketClose = () => setConnectionStatus('切断(再接続中...)');
+client.onWebSocketClose = () => {
+    socketDown = true;
+    setConnectionStatus('切断(再接続中...)');
+    updateOfflineLock();
+};
+
+// ★Batch 71: サーバが STOMP 水準でエラーを返した場合。再接続では直らないことが多い。
+//   ★手動モードと違い、通常モードは 66 まで onStompError を<b>1つも持っていなかった</b> ——
+//     つまりサーバ側のエラーは画面に何も出ないまま捨てられていた。
+client.onStompError = (frame) => {
+    socketDown = true;
+    setConnectionStatus('サーバとの通信でエラー: ' + (frame.headers.message || '不明'));
+    updateOfflineLock();
+};
 
 // ★★Batch 66: 接続の開始は「0) 在席」の末尾へ移した(startViewerSession)。
 //   ここに置くと、まだ評価されていない const(OCCUPANT_STORAGE_KEY)を掴んで
@@ -172,6 +195,135 @@ document.addEventListener('keydown', (e) => {
 function setConnectionStatus(text) {
     document.getElementById('connection-status').textContent = text;
 }
+
+// ---------------------------------------------------------------
+// ★★★1-2) 切断中のロック(Batch 71)
+// ---------------------------------------------------------------
+//
+// ★手動モードの 33(1章)を通常モードへ写したものである。
+//   65 が挙げた盤面の穴のうち、69 も 70 も意図的に残していた最後の1つがこれである。
+//
+// ★★★<b>番人は send() であって、オーバーレイではない。</b>
+//   「切断中は操作できない」を作る方法は2つある ——
+//     (a) 画面を覆って触らせない(オーバーレイ)
+//     (b) 送信の口で弾く(send() のガード)
+//   (a) だけで済ませると、覗き見の導線を1つ足した瞬間に穴が開く。
+//   そこで (b) を番人とし、(a) は<b>宣言</b>に格下げしてある。
+//
+// ★★<b>70 で実害が増えた。</b>手札からの操作が2つの入口になり、
+//   確定待ち(manaPay)・進化素材の選択・割り込みの選択という
+//   <b>ローカルにしか無い状態</b>を抱えるようになった。
+//   送れなかったのにそれらを畳むと、「[確定]を押したのに何も起きず、
+//   しかも選んだマナまで消えた」になる。
+//   → <b>send() は送ったかどうかを返し、呼び出し側は送れなかったら畳まない</b>(4-2)。
+//
+// ★★<b>部屋消失(手動モードの connectionFatal)にあたるものは作っていない。</b>
+//   通常モードには showRoomLostFatal が無く(66 が作らなかった)、
+//   <b>その旗を立てる人が1人も居ない</b>。使い手の無い状態変数は、
+//   70 が見つけた `.mana-chip` と同じもの(書いてあるのに効いていない器)になる。
+//   ★作らなかったことは notes/batch71-design-notes.md と落とし穴に書き残してある(裁定196)。
+
+const CONN_BAR_MS = 3500;
+
+let connectionEstablishedOnce = false;   // 一度でも接続できたか(=次は「再接続」)
+let offlinePeeking = false;              // 「盤面を確認する」でロックを畳んだ状態
+let socketDown = false;                  // onWebSocketClose / onStompError の記録
+let connBarTimer = null;
+
+/**
+ * 接続しているか。★接続の判定はこの1箇所だけが持つ(裁定130)。
+ * {@code send()} もオーバーレイもここを見る。
+ *
+ * ★{@code client.connected} だけに頼らないのは、{@code onWebSocketClose} が呼ばれる
+ * 時点でライブラリ内部のフラグが既に倒れている保証を<b>こちらが持てない</b>ためである
+ * (StompJS の実装詳細である)。倒れていなければオーバーレイが出ず、
+ * しかも<b>音を立てずに</b>出ない。自分で観測した事実({@code socketDown})を and で重ねる。
+ */
+function isConnected() {
+    return client.connected === true && !socketDown;
+}
+
+/**
+ * 席選択のゲートが出ているか。
+ *
+ * ★★<b>デッキ読み込みのゲート(#deck-gate)は含めない</b>(マスター確認)。
+ * 手動モードが席選択ゲートを除いているのは「まだ盤面に入っていない人に
+ * 『盤面が操作できません』と言っても意味が無い」からである。
+ * デッキゲートは<b>入室後</b>であり、しかも読み込みの最後に {@code send('ready')} を撃つ ——
+ * 切断中はそれが届かないので、ファイルを選んでも
+ * <b>「相手のデッキ待ち」の顔のまま黙って止まる</b>。これはいちばん分かりにくい形である。
+ */
+function isGateVisible() {
+    return !gateEl('seat-gate').classList.contains('d-none');
+}
+
+/**
+ * 接続の帯。{@code text} が null なら隠す。{@code ms} を与えると自動で消える。
+ * ★状態は「切断中(offline)」「復帰(ok)」「無し」の3つだけであり、<b>要素は1つ</b>である。
+ * 増やすなら kind を足すこと(要素を増やさない)。
+ */
+function setConnBar(text, kind, ms) {
+    const bar = document.getElementById('auto-conn-bar');
+    if (connBarTimer !== null) {
+        clearTimeout(connBarTimer);
+        connBarTimer = null;
+    }
+    bar.classList.remove('auto-conn-bar-offline', 'auto-conn-bar-ok');
+    if (!text) {
+        bar.textContent = '';
+        bar.classList.add('d-none');
+        return;
+    }
+    bar.textContent = text;
+    bar.classList.add('auto-conn-bar-' + kind);
+    bar.classList.remove('d-none');
+    if (ms) {
+        connBarTimer = setTimeout(() => {
+            connBarTimer = null;
+            setConnBar(null);
+        }, ms);
+    }
+}
+
+/**
+ * 切断オーバーレイと接続の帯を、いまの状態から描き直す。
+ * ★<b>出す/出さないの判定をここ1箇所に閉じる</b>(重ね順で解決しない)。
+ */
+function updateOfflineLock() {
+    const offline = !isConnected() && !isGateVisible();
+    document.getElementById('auto-offline')
+        .classList.toggle('d-none', !offline || offlinePeeking);
+    if (offline) {
+        setConnBar(offlinePeeking
+            ? '切断中 — 操作は相手に届きません(再接続中)'
+            : null, 'offline');
+    }
+    // ★接続が戻ったときの帯は onConnect が握る。ここでは消さない
+    //   (updateOfflineLock は onConnect から<b>先に</b>呼ばれる)
+}
+
+/**
+ * 拒否の合図(★Batch 71)。手動モードの {@code flashDenied} と同じ役割である。
+ *
+ * ★★<b>トーストは作らなかった</b>(マスター確認)。
+ * ガードが火を噴く場面では、宣言(オーバーレイか帯)が<b>既に出ている</b> ——
+ * 覆っているならオーバーレイが、畳んでいるなら帯が、切断中であることを言っている。
+ * 足りないのは「<b>いま押したそれ</b>が弾かれた」だけなので、明滅で指し示せば足りる。
+ * ★器を1つ増やさない判断である(70 の「確定待ちの器を1つにした」と同じ筋)。
+ */
+function flashDenied(el) {
+    if (!el) return;
+    el.classList.remove('auto-denied');
+    void el.offsetWidth;
+    el.classList.add('auto-denied');
+    setTimeout(() => el.classList.remove('auto-denied'), 700);
+}
+
+// ★「盤面を確認する」= オーバーレイだけ畳む。ガード(send)は効いたままである
+document.getElementById('auto-offline-peek').addEventListener('click', () => {
+    offlinePeeking = true;
+    updateOfflineLock();
+});
 
 // ---------------------------------------------------------------
 // ★★★0) 在席(Batch 66)
@@ -267,6 +419,7 @@ function openJoinGate(summary) {
     clearGateError();
     applyGateSeats(summary);
     gateEl('seat-gate').classList.remove('d-none');
+    updateOfflineLock();   // ★Batch 71: ゲートが出ている間は切断の案内を出さない
     return new Promise((resolve) => { gateResolve = resolve; });
 }
 
@@ -278,6 +431,7 @@ function showGateFatal(message) {
     gateEl('seat-gate-buttons').classList.add('d-none');
     showGateError(message);
     gateEl('seat-gate').classList.remove('d-none');
+    updateOfflineLock();   // ★Batch 71: 「入れませんでした」と「再接続を待って」を重ねない
 }
 
 gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
@@ -303,6 +457,7 @@ gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
         const data = await res.json();
         saveOccupant(data.playerId, data.displayName);
         gateEl('seat-gate').classList.add('d-none');
+        updateOfflineLock();   // ★Batch 71: 盤面に入った。ここから先は切断の案内を出す
         gateResolve(data.playerId);
     } catch (err) {
         showGateError(err.message);
@@ -912,14 +1067,44 @@ sfxPreload();
 // 2) 送信
 // ---------------------------------------------------------------
 
+/**
+ * サーバへ操作を送る。
+ *
+ * ★★★Batch 71: 接続していないときは<b>publish しない</b>。
+ * 死んだソケットへ投げても例外は出ず、ログにも出ない。人間には
+ * 「押したのに何も起きない」としか見えない —— しかも通話しながら遊ぶ前提では、
+ * 「声は聞こえているのに盤面だけ届いていない」という<b>気づきにくい事故</b>になる。
+ * これは手動モードが 33 で潰したものであり、通常モードには 70 まで残っていた。
+ *
+ * ★★<b>ここが番人である。</b>オーバーレイは宣言にすぎない(1-2章)。
+ * 畳んで盤面を覗いている間も、このガードは効いている。
+ *
+ * ★★<b>揮発メッセージが無いので quiet の逃がし口を作っていない。</b>
+ * 手動モードの {@code dragcue}(1回のドラッグで何十回も飛ぶ矢印)にあたるものは
+ * 通常モードに1つも無い —— 送っているのは13箇所すべて<b>盤面を動かす操作</b>である。
+ * ★これは「まずは付けないでおく」ではなく<b>今そういう送信が存在しない</b>という事実である。
+ * 揮発の送信を足す日が来たら、そのときに逃がし口も足すこと。
+ *
+ * @return 送ったかどうか。★<b>呼び出し側はこれを見て「畳むかどうか」を決める</b>(4-2)。
+ */
 function send(action, payload) {
+    if (!isConnected()) {
+        // ★宣言(オーバーレイか帯)は既に出ている。ここで足すのは
+        //   「いま押したそれが弾かれた」だけである(flashDenied の項を参照)
+        flashDenied(document.getElementById('auto-conn-bar'));
+        flashDenied(document.getElementById('connection-status'));
+        return false;
+    }
     // ★★Batch 62: 音の取り付け点の2つ目(裁定68・287)。
     //   ここは<b>ユーザーの操作が全部通る1箇所</b>である
+    //   ★Batch 71: ガードの<b>後ろ</b>である。送っていない操作に音を鳴らすと、
+    //     手応えだけが返って「届いた」と誤解させる(28 の「無言をやめる」の裏返し)
     sfxForAction(action);
     client.publish({
         destination: `/app/room/${ROOM_ID}/${action}`,
         body: JSON.stringify({ playerId: PLAYER_ID, ...payload }),
     });
+    return true;
 }
 
 /**
@@ -1106,15 +1291,30 @@ function pickEvolutionMaterial(instanceId) {
 function confirmEvolutionSelection() {
     if (!evolution || evolution.picked.length < evolution.card.evolutionMin) return;
     const { action, handIndex, specs, extra, picked } = evolution;
+    // ★★Batch 71: 先に畳んでから進み、<b>送れなかったら元へ戻す</b>(4-2)。
+    //   ★抱えたまま進めないのは confirmManaPayment と同じ理由である ——
+    //     beginSelection は途中で render() を呼ぶので、案内が素材選びに戻ってしまう。
+    const held = evolution;
     evolution = null;
-    beginSelection(action, handIndex, specs, Object.assign({}, extra, { materialIds: picked }));
+    if (!beginSelection(action, handIndex, specs,
+        Object.assign({}, extra, { materialIds: picked }))) {
+        evolution = held;
+        render(latestView);
+    }
 }
 
-/** 対象選択を開始する。要求がなければ即送信 */
+/**
+ * 対象選択を開始する。要求がなければ即送信。
+ *
+ * ★★Batch 71: <b>受け付けたかどうかを返す。</b>
+ * 要求が無い形は「開始 = 送信」なので、切断中は<b>始まってすらいない</b> ——
+ * 呼び出し側がそれを知らないと、確定待ちや進化素材の選択を
+ * <b>何も起きていないのに畳んでしまう</b>(4-2)。
+ * ★要求がある形は必ず true である(送信はまだ先の commitRequirement で起きる)。
+ */
 function beginSelection(action, handIndex, specs, extra) {
     if (!specs || specs.length === 0) {
-        send(action, buildActionPayload(handIndex, [], extra));
-        return;
+        return send(action, buildActionPayload(handIndex, [], extra));
     }
     pending = {
         action, handIndex, specs, extra,
@@ -1123,6 +1323,7 @@ function beginSelection(action, handIndex, specs, extra) {
     };
     render(latestView);
     maybeOpenTrashPicker();
+    return true;
 }
 
 /** 墓地を対象に取る要求に進んだら、選択用のモーダルを自動で開く */
@@ -1279,9 +1480,20 @@ function commitRequirement() {
     pending.current = { handIndexes: [], minionIds: [], manaIndexes: [], trashIndexes: [], weaponSides: [] };
     if (pending.collected.length === pending.specs.length) {
         const { action, handIndex, collected, extra } = pending;
+        // ★★★Batch 71: 送れたときだけ畳む(4-2)。
+        //   ★<b>送れなかったら最後の要求を巻き戻す。</b>「選び終えた状態」のまま残すと、
+        //     もう一度撃つ入口がどこにも無い(要求は全部埋まっており、
+        //     再送のきっかけになる操作が存在しない)—— 死に止まりを作らない。
+        //   ★プレイそのものは畳まない。巻き戻るのは<b>最後の1要求ぶん</b>だけであり、
+        //     払うマナ・進化素材・ここまでに選んだ対象は残る。
+        if (!send(action, buildActionPayload(handIndex, collected, extra))) {
+            pending.collected.pop();
+            render(latestView);
+            maybeOpenTrashPicker();
+            return;
+        }
         pending = null;
         hideModal();
-        send(action, buildActionPayload(handIndex, collected, extra));
     } else {
         hideModal(); // 前の要求で開いた墓地モーダルを閉じてから次へ進む
         render(latestView);
@@ -1531,23 +1743,44 @@ function confirmManaPayment() {
         showMessage(`払うマナを${manaPay.cost}枚選んでください(${manaPay.picked.length}/${manaPay.cost})`);
         return;
     }
+    // ★★★Batch 71: <b>受け付けられたときだけ確定待ちを畳む。</b>
+    //   69 まではここが「畳んでから送る」だったので、切断中に[確定]を押すと
+    //   何も起きないうえに<b>選んだマナまで消えていた</b> ——
+    //   70 が入口を2つにして確定待ちを作ったぶん、切断の実害がここに集まっている。
+    //   ★保っておけば、再接続したあとにもう一度[確定]を押すだけで出せる。
     const pay = manaPay;
+    // ★★<b>先に畳んでから進む。</b>次の段(beginSelection)は途中で render() を呼ぶので、
+    //   確定待ちを抱えたまま進むと<b>案内文が確定待ちのものに戻ってしまう</b>
+    //   (「対象を選んでください」ではなく「払うマナを選んでください」が出る)。
+    //   ★★送れなかったときは<b>元どおり戻す</b> —— これが 4-2 の「保つ」である。
     manaPay = null;
     if (pay.kind === 'CHARGE') {
-        send('charge-mana', { handIndex: pay.handIndex });
+        if (!send('charge-mana', { handIndex: pay.handIndex })) return restoreManaPayment(pay);
         return;
     }
     if (pay.kind === 'TABOO') {
-        beginSelection(pay.action || 'play-taboo', null, pay.specs,
-            { tabooIndex: pay.tabooIndex, manaIndexes: pay.picked });
+        if (!beginSelection(pay.action || 'play-taboo', null, pay.specs,
+            { tabooIndex: pay.tabooIndex, manaIndexes: pay.picked })) return restoreManaPayment(pay);
         return;
     }
     const extra = Object.assign({}, pay.extra || {}, { manaIndexes: pay.picked });
     if (pay.evolutionFlow) {
+        // ★進化素材の選択は<b>送信を伴わない</b>ので、ここは必ず先へ進む
+        //   (送るのは素材を選び終えたあとの confirmEvolutionSelection である)
         beginEvolutionSelection(pay.action, pay.handIndex, pay.specs, extra, pay.card);
         return;
     }
-    beginSelection(pay.action, pay.handIndex, pay.specs, extra);
+    if (!beginSelection(pay.action, pay.handIndex, pay.specs, extra)) return restoreManaPayment(pay);
+}
+
+/**
+ * ★Batch 71: 送れなかった確定待ちを元へ戻す(4-2)。
+ * ★<b>戻し方を1箇所に置く。</b>confirmManaPayment には出口が4つあり、
+ * 戻す処理を出口ごとに書くと、次に出口が増えたときに片方だけ古いままになる(裁定130)。
+ */
+function restoreManaPayment(pay) {
+    manaPay = pay;
+    render(latestView);
 }
 
 function cancelManaPayment() {
@@ -1849,13 +2082,15 @@ function useLeaderAbility() {
     beginSelection('leader-ability', null, ability.targets);
 }
 
+// ★Batch 71: どちらも「送れたときだけ選択を捨てる」(4-2)。
+//   マリガンで選んだ枚数は、切断中に消えると<b>もう一度全部選び直し</b>になる
 function submitMulligan() {
-    send('mulligan', { handIndexes: mulliganPicks });
+    if (!send('mulligan', { handIndexes: mulliganPicks })) return;
     mulliganPicks = [];
 }
 
 function keepHand() {
-    send('mulligan', { handIndexes: [] });
+    if (!send('mulligan', { handIndexes: [] })) return;
     mulliganPicks = [];
 }
 
@@ -2805,7 +3040,8 @@ function renderConfirmChoice(row) {
         btn.className = 'btn btn-sm ' + opt.cls;
         btn.textContent = opt.label;
         btn.onclick = () => {
-            send('resolve-choice', { chosenIndexes: opt.indexes });
+            // ★Batch 71: 送れたときだけ選択を捨てる(4-2)
+            if (!send('resolve-choice', { chosenIndexes: opt.indexes })) return;
             choicePicks = [];
         };
         row.appendChild(btn);
@@ -2816,7 +3052,8 @@ function renderConfirmChoice(row) {
 function toggleChoicePick(index, choice) {
     if (choice.max === 1 && choice.min === 1) {
         // 1つだけ選ぶ: クリックで即送信
-        send('resolve-choice', { chosenIndexes: [index] });
+        // ★Batch 71: 送れたときだけ選択を捨てる(4-2)
+        if (!send('resolve-choice', { chosenIndexes: [index] })) return;
         choicePicks = [];
         return;
     }
@@ -2849,7 +3086,10 @@ function confirmChoice() {
         showMessage(`最低${choice.min}枚選んでください`);
         return;
     }
-    send('resolve-choice', { chosenIndexes: choicePicks });
+    // ★Batch 71: 送れたときだけ選択を捨てる(4-2)。
+    //   ★割り込みは<b>相手のターンにも来る</b>。切断中に選んだものが消えると、
+    //     再接続後に候補の一覧を読み直すところからやり直しになる
+    if (!send('resolve-choice', { chosenIndexes: choicePicks })) return;
     choicePicks = [];
 }
 

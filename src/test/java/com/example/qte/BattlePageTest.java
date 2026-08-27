@@ -151,6 +151,45 @@ class BattlePageTest {
     void 通常モードの盤面のCSSの版数が上がっている() throws Exception {
         String html = battleHtml();
         assertThat(html).doesNotContain("battle.css?v=50");
+        // ★★Batch 71: 71 も CSS を変えた(切断オーバーレイと接続の帯)。
+        //   51 のままだと、既に開いている人には帯の色が1本も届かない
+        assertThat(html).doesNotContain("battle.css?v=51");
         assertThat(html).contains("battle.css?v=");
+    }
+
+    /**
+     * ★★★Batch 71: 通常モードの切断(候補 H)。<b>テンプレートに現れるぶん</b>を測る。
+     *
+     * <p>★<b>ここで測っているのは「宣言が在るか」だけである。</b>
+     * 実際に操作を止めているのは {@code battle.js} の {@code send()} のガードであり、
+     * そちらは verify 71-1〜71-14 が実測で見張る(オーバーレイを畳んでも
+     * ガードが効いていることまで測っている)。
+     *
+     * <p>★★<b>この試験を「切断が効いている」の番人だと読まないこと。</b>
+     * テンプレートに箱が在ることと、切断中に操作が止まることは別である ——
+     * 箱だけを先に作るのは設計判断46 が禁じた「安全側に見える簡易版」そのものであり、
+     * この試験<b>だけ</b>が緑なら、それはまさにその状態を意味する。
+     */
+    @Test
+    void 通常モードの盤面に切断オーバーレイと接続の帯がある() throws Exception {
+        String html = battleHtml();
+        assertThat(html).as("切断オーバーレイ").contains("id=\"auto-offline\"");
+        // ★[盤面を確認する]。★<b>畳んでも安全であることが、この導線を置ける根拠である</b>
+        assertThat(html).as("覗き見の導線").contains("id=\"auto-offline-peek\"");
+        assertThat(html).as("接続の帯").contains("id=\"auto-conn-bar\"");
+        // ★帯はヘッダ行の中に置いた(実測で決めた。battle.css の .auto-conn-bar を参照)
+        assertThat(html).as("接続表示は今も在る").contains("id=\"connection-status\"");
+    }
+
+    /**
+     * ★★Batch 71 は {@code battle.js} を変えている(接続の判定・send のガード・
+     * 送れなかったときに畳まない扱い)。
+     * <b>版数を上げないと、既に開いている人だけが 33 のままガード無しで遊び続ける。</b>
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が71で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=33");
+        assertThat(html).contains("battle.js?v=");
     }
 }

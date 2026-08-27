@@ -7079,6 +7079,450 @@ async function clearZoom(page) {
 
   await autoPage.close();
 
+  // =========================================================================
+  // ★★★Batch 71: 通常モードの切断(候補 H。手動モードの 33 を写した)
+  //
+  // ★★★<b>番人をここに置ける根拠を先に確かめてある。</b>
+  //   70 は「ビューが順序を載せること」を verify で測ろうとして失敗した ——
+  //   ハーネスは Java を起こさないので、GameViewBuilder を壊しても届かなかった。
+  //   ★71 は <b>Java 変更ゼロ</b>であり、守る対象(isConnected / send のガード /
+  //     オーバーレイ / 帯 / 送れなかったときの畳み方)は<b>すべて battle.js の中</b>にある。
+  //     STOMP スタブは connected を名乗り、client.onWebSocketClose() を直接呼べば
+  //     実物と同じ入口から落とせる —— <b>ここは verify にしか照合先が無い</b>。
+  //
+  // ★★<b>専用のページで回す。</b>切断したページは以降の項目にとって毒である
+  //   (send が publish しなくなる)。使い回さず、閉じて捨てる。
+  // =========================================================================
+
+  const connPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const connErrors = [];
+  connPage.on('pageerror', (e) => connErrors.push(String(e)));
+  await connPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await connPage.waitForTimeout(300);
+
+  const connDeliver = (v) => connPage.evaluate((view) => {
+    latestView = view;
+    render(view);
+  }, v);
+
+  // ★手札1枚(コスト2)・マナ3枚。払う順はサーバが送る(規則を書き写さない)
+  const connBaseView = () => autoView({
+    you: autoPlayer({
+      hand: [autoCard('QTE-M-FIRE-6', '切断検証ミニオン', { cost: 2 })],
+      handCount: 1,
+      manaZone: payMana(3), totalMana: 3, availableMp: 3, manaPayOrder: [0, 1, 2],
+      minions: [autoMinion('m0', '自分のミニオン')],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e0', '相手のミニオン')] }),
+  });
+  await connDeliver(connBaseView());
+
+  // ---- 71-1・71-2. ★★★切断中は send() が publish しない / 黙って捨てない ----
+  // ★★<b>これが本バッチの中心である。</b>70 までの通常モードの send() は接続を
+  //   一切見ておらず、死んだソケットへ<b>無言で publish</b> していた。
+  //   例外は出ずログにも出ないので、人間には「押したのに何も起きない」としか見えない。
+  const autoOffline = await connPage.evaluate(() => {
+    window.__sent.length = 0;
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();            // ★実際の切断と同じ入口から落とす
+    const ok = send('end-turn', {});
+    /* eslint-enable no-undef */
+    const bar = document.getElementById('auto-conn-bar');
+    const status = document.getElementById('connection-status');
+    return {
+      ok, sent: window.__sent.length,
+      barDenied: bar.classList.contains('auto-denied'),
+      statusDenied: status.classList.contains('auto-denied'),
+      statusText: status.textContent,
+      // ★★★<b>クラスが付いたことと、その規則が当たっていることは別である。</b>
+      //   70 が見つけた穴(.mana-chip は 44 から1度も当たっていなかった)と同じ形を
+      //   ここで作らないため、<b>実際に動いている animation</b> を読む。
+      barAnim: getComputedStyle(bar).animationName,
+      statusAnim: getComputedStyle(status).animationName,
+    };
+  });
+  check('★★★切断中は send() が publish しない(71・番人は send である)',
+    autoOffline.ok === false && autoOffline.sent === 0, JSON.stringify(autoOffline));
+  // ★トーストは作らなかった(マスター確認)。宣言は既に出ているので、
+  //   足りないのは「いま押したそれが弾かれた」だけである —— 明滅で指す
+  check('★★切断中の操作を無言で捨てない(71・28 の「無言をやめる」の続き)',
+    autoOffline.barDenied && autoOffline.statusDenied
+      && autoOffline.statusText.includes('切断'), JSON.stringify(autoOffline));
+  // ★★★設計判断45・70 の教訓「空文」: クラスの有無だけを数えると
+  //   「書いてあるが効いていない」を緑にする。<b>効いている animation を読む。</b>
+  check('★★★拒否の明滅は実際に効いている(71・クラスの数だけを数えない)',
+    autoOffline.barAnim !== 'none' && autoOffline.barAnim === autoOffline.statusAnim,
+    JSON.stringify({ barAnim: autoOffline.barAnim, statusAnim: autoOffline.statusAnim }));
+
+  // ---- 71-3. ★★オーバーレイが盤面を物理的に覆う(宣言のほう)----
+  const autoLock = await connPage.evaluate(() => {
+    const el = document.getElementById('auto-offline');
+    const hand = document.querySelector('#my-hand .auto-card');
+    const b = hand.getBoundingClientRect();
+    const top = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+    return {
+      shown: !el.classList.contains('d-none'),
+      blocked: !!(top && el.contains(top)),
+      topId: top ? (top.id || top.className) : '(なし)',
+      // ★★<b>実測で最前面であることを確かめる</b>(CSS を読んで決めない・70 の教訓)
+      maxZ: Math.max(...[...document.querySelectorAll('*')]
+        .map((n) => Number(getComputedStyle(n).zIndex))
+        .filter((z) => !Number.isNaN(z))),
+      overlayZ: Number(getComputedStyle(el).zIndex),
+    };
+  });
+  check('★★切断中はオーバーレイが手札を物理的に覆う(71・宣言)',
+    autoLock.shown && autoLock.blocked, JSON.stringify(autoLock));
+  check('★★★オーバーレイが通常モードの最前面である(71・実測。読んで決めない)',
+    autoLock.overlayZ === autoLock.maxZ, JSON.stringify(autoLock));
+
+  // ---- 71-4・71-5. ★★★覗き見で畳んでも番人は効く / 帯が状態を出し続ける ----
+  // ★★オーバーレイは<b>宣言</b>であって安全装置ではない、という設計そのものの検証。
+  //   「見えなくすること」を安全装置にしていたら、この項目は落ちる。
+  await connPage.locator('#auto-offline-peek').click();
+  await connPage.waitForTimeout(30);
+  const autoPeek = await connPage.evaluate(() => {
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('end-turn', {});
+    const bar = document.getElementById('auto-conn-bar');
+    return {
+      overlayHidden: document.getElementById('auto-offline').classList.contains('d-none'),
+      barOffline: bar.classList.contains('auto-conn-bar-offline'),
+      barText: bar.textContent,
+      ok, sent: window.__sent.length,
+    };
+  });
+  check('★★★盤面を覗いても send() のガードは効く(71・番人はオーバーレイではない)',
+    autoPeek.overlayHidden && autoPeek.ok === false && autoPeek.sent === 0,
+    JSON.stringify(autoPeek));
+  check('★覗いている間は接続の帯が状態を出し続ける(71・1-5)',
+    autoPeek.barOffline && autoPeek.barText.includes('切断中'), JSON.stringify(autoPeek));
+
+  // ---- 71-6. ★★★帯はヘッダの中に居て、右のボタンを覆わない(実測)----
+  // ★★<b>実測で決めた置き場所である。</b>手動モードと同じ画面中央の固定ピルにすると、
+  //   通常モードでは [進行: 手動](x:786)に<b>余白0で接する</b>。
+  //   ★<b>値を書かない</b> —— 「矩形が重ならないこと」と「ヘッダの子であること」で測る。
+  const autoBarBox = await connPage.evaluate(() => {
+    const bar = document.getElementById('auto-conn-bar');
+    const mode = document.getElementById('btn-auto-mode');
+    const header = document.querySelector('.auto-header');
+    const b = bar.getBoundingClientRect();
+    const m = mode.getBoundingClientRect();
+    return {
+      inHeader: header.contains(bar),
+      positioned: getComputedStyle(bar).position,
+      overlapsMode: b.right > m.left && b.left < m.right && b.bottom > m.top && b.top < m.bottom,
+      barRight: Math.round(b.right), modeLeft: Math.round(m.left),
+      headerBottom: Math.round(header.getBoundingClientRect().bottom),
+      barBottom: Math.round(b.bottom),
+    };
+  });
+  check('★★★接続の帯はヘッダ行の中に収まり、右のボタンを覆わない(71・実測で選んだ置き場所)',
+    autoBarBox.inHeader && autoBarBox.positioned === 'static'
+      && !autoBarBox.overlapsMode && autoBarBox.barBottom <= autoBarBox.headerBottom,
+    JSON.stringify(autoBarBox));
+
+  // ---- 71-7. ★★★席選択ゲートが出ている間は切断の案内を出さない ----
+  // ★まだ盤面に入っていない人に「盤面が操作できません」と言っても意味が無い(33・1-4)。
+  // ★★★<b>覗き見を先に畳んでおく。</b>71-4 で offlinePeeking を立てたままここへ来ると、
+  //   オーバーレイは<b>ゲートのせいではなく覗き見のせいで</b>隠れる ——
+  //   ゲートの判定を消しても緑のまま通る<b>偽の緑</b>になる(68 の教訓・番人の書き方)。
+  //   ★実際にこれを踏んで、71-8 が落ちて初めて気づいた。
+  const autoGateExclusive = await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    offlinePeeking = false;
+    showGateFatal('部屋が見つかりません');    // ★ゲートを開く入口から開く
+    /* eslint-enable no-undef */
+    const r = {
+      gateShown: !document.getElementById('seat-gate').classList.contains('d-none'),
+      overlayHidden: document.getElementById('auto-offline').classList.contains('d-none'),
+      peeking: false,
+    };
+    document.getElementById('seat-gate').classList.add('d-none');
+    // eslint-disable-next-line no-undef
+    updateOfflineLock();
+    return r;
+  });
+  check('★★★席選択ゲートと切断の案内は重ねない(71・33 の 1-4 と同じ判断)',
+    autoGateExclusive.gateShown && autoGateExclusive.overlayHidden,
+    JSON.stringify(autoGateExclusive));
+
+  // ---- 71-8. ★★★デッキゲートのときは<b>出す</b>(手動モードと違うところ)----
+  // ★★通常モードにはゲートが2枚ある(66)。デッキゲートは<b>入室後</b>であり、
+  //   読み込みの最後に send('ready') を撃つ —— 切断中はそれが届かないので、
+  //   ファイルを選んでも「相手のデッキ待ち」の顔のまま黙って止まる。
+  //   ★マスター確認: <b>こちらは抑止しない</b>。
+  const autoDeckGate = await connPage.evaluate(() => {
+    const deck = document.getElementById('deck-gate');
+    deck.classList.remove('d-none');
+    /* eslint-disable no-undef */
+    offlinePeeking = false;               // ★71-7 と同じ理由(覗き見で隠れていては測れない)
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    const r = {
+      deckShown: !deck.classList.contains('d-none'),
+      overlayShown: !document.getElementById('auto-offline').classList.contains('d-none'),
+    };
+    deck.classList.add('d-none');
+    // eslint-disable-next-line no-undef
+    updateOfflineLock();
+    return r;
+  });
+  check('★★★デッキ読み込みゲートのときは切断の案内を出す(71・席選択ゲートとは扱いが違う)',
+    autoDeckGate.deckShown && autoDeckGate.overlayShown, JSON.stringify(autoDeckGate));
+
+  // ---- 71-9. ★★★送れなかった確定待ちは消えない(70 が増やした実害)----
+  // ★★★<b>本バッチで実害がいちばん大きいのはここである。</b>
+  //   70 が入口を2つにして「確定待ち(manaPay)」を作った。69 までのように
+  //   畳んでから送ると、切断中に[確定]を押したとき
+  //   <b>何も起きないうえに選んだマナまで消える</b>。
+  await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.connected = true; socketDown = false; offlinePeeking = false;
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+  });
+  await connDeliver(connBaseView());
+  const connHandBox = await connPage.locator('#my-hand .auto-card').first().boundingBox();
+  await connPage.mouse.click(connHandBox.x + connHandBox.width / 2,
+    connHandBox.y + connHandBox.height / 2);
+  await connPage.waitForTimeout(40);
+  // ★払うマナを実マウスで2枚選ぶ(確定できる状態を作る)
+  for (let i = 0; i < 2; i++) {
+    const tile = await connPage
+      .locator('#my-mana-row .mana-tile.auto-pay-candidate:not(.auto-pay-picked)')
+      .first().boundingBox();
+    await connPage.mouse.click(tile.x + tile.width / 2, tile.y + tile.height / 2);
+    await connPage.waitForTimeout(15);
+  }
+  const keptPay = await connPage.evaluate(() => {
+    const before = manaPay ? manaPay.picked.slice() : null;
+    window.__sent.length = 0;
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();            // ★確定を押す直前に落ちた
+    offlinePeeking = true; updateOfflineLock();   // ★覗いている状態にして[確定]へ届かせる
+    confirmManaPayment();
+    /* eslint-enable no-undef */
+    return {
+      before,
+      sent: window.__sent.length,
+      stillPaying: !!manaPay,
+      after: manaPay ? manaPay.picked.slice() : null,
+      promptShown: !document.getElementById('btn-confirm-pay').classList.contains('d-none'),
+    };
+  });
+  check('★★★送れなかった確定待ちは消えない —— 選んだマナも残る(71・70 が増やした実害)',
+    keptPay.sent === 0 && keptPay.stillPaying
+      && JSON.stringify(keptPay.before) === JSON.stringify(keptPay.after)
+      && keptPay.before.length === 2 && keptPay.promptShown,
+    JSON.stringify(keptPay));
+
+  // ---- 71-9b. ★★★マナチャージの確定待ちも同じである(裁定323)----
+  // ★★<b>出口ごとに測る。</b>confirmManaPayment には出口が4つあり、
+  //   1つを直したつもりで他が古いまま、が起こりうる ——
+  //   実際に壊し検証がそれを教えた(PLAY の出口だけ測っていて、
+  //   CHARGE の出口を壊しても<b>誰も赤くしなかった</b>)。
+  // ★マナチャージは<b>1ターン1回で手札へ戻らない</b>。取り返しがつかない操作である。
+  await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.connected = true; socketDown = false; offlinePeeking = false;
+    manaPay = null; pending = null; updateOfflineLock();
+    /* eslint-enable no-undef */
+  });
+  await connDeliver(autoView({
+    phase: 'MANA_CHARGE', phaseDisplay: 'マナチャージ',
+    you: autoPlayer({
+      hand: [autoCard('QTE-M-FIRE-6', 'チャージするカード', { cost: 2 })],
+      handCount: 1, manaZone: payMana(3), totalMana: 3, availableMp: 3,
+      manaPayOrder: [0, 1, 2], manaCharged: false,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  }));
+  const connChargeBox = await connPage.locator('#my-hand .auto-card').first().boundingBox();
+  await connPage.mouse.click(connChargeBox.x + connChargeBox.width / 2,
+    connChargeBox.y + connChargeBox.height / 2);
+  await connPage.waitForTimeout(40);
+  const keptCharge = await connPage.evaluate(() => {
+    const started = !!manaPay && manaPay.kind === 'CHARGE';
+    window.__sent.length = 0;
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();
+    offlinePeeking = true; updateOfflineLock();
+    confirmManaPayment();
+    /* eslint-enable no-undef */
+    return {
+      started, sent: window.__sent.length,
+      stillPaying: !!manaPay,
+      kind: manaPay ? manaPay.kind : null,
+      promptShown: !document.getElementById('btn-confirm-pay').classList.contains('d-none'),
+    };
+  });
+  check('★★★マナチャージの確定待ちも、送れなければ消えない(71・裁定323 の出口)',
+    keptCharge.started && keptCharge.sent === 0 && keptCharge.stillPaying
+      && keptCharge.kind === 'CHARGE' && keptCharge.promptShown,
+    JSON.stringify(keptCharge));
+
+  // ---- 71-10. ★★★送れなかった対象選択は、最後の要求だけ巻き戻る ----
+  // ★★<b>死に止まりを作らない。</b>「全部選び終えたが送れていない」まま残すと、
+  //   もう一度撃つ入口がどこにも無い(要求は全部埋まっており、再送のきっかけが無い)。
+  //   ★プレイそのものは畳まない —— 巻き戻るのは最後の1要求ぶんだけである。
+  await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.connected = true; socketDown = false; offlinePeeking = false;
+    manaPay = null; pending = null; updateOfflineLock();
+    /* eslint-enable no-undef */
+  });
+  await connDeliver(autoView({
+    you: autoPlayer({
+      hand: [autoCard('QTE-M-FIRE-10', '対象を取るスペル', {
+        type: 'SPELL', cost: 1, attack: null, hp: null,
+        targets: [{ kind: 'MINION', side: 'ANY', count: 1, optional: false, upTo: false,
+          filters: [], prompt: 'ミニオンを1体選んでください' }],
+      })],
+      handCount: 1, manaZone: payMana(3), totalMana: 3, availableMp: 3,
+      manaPayOrder: [0, 1, 2], minions: [autoMinion('m0', '自分のミニオン')],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  }));
+  const selBox = await connPage.locator('#my-hand .auto-card').first().boundingBox();
+  await connPage.mouse.click(selBox.x + selBox.width / 2, selBox.y + selBox.height / 2);
+  await connPage.waitForTimeout(40);
+  {
+    const tile = await connPage
+      .locator('#my-mana-row .mana-tile.auto-pay-candidate:not(.auto-pay-picked)')
+      .first().boundingBox();
+    await connPage.mouse.click(tile.x + tile.width / 2, tile.y + tile.height / 2);
+    await connPage.waitForTimeout(15);
+    const btn = await connPage.locator('#btn-confirm-pay').boundingBox();
+    await connPage.mouse.click(btn.x + btn.width / 2, btn.y + btn.height / 2);
+    await connPage.waitForTimeout(40);
+  }
+  const rolledBack = await connPage.evaluate(() => {
+    const started = !!pending;
+    window.__sent.length = 0;
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();
+    offlinePeeking = true; updateOfflineLock();
+    pickMinion('m0', true);               // ★最後の1体を選ぶ = 送信のきっかけ
+    /* eslint-enable no-undef */
+    return {
+      started,
+      sent: window.__sent.length,
+      stillPending: !!pending,
+      collected: pending ? pending.collected.length : -1,
+      needs: pending ? pending.specs.length : -1,
+      promptShown: !document.getElementById('selection-area').classList.contains('d-none'),
+    };
+  });
+  check('★★★送れなかった対象選択は畳まれず、最後の要求だけ巻き戻る(71・死に止まりを作らない)',
+    rolledBack.started && rolledBack.sent === 0 && rolledBack.stillPending
+      && rolledBack.collected === 0 && rolledBack.needs === 1 && rolledBack.promptShown,
+    JSON.stringify(rolledBack));
+
+  // ---- 71-11・71-12. ★★再接続の通知(初回の接続と区別する)----
+  // ★初回の接続で「再接続しました」と出したら、それは<b>嘘の宣言</b>である
+  //   (32b の「巻き戻しでターンの合図を出さない」と同じ理屈)。
+  const autoFirst = await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    connectionEstablishedOnce = false;
+    client.connected = true; socketDown = false;
+    client.onConnect();
+    /* eslint-enable no-undef */
+    const bar = document.getElementById('auto-conn-bar');
+    return { ok: bar.classList.contains('auto-conn-bar-ok'), text: bar.textContent };
+  });
+  check('★初回の接続では「再接続しました」と言わない(71・宣言は事実に一致させる)',
+    !autoFirst.ok && autoFirst.text === '', JSON.stringify(autoFirst));
+
+  const autoReconnect = await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();
+    client.connected = true;
+    client.onConnect();
+    /* eslint-enable no-undef */
+    const bar = document.getElementById('auto-conn-bar');
+    return {
+      ok: bar.classList.contains('auto-conn-bar-ok'),
+      text: bar.textContent,
+      overlayHidden: document.getElementById('auto-offline').classList.contains('d-none'),
+      status: document.getElementById('connection-status').textContent,
+    };
+  });
+  check('★★再接続を黙って済ませない(71・28 の「無言をやめる」の続き)',
+    autoReconnect.ok && autoReconnect.text.includes('再接続')
+      && autoReconnect.overlayHidden && autoReconnect.status === '接続済み',
+    JSON.stringify(autoReconnect));
+
+  // ---- 71-13. ★★★自己確認: 切断の判定そのものが効いている ----
+  // ★★項目71-1と<b>全く同じ操作</b>を、接続していることにして流す。
+  //   send() が常に false を返す作り(=飾りの番人)なら、この項目が落ちる。
+  const autoGuardAlive = await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.onWebSocketClose();
+    socketDown = false;                   // ★判定だけを外す
+    client.connected = true;
+    window.__sent.length = 0;
+    const ok = send('end-turn', {});
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    return { ok, sent: window.__sent.length };
+  });
+  check('★★★切断の判定を外すと項目71-1は成立しない(71・検出器が生きている確認)',
+    autoGuardAlive.ok === true && autoGuardAlive.sent === 1, JSON.stringify(autoGuardAlive));
+
+  // ---- 71-14. ★★手応え(音)は送れなかったときには鳴らない ----
+  // ★★<b>ガードは音の手前にある。</b>送っていない操作で音が鳴ると、
+  //   手応えだけが返って「届いた」と誤解させる(28 の「無言をやめる」の裏返し)。
+  const autoSilent = await connPage.evaluate(() => {
+    window.__played = [];
+    /* eslint-disable no-undef */
+    const original = sfxPlay;
+    sfxPlay = (name) => { window.__played.push(name); };
+    client.onWebSocketClose();
+    const denied = send('end-turn', {});
+    const offlinePlayed = window.__played.slice();
+    client.connected = true; socketDown = false;
+    const okSend = send('end-turn', {});
+    const onlinePlayed = window.__played.slice();
+    sfxPlay = original;
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    return { denied, offlinePlayed, okSend, onlinePlayed };
+  });
+  check('★★切断中の操作では音も鳴らない(71・手応えだけ返して誤解させない)',
+    autoSilent.denied === false && autoSilent.offlinePlayed.length === 0
+      && autoSilent.okSend === true && autoSilent.onlinePlayed.length === 1,
+    JSON.stringify(autoSilent));
+
+  // ---- 71-15. ★★サーバ側のエラーも「切断」として扱う ----
+  // ★★通常モードは 70 まで {@code onStompError} を<b>1つも持っていなかった</b> ——
+  //   サーバが STOMP 水準で断ってきても、画面には何も出ないまま捨てられていた。
+  //   ★再接続では直らないことが多いので、理由をそのまま出す。
+  const autoStompError = await connPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    client.connected = true; socketDown = false; offlinePeeking = false;
+    updateOfflineLock();
+    window.__sent.length = 0;
+    client.onStompError({ headers: { message: 'テスト用の理由' } });
+    const ok = send('end-turn', {});
+    /* eslint-enable no-undef */
+    return {
+      ok, sent: window.__sent.length,
+      status: document.getElementById('connection-status').textContent,
+      overlayShown: !document.getElementById('auto-offline').classList.contains('d-none'),
+    };
+  });
+  check('★★サーバ側のエラーも切断として扱い、理由をそのまま出す(71)',
+    autoStompError.ok === false && autoStompError.sent === 0
+      && autoStompError.overlayShown && autoStompError.status.includes('テスト用の理由'),
+    JSON.stringify(autoStompError));
+
+  check('★通常モードの切断(71)でJSエラーが出ない',
+    connErrors.length === 0, connErrors.join(' | '));
+
+  await connPage.close();
+
   // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----
   CARD_LIBRARY.status = 500;
   const brokenPage = await browser.newPage({ viewport: { width: 1280, height: 1600 } });
