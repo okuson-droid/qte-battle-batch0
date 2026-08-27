@@ -244,4 +244,38 @@ class BattlePageTest {
         assertThat(html).doesNotContain("battle.css?v=52");
         assertThat(html).contains("battle.css?v=");
     }
+
+    /**
+     * ★★★Batch 74 は {@code battle.js} を変えている ——
+     * {@code MINION_CARD} の絞り込みが進化ミニオンも通すようになり(裁定341)、
+     * 墓地からの召喚の一覧に進化が並び、進化を選んだら素材選択へ進むようになった。
+     *
+     * <p><b>版数を上げないと、既に開いている人だけが 35 のまま
+     * 「サーバは進化を候補として送ってくるのに、画面が灰色のまま押せない」状態になる。</b>
+     * ★★<b>Batch 73 とはここが逆である</b> —— 73 は静的ファイルを1つも触っていないので
+     * 版数を据え置いた。<b>上げるのも据え置くのも、触ったかどうかだけで決まる</b>(7-5)。
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が74で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=35");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 74 は {@code battle.css} を<b>1文字も触っていない</b>ので、版数を上げていない。
+     *
+     * <p>この試験は「上げていないこと」ではなく<b>「5枚が揃っていること」</b>を測る
+     * {@code Batch70PlayingCardTest} の側にある —— ここでは
+     * <b>73 と同じ値のままである</b>ことだけを書き残しておく。
+     * ★<b>触っていないのに上げると、上の「前のバッチの値でないこと」を測る番人が意味を失う</b>
+     * (73 の教訓)。
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数は74で据え置きである() throws Exception {
+        String html = battleHtml();
+        assertThat(html)
+                .as("★74 は battle.css を触っていない。触っていないなら上げない(73 の教訓)")
+                .contains("battle.css?v=53");
+    }
 }

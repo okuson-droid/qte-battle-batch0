@@ -96,8 +96,10 @@ KNOWN_GAPS = {
     # 型3: 割り込み(PendingChoice)を挟むカードは、数が<b>解決側</b>のメソッドにある。
     #      解決側はカードIDを持たない(ResumePoint で分岐する)ので切り出しが届かない。
     "QTE-M-EARTH-28": "型3(割り込みの解決側)。2ダメージは GameService.resolveQuakeHammerAttack にある。",
-    "QTE-M-EARTH-35": "型3(割り込みの解決側)。Attack6以下の 6 は ResumePoint.STEGORO_TO_MANA の解決にある。",
-    "QTE-M-LIGHT-22": "型3(割り込みの解決側)。3ダメージは resolveMissionaryChoice にある。",
+    # ★Batch 74: QTE-M-EARTH-35 は表から外した。requestManaSummon の第2引数を
+    #   カード名からカードIDへ変えた結果、Attack6以下の 6 と同じ文にIDが現れるようになり、
+    #   切り出しが届くようになったためである(裁定178: 誰も守っていない例外を残さない)。
+    "QTE-M-LIGHT-22": "型3(割り込みの解決側)。3ダメージは finishEffectPut にある(★Batch 74 で resolveMissionaryChoice から移した)。",
     "QTE-M-WIND-36": "型3(割り込みの解決側)。2枚ドローは GATHERING_AYAKASHI_SACRIFICE の解決にある。",
 
     # 型4: 数が別クラスの定数として宣言されており、そのカードIDと同じ文に現れない。

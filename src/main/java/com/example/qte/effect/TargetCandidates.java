@@ -72,7 +72,13 @@ public class TargetCandidates {
             String reason = switch (filter) {
                 case KNOWLEDGE -> keywordReason(master, minion, Keyword.KNOWLEDGE, "【知識】");
                 case GUARD -> keywordReason(master, minion, Keyword.GUARD, "【守護】");
-                case MINION_CARD -> master.type() == CardType.MINION ? null
+                // ★★★Batch 74(裁定341): 進化ミニオンもミニオンである(裁定310・総合ルール2-1)。
+                // 73 まで、この1行だけが {@code == CardType.MINION} のままだった ——
+                // すぐ下の NON_MINION_CARD は Batch 67 の時点で {@code isMinion()} に直っており、
+                // <b>1つのクラスの中で表と裏の判定が食い違っていた</b>。
+                // ★弾いていたのは「進化を出すと素材ゼロで場に立つ」からであって(裁定308(b) の暫定)、
+                //   種別の読みが違ったからではない。74 は素材を選ばせる段を作って暫定を外した。
+                case MINION_CARD -> master.type().isMinion() ? null
                         : "ミニオンカードを選んでください";
                 case HP_5_OR_LESS -> {
                     // 現在HPで判定する(ダメージを受けた大型ミニオンも対象になる)

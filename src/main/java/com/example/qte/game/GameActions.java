@@ -372,7 +372,8 @@ public class GameActions {
         }
         owner.setEquippedWeapon(null);
         room.addLog("【%s】が破壊されました".formatted(weapon.name()));
-        onWeaponLeftPlay(room, owner, weapon);
+        // ★Batch 74: これが唯一の「破壊」の経路である(禁忌由来なら消滅するので破壊にならない)
+        onWeaponLeftPlay(room, owner, weapon, true, owner.isEquippedWeaponFromTaboo());
         sendToTrashOrRestore(room, owner, weapon, owner.isEquippedWeaponFromTaboo());
         owner.setEquippedWeaponFromTaboo(false);
         return true;
@@ -403,7 +404,8 @@ public class GameActions {
         boolean fromTaboo = owner.isEquippedWeaponFromTaboo();
         owner.setEquippedWeapon(null);
         owner.setEquippedWeaponFromTaboo(false);
-        onWeaponLeftPlay(room, owner, weapon);
+        // ★Batch 74: 山札へ戻すのは破壊ではない。《詠唱の宝珠》は誘発しない
+        onWeaponLeftPlay(room, owner, weapon, false, fromTaboo);
         if (fromTaboo) {
             owner.getLostZone().add(weapon.id());
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(weapon.name()));
@@ -823,13 +825,41 @@ public class GameActions {
      * @return 蘇生できたらtrue(墓地に無い・ゾーン満杯・踏み倒し禁止ならfalse)
      */
     public MinionInstance reviveFromGrave(GameRoom room, PlayerState owner, String cardId) {
+        return reviveFromGrave(room, owner, cardId, null);
+    }
+
+    /**
+     * 墓地のミニオンを、<b>進化の素材つきで</b>場に出す(★★★Batch 74。裁定341)。
+     *
+     * <p>裁定226 は「効果による『場に出す』でも進化素材は要る」と定めている ——
+     * 代替されているのは<b>コストだけ</b>であって、素材ではない。
+     * Batch 68 は裁定308 を受けて<b>手札から出す経路にだけ</b>素材を確保する仕組みを作り、
+     * 墓地・マナ・山札には作らなかった。
+     * ★<b>そのため 73 まで、これらの経路は絞り込みを {@code == CardType.MINION} と書いて
+     * 進化を候補から落とすことで裁定226 を守っていた</b>(裁定308(b) が「暫定」と断じた形)。
+     * 74 は暫定を外し、代わりに<b>素材を受ける口</b>をここに作った。
+     *
+     * <p>★<b>素材があるときは「場が満杯か」を見ない。</b>進化は素材を場から取り除いて
+     * その上に乗るので、埋まっていても出られる({@code putIntoFieldByEffect} の本体と同じ判断)。
+     *
+     * @param materials 進化素材。通常のミニオンなら null(または空)
+     */
+    public MinionInstance reviveFromGrave(GameRoom room, PlayerState owner, String cardId,
+            java.util.List<MinionInstance> materials) {
+        boolean evolution = materials != null && !materials.isEmpty();
         // ★Batch 53: 「場が満杯か」ではなく「場に出られるか」を問う(《英霊・コレキ》)
-        if (!owner.getTrash().contains(cardId) || isFieldEntryBlocked(room, owner)
+        boolean blocked = evolution
+                ? room.getGameState() != null
+                        && guards.minionEntryDenial(room.getGameState(), owner) != null
+                : isFieldEntryBlocked(room, owner);
+        if (!owner.getTrash().contains(cardId) || blocked
                 || NO_CHEAT_INTO_FIELD.contains(cardId)) {
             return null;
         }
         owner.getTrash().remove(cardId);
-        MinionInstance revived = putIntoFieldByEffect(room, owner, cardId);
+        MinionInstance revived = evolution
+                ? putIntoFieldByEffect(room, owner, cardId, materials, false, FieldEntryOrigin.OTHER)
+                : putIntoFieldByEffect(room, owner, cardId);
         if (revived != null) {
             // 【演舞の墓守】(★Batch 50): 自分の墓地から場に出たミニオンは、そのターンAttack+1。
             // ★<b>墓地から場に出す経路はここに集約してある</b>(黄泉還る水龍・ゾンストライカー・
@@ -1015,8 +1045,21 @@ public class GameActions {
      * <b>相手のターン中にスペルは唱えられない</b>ので、
      * 「次の自分のターンの終了時まで」で本文どおりになる。
      */
-    public void onWeaponLeftPlay(GameRoom room, PlayerState owner, CardMaster weapon) {
-        if (CHANT_ORB.equals(weapon.id())) {
+    public void onWeaponLeftPlay(GameRoom room, PlayerState owner, CardMaster weapon,
+            boolean byDestruction, boolean fromTaboo) {
+        // ★★★Batch 74(裁定336): 誘発するのは<b>破壊されたときだけ</b>である。
+        // 本文は「このカードが<b>破壊されたとき</b>」であり、「場を離れたとき」ではない。
+        // 73 まではこのメソッドが呼ばれた3経路すべてで発動していた ——
+        // <b>山札へ戻されたとき(《サイクロン・リフレッシュ》)にも発動していた。</b>
+        //
+        // ★<b>付け替えは破壊扱いである</b>(裁定336)。総合ルール2-2 は「古いウェポンは
+        //   即座に墓地へ送られる」としか書いていないが、マスターがそう定めた。
+        // ★★<b>禁忌由来のウェポンは、決して破壊にならない</b>(裁定336)。
+        //   禁忌カードは場を離れると墓地ではなく消滅ゾーンへ行き(総合ルール3-6)、
+        //   「破壊されて墓地へ」という出来事が起きないためである。
+        //   ★これは<b>73 の《詠唱の宝珠》の直しでは触れなかった軸</b>である ——
+        //   73 は枚数と期限だけを直し、誘発条件を判断待ちとして残した(B-13)。
+        if (CHANT_ORB.equals(weapon.id()) && byDestruction && !fromTaboo) {
             owner.getPersistentAuras().add(
                     PersistentAura.untilEndOfTurn(CHANT_ORB, nextOwnTurnNumber(room, owner)));
         }
@@ -1349,18 +1392,40 @@ public class GameActions {
      *         踏み倒し禁止・モアニールの置換)場合は null
      */
     public MinionInstance putManaCardIntoField(GameRoom room, PlayerState owner, int index) {
+        return putManaCardIntoField(room, owner, index, null);
+    }
+
+    /**
+     * マナゾーンの指定位置のカードを、<b>進化の素材つきで</b>場に出す(★★★Batch 74。裁定341)。
+     *
+     * <p>★<b>73 まで、ここは {@code != CardType.MINION} で進化を弾いていた。</b>
+     * 総合ルール2-1 と裁定310 により<b>進化ミニオンはミニオンの一種である</b>から、
+     * 本文の「ミニオン」に進化が含まれないと読む理由は無い ——
+     * 弾いていたのは、素材を選ばせる段がこの経路に1つも無かったからである(裁定308(b) の暫定)。
+     * ★判定は {@code CardType.isMinion()} 1箇所に戻した(裁定130)。
+     *
+     * @param materials 進化素材。通常のミニオンなら null(または空)
+     */
+    public MinionInstance putManaCardIntoField(GameRoom room, PlayerState owner, int index,
+            java.util.List<MinionInstance> materials) {
         if (index < 0 || index >= owner.getManaZone().size()) {
             return null;
         }
+        boolean evolution = materials != null && !materials.isEmpty();
         ManaCard mana = owner.getManaZone().get(index);
         CardMaster master = cards.findById(mana.getCardId());
-        if (master.type() != com.example.qte.master.CardType.MINION) {
+        if (!master.type().isMinion()) {
             room.addLog("【%s】はミニオンではないため、マナから場に出せません".formatted(master.name()));
             return null;
         }
         // ★Batch 53: マナは先に取り除くので、出られないなら<b>ここで止める</b>。
         // 満杯だけを見ていると《英霊・コレキ》で弾かれたマナカードが消える
-        if (isFieldEntryBlocked(room, owner)) {
+        // ★Batch 74: 素材があるなら満杯は見ない(進化は素材の上に乗る)
+        boolean blocked = evolution
+                ? room.getGameState() != null
+                        && guards.minionEntryDenial(room.getGameState(), owner) != null
+                : isFieldEntryBlocked(room, owner);
+        if (blocked) {
             room.addLog("場に出せないため、マナから場に出せませんでした");
             return null;
         }
@@ -1369,7 +1434,10 @@ public class GameActions {
             return null;
         }
         owner.getManaZone().remove(index);
-        MinionInstance minion = putIntoFieldByEffect(room, owner, mana.getCardId());
+        MinionInstance minion = evolution
+                ? putIntoFieldByEffect(room, owner, mana.getCardId(), materials, false,
+                        FieldEntryOrigin.OTHER)
+                : putIntoFieldByEffect(room, owner, mana.getCardId());
         if (minion != null) {
             room.addLog("%sのマナから【%s】が場に出ました"
                     .formatted(owner.getDisplayName(), master.name()));
@@ -1444,27 +1512,37 @@ public class GameActions {
     }
 
     /**
-     * 自分のマナをcount枚アンタップする(a6。静空の風使い)。
+     * 自分のマナを<b>位置を指定して</b>1枚アンタップする(a6。静空の風使い)。
      * タップ(支払い)と表裏の反転はあったが、アンタップする操作は存在しなかった
      * (マナ加速のカードが既存カードプールに無かったため)。
      *
-     * @return 実際にアンタップした枚数
+     * <h2>★★★Batch 74: 枚数指定の {@code untapMana(room, owner, count)} を置き換えた(裁定333)</h2>
+     * 旧実装はマナゾーンを<b>先頭から走査して最初に見つかったタップ済み1枚</b>を戻していた。
+     * 本文は「自分のマナを1枚アンタップ状態にする」であり、<b>どれを戻すかは書かれていない</b> ——
+     * 「先頭」は実装が足した規則である(裁定299。Batch 73 が《風のマナ変換》で直したのと同じ形)。
+     *
+     * <p>★<b>どの1枚が戻るかは意味を持つ。</b>裁定315〜317 で通常のコストは
+     * 「一時マナ → 裏向き → 表向き」、禁忌コストは「表向き → 裏向き」の順に払うと決まった以上、
+     * <b>表向きを戻すか裏向きを戻すかで、その後に何が払えるかが変わる</b>
+     * (表向きは禁忌の弾である)。
+     *
+     * <p>★{@code untapMana} は使い手を失ったので<b>消した</b>(裁定178・196)。
+     * 複数枚をアンタップするカードが現れたら、そのとき作り直せばよい。
+     *
+     * @param index マナゾーンの位置
+     * @return アンタップしたら true。位置が範囲外、または既にアンタップ済みなら false
      */
-    public int untapMana(GameRoom room, PlayerState owner, int count) {
-        int done = 0;
-        for (ManaCard mana : owner.getManaZone()) {
-            if (done >= count) {
-                break;
-            }
-            if (mana.isTapped()) {
-                mana.untap();
-                done++;
-            }
+    public boolean untapManaAt(GameRoom room, PlayerState owner, int index) {
+        if (index < 0 || index >= owner.getManaZone().size()) {
+            return false;
         }
-        if (done > 0) {
-            room.addLog("%sのマナが%d枚アンタップしました".formatted(owner.getDisplayName(), done));
+        ManaCard mana = owner.getManaZone().get(index);
+        if (!mana.isTapped()) {
+            return false;
         }
-        return done;
+        mana.untap();
+        room.addLog("%sのマナが1枚アンタップしました".formatted(owner.getDisplayName()));
+        return true;
     }
 
     /**

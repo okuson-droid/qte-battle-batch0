@@ -361,6 +361,27 @@ public class PlayerState {
     @Setter
     private SpellDisposition pendingSpellDisposition;
 
+    /**
+     * この使用の解決中に<b>追加で唱えたスペルの枚数</b>(★Batch 74。裁定334)。
+     *
+     * <p>《回帰の風穴》の強化使用は本文が「このカードを<b>もう一度墓地から唱え</b>」と
+     * 言っており、<b>2回目も「唱えた」である</b>(裁定247 が【賢魂】について
+     * 「あらゆる意味でスペルの使用である」と定めたのと同じ流儀)。
+     * 73 までは2回目が {@code cardsUsedThisTurn} / {@code spellsCastThisTurn} を進めておらず、
+     * {@code ON_CARD_USED} も焚いていなかった ——
+     * <b>風文明のテーマ(使用枚数を数える)を参照する6枚が、この1枚だけ数え落としていた。</b>
+     *
+     * <p>★<b>カードIDをエンジンに書かないための器である</b>(設計判断36)。
+     * 効果側がここに +1 を書き、{@code GameService.afterCardUsed} が読んで消費し、
+     * その回数だけ「使用した」を追加で起こす。
+     * {@code pendingSpellDisposition} とまったく同じ受け渡しの形である。
+     *
+     * <p>★★<b>順序は「1回目 → 2回目」である。</b>効果の中で直接数えると
+     * 2回目が先に数えられてしまい、裁定1(カウンタの加算は効果解決の後)が崩れる。
+     */
+    @Setter
+    private int pendingExtraSpellCasts = 0;
+
     // ★★Batch 64: pendingEvolutionCardId(《英術・スケアロック》がどの進化カードを
     //   出そうとしているか)を撤去した。あれは「候補では表せない文脈」を割り込みをまたいで
     //   運ぶための<b>カード専用のフィールド</b>であり、53 の時点では

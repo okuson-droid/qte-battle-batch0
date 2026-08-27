@@ -1654,8 +1654,11 @@ function matchesFilters(req, card, minion) {
                 ok = (minion || card).keywords.includes('知識'); break;
             case 'GUARD':
                 ok = (minion || card).keywords.includes('守護'); break;
+            // ★★★Batch 74(裁定341): 進化ミニオンもミニオンである(裁定310)。
+            // 73 まで、ここだけが 'MINION' の一致で書かれており、
+            // すぐ下の NON_MINION_CARD(★Batch 67)とは判定が食い違っていた
             case 'MINION_CARD':
-                ok = card && card.type === 'MINION'; break;
+                ok = !!card && (card.type === 'MINION' || card.type === 'EVOLUTION'); break;
             case 'HP_5_OR_LESS':
                 ok = minion ? minion.currentHp <= 5 : (card.hp != null && card.hp <= 5); break;
             case 'COST_4_OR_LESS':
@@ -1803,10 +1806,15 @@ function openTrashPicker(mode) {
     const title = mode === 'summon' ? '墓地から召喚するミニオンを選択' : '墓地からカードを選択';
     const rows = [];
     trash.forEach((card, index) => {
-        if (mode === 'summon' && card.type !== 'MINION') return;
+        // ★★★Batch 74(裁定341): 進化ミニオンもミニオンである(裁定310)。
+        // 73 まではここで進化を落としており、《黄泉の召喚主》で進化を召喚できなかった
+        if (mode === 'summon' && card.type !== 'MINION' && card.type !== 'EVOLUTION') return;
         const picked = pending && pending.current.trashIndexes.includes(index);
         const cost = card.effectiveCost != null ? card.effectiveCost : card.cost;
-        const label = `${card.name} (${card.type === 'SPELL' ? 'スペル' : card.type === 'WEAPON' ? 'ウェポン' : 'ミニオン'}${cost != null ? ' コスト' + cost : ''})`;
+        const kind = card.type === 'SPELL' ? 'スペル'
+            : card.type === 'WEAPON' ? 'ウェポン'
+            : card.type === 'EVOLUTION' ? '進化ミニオン' : 'ミニオン';
+        const label = `${card.name} (${kind}${cost != null ? ' コスト' + cost : ''})`;
         rows.push({ index, label, picked, card });
     });
     showModalRows(title, rows, mode);
@@ -1822,6 +1830,14 @@ function openTrashPicker(mode) {
  */
 function beginGraveSummon(trashIndex, card) {
     hideModal();
+    // ★★★Batch 74(裁定341): 墓地から進化ミニオンを召喚できるようになった。
+    //   <b>これは「召喚」なので、素材は宣言のときに選ぶ</b> ——
+    //   手札からの進化召喚・墓地からの【特殊召喚】とまったく同じ段取りである。
+    //   (効果による「出す」だけが、割り込みで素材を問う形になっている)
+    if (card.type === 'EVOLUTION') {
+        beginEvolutionSelection('summon-from-grave', null, card.targets, { trashIndex }, card);
+        return;
+    }
     beginSelection('summon-from-grave', null, card.targets, { trashIndex });
 }
 
@@ -4048,7 +4064,8 @@ function createHandCardEl(card, index, view) {
                 switch (f) {
                     case 'KNOWLEDGE': return card.keywords.includes('知識');
                     case 'GUARD': return card.keywords.includes('守護');
-                    case 'MINION_CARD': return card.type === 'MINION';
+                    // ★★★Batch 74(裁定341): 進化ミニオンもミニオンである(裁定310)
+                    case 'MINION_CARD': return card.type === 'MINION' || card.type === 'EVOLUTION';
                     case 'HP_5_OR_LESS': return card.hp != null && card.hp <= 5;
                     case 'COST_4_OR_LESS': return card.cost != null && card.cost <= 4;
                     case 'COST_3_OR_LESS': return card.cost != null && card.cost <= 3;

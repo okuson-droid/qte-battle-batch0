@@ -738,6 +738,7 @@ public class GameService {
         room.addLog("%sが【%s】を【賢魂：%d】として唱えました"
                 .formatted(player.getDisplayName(), master.name(), soulCostOf(master)));
         player.setPendingSpellDisposition(null);
+        player.setPendingExtraSpellCasts(0);   // ★Batch 74: 前の使用が残した値を持ち込まない
         effects.runEffect(master.id(), new EffectContext(room, state, player,
                 state.opponentOf(player.getPlayerId()), null, resolved, actions, false, fromTaboo),
                 soul.effect());
@@ -911,6 +912,7 @@ public class GameService {
         room.addLog("%sが【%s】を唱えました".formatted(player.getDisplayName(), master.name()));
 
         player.setPendingSpellDisposition(null);
+        player.setPendingExtraSpellCasts(0);   // ★Batch 74: 前の使用が残した値を持ち込まない
         effects.resolveSpell(master.id(),
                 contextOf(room, state, player, null, resolved, enhanced));
         // 使用後の行き先。効果が pendingSpellDisposition を書いていればそれで置換する(a5)。
@@ -1158,6 +1160,7 @@ public class GameService {
                 // 確定しているためである(disposeUsedSpell が fromTaboo=true で消滅へ送る)。
                 // 効果が誤って書き込んでも通常プレイに漏らさないよう、前後でクリアする
                 player.setPendingSpellDisposition(null);
+                player.setPendingExtraSpellCasts(0);   // ★Batch 74: 前の使用が残した値を持ち込まない
                 effects.resolveSpell(master.id(), contextOf(room, state, player, null, resolved));
                 player.setPendingSpellDisposition(null);
                 // 使用され終わった禁忌カードは消滅ゾーンへ(3-6)。【還元】は機能しない
@@ -1425,6 +1428,24 @@ public class GameService {
      */
     public void summonFromGrave(GameRoom room, String playerId, int trashIndex,
             List<TargetChoice> choices) {
+        summonFromGrave(room, playerId, trashIndex, choices, List.of());
+    }
+
+    /**
+     * 墓地からの召喚(★Batch 74 で進化素材を受けるようになった。裁定341)。
+     *
+     * <p>★<b>「ミニオン」に進化ミニオンが含まれる</b>(裁定310・総合ルール2-1)。
+     * 73 まで、ここは {@code != CardType.MINION} で進化を弾いていた ——
+     * 本文は「<b>ミニオン</b>を墓地から召喚してもよい」であり、除外する根拠が無い。
+     * ★★<b>これは「召喚」である</b>(本文が「召喚してもよい」と書いている)ので、
+     * 通常の進化召喚とまったく同じ扱いになる —— <b>素材は宣言のときに選ぶ</b>。
+     * 効果による「出す」(墓地・マナ・山札)が割り込みで素材を問うのとは形が違う。
+     * ★したがって【召喚時】も発動する(2-9 の表の「召喚」の行である)。
+     *
+     * @param materialIds 進化召喚の素材にする自分の場のミニオンの instanceId
+     */
+    public void summonFromGrave(GameRoom room, String playerId, int trashIndex,
+            List<TargetChoice> choices, List<String> materialIds) {
         GameState state = requireState(room);
         requireTurnPlayer(state, playerId);
         requireStatus(state, GameStatus.PLAYING);
@@ -1440,10 +1461,13 @@ public class GameService {
             throw new IllegalArgumentException("不正な墓地の指定です");
         }
         CardMaster master = cards.findById(player.getTrash().get(trashIndex));
-        if (master.type() != CardType.MINION) {
+        // ★★★Batch 74(裁定341): 進化ミニオンもミニオンである(裁定310)
+        if (!master.type().isMinion()) {
             throw new IllegalStateException("墓地から召喚できるのはミニオンのみです");
         }
-        if (player.isMinionZoneFull()) {
+        boolean evolution = master.type() == CardType.EVOLUTION;
+        // ★進化は素材を場から取り除いてその上に乗るので、場が埋まっていても召喚できる
+        if (!evolution && player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));
         }
         requireCanEnterField(state, player);
@@ -1460,11 +1484,15 @@ public class GameService {
         TargetSpec spec = effects.declarationTargetSpecOf(master.id());
         // 墓地のカード自身は手札に無いため、対象検証の自己除外インデックスは -1 である
         ValidatedTargets validated = validateTargets(state, player, -1, spec, choices);
+        // ★Batch 74: 素材の検証は支払いより前に済ませる(通常召喚・特殊召喚と同じ順序)
+        List<MinionInstance> materials = evolution
+                ? resolveMaterials(player, master, materialIds) : List.of();
         payCost(player, stats.effectiveCost(state, player, master));
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
         player.getTrash().remove(trashIndex);
         room.addLog("%sが墓地から【%s】を召喚".formatted(player.getDisplayName(), master.name()));
-        MinionInstance summoned = summonToField(room, state, player, master, resolved, false);
+        MinionInstance summoned =
+                summonToField(room, state, player, master, resolved, false, materials);
         // 【演舞の墓守】(★Batch 50): 自分の墓地から出たミニオンはそのターンAttack+1。
         // ★経路を問わない(マスター裁定204)ので、効果による「出す」(GameActions.reviveFromGrave)
         // だけでなく、この「墓地からの召喚」でも乗る
@@ -1564,7 +1592,9 @@ public class GameService {
         CardMaster old = player.getEquippedWeapon();
         if (old != null) {
             // 詠唱の宝珠: 破壊(destroyOwnWeapon)だけでなく、付け替えで場を離れる場合も発動する
-            actions.onWeaponLeftPlay(room, player, old);
+            // ★★Batch 74(裁定336): <b>付け替えは破壊扱いである。</b>
+            // ただし禁忌由来なら消滅するので、そのときは破壊にならない。
+            actions.onWeaponLeftPlay(room, player, old, true, player.isEquippedWeaponFromTaboo());
             if (player.isEquippedWeaponFromTaboo()) {
                 player.getLostZone().add(old.id());
                 room.addLog("【%s】は禁忌カードのため消滅しました".formatted(old.name()));
@@ -2136,6 +2166,18 @@ public class GameService {
             player.setSpellsCastThisTurn(player.getSpellsCastThisTurn() + 1);
         }
         effects.fireCardUsed(contextOf(room, state, player, null, null));
+        // ★★★Batch 74(裁定334): 解決中に追加で唱えられたスペル(《回帰の風穴》の2回目)を数える。
+        // 効果側が pendingExtraSpellCasts に書き、ここで消費する ——
+        // pendingSpellDisposition とまったく同じ受け渡しであり、カードIDはエンジンに現れない。
+        // ★<b>1回目を数え終わってから数える</b>ので、2回目の ON_CARD_USED は
+        //   1回目を含んだカウンタを見る(裁定1 の順序が保たれる)。
+        int extra = player.getPendingExtraSpellCasts();
+        player.setPendingExtraSpellCasts(0);
+        for (int i = 0; i < extra; i++) {
+            player.setCardsUsedThisTurn(player.getCardsUsedThisTurn() + 1);
+            player.setSpellsCastThisTurn(player.getSpellsCastThisTurn() + 1);
+            effects.fireCardUsed(contextOf(room, state, player, null, null));
+        }
     }
 
     // ---------------------------------------------------------------

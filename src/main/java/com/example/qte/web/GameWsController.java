@@ -179,13 +179,24 @@ public class GameWsController {
      * ★<b>Batch 60(裁定278(c)): 対象を選ぶ【召喚時】も通るようになった。</b>
      * 受け取る型を {@code TrashActionRequest} から {@link GraveSummonRequest} へ変えている ——
      * 墓地からの【特殊召喚】と<b>まったく同じ形</b>(墓地の位置 + 対象)であり、
-     * 型を2つに分ける理由が無い。{@code materialIds} はこちらでは読まない
-     * (墓地からの「召喚」で出せるのはミニオンだけで、進化は【特殊召喚】の側を通る)。
+     * 型を2つに分ける理由が無い。
+     *
+     * <p>★★★<b>Batch 74(裁定341): {@code materialIds} をこちらでも読むようになった。</b>
+     * 73 まで「墓地からの召喚で出せるのはミニオンだけで、進化は【特殊召喚】の側を通る」と
+     * 書いてあったが、<b>それは進化を弾いていたから正しく見えていただけである</b> ——
+     * 本文は「<b>ミニオン</b>を墓地から召喚してもよい」であり、
+     * 進化ミニオンもミニオンである(裁定310)。
+     * ★<b>受け口の型は1文字も変えていない</b>({@code materialIds} は 52 から在る)ので、
+     * {@code WsRequestPayloadTest} の表に足す行は無い ——
+     * <b>増えたのは「送ることがある」という事実だけ</b>である。
+     * ★★{@code materialIds} は箱型ではなく {@code List} なので、
+     * 送られてこなければ {@code null} が来る({@code GraveSummonRequest} が空リストに畳む)。
      */
     @MessageMapping("/room/{roomId}/summon-from-grave")
     public void summonFromGrave(@DestinationVariable String roomId, GraveSummonRequest request) {
         execute(roomId, request.playerId(), room -> gameService.summonFromGrave(
-                room, request.playerId(), request.trashIndex(), request.targets()));
+                room, request.playerId(), request.trashIndex(), request.targets(),
+                request.materialIds()));
     }
 
     /** フェイズを1つ進める */

@@ -181,9 +181,14 @@ public class RuleGuards {
                 && stats.effectiveAttack(state, owner, attacker) >= 3) {
             return "【平和の結界】によりAttack3以上のミニオンは攻撃できません";
         }
-        if (targetIsLeader && hasOnField(state.opponentOf(owner.getPlayerId()), ZODIAC)) {
-            return "【天界の守護神 ゾディアック】がいるためリーダーを攻撃できません";
-        }
+        // ★★★Batch 74(裁定328): ここに在った《天界の守護神 ゾディアック》の判定を外した。
+        // 本文は「相手のリーダー<b>は</b>攻撃できない」であり、「は」は主語である ——
+        // 禁じているのは<b>リーダーが攻撃側になること</b>だけで、
+        // 「相手のミニオンが自分のリーダーを狙えない」ことは1文字も書いていない。
+        // ★外した実害は【貫通】持ちにだけ現れる。この判定は貫通による守護の無視
+        // (GameService.validateAttack の後半)より<b>先に</b>走っていたので、
+        // 貫通を持つミニオンがゾディアックを飛び越えてリーダーを殴れなかった。
+        // ★残っているのは leaderAttackDenial 側(= リーダーが攻撃側になれない)である。
         // ---- 光文明(★Batch 50): 場全体で合計1回しか攻撃できない(英術・バンユー) ----
         // ★「ミニオン1体につき1回」ではなく<b>プレイヤーの場全体で1回</b>である(マスター裁定200)。
         // 個体の攻撃回数(いちばん上の maxAttacks の判定)とは数えている量が違うため、
@@ -301,10 +306,46 @@ public class RuleGuards {
         // (裁定272)。判定は preventsCombatDamage が持つ。
         // 聖光の守護聖: 相手のカードや能力の効果による破壊を防ぐ(戦闘破壊は防げない)
         if (cause == DestructionCause.EFFECT && hasPersistentAura(owner, HOLY_PROTECTOR_AURA)) {
-            boolean causedByOpponent = !owner.getPlayerId().equals(state.getTurnPlayerId());
-            return causedByOpponent;
+            return causedByOpponent(state, owner);
         }
         return false;
+    }
+
+    /**
+     * このリーダーの破壊が無効化されるか(★★★Batch 74。裁定335)。
+     *
+     * <p>《聖光の守護聖》の本文は「次の相手のターン終了時まで、
+     * <b>自分のリーダーと</b>自分のミニオンすべては『相手のカードや能力の効果で破壊されない』を得る」
+     * である。★73 まで、オーラは<b>プレイヤーに付いている</b>のに、
+     * 参照点が {@link #isDestructionPrevented}(ミニオン破壊)1本しか無かったため、
+     * <b>本文の「自分のリーダーと」は実装のどこにも現れていなかった</b>。
+     *
+     * <h2>★★★これは「呼び出し元の無い関門」である</h2>
+     * <b>現行の235枚に、リーダーを破壊するカードは1枚も無い。</b>
+     * {@code GameActions} にも {@code GameService} にも {@code destroyLeader} に相当する入口は無く、
+     * リーダーが場を去る道は「LPが0以下になる」1本だけである。
+     * したがってこの関門を通る本物の経路は<b>存在しない</b> ——
+     * 番人は {@code RuleGuards} を直接叩くしかない。
+     *
+     * <p>★<b>それでも実装したのはマスターの裁定である</b>(裁定335)。
+     * 「いつ直すか」を書いても実装は自分では動かない(66 の教訓・<b>予定</b>)以上、
+     * 「リーダーを破壊するカードが増えたら思い出す」は当てにできない。
+     * ★★<b>ただし器だけを作ったのではない。</b>「相手由来か」の推定は
+     * {@link #causedByOpponent} に切り出してミニオン側と共有しており、
+     * 規則は1箇所のままである(裁定130)。
+     * ★★★<b>《英霊・コレキ》《風弾の跳弾》《悪夢》に続く「本物の入口から観測できない挙動」の4件目</b>
+     * として {@code notes/qte-pitfalls.md} に書き残した。
+     */
+    public boolean isLeaderDestructionPrevented(GameState state, PlayerState owner) {
+        return hasPersistentAura(owner, HOLY_PROTECTOR_AURA) && causedByOpponent(state, owner);
+    }
+
+    /**
+     * この破壊が「相手のカードや能力によるもの」か(上の推定の実体・★Batch 74 で切り出した)。
+     * ミニオン側とリーダー側で同じ推定を使うため、規則を1箇所に置く(裁定130)。
+     */
+    private boolean causedByOpponent(GameState state, PlayerState owner) {
+        return !owner.getPlayerId().equals(state.getTurnPlayerId());
     }
 
     // ---------------------------------------------------------------

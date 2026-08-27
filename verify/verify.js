@@ -8953,6 +8953,122 @@ async function clearZoom(page) {
       ({ filter: f, inJava: javaFilters.includes(f), inMatches: matchesCases.includes(f),
         inHandRequirement: handFilters.includes(f) }))));
 
+  // ---- 74-1〜74-4. ★★★進化ミニオンもミニオンである(★Batch 74・裁定341) ----
+  //
+  // ★<b>Java 側の正は TargetCandidates.Filter.MINION_CARD の1行である</b>(裁定130)。
+  //   battle.js はその写しを<b>2箇所</b>持っており(matchesFilters と手札のハイライト)、
+  //   ★★<b>73 まで、その2箇所と Java の3つとも {@code == MINION} で揃って間違っていた</b> ——
+  //   揃っていたので 49-1 の照合は緑のままだった。
+  //   <b>「両方に居る」ことは「両方が正しい」ことではない</b>(67 の教訓の別の顔)。
+  //   だからここでは<b>名前が在るか</b>ではなく<b>どう判定するか</b>を測る。
+  const evoPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const evoErrors = [];
+  evoPage.on('pageerror', (e) => evoErrors.push(String(e)));
+  await evoPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await evoPage.waitForTimeout(120);
+
+  const minionCardFilter = await evoPage.evaluate(() => {
+    const req = { kind: 'HAND', count: 1, filters: ['MINION_CARD'] };
+    const card = (type) => ({ cardId: 'X', name: 'x', type, keywords: [], cost: 1 });
+    return {
+      // eslint-disable-next-line no-undef
+      minion: matchesFilters(req, card('MINION'), null),
+      // eslint-disable-next-line no-undef
+      evolution: matchesFilters(req, card('EVOLUTION'), null),
+      // eslint-disable-next-line no-undef
+      spell: matchesFilters(req, card('SPELL'), null),
+      // eslint-disable-next-line no-undef
+      weapon: matchesFilters(req, card('WEAPON'), null),
+    };
+  });
+  check('★★★MINION_CARD は進化ミニオンも通す(74・裁定341/310)',
+    minionCardFilter.minion === true && minionCardFilter.evolution === true
+      && minionCardFilter.spell === false && minionCardFilter.weapon === false,
+    JSON.stringify(minionCardFilter));
+
+  // ★手札のハイライト側は関数ではなく render の中の switch なので、実際に描いて測る
+  const highlightEvolution = await evoPage.evaluate((view) => {
+    latestView = view; // eslint-disable-line no-undef
+    // eslint-disable-next-line no-undef
+    beginSelection('dummy-action', null, [{ kind: 'HAND', count: 1, filters: ['MINION_CARD'] }], {});
+    const cards = document.querySelectorAll('#my-hand .auto-card');
+    return {
+      count: cards.length,
+      evolutionHighlighted: cards.length > 1
+        && cards[0].classList.contains('attack-target'),
+      spellHighlighted: cards.length > 1
+        && cards[1].classList.contains('attack-target'),
+    };
+  }, autoView({
+    you: autoPlayer({
+      handCount: 2,
+      hand: [
+        autoCard('QTE-M-FIRE-32', '飛翔鉄人走太', { type: 'EVOLUTION' }),
+        autoCard('QTE-M-FIRE-10', 'マグマ・ストレート', { type: 'SPELL', attack: null, hp: null }),
+      ],
+    }),
+  }));
+  check('★★★手札のハイライトも進化ミニオンを通す(74・写しは2箇所ある)',
+    highlightEvolution.count === 2 && highlightEvolution.evolutionHighlighted === true
+      && highlightEvolution.spellHighlighted === false,
+    JSON.stringify(highlightEvolution));
+
+  // ★墓地からの召喚(《黄泉の召喚主》)。★73 まで、この一覧は進化を落としていた
+  const graveList = await evoPage.evaluate((view) => {
+    latestView = view; // eslint-disable-line no-undef
+    render(view); // eslint-disable-line no-undef
+    pending = null; // eslint-disable-line no-undef
+    evolution = null; // eslint-disable-line no-undef
+    openTrashPicker('summon'); // eslint-disable-line no-undef
+    const rows = [...document.querySelectorAll('#info-modal-content button')];
+    return { labels: rows.map((b) => b.textContent) };
+  }, autoView({
+    phase: 'SUB', phaseDisplay: 'サブ',
+    you: autoPlayer({
+      leaderCardId: 'QTE-M-DARK-15', leaderName: '黄泉の召喚主',
+      trashCount: 3,
+      trash: [
+        autoCard('QTE-M-FIRE-32', '飛翔鉄人走太', {
+          type: 'EVOLUTION', evolutionMaterialIds: ['m-1'], evolutionMin: 1, evolutionMax: 1,
+          evolutionText: 'ミニオン1体',
+        }),
+        autoCard('QTE-M-WIND-3', 'スカイ・スワロー', { type: 'MINION' }),
+        autoCard('QTE-M-FIRE-10', 'マグマ・ストレート', { type: 'SPELL' }),
+      ],
+      minions: [autoMinion('m-1', 'そざい')],
+    }),
+  }));
+  check('★★★墓地からの召喚の一覧に進化ミニオンが並ぶ(74・裁定341)',
+    graveList.labels.length === 2
+      && graveList.labels.some((t) => t.includes('飛翔鉄人走太') && t.includes('進化ミニオン'))
+      && graveList.labels.some((t) => t.includes('スカイ・スワロー'))
+      && !graveList.labels.some((t) => t.includes('マグマ')),
+    JSON.stringify(graveList));
+
+  // ★★<b>並ぶだけでは足りない。</b>進化を選んだら<b>素材の選択へ入る</b>ことまで測る ——
+  //   ここが抜けると「押せるのに素材を送らないので必ずサーバに弾かれるボタン」になる
+  const graveEvolutionPick = await evoPage.evaluate(() => {
+    const rows = [...document.querySelectorAll('#info-modal-content button')];
+    const evoRow = rows.find((b) => b.textContent.includes('飛翔鉄人走太'));
+    evoRow.click();
+    return {
+      // eslint-disable-next-line no-undef
+      inEvolution: !!evolution,
+      // eslint-disable-next-line no-undef
+      action: evolution && evolution.action,
+      // eslint-disable-next-line no-undef
+      trashIndex: evolution && evolution.extra && evolution.extra.trashIndex,
+    };
+  });
+  check('★★★墓地の進化を選ぶと、素材の選択へ入る(74・裁定226 は召喚でも効く)',
+    graveEvolutionPick.inEvolution === true
+      && graveEvolutionPick.action === 'summon-from-grave'
+      && graveEvolutionPick.trashIndex === 0,
+    JSON.stringify(graveEvolutionPick));
+
+  check('進化まわりの操作でJSエラーが出ない', evoErrors.length === 0, evoErrors.join(' | '));
+  await evoPage.close();
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();

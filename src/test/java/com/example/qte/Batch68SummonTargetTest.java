@@ -447,7 +447,18 @@ class Batch68SummonTargetTest {
                 false);
 
         assertThat(f.me().getEquippedWeapon()).as("★装備中のウェポンが場を離れた").isNull();
-        assertThat(f.me().getDeck()).as("山札へ戻っている").contains(WEAPON);
+        // ★★★Batch 74: ここは <b>山札だけ</b>を見ていたが、それは<b>まぐれの緑</b>だった ——
+        //   この効果は「山札に戻してシャッフル → 2枚引く」なので、
+        //   <b>戻したウェポンをその場で引き当てることがある</b>(実測で約5%)。
+        //   74 の全体試験で実際に1回落ちた。シャッフルに依存する試験は番人ではない。
+        //   ★測りたいのは「場を離れて<b>自分の持ち物として戻った</b>」ことなので、
+        //     山札と手札の両方を見る(消滅ゾーンにも墓地にも行っていないことが要点である)。
+        assertThat(java.util.stream.Stream
+                .concat(f.me().getDeck().stream(), f.me().getHand().stream()).toList())
+                .as("山札へ戻っている(シャッフル後に引き当てた場合は手札にある)")
+                .contains(WEAPON);
+        assertThat(f.me().getLostZone()).as("消滅していない").doesNotContain(WEAPON);
+        assertThat(f.me().getTrash()).as("墓地にも行っていない").doesNotContain(WEAPON);
         assertThat(f.me().getDeck().size())
                 .as("戻した2枚 + 引いた2枚 = 差し引き変わらない").isEqualTo(deckBefore + 2 - 2);
     }

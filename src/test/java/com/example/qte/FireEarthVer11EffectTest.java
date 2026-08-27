@@ -488,9 +488,28 @@ class FireEarthVer11EffectTest {
         payMana(f.me(), 2);
         MinionInstance target = f.putOnField(f.you(), BEHEMOTH);
         // ★★Batch 68(裁定282): 【召喚時】の対象は場に出てから選ぶ
+        // ★★★Batch 74(裁定330): 対象が必須になったので、候補が1体なら<b>自動で決まる</b>。
+        //   73 まではここで answerChoice を呼んでいた —— 任意だったため
+        //   「0体選ぶ」という答えがありえ、問い合わせが立っていたのである。
         game.playCard(f.room(), "me", f.giveHand(f.me(), BUNNAGURI), List.of(), false);
-        f.answerChoice(game, "me", target.getInstanceId());
+        assertThat(f.me().getPendingChoice()).as("候補が1体なら選ぶ余地が無い").isNull();
         assertThat(target.getDamage()).isEqualTo(1);
+    }
+
+    /** ★★★Batch 74(裁定330): 相手の場に居るなら「0体選ぶ」で逃げられない */
+    @Test
+    void 分那愚利は相手の場に2体居ると必ず1体を選ばされる() {
+        AutoGameFixture f = newGame();
+        payMana(f.me(), 2);
+        MinionInstance a = f.putOnField(f.you(), BEHEMOTH);
+        MinionInstance b = f.putOnField(f.you(), BEHEMOTH);
+        game.playCard(f.room(), "me", f.giveHand(f.me(), BUNNAGURI), List.of(), false);
+        assertThat(f.me().getPendingChoice()).as("2体居るので問う").isNotNull();
+        assertThat(f.me().getPendingChoice().min())
+                .as("★本文は「してもよい」ではない。0体は選べない").isEqualTo(1);
+        f.answerChoice(game, "me", a.getInstanceId());
+        assertThat(a.getDamage()).isEqualTo(1);
+        assertThat(b.getDamage()).isZero();
     }
 
     /** ★相手の場が空でも召喚できる(対象は任意) */
