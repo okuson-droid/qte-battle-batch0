@@ -6304,6 +6304,225 @@ async function clearZoom(page) {
       && JSON.stringify(weaponSent.body.chosenIndexes) === '[0]',
     JSON.stringify(weaponSent));
 
+  // =========================================================================
+  // ★★★Batch 69: 通常モードの盤面の続き(65 が挙げた穴のうち4つ)
+  //
+  // ★★<b>実装の定数を1つも書かない</b>(裁定41)。
+  //   色は「相手と自分で違うこと」と「既に在る帯の線と同じ系統であること」で測り、
+  //   進行表は「Java の TurnPhase と一致すること」と「空いていた場所を実際に埋めていること」で測る。
+  //   期待値を書くと、実装を変えたときに<b>番人のほうを書き換えて緑にできてしまう</b>。
+  // =========================================================================
+
+  // ---- 69-1. ★★★自陣と敵陣が見分けられる ----
+  const fieldStyle = await autoPage.evaluate(() => {
+    const g = (sel) => {
+      const s = getComputedStyle(document.querySelector(sel));
+      return { bg: s.backgroundColor, edge: s.borderLeftColor, edgeWidth: s.borderLeftWidth };
+    };
+    return {
+      opp: g('#opp-minions'), my: g('#my-minions'),
+      // ★色の「正」は 8 以前から在るこの2本である。69 は値を新しく決めていない
+      oppStripLine: getComputedStyle(document.querySelector('.opponent-side')).borderTopColor,
+      myStripLine: getComputedStyle(document.querySelector('.my-side')).borderBottomColor,
+    };
+  });
+  const transparent = 'rgba(0, 0, 0, 0)';
+  check('★★★相手の場と自分の場は地色も左端の色も異なる(69・65 が挙げた穴)',
+    fieldStyle.opp.bg !== fieldStyle.my.bg
+      && fieldStyle.opp.bg !== transparent && fieldStyle.my.bg !== transparent
+      && fieldStyle.opp.edge !== fieldStyle.my.edge
+      && fieldStyle.opp.edgeWidth !== '0px' && fieldStyle.my.edgeWidth !== '0px',
+    JSON.stringify(fieldStyle));
+  // ---- 69-2. ★★色の系統は既に在る帯の線と同じである(裁定130: 一致を機械が見張る) ----
+  check('★★場の左端の色は帯の線と同じ系統である(69・相手=赤 / 自分=青 の正は .opponent-side / .my-side)',
+    fieldStyle.opp.edge === fieldStyle.oppStripLine
+      && fieldStyle.my.edge === fieldStyle.myStripLine
+      && fieldStyle.oppStripLine !== fieldStyle.myStripLine,
+    JSON.stringify(fieldStyle));
+
+  // ---- 69-3. ★★★ホバープレビューが場のミニオンと手札にも付いた(実マウス) ----
+  //   ★44 は器を作って「まずはリーダーから」で止まっていた。65 が挙げたのはその止まりである
+  await autoDeliver(fullView);
+  // ★禁忌の帯は手札の上に<b>重なる</b>(.auto-taboo-strip は position:absolute)。
+  //   43-3 で開閉を試したあとの状態が残っていると、手札をホバーしたつもりで
+  //   帯を触ることになる —— <b>実マウスの検査は「何の上に居るか」まで決めておく</b>
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  const hoverAt = async (sel) => {
+    const box = await autoPage.locator(sel).first().boundingBox();
+    await autoPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await autoPage.waitForTimeout(450);   // ★attachHover の待ち(350ms)より長く
+    return autoPage.evaluate(() => ({
+      open: !document.getElementById('auto-hover').classList.contains('d-none'),
+      large: !!document.querySelector('#auto-hover-card .mcard.mcard-large'),
+      name: (document.querySelector('#auto-hover-card .mcard-name') || {}).textContent || '',
+    }));
+  };
+  const hoverAway = async () => {
+    await autoPage.mouse.move(2, 2);
+    await autoPage.waitForTimeout(60);
+    return autoPage.evaluate(() =>
+      document.getElementById('auto-hover').classList.contains('d-none'));
+  };
+  const hoverMyMinion = await hoverAt('#my-minions .auto-card');
+  const hoverMyGone = await hoverAway();
+  const hoverOppMinion = await hoverAt('#opp-minions .auto-card');
+  await hoverAway();
+  const hoverHand = await hoverAt('#my-hand .auto-card');
+  const hoverHandGone = await hoverAway();
+  const tabooHidden = await autoPage.evaluate(() =>
+    document.getElementById('taboo-strip').classList.contains('d-none'));
+  check('★★★場のミニオン(両席)と手札にホバープレビューが出る(69・44 の器を呼ぶ)',
+    tabooHidden
+      && hoverMyMinion.open && hoverMyMinion.large && hoverMyMinion.name.includes('ミニオン')
+      && hoverOppMinion.open && hoverOppMinion.name.includes('敵')
+      && hoverHand.open && hoverHand.large && hoverHand.name.includes('手札')
+      && hoverMyGone && hoverHandGone,
+    JSON.stringify({ tabooHidden, hoverMyMinion, hoverOppMinion, hoverHand,
+      hoverMyGone, hoverHandGone }));
+
+  // ---- 69-4. ★★★対象を選んでいる最中はプレビューを出さない ----
+  //   ★.auto-hover は right:300px / top:64px の固定位置に出る。68 で【召喚時】の対象を
+  //     盤面から選ぶ場面が15枚ぶん増えたので、選んでいる最中に面が降りると候補が隠れる
+  const choosingView = autoView({
+    you: autoPlayer({
+      hand: fullView.you.hand, minions: fullView.you.minions,
+      pendingChoice: {
+        kind: 'MINION',
+        candidates: fullView.you.minions.map((m, i) =>
+          ({ index: i, label: m.name, keywords: [], minionInstanceId: m.instanceId })),
+        min: 1, max: 1, prompt: '3ダメージを与えるミニオンを選んでください', queued: 1,
+      },
+    }),
+    opponent: fullView.opponent,
+  });
+  await autoDeliver(choosingView);
+  const hoverWhileChoosing = await hoverAt('#my-minions .auto-card');
+  await hoverAway();
+  check('★★★対象を選んでいる最中はホバープレビューを出さない(69・割り込みも含む)',
+    hoverWhileChoosing.open === false, JSON.stringify(hoverWhileChoosing));
+  // ★★出す側の判定だけでは足りない —— 面が出たあとに問い合わせが来る経路がある
+  await autoDeliver(fullView);
+  const shownFirst = await hoverAt('#my-minions .auto-card');
+  await autoDeliver(choosingView);
+  const hiddenAfter = await autoPage.evaluate(() =>
+    document.getElementById('auto-hover').classList.contains('d-none'));
+  await hoverAway();
+  check('★★出ているプレビューは、問い合わせが来た時点で消える(69・render の入口)',
+    shownFirst.open === true && hiddenAfter === true,
+    JSON.stringify({ shownFirst, hiddenAfter }));
+
+  // ---- 69-5. ★★★進行表の並びと表示名は Java の TurnPhase と一致する ----
+  //   ★書き写しは黙って離れていく(67 の教訓・写し)。フェイズが増えても配列は増えない
+  const turnPhaseJava = fs.readFileSync(
+    path.join(ROOT, 'src/main/java/com/example/qte/game/TurnPhase.java'), 'utf8');
+  const javaPhases = [...turnPhaseJava.matchAll(/^ {4}([A-Z][A-Z_]*)\("([^"]+)"\)/gm)]
+    .map((m) => ({ phase: m[1], label: m[2] }));
+  const jsPhases = await autoPage.evaluate(() => AUTO_PHASES);
+  check('★★★フェイズの進行表は TurnPhase.java と同じ並び・同じ表示名である(69・裁定130)',
+    javaPhases.length === 7 && JSON.stringify(javaPhases) === JSON.stringify(jsPhases),
+    JSON.stringify({ javaPhases, jsPhases }));
+
+  // ---- 69-6. ★★今のフェイズだけに印が付き、フェイズが変われば印も動く ----
+  const trackAt = async (phase, display) => {
+    await autoDeliver(autoView({
+      phase, phaseDisplay: display,
+      you: fullView.you, opponent: fullView.opponent,
+    }));
+    return autoPage.evaluate(() => ({
+      items: document.querySelectorAll('#phase-track .auto-phase-item').length,
+      now: [...document.querySelectorAll('#phase-track .auto-phase-now')]
+        .map((e) => e.textContent),
+      done: document.querySelectorAll('#phase-track .auto-phase-done').length,
+    }));
+  };
+  const trackMain = await trackAt('MAIN', 'メイン');
+  const trackBattle = await trackAt('BATTLE', 'バトル');
+  check('★★進行表は7つあり、今のフェイズだけに印が付く(69・フェイズが変われば印も動く)',
+    trackMain.items === 7 && trackBattle.items === 7
+      && trackMain.now.length === 1 && trackBattle.now.length === 1
+      && trackMain.now[0].includes('メイン') && trackBattle.now[0].includes('バトル')
+      && trackBattle.done === trackMain.done + 1,
+    JSON.stringify({ trackMain, trackBattle }));
+
+  // ---- 69-7. ★★★進行表は 65 が挙げた「右列の空白」を実際に埋めている ----
+  //   ★高さの期待値を書かない。「ログのバーの下から中段の底まで届いている」で測る
+  const trackFit = await autoPage.evaluate(() => {
+    const r = (sel) => {
+      const b = document.querySelector(sel).getBoundingClientRect();
+      return { top: b.top, bottom: b.bottom, height: b.height };
+    };
+    const items = [...document.querySelectorAll('#phase-track .auto-phase-item')];
+    return {
+      logBar: r('#log-bar'), track: r('#phase-track'), mid: r('.auto-side-mid'),
+      lastItemBottom: items.length ? items[items.length - 1].getBoundingClientRect().bottom : null,
+    };
+  });
+  check('★★★進行表が右列の空白を埋めている(69・ログのバーの下から中段の底まで)',
+    trackFit.track.top >= trackFit.logBar.bottom
+      && Math.abs(trackFit.track.bottom - trackFit.mid.bottom) <= 1
+      && trackFit.track.height > 0
+      && trackFit.lastItemBottom <= trackFit.track.bottom + 1,
+    JSON.stringify(trackFit));
+
+  // ---- 69-8. ★★0枚のバッジは1枚以上のバッジと色が違う ----
+  //   ★<b>同じ盤面の中で2つを比べる</b>(色の値を書かない)。
+  //     山札0枚・墓地2枚という盤面を作れば、片方だけが黙るはずである
+  await autoDeliver(autoView({
+    you: autoPlayer({
+      deckCount: 0, trashCount: 2,
+      trash: [autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2 }),
+        autoCard('QTE-M-FIRE-10', 'マグマ・ストレート', { type: 'SPELL' })],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  }));
+  const badges = await autoPage.evaluate(() => {
+    const g = (id) => {
+      const el = document.getElementById(id);
+      return { text: el.textContent, bg: getComputedStyle(el).backgroundColor,
+        zero: el.classList.contains('auto-pile-count-zero') };
+    };
+    return { deck: g('my-deck-count'), trash: g('my-trash-count') };
+  });
+  check('★★0枚のパイルのバッジは黙り、1枚以上のバッジは光ったままである(69・65 が挙げた穴)',
+    badges.deck.text === '0' && badges.trash.text === '2'
+      && badges.deck.zero === true && badges.trash.zero === false
+      && badges.deck.bg !== badges.trash.bg,
+    JSON.stringify(badges));
+
+  // ---- 69-9. ★★★右列の中段は、溢れても巻ける ----
+  //   ★★<b>これは 69 が作った問題ではなく、見つけた穴である。</b>
+  //     実測で、問い合わせが長いと中段の中身が 294px の枠に対して 450px を超え、
+  //     <b>ログのバーごと画面の外へ出て、切られるのでも巻けるのでもなく見えなくなっていた</b>。
+  //   ★hidden ではなく auto であること自体を測る —— 切ると押せない確定ボタンが生まれる
+  await autoDeliver(autoView({
+    you: autoPlayer({
+      minions: fullView.you.minions,
+      pendingChoice: {
+        kind: 'TRASH',
+        candidates: Array.from({ length: 10 }, (_, i) =>
+          ({ index: i, label: 'とてもながいカードのなまえ' + i, keywords: ['守護', '知識'],
+            minionInstanceId: null })),
+        min: 0, max: 3,
+        prompt: '墓地から手札に戻すカードを選んでください(選ばなくてもよい)', queued: 2,
+      },
+    }),
+    opponent: fullView.opponent,
+  }));
+  const midOverflow = await autoPage.evaluate(() => {
+    const el = document.querySelector('.auto-side-mid');
+    return { scrollHeight: el.scrollHeight, clientHeight: el.clientHeight,
+      overflowY: getComputedStyle(el).overflowY,
+      pageScroll: document.documentElement.scrollHeight, innerH: window.innerHeight };
+  });
+  check('★★★右列の中段は、問い合わせが長くて溢れても巻ける(69 が見つけた既存の穴)',
+    midOverflow.scrollHeight > midOverflow.clientHeight
+      && (midOverflow.overflowY === 'auto' || midOverflow.overflowY === 'scroll')
+      && midOverflow.pageScroll <= midOverflow.innerH + 1,
+    JSON.stringify(midOverflow));
+
+  check('★通常モードの盤面(69 の追加ぶん)でJSエラーが出ない',
+    autoErrors.length === 0, autoErrors.join(' | '));
+
   await autoPage.close();
 
   // ---- 42-11. ★★card-library が失敗しても対戦は続けられる(25 と同じ性質の証明) ----

@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=49)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=50)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -57,8 +57,15 @@
                 </div>
             </div>
 
-            <div id="opp-minions" class="minion-row auto-minions"></div>
-            <div id="my-minions" class="minion-row auto-minions"></div>
+            <!-- ★★★Batch 69: 自陣と敵陣の見分け(65 が見つけた穴)。
+                 68 で【召喚時】の対象を盤面から選ぶ場面が15枚ぶん増え、
+                 裁定305 により自分自身も候補に入るようになったため、
+                 上段と下段が同じ見た目だと誤クリックが実害になる。
+                 ★色の系統(相手=赤 / 自分=青)は .opponent-side / .my-side が既に持っている。
+                   ここが足したのは「その系統をミニオン行にも当てる」という<b>クラス2つ</b>だけで、
+                   色の値は1つも新しく決めていない(一致は verify 69-2 が実測で見張る)。 -->
+            <div id="opp-minions" class="minion-row auto-minions auto-field-opponent"></div>
+            <div id="my-minions" class="minion-row auto-minions auto-field-self"></div>
 
             <div class="auto-strip my-side">
                 <div class="auto-strip-info">
@@ -135,6 +142,14 @@
                     <span id="log-bar-last" class="auto-log-last">(ログなし)</span>
                     <span id="log-bar-count" class="auto-chip">0件</span>
                 </button>
+                <!-- ★★★Batch 69: フェイズの進行表。45 が右列を 400→280 に縮めた結果、
+                     横は詰まったが<b>縦に 225px 余っていた</b>(実測)。詰めても中央列は
+                     広がらない(既に高さいっぱい)ので、埋めるなら情報を置くしかない。
+                     ★中身は battle.js の renderPhaseTrack が毎回作り直す。
+                       並びと表示名の正は Java の TurnPhase であり、
+                       一致は verify 69-5 が TurnPhase.java を読んで突き合わせる。
+                     ★ログのバーの<b>下</b>に置いてある —— バーの位置は 45 から動かさない。 -->
+                <div id="phase-track" class="auto-phase-track d-none"></div>
             </div>
 
             <div id="my-piles" class="auto-piles"></div>
@@ -299,6 +314,6 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<script th:src="@{/js/battle.js(v=31)}"></script>
+<script th:src="@{/js/battle.js(v=32)}"></script>
 </body>
 </html>

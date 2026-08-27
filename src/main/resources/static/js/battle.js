@@ -1970,6 +1970,26 @@ function renderPiles(isSelf, p) {
 }
 
 /**
+ * ★★★Batch 69: パイルの枚数バッジに数を書き込む<b>唯一の口</b>。
+ *
+ * 44 は「数字を書き込む既存のコードは1行も変えずに、書き込み先だけが移る」と書いて、
+ * <b>書き込みを8箇所に散らしたまま</b>にした。65 が挙げた「0枚でも金色で目立つ」を
+ * 直すには「0なら暗くする」という規則が要るが、それを8箇所に書けば
+ * <b>7箇所直して1箇所忘れる</b>形の事故がいつでも起きる(裁定130)。
+ * → 69 で書き込みをこの1本に通した。<b>44 の設計を1つだけ変えている。</b>
+ *
+ * ★<b>0 の判定を「文字列が '0' か」で書かない。</b>サーバは数を送るが、
+ *   初期表示の '-' も同じ欄に入る。数として読んで 0 のときだけ暗くする
+ *   ('-' は NaN なので暗くならない —— それでよい。まだ何も届いていない状態である)。
+ */
+function setPileCount(id, count) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = count;
+    el.classList.toggle('auto-pile-count-zero', Number(count) === 0);
+}
+
+/**
  * ゾーンの中身をフェイスの一覧で出す(墓地・消滅)。
  * 33 までの「名前の文字列」を面に格上げした。右クリックで1枚ずつ拡大できる。
  */
@@ -2031,24 +2051,61 @@ function beginGraveSpecialSummon(trashIndex, card) {
 }
 
 // ---------------------------------------------------------------
-// ホバープレビュー(Batch 44・B-1)。まずはリーダーから
+// ホバープレビュー(Batch 44・B-1)
+//
+// ★★★Batch 69: 44 は「まずはリーダーから」と書いて<b>そこで止まっていた</b>。
+//   65 が穴として挙げたのはこの止まりである —— 器(#auto-hover / .auto-hover)は
+//   44 が作りきっており、69 が足したのは<b>呼び出し2箇所</b>(場のミニオンと手札)だけである。
+//   ★これは 65 の教訓「『番人が無い』と思ったら、まず在るかどうかを見る」の
+//     器についての形である(67 の《ツイン・ストライク》と同じ)。
+//
+// ★★<b>対象を選んでいる最中は出さない</b>(69・マスター確認)。
+//   .auto-hover は right:300px / top:64px の<b>固定位置</b>に出るので、
+//   場のミニオンにホバーするとプレビューが<b>盤面の上に重なる</b>。
+//   68 で【召喚時】の対象を盤面から選ぶ場面が15枚ぶん増えたため、
+//   選んでいる最中に大きな面が降りてくると<b>候補が隠れる</b>。
+//   pointer-events:none なのでクリックは通るが、<b>見えないものは押せない</b>。
 // ---------------------------------------------------------------
 
 let hoverTimer = null;
+
+/**
+ * ホバープレビューを出してよいか。★判定はこの1箇所だけが持つ(裁定130)。
+ *
+ * ★<b>「選んでいる最中」は5つある。</b>どれも<b>盤面か手札をクリックさせている</b>状態である。
+ *   宣言時の対象指定(pending)/ 進化素材(evolution)/ 禁忌コストの支払い(tabooPay)/
+ *   マリガン / ★★<b>割り込み(hasPendingChoice)</b>。
+ * ★★★<b>5つ目を書き忘れていた。</b>68 が【召喚時】の対象を割り込みへ移したので、
+ *   マスターが心配した「対象を選ぶときに候補が隠れる」は<b>いちばん割り込みで起きる</b> ——
+ *   なのに最初の実装は宣言時の pending しか見ていなかった。
+ *   ★割り込み中かどうかの判定は {@link hasPendingChoice} が既に持っている。
+ *     同じ式を書き写さずに<b>呼ぶ</b>(裁定130)。
+ */
+function hoverBlocked() {
+    return !!pending || !!evolution || !!tabooPay || hasPendingChoice()
+        || !!(latestView && latestView.mulligan);
+}
+
+function hideHover() {
+    clearTimeout(hoverTimer);
+    document.getElementById('auto-hover').classList.add('d-none');
+}
+
 function attachHover(el, dataFn) {
     el.onmouseenter = () => {
         clearTimeout(hoverTimer);
+        if (hoverBlocked()) return;
         hoverTimer = setTimeout(() => {
+            // ★350ms 待っているあいだに問い合わせが来ることがある。
+            //   入口だけで見ると、<b>手を止めているのに面が降りてくる</b>
+            if (hoverBlocked()) return;
             const holder = document.getElementById('auto-hover-card');
             holder.innerHTML = '';
             holder.appendChild(cardFace(dataFn(), 'large'));
             document.getElementById('auto-hover').classList.remove('d-none');
         }, 350);
     };
-    el.onmouseleave = () => {
-        clearTimeout(hoverTimer);
-        document.getElementById('auto-hover').classList.add('d-none');
-    };
+    el.onmouseleave = hideHover;
 }
 
 // ---------------------------------------------------------------
@@ -2202,7 +2259,12 @@ function onMessage(frame) {
 
 function render(view) {
     if (!view) return;
+    // ★★Batch 69: 対象を選んでいる最中はホバープレビューを閉じる。
+    //   面が出たあとに問い合わせが来る経路があるため、<b>出す側の判定だけでは足りない</b>
+    //   (attachHover のガードは「これから出す」を止める。ここは「もう出ている」を消す)。
+    if (hoverBlocked()) hideHover();
     renderHeader(view);
+    renderPhaseTrack(view);
     renderControls(view);
     renderSelection();
     renderMulligan(view);
@@ -2374,6 +2436,68 @@ function renderHeader(view) {
     }
 }
 
+/**
+ * ★★★Batch 69: ターンの7フェイズ。<b>正は Java の TurnPhase である</b>(総合ルール 2-6)。
+ *
+ * ★ここに書き写しているのは<b>見た目のための並び</b>であって、規則ではない。
+ *   規則(どの順で進むか・いつ何ができるか)はサーバだけが持つ。
+ * ★★ただし<b>書き写しは黙って離れていく</b>(67 の教訓・写し)。
+ *   フェイズが増えても、この配列は自分では増えない ——
+ *   一致は verify 69-5 が TurnPhase.java を読んで突き合わせる(裁定130)。
+ */
+const AUTO_PHASES = [
+    { phase: 'DRAW', label: 'ドロー' },
+    { phase: 'UNTAP', label: 'アンタップ' },
+    { phase: 'MANA_CHARGE', label: 'マナチャージ' },
+    { phase: 'MAIN', label: 'メイン' },
+    { phase: 'BATTLE', label: 'バトル' },
+    { phase: 'SUB', label: 'サブ' },
+    { phase: 'END', label: 'ターンエンド' },
+];
+
+/**
+ * フェイズの進行表(右列の空白・65 が挙げた穴)。
+ *
+ * ★<b>ヘッダの文字列と同じ情報を2箇所に出しているのではない。</b>
+ *   ヘッダは「今どこか」の1点、この表は「7つのうちのどこか」という<b>位置</b>である。
+ *   通常モードはサーバがフェイズを進めるので、次に何が来るかが読めることに価値がある。
+ * ★<b>操作はここに置かない。</b>[次のフェイズへ] は #turn-controls が持つ ——
+ *   同じ操作の入口を2つ作ると、押せる条件の判定が2箇所に増える(裁定130)。
+ */
+function renderPhaseTrack(view) {
+    const track = document.getElementById('phase-track');
+    if (!track) return;
+    if (view.status !== 'PLAYING') {
+        track.classList.add('d-none');
+        track.innerHTML = '';
+        return;
+    }
+    track.classList.remove('d-none');
+    track.classList.toggle('auto-phase-theirs', !view.myTurn);
+    track.innerHTML = '';
+    const head = document.createElement('div');
+    head.className = 'auto-phase-head';
+    head.textContent = `ターン${view.turnNumber} / ` + (view.myTurn ? 'あなたの番' : '相手の番');
+    track.appendChild(head);
+    // ★見つからないときは -1 のままにする。全部「これから」に見えるが、
+    //   <b>どれかを勝手に「今」にするよりよい</b>(嘘の位置を出さない)
+    const now = AUTO_PHASES.findIndex(p => p.phase === view.phase);
+    AUTO_PHASES.forEach((p, i) => {
+        const item = document.createElement('div');
+        item.className = 'auto-phase-item '
+            + (i === now ? 'auto-phase-now' : (now >= 0 && i < now ? 'auto-phase-done' : 'auto-phase-todo'));
+        const no = document.createElement('span');
+        no.className = 'auto-phase-no';
+        no.textContent = String(i + 1);
+        const name = document.createElement('span');
+        name.className = 'auto-phase-name';
+        name.textContent = p.label;
+        item.appendChild(no);
+        item.appendChild(name);
+        track.appendChild(item);
+    });
+}
+
 function renderControls(view) {
     // ★★Batch 66: 観戦者には操作の導線を出さない。
     //   ★<b>これは見た目の話であって、守りではない</b> —— 観戦者は playerId を持たないので、
@@ -2474,7 +2598,7 @@ function renderOpponent(opp, view) {
         backs.appendChild(b);
     }
     document.getElementById('opp-hand-count').textContent = opp.handCount;
-    document.getElementById('opp-deck-count').textContent = opp.deckCount;
+    setPileCount('opp-deck-count', opp.deckCount);
     document.getElementById('opp-mp').textContent = opp.availableMp;
     document.getElementById('opp-mana-count').textContent = opp.totalMana;
     const oppWeaponEl = document.getElementById('opp-weapon');
@@ -2485,9 +2609,9 @@ function renderOpponent(opp, view) {
     oppWeaponEl.classList.toggle('text-warning', !!oppWeaponPickable);
     oppWeaponEl.style.cursor = oppWeaponPickable ? 'pointer' : '';
     oppWeaponEl.onclick = oppWeaponPickable ? () => pickWeapon('OPPONENT') : null;
-    document.getElementById('opp-trash-count').textContent = opp.trashCount;
-    document.getElementById('opp-lost-count').textContent = opp.lostCount;
-    document.getElementById('opp-taboo-count').textContent = opp.tabooCount;
+    setPileCount('opp-trash-count', opp.trashCount);
+    setPileCount('opp-lost-count', opp.lostCount);
+    setPileCount('opp-taboo-count', opp.tabooCount);
     document.getElementById('opp-deck-name').textContent = opp.deckName;
 
     // ★45: 相手のマナもタイル(マスター指摘: 表向きの中身が分からないのは問題)。
@@ -2550,7 +2674,7 @@ function renderSelf(you, view) {
     document.getElementById('my-leader-name').textContent = you.leaderName;
     document.getElementById('my-lp').textContent = you.lp;
     document.getElementById('my-leader-ability').textContent = you.leaderText || '';
-    document.getElementById('my-deck-count').textContent = you.deckCount;
+    setPileCount('my-deck-count', you.deckCount);
     document.getElementById('my-mp').textContent = you.availableMp;
     document.getElementById('my-mana-count').textContent = you.totalMana;
     const myWeaponEl = document.getElementById('my-weapon');
@@ -2561,9 +2685,9 @@ function renderSelf(you, view) {
     myWeaponEl.classList.toggle('text-warning', !!selfWeaponPickable);
     myWeaponEl.style.cursor = selfWeaponPickable ? 'pointer' : '';
     myWeaponEl.onclick = selfWeaponPickable ? () => pickWeapon('SELF') : null;
-    document.getElementById('my-trash-count').textContent = you.trashCount;
-    document.getElementById('my-lost-count').textContent = you.lostCount;
-    document.getElementById('my-taboo-count').textContent = you.tabooCount;
+    setPileCount('my-trash-count', you.trashCount);
+    setPileCount('my-lost-count', you.lostCount);
+    setPileCount('my-taboo-count', you.tabooCount);
     document.getElementById('my-deck-name').textContent = you.deckName;
 
     // リーダー能力ボタン
@@ -2766,7 +2890,9 @@ function createMinionEl(minion) {
     addUnimplementedBadge(badges, minion);
     attachBadges(el, badges);
     // ★拡大は「効果テキストを読む」ためのもの。abilityText(起動能力)があれば添える
-    attachZoom(el, () => {
+    // ★★Batch 69: 拡大とホバープレビューは<b>同じ面</b>を出す。
+    //   データを作る式を2つ書くと、片方だけに【起動】や「下:」が付く形で黙って離れていく。
+    const minionFace = () => {
         const data = faceDataFromMinion(minion);
         if (minion.abilityText && !(data.text || '').includes(minion.abilityText)) {
             data.text = (data.text ? data.text + '\n' : '') + minion.abilityText;
@@ -2777,7 +2903,11 @@ function createMinionEl(minion) {
                 + '下: ' + minion.underCardIds.map(libName).join(' / ');
         }
         return data;
-    });
+    };
+    attachZoom(el, minionFace);
+    // ★★Batch 69: 場のミニオンのホバープレビュー(44 の器を呼ぶ・65 が挙げた穴)。
+    //   ★両席に付ける —— 場のミニオンは相手のものも公開情報である。
+    attachHover(el, minionFace);
     return el;
 }
 
@@ -2847,7 +2977,12 @@ function createHandCardEl(card, index, view) {
     if (card.soulCost != null) addBadge(badges, '★賢魂:' + card.soulCost);
     addUnimplementedBadge(badges, card);
     attachBadges(el, badges);
-    attachZoom(el, () => faceDataFromCardView(card));
+    const handFace = () => faceDataFromCardView(card);
+    attachZoom(el, handFace);
+    // ★★Batch 69: 手札のホバープレビュー(44 の器を呼ぶ・65 が挙げた穴)。
+    //   ★手札は既に :hover で 6px 持ち上がるが、あれは「どれを指しているか」の印であり、
+    //     <b>効果テキストは読めない</b>。読むには右クリックで拡大するしかなかった。
+    attachHover(el, handFace);
     return el;
 }
 

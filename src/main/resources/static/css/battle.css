@@ -1653,7 +1653,18 @@ body.manual-drag-active .manual-band {
     width: 280px; flex: 0 0 280px;
     display: flex; flex-direction: column; gap: 8px; min-height: 0;
 }
-.auto-side-mid { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+/* ★★★Batch 69: overflow-y を足した。<b>これは 69 が作った問題ではなく、見つけた穴である。</b>
+   実測(問い合わせ2つ + 候補6件)で、この箱の中身が 294px の枠に対して 453px を占め、
+   <b>ログのバーごと画面の外へ押し出されていた</b> —— 親のどこにも overflow が無いため、
+   はみ出した部分は<b>切られるのでも巻けるのでもなく、ただ見えない</b>状態だった。
+   ★<b>hidden ではなく auto である。</b>切ると「押せない確定ボタン」が生まれる ——
+   問い合わせは操作であって飾りではない(裁定299 が本人に問うと決めたもの)。
+   ★69 の進行表({@code #phase-track})はこの箱の中で最後に縮む側であり、
+   窮屈なときは 0 まで譲る(flex: 1 1 0 / min-height: 0 / overflow: hidden)。 */
+.auto-side-mid {
+    flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; gap: 8px;
+    overflow-y: auto; scrollbar-width: thin;
+}
 /* ★ログは右列の残り高さを全部使う(基底 .log-box の height:130px を上書き) */
 .auto-log { height: auto; flex: 1 1 0; min-height: 0; }
 
@@ -1683,6 +1694,31 @@ body.manual-drag-active .manual-band {
 
 /* ミニオン行。カード(92×129)+ 余白で高さを固定し、行が踊らないようにする */
 .auto-minions { min-height: 134px; align-content: flex-start; }
+
+/* ============================================================
+   ★★★Batch 69: 自陣と敵陣の見分け(65 が見つけた穴・裁定282 で重みが増した)
+
+   68 で【召喚時】の対象を<b>盤面から</b>選ぶ場面が15枚ぶん増え、しかも
+   裁定305 により<b>自分自身も候補に入る</b>ようになった。上段(相手)と下段(自分)が
+   同じ地色・同じ枠のままだと、<b>誤クリックが実害になる</b>。
+
+   ★<b>色の系統は既に決まっていた。</b>上の .opponent-side(赤い上線)と
+   .my-side(青い下線)が 8 以前から在る。69 が足したのは<b>色ではなく、
+   その系統をミニオン行にも当てたこと</b>である ——
+   だから色の値をここで新しく決めてはいけない。値の正は上の2行であり、
+   一致は verify 69-2 が実測で見張る(裁定130: 1箇所に置けないなら番人が見張る)。
+
+   ★<b>上下の padding を書かない。</b>この2行の高さは 43-1(1280×800 の1画面)の
+   前提そのものである。左の border と padding は横にしか効かないので高さを動かさない。
+   ============================================================ */
+.auto-minions {
+    border-radius: 8px;
+    border-left: 3px solid transparent;
+    padding-left: 7px;
+}
+/* ★地色は「隙間に見える帯」である。カード面(.mcard)の文明色を殺さない濃さにしてある */
+.auto-field-opponent { background: rgba(220, 53, 69, 0.09); border-left-color: #dc3545; }
+.auto-field-self     { background: rgba(13, 110, 253, 0.11); border-left-color: #0d6efd; }
 
 /* ---------- 手札。重ねて並べる(商業作品の扇の簡易版・設計解説 2-4) ---------- */
 .auto-hand-wrap { position: relative; }
@@ -1763,6 +1799,17 @@ body.manual-drag-active .manual-band {
     min-width: 20px; height: 20px; line-height: 18px; border-radius: 10px;
     font-weight: 900; font-size: 11px; border: 1px solid #000; padding: 0 3px;
 }
+/* ★★Batch 69: 0枚のバッジは黙らせる(65 が見つけた穴)。
+   金のバッジは「そこに何枚あるか」を伝える印なのに、0枚でも同じ強さで光るため、
+   序盤は<b>8個ぜんぶが金色で並ぶ</b>(実測: 山札・墓地・消滅・禁忌 × 両席)。
+   ★<b>山札0枚だけを特別扱いする案は採らなかった。</b>山札切れは敗北の直前であり
+   目立たせたくなるが、そこだけ例外を作ると「0枚は暗い」という<b>読み方</b>が壊れる。
+   危険の告知はログと LP が担う層である(裁定130: 1つの印に2つの意味を持たせない)。
+   ★クラスを付ける場所は battle.js の setPileCount 1本である。 */
+.auto-pile-count-zero {
+    background: #241d31; color: #6f6786;
+    border-color: #4a4460; font-weight: 700;
+}
 .auto-pile-label { font-size: 10px; color: #adb5bd; margin-top: 2px; }
 /* 禁忌パイルが開閉トグルを兼ねる(43 のチップの後継。auto-chip-active も引き継ぐ) */
 #btn-taboo-toggle.auto-chip-active .auto-pile-card { outline: 2px solid #a1465e; }
@@ -1837,6 +1884,58 @@ body.manual-drag-active .manual-band {
     flex: 1 1 0; min-width: 0; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap;
 }
+
+/* ============================================================
+   ★★★Batch 69: フェイズの進行表(65 が見つけた「右列の空白」の答え)
+
+   45 が右列を 400 → 280 に縮めてログを畳んだ結果、<b>横は詰まったが縦が余った</b> ——
+   実測で <b>ログのバーの下に 225px</b> が空いていた(#auto-side-mid の底まで)。
+   ★<b>詰めても中央列は広がらない</b>(中央列は既に高さいっぱいの flex である)。
+   だから埋めるなら情報を置くしかない、というのがこの節の前提である。
+
+   ★<b>置いたのはフェイズの進行表である。</b>通常モードはサーバがルールを執行するので、
+   フェイズは<b>自分で進めるものであると同時に、勝手に進むもの</b>でもある。
+   65 まで「今どこにいるか」を伝えていたのはヘッダの文字列1つだけだった。
+
+   ★<b>並びと表示名の正は Java の TurnPhase である</b>(裁定130)。
+   ここに書き写すのは<b>見た目だけ</b>で、7つの値と順序は battle.js の AUTO_PHASES が持ち、
+   Java との一致は verify 69-5 が TurnPhase.java を読んで突き合わせる。
+   ★<b>この番人が無いと、フェイズが増えても進行表は黙って6つのままである。</b>
+   ============================================================ */
+.auto-phase-track {
+    flex: 1 1 0; min-height: 0; overflow: hidden;
+    display: flex; flex-direction: column; gap: 2px;
+    padding: 6px 8px; border-radius: 6px;
+    background: rgba(0, 0, 0, 0.35); border: 1px solid #3a3550;
+}
+.auto-phase-track.d-none { display: none; }
+.auto-phase-head {
+    font-size: 11px; color: #adb5bd; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
+}
+.auto-phase-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 1px 6px; border-radius: 4px;
+    font-size: 12px; line-height: 1.55; white-space: nowrap;
+    border-left: 3px solid transparent;
+}
+.auto-phase-no {
+    flex: 0 0 auto; width: 14px; text-align: right;
+    font-size: 10px; color: #6f6786;
+}
+.auto-phase-name { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 済み / これから / 今。★「今」だけが色を持つ(3つとも色を付けると、どれが今か読めない) */
+.auto-phase-done { color: #6f6786; }
+.auto-phase-todo { color: #b9b3cc; }
+.auto-phase-now {
+    color: #14121d; background: #ffc107; border-left-color: #ffc107; font-weight: 700;
+}
+.auto-phase-now .auto-phase-no { color: #5a4400; }
+/* 相手の番のあいだは進行表そのものを鈍らせる(ヘッダの text-muted と同じ扱い) */
+.auto-phase-track.auto-phase-theirs .auto-phase-now {
+    color: #14121d; background: #adb5bd; border-left-color: #adb5bd;
+}
+.auto-phase-track.auto-phase-theirs .auto-phase-now .auto-phase-no { color: #495057; }
 
 /* ログの全文パネル(バーのクリックで開閉) */
 .auto-log-panel {
