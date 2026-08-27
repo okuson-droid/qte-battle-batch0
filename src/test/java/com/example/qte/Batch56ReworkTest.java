@@ -773,14 +773,29 @@ class Batch56ReworkTest {
     }
 
     // ---- 詠唱の宝珠(QTE-M-LIGHT-28・区分3b) ----
-    // 旧: 「次の自分のターンに唱えるスペルすべてのコスト-1」(文明を問わない)
-    // 新: 「光のスペル」限定になった
-    // ★確認の結果、実装は既にcard.civilization()==LIGHTの条件で新本文どおりに一致している
+    //
+    // ★★★Batch 73 で、ここの前提そのものが誤っていたことが分かった。
+    //
+    // 56 はこう書いていた ——
+    //   「旧: 次の自分のターンに唱えるスペルすべてのコスト-1(文明を問わない)
+    //     新: 『光のスペル』限定になった
+    //     ★確認の結果、実装は既に新本文どおりに一致している」
+    //
+    // ★<b>旧は「すべて」ではなく「次の1枚」だった。</b>
+    //   Ver1.1 の変更は<b>2つ</b>あり(ver0.4-transcription-notes 5章の台帳 0106)、
+    //   「次の1枚 → 次の自ターン中の全スペル」と「光文明への限定」である。
+    //   56 は<b>旧を「すべて」と思い込んでいた</b>ので、
+    //   残る差は文明だけだと結論し、枚数の側を1度も見なかった。
+    //   ★★★<b>誤った前提は、正しい確認を素通りさせる。</b>
+    //
+    // 73 で枚数と期限を本文どおりに直した。番人は Batch73TextImplTest にある。
 
     @Test
     void 詠唱の宝珠は破壊後光のスペルのコストだけ下げる() {
         AutoGameFixture f = newGame();
-        f.me().getPersistentAuras().add(PersistentAura.untilNextSpell("QTE-M-LIGHT-28"));
+        // ★Batch 73: 期限は「次の自分のターンの終了時」になった(ON_NEXT_SPELL は消えた)
+        f.me().getPersistentAuras().add(PersistentAura.untilEndOfTurn(
+                "QTE-M-LIGHT-28", f.state().getTurnNumber() + 2));
 
         assertThat(stats.effectiveCost(f.state(), f.me(), f.card("QTE-M-LIGHT-9")))
                 .as("光のスペルはコスト-1(2→1)").isEqualTo(1);

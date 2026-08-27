@@ -180,9 +180,16 @@ public class StatCalculator {
         // (登録は Batch 55 で、支払い側の消費は GameService で、
         //  保持していた PlayerState.pendingFireMinionDiscount も 58 で落とした)。
         // ---- 闇文明: 墓地・禁忌デッキ・生贄を参照する動的コスト ----
-        // 悪夢: 墓地にあるスペル以外のカード1枚につきコスト-1
+        // 悪夢: 墓地にあるカード1枚につきコスト-1
+        // ★★★Batch 73(裁定303 の一族): <b>種別を絞らない。</b>
+        // 本文は「墓地にあるカード1枚につき」であり、スペルを除く根拠がどこにも無い。
+        // 72 までは {@code nonSpellCountInTrash} を読んでいた ——
+        // これは<b>《墓場の怨念集合体》の数え方の流用</b>であり、
+        // あちらは本文が明示的に「スペル以外の」と書いている(下の GRAVE_WRAITH_MASS)。
+        // ★<b>数え方を共有したことで、本文の違いが消えていた</b>(68 の教訓・代用)。
+        // 印刷コスト13 のこのカードでは、墓地のスペルの枚数がそのまま重さの差になる。
         if (NIGHTMARE.equals(card.id())) {
-            cost -= nonSpellCountInTrash(owner);
+            cost -= owner.getTrash().size();
         }
         // 群がる死霊王: 墓地にある「ゾンストライカー」の数だけコスト-2
         // ★Batch 57(区分3b): Ver1.1 で1枚あたりの軽減量が 1 → 2 になった

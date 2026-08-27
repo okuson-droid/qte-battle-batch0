@@ -8,9 +8,28 @@ package com.example.qte.effect;
  * 期限を型として持つ入れ物を用意した。
  *
  * <pre>
- *   詠唱の宝珠   : 次にスペルを唱えるまで(ターンをまたぐ・1回きり)
+ *   詠唱の宝珠   : 次の自分のターンの終了時まで(★Batch 73 で ON_NEXT_SPELL から移した)
  *   聖光の守護聖 : 次の相手のターン終了時まで(自分のターンをまたぐ)
  * </pre>
+ *
+ * <h2>★★★Batch 73: {@code ON_NEXT_SPELL} を消した(裁定196 — 消した番人は書き残す)</h2>
+ * 《詠唱の宝珠》の本文は Ver1.1 で
+ * 「次の1枚」→「<b>次の自分のターンに唱える光のスペルすべて</b>」に変わっていた
+ * ({@code notes/ver0.4-transcription-notes.md} 5章の台帳 0106 と、
+ * 4章のルーリング #9「発注者確認済み」)。
+ * <b>72 まで、実装は Ver0.4 の「次の1枚」のままだった。</b>
+ *
+ * <p>★★<b>Batch 56 は「光のスペル」への限定だけを入れて、枚数の側を見ていなかった。</b>
+ * しかも {@code StatCalculator} のコメントが
+ * 「Ver1.1 で『スペルすべて』から『光のスペル』に限定された」と書いたので、
+ * <b>「すべて」のほうは実装済みであるかのように読めた</b> ——
+ * 67 の教訓(写し)の新しい顔である: <b>直した箇所の記録が、直していない箇所を覆い隠す。</b>
+ *
+ * <p>★<b>新しい期限は作らなかった。</b>「次の自分のターンの終了時」は
+ * {@link Expiry#AFTER_TURN_NUMBER} でそのまま表せる ——
+ * 付与するときに<b>次の自分のターン番号</b>を計算して渡す
+ * ({@code GameActions.onWeaponLeftPlay})。
+ * ★★「番人が無い」と思ったらまず在るかどうかを見る(65 の教訓)は、<b>器にも効く</b>。
  *
  * <b>なぜカードごとのフィールドにしなかったか。</b>
  * 「詠唱の宝珠用のboolean」「守護聖用のint」と個別に持つ方が短く書けるが、
@@ -26,19 +45,20 @@ package com.example.qte.effect;
 public record PersistentAura(String cardId, Expiry expiry, int expiresAfterTurn) {
 
     public enum Expiry {
-        /** 指定したターン番号の終了時に消える(聖光の守護聖) */
-        AFTER_TURN_NUMBER,
-        /** 次にスペルを唱えたら消える。ターンをまたいで残る(詠唱の宝珠) */
-        ON_NEXT_SPELL
+        /**
+         * 指定したターン番号の終了時に消える(聖光の守護聖・★Batch 73 から詠唱の宝珠も)。
+         *
+         * <p>★<b>73 の時点で、期限はこれ1種類になった。</b>
+         * {@code ON_NEXT_SPELL}(次にスペルを唱えたら消える)は
+         * 《詠唱の宝珠》ただ1つの使い手を失って消えた ——
+         * <b>誰も登録しない器は残さない</b>(裁定178)。
+         * ★もう一度要るようになったら、そのとき作り直せばよい。
+         */
+        AFTER_TURN_NUMBER
     }
 
     /** 指定ターンの終了時まで持続する効果を作る */
     public static PersistentAura untilEndOfTurn(String cardId, int turnNumber) {
         return new PersistentAura(cardId, Expiry.AFTER_TURN_NUMBER, turnNumber);
-    }
-
-    /** 次にスペルを唱えるまで持続する効果を作る */
-    public static PersistentAura untilNextSpell(String cardId) {
-        return new PersistentAura(cardId, Expiry.ON_NEXT_SPELL, 0);
     }
 }

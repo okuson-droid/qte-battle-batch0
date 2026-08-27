@@ -38,14 +38,28 @@ public final class ManualDragCue {
      * @param cardId 掴んでいるカードの instanceId。ドラッグ終了時は null でよい
      * @param toZone ホバー中のドロップ先ゾーン。まだどこにも重なっていなければ null
      * @param toSeat ドロップ先の席。共有ゾーンでは無視される
-     * @param active false ならこの人の矢印を消す(dragend / drop。7-2)
+     * @param active false ならこの人の矢印を消す(dragend / drop。7-2)。
+     *               ★★Batch 73: <b>箱型にして、null は false に畳む。</b>
+     *               原始型のままだと、送られてこないこと自体が変換の失敗になり
+     *               <b>メッセージごと捨てられる</b>(72b と同じ地雷である)。
+     *               <p>★通常モードの {@code handIndex} は<b>畳まずに断った</b>が、
+     *               ここは畳む —— 畳んだ先が「矢印を消す」= <b>何も起きない</b>だからである。
+     *               <p>★★しかも <b>この宛先はエラーを返さない</b>
+     *               ({@code ManualWsController.dragCue} は {@code dispatch} を通らず、
+     *               盤面に無いカードも黙って捨てる。7-2)——
+     *               断っても届かないのだから、断る意味が無い。
      */
     public record Request(
             String occupantId,
             String cardId,
             ManualSeatId toSeat,
             ManualZone toZone,
-            boolean active) {
+            Boolean active) {
+
+        /** ★Batch 73: 送られてこなければ「矢印を消す」に落とす(安全側)。 */
+        public Boolean active() {
+            return active != null && active;
+        }
     }
 
     /**

@@ -3,23 +3,23 @@
   "reviews": {
     "QTE-M-DARK-1": {
       "textHash": "b7a20daa1cf945a6",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-10": {
       "textHash": "23067d303eb0e4a5",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-DARK-11": {
       "textHash": "653a3c67d3dbb772",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-12": {
       "textHash": "626f5c1960d3c453",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-DARK-13": {
       "textHash": "f9e0873d29c5fd62",
@@ -28,18 +28,18 @@
     },
     "QTE-M-DARK-14": {
       "textHash": "2843297f2434ae40",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-15": {
       "textHash": "7872b87163c6edeb",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-DARK-16": {
       "textHash": "966903b2a1d1c898",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-17": {
       "textHash": "5ffb05875bb48450",
@@ -48,8 +48,8 @@
     },
     "QTE-M-DARK-18": {
       "textHash": "f38a9ac3c90ccd74",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-19": {
       "textHash": "40881428b1a24735",
@@ -58,33 +58,33 @@
     },
     "QTE-M-DARK-2": {
       "textHash": "3c83af5538a18793",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-20": {
       "textHash": "8f681fb1fcf8aabf",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-21": {
       "textHash": "76a5294a823251f5",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-22": {
       "textHash": "0917fa5b7401ae36",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-DARK-23": {
       "textHash": "7ab8108e43778a84",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-24": {
       "textHash": "4b897246a09d18c4",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文「2枚選び破壊」が全体破壊のままだった(ver0.4-transcription-notes 台帳 0068)。割り込みで2体まで選ばせる形に直した"
     },
     "QTE-M-DARK-25": {
       "textHash": "ecb1a8611d49c633",
@@ -93,13 +93,13 @@
     },
     "QTE-M-DARK-26": {
       "textHash": "83232da8b30e3feb",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-27": {
       "textHash": "88a58915d00736d0",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文「墓地にあるカード1枚につき」がスペルを除いた枚数を数えていた(墓場の怨念集合体の数え方の流用)。墓地の全枚数に直した"
     },
     "QTE-M-DARK-28": {
       "textHash": "875d9e150d337825",
@@ -108,8 +108,8 @@
     },
     "QTE-M-DARK-29": {
       "textHash": "06b56f5c2bd40f45",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-3": {
       "textHash": "c41fe09bf1a3d836",
@@ -118,73 +118,73 @@
     },
     "QTE-M-DARK-30": {
       "textHash": "5c5e91da3c0a0edf",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-DARK-31": {
       "textHash": "f6183a442b50b7f9",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-32": {
       "textHash": "4bd9159c12baf429",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-33": {
       "textHash": "75fb124255bc80be",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-34": {
       "textHash": "98dbbbf1279652b2",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-DARK-35": {
       "textHash": "de58f993a08917af",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-36": {
       "textHash": "c4b389d31e513f0a",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-37": {
       "textHash": "dcff1d2dac3b4840",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-38": {
       "textHash": "537f26380fc013cc",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-39": {
       "textHash": "88c51039831cef3b",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-4": {
       "textHash": "a230a6e646bbc5f0",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-5": {
       "textHash": "522d9a972b06e55d",
-      "reviewedIn": "batch64",
-      "note": "Batch 64 が直した1枚(裁定303 の初例)。67 で本文と実装を読み直し、ON_ENTER で相手が1枚引く形が本文どおりであることを確かめた"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-6": {
       "textHash": "0796037207a5ba0e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-DARK-7": {
       "textHash": "394448158f3fe7c2",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "Ver1.1 で削除された自壊テキストが実装に残っていた(ver0.4-transcription-notes 台帳 0085)。しかも Batch 48 が移行後に新しく書いていた。自壊を外した"
     },
     "QTE-M-DARK-8": {
       "textHash": "7c88935372fd8fd1",
@@ -193,8 +193,8 @@
     },
     "QTE-M-DARK-9": {
       "textHash": "2776d608b132d3a2",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-1": {
       "textHash": "7edeff29514ff6b3",
@@ -203,8 +203,8 @@
     },
     "QTE-M-EARTH-10": {
       "textHash": "1a752d7b32755237",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-11": {
       "textHash": "d7491b6596b3eaa5",
@@ -223,63 +223,63 @@
     },
     "QTE-M-EARTH-14": {
       "textHash": "1225de45836e6f32",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-15": {
       "textHash": "b8c57eaf646af4d0",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-EARTH-16": {
       "textHash": "95148974558e0418",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-17": {
       "textHash": "566297cd4b30666e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-18": {
       "textHash": "02f1a1b0a5e0a31d",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-19": {
       "textHash": "766686c81290b59c",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-2": {
       "textHash": "921ff9f9b9bc3d5e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-20": {
       "textHash": "08346dd3564c6650",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-21": {
       "textHash": "b59cc69d309dc7a9",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-22": {
       "textHash": "860f4f4c6ff6d5e8",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-23": {
       "textHash": "d99b3aa16a484e42",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-24": {
       "textHash": "fe4075c77f6c783c",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-25": {
       "textHash": "a0b4755efe300a9b",
@@ -288,93 +288,93 @@
     },
     "QTE-M-EARTH-26": {
       "textHash": "9b2f16e31495499f",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-27": {
       "textHash": "27843efc1f722a27",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-28": {
       "textHash": "bdbc84917748f15f",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-29": {
       "textHash": "90346ac61b6046c7",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-3": {
       "textHash": "387245b18f9c6f3d",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-30": {
       "textHash": "41bd524674bd8f7c",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-31": {
       "textHash": "9df5cdda7d65daf8",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-32": {
       "textHash": "d164895eed899d93",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-33": {
       "textHash": "972bae643073b2fb",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-EARTH-34": {
       "textHash": "2b99e7e36c80619e",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-EARTH-35": {
       "textHash": "d1ce1579587d3fd0",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-EARTH-36": {
       "textHash": "94297fcd15851d15",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-37": {
       "textHash": "4d7b5b8ea2680665",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-38": {
       "textHash": "5b7667b2f4fe1e21",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-EARTH-39": {
       "textHash": "58244e1699cd0173",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-EARTH-4": {
       "textHash": "81b208696cf1cee5",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-5": {
       "textHash": "0cf4552dc5af9cb5",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-6": {
       "textHash": "0df2433aa9b6a7ec",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-7": {
       "textHash": "8d891b10f55eb2df",
@@ -383,18 +383,18 @@
     },
     "QTE-M-EARTH-8": {
       "textHash": "bee418ff0c135d5e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-EARTH-9": {
       "textHash": "c847e70b6ed5dc4d",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-1": {
       "textHash": "9e576ef009bf82a1",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-10": {
       "textHash": "ce03cb2833b67143",
@@ -403,8 +403,8 @@
     },
     "QTE-M-FIRE-11": {
       "textHash": "31de3ffba29d6aeb",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-12": {
       "textHash": "7589e61260ab054c",
@@ -413,8 +413,8 @@
     },
     "QTE-M-FIRE-13": {
       "textHash": "478023b1ae962eaf",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-14": {
       "textHash": "96bfe3173b6b8daf",
@@ -423,8 +423,8 @@
     },
     "QTE-M-FIRE-15": {
       "textHash": "a97ce1d9fe3fe3df",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-FIRE-16": {
       "textHash": "b1b15cd176ecd96e",
@@ -438,33 +438,33 @@
     },
     "QTE-M-FIRE-18": {
       "textHash": "022abfb426e34cd7",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-19": {
       "textHash": "d90935b83fed0b5e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-2": {
       "textHash": "d4f9d21351410a99",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-20": {
       "textHash": "2ec82f5e24fa08c3",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-21": {
       "textHash": "a2ac318319dd4670",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-FIRE-22": {
       "textHash": "92275e05bd439a4a",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-23": {
       "textHash": "93d97b0b4d98eb6b",
@@ -473,33 +473,33 @@
     },
     "QTE-M-FIRE-24": {
       "textHash": "0b5060bfcb3d744d",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-25": {
       "textHash": "0ae72c84a55b8871",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-26": {
       "textHash": "f89f0c18adeb1368",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-27": {
       "textHash": "d377fd0d881cc8d3",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-28": {
       "textHash": "9677ef10c7efbdd2",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-29": {
       "textHash": "0ed4a86c46c63fc2",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-FIRE-3": {
       "textHash": "2dee2368bbb8e2ad",
@@ -508,53 +508,53 @@
     },
     "QTE-M-FIRE-30": {
       "textHash": "e9f20c3e233e2e8c",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-31": {
       "textHash": "5f1b9371efc9020f",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-32": {
       "textHash": "01b46e1ef2d0ec2c",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-33": {
       "textHash": "88d6736091d1997a",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-34": {
       "textHash": "e5bf32f40cabba41",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-35": {
       "textHash": "2f3969e186f6bebe",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-36": {
       "textHash": "7cf081eb962b1f49",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-37": {
       "textHash": "80a5a901f0678917",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-38": {
       "textHash": "db9f552c33eea7fc",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-39": {
       "textHash": "a246f59557d1f245",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-4": {
       "textHash": "a881aec1bfdfabfd",
@@ -568,18 +568,18 @@
     },
     "QTE-M-FIRE-6": {
       "textHash": "167a95f497e84dc7",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-7": {
       "textHash": "921ff9f9b9bc3d5e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-8": {
       "textHash": "7b8d8cbb85fec886",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-FIRE-9": {
       "textHash": "53cdf101e6c0b477",
@@ -588,13 +588,13 @@
     },
     "QTE-M-LIGHT-1": {
       "textHash": "194680abb2f7bee7",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-LIGHT-10": {
       "textHash": "6c6ee8b754330cd6",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-11": {
       "textHash": "b89f308fd8e178e6",
@@ -618,28 +618,28 @@
     },
     "QTE-M-LIGHT-15": {
       "textHash": "fdfb2bdf9efa375c",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-16": {
       "textHash": "17229a26762b4876",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-17": {
       "textHash": "478023b1ae962eaf",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-18": {
       "textHash": "8a1122dc0e91046f",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-19": {
       "textHash": "6cd151160d8af247",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-2": {
       "textHash": "921ff9f9b9bc3d5e",
@@ -648,8 +648,8 @@
     },
     "QTE-M-LIGHT-20": {
       "textHash": "02e82b9c10ee27e9",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-21": {
       "textHash": "8dca99765191bff2",
@@ -658,8 +658,8 @@
     },
     "QTE-M-LIGHT-22": {
       "textHash": "e34db7d51f4f78d2",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文「【守護】ミニオン」の種別を見ておらず、進化ミニオンが素材ゼロで場に出ていた(67 が光の2枚で塞いだ穴の3枚目)。種別の絞り込みを足した"
     },
     "QTE-M-LIGHT-23": {
       "textHash": "2d10c207c5e51557",
@@ -668,18 +668,18 @@
     },
     "QTE-M-LIGHT-24": {
       "textHash": "e45d51dad461d9e4",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-25": {
       "textHash": "b9a90d5063a77836",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-26": {
       "textHash": "90b91d24da3f89c8",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-27": {
       "textHash": "1fec92a4f512ef2c",
@@ -688,93 +688,93 @@
     },
     "QTE-M-LIGHT-28": {
       "textHash": "c07bd76b6b5476b5",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文「次の自分のターン唱える光のスペル」に対し、実装は次の1枚だけ・期限もターンに紐づいていなかった(ver0.4-transcription-notes 4章 #9)。期限をターン番号にし ON_NEXT_SPELL を退役させた"
     },
     "QTE-M-LIGHT-29": {
       "textHash": "b5abd5df4754a936",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-3": {
       "textHash": "a4b5242a83b43212",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-30": {
       "textHash": "ea703af2a9a7e454",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-31": {
       "textHash": "1d510d653ba0d224",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-32": {
       "textHash": "70819f5adfa28567",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-33": {
       "textHash": "51105da3aa504a32",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-34": {
       "textHash": "e9ef4a42241ca168",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-35": {
       "textHash": "cf2e83369efb6dfb",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-36": {
       "textHash": "410d48732d96cb4b",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-37": {
       "textHash": "ef54ccea6ea0c357",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-38": {
       "textHash": "bfa35a81ce09e186",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-39": {
       "textHash": "3049e074fb016bf9",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-LIGHT-4": {
       "textHash": "dbbf26e31335bbd8",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-5": {
       "textHash": "0cf4552dc5af9cb5",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-6": {
       "textHash": "606f2553d3cc144a",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-7": {
       "textHash": "3b1c87b37125c54d",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-LIGHT-8": {
       "textHash": "91d47c51170f4ec9",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-LIGHT-9": {
       "textHash": "f580d8e68248d413",
@@ -788,8 +788,8 @@
     },
     "QTE-M-WATER-1": {
       "textHash": "3d53ea21b3805699",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-WATER-10": {
       "textHash": "533685dc6de07cdc",
@@ -813,163 +813,163 @@
     },
     "QTE-M-WATER-14": {
       "textHash": "5dd473a75e13fa3c",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-15": {
       "textHash": "60ed2797602f70dc",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-16": {
       "textHash": "3d5643ed1b9bb036",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-17": {
       "textHash": "499004b82fb9ddf9",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-18": {
       "textHash": "260bc7bf92d8b72c",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-19": {
       "textHash": "382b432edc69431c",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-2": {
       "textHash": "478023b1ae962eaf",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-20": {
       "textHash": "e60fe8471cf99d70",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-21": {
       "textHash": "1ff88e98c54aab21",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-22": {
       "textHash": "6e43418380ea04ed",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-23": {
       "textHash": "f8c91c49da17a02e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-24": {
       "textHash": "8bfce3412f177c11",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-25": {
       "textHash": "2b95c77e197bf866",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-26": {
       "textHash": "510a6a47d71e7d41",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-27": {
       "textHash": "b926521b94254d6e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-28": {
       "textHash": "352eb71e471ad3dd",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-29": {
       "textHash": "8472ed6643d0a354",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "「【潜伏】の数」「【守護】のミニオン」が参照であることを CardTextKeywords の除外に足した。どちらも種別の都合で挙動には出ていなかったが、規則は1つである(裁定130)"
     },
     "QTE-M-WATER-3": {
       "textHash": "475c931a217386d8",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-30": {
       "textHash": "30e99969220236aa",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-31": {
       "textHash": "6db6416e838a499b",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-32": {
       "textHash": "28bca3326989055c",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-33": {
       "textHash": "6516ee7bc2d28c91",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-34": {
       "textHash": "598df10337bfc22a",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-35": {
       "textHash": "53702b40f50eb32c",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-36": {
       "textHash": "369c62c7d0162bb2",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "「【潜伏】の数」「【守護】のミニオン」が参照であることを CardTextKeywords の除外に足した。どちらも種別の都合で挙動には出ていなかったが、規則は1つである(裁定130)"
     },
     "QTE-M-WATER-37": {
       "textHash": "1074e41e66257961",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-38": {
       "textHash": "c58a07857663ed9a",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-WATER-39": {
       "textHash": "635897c74931cb24",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文「【知識】の枚数」は参照であり自分が持つ意味ではない。CardTextKeywords の参照除外に「の」を足し、ウェポンの装備時ドローが起きないようにした"
     },
     "QTE-M-WATER-4": {
       "textHash": "301a76562fae4a79",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-5": {
       "textHash": "7a18258d9f61a89e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-6": {
       "textHash": "45c67635a9e4367f",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-7": {
       "textHash": "dd80f8b9e5dcb973",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WATER-8": {
       "textHash": "ce286a1318b129aa",
@@ -983,8 +983,8 @@
     },
     "QTE-M-WIND-1": {
       "textHash": "39c60e64c37d2426",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-10": {
       "textHash": "f3b804bff0e6c3f4",
@@ -998,8 +998,8 @@
     },
     "QTE-M-WIND-12": {
       "textHash": "bec28b1826ca4bc7",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-WIND-13": {
       "textHash": "ff2b66bd06a0e534",
@@ -1013,43 +1013,43 @@
     },
     "QTE-M-WIND-15": {
       "textHash": "983c9cced5503d5e",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-16": {
       "textHash": "8d28b8c975a33acd",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-17": {
       "textHash": "7a6cc6d981e14535",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-WIND-18": {
       "textHash": "4506d529d3522dcb",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "ターンエンドの誘発に自ターン判定が無く、相手のターンエンドでも回収していた(spellsCastThisTurn はターンプレイヤーにしか戻らない)。自ターンだけに限定した"
     },
     "QTE-M-WIND-19": {
       "textHash": "d8d1da4a40bbb215",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-2": {
       "textHash": "478023b1ae962eaf",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-20": {
       "textHash": "1842a157585d8e62",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-21": {
       "textHash": "53d204eeb1f9673d",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-22": {
       "textHash": "a1aba65ef89b3f5f",
@@ -1058,93 +1058,93 @@
     },
     "QTE-M-WIND-23": {
       "textHash": "b6951d46c5af8605",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文「表向きのマナを1手札に戻す」の1枚を末尾から自動決定していた(裁定299 の適用漏れ)。本人に選ばせる形に直した"
     },
     "QTE-M-WIND-24": {
       "textHash": "ae542958fc8d5554",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-WIND-25": {
       "textHash": "2a27cf0e8c08de34",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-26": {
       "textHash": "b7acd26942687e60",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 で本文と実装を突き合わせ、読みが2通り以上に分かれる点を見つけた。裁定を仰ぐため batch73-ruling-requests.md に記録した(実装は変えていない)"
     },
     "QTE-M-WIND-27": {
       "textHash": "3f58fcd058d0eea2",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-28": {
       "textHash": "ec0b2ca07886bc65",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-29": {
       "textHash": "39cff0e631431f2c",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-3": {
       "textHash": "167a95f497e84dc7",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-30": {
       "textHash": "3be5367479675622",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-31": {
       "textHash": "e894d608bff9d92a",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-32": {
       "textHash": "3ceff2ef43a44430",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "本文の「ミニオン」の絞り込みが CardType.MINION で書かれており進化ミニオンが落ちる。裁定308(b) が暫定と断じた形であり、手札・墓地・マナ・山札の各経路に素材を確保する仕組みが要る。73 では直さず batch73-ruling-requests.md へ回した"
     },
     "QTE-M-WIND-33": {
       "textHash": "8e089fa97de34662",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-34": {
       "textHash": "3959bfb4752757d4",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-35": {
       "textHash": "e46351db0edbb9c9",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-36": {
       "textHash": "bc2e2f51128f0844",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-37": {
       "textHash": "c01f65e07e5ae3ca",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-38": {
       "textHash": "560dadd583190321",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-39": {
       "textHash": "50f0f9a31b2472eb",
-      "reviewedIn": "batch47-53(P2・P3 の新規実装)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-4": {
       "textHash": "9cc7d0d93cdd6e93",
@@ -1153,13 +1153,13 @@
     },
     "QTE-M-WIND-5": {
       "textHash": "2938a9fea9b3cb58",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-6": {
       "textHash": "b392428063bca7cf",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-7": {
       "textHash": "bb89d872d5a5bbce",
@@ -1168,8 +1168,8 @@
     },
     "QTE-M-WIND-8": {
       "textHash": "4b687806fe995615",
-      "reviewedIn": "batch55-59(P5 の作り直し)",
-      "note": "初回登録(★Batch 67)"
+      "reviewedIn": "batch73",
+      "note": "73 の総点検(候補D2)で本文と実装を1枚ずつ突き合わせ、食い違いは見つからなかった。数値・絞り込み(文明/種別/キーワード)・自分と相手の範囲・誘発の種別・対象の数・任意の問い合わせを見た"
     },
     "QTE-M-WIND-9": {
       "textHash": "cf3a0bc95fdce438",

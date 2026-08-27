@@ -1409,7 +1409,20 @@ public class CardEffectRegistry {
                 ctx -> ctx.actions().damageLeader(ctx.room(), ctx.opponent(), 2, "QTE-M-DARK-23"));
 
         // 這い寄る生霊: 【特殊召喚】自分のターン中に自分のミニオンが破壊されていればコスト0で使用できる。
-        // 特殊召喚で出た場合のみ、そのターンの終わりに破壊される
+        //
+        // ★★★Batch 73(裁定303 の一族): <b>自壊を外した。</b>
+        // Ver1.1 の本文は【特殊召喚】【突進】【知識】だけであり、
+        // 「そのターンの終わりに破壊される」という一文は<b>どこにも無い</b>。
+        // ★{@code notes/ver0.4-transcription-notes.md} の台帳 0085 が
+        // 「<b>自壊テキスト削除</b>、+突進」と記録している —— Ver1.1 で消えた一文である。
+        //
+        // ★★<b>これは移行の取りこぼしではなく、移行の後に書かれた。</b>
+        // {@code notes/batch48-design-notes.md} 137行が
+        // 「自壊は既存の destroyAtEndOfTurn を使う。這い寄る生霊は『特殊召喚で出したときだけ』」と
+        // 書いており、48 が<b>新しく実装している</b>。移行の記録(自壊削除)を見ずに、
+        // Ver0.4 の本文の記憶から作った形である。
+        // ★★★<b>「古い実装が残っていた」より始末が悪い</b> ——
+        // 移行の後に書かれたものは、移行の取りこぼしを探す目では見つからない。
         specialSummons.put("QTE-M-DARK-7", new SpecialSummonSpec(
                 (state, player, handIndex) -> player.isOwnMinionDestroyedThisTurn(),
                 0,
@@ -1417,11 +1430,8 @@ public class CardEffectRegistry {
                 ctx -> {
                 },
                 ctx -> {
-                    if (ctx.source() != null) {
-                        ctx.source().setDestroyAtEndOfTurn(true);
-                    }
                 },
-                "自分のミニオンが破壊されているため、コスト0で特殊召喚できます(このターンの終わりに破壊されます)"));
+                "自分のミニオンが破壊されているため、コスト0で特殊召喚できます"));
 
         // 生贄を求める邪鬼: 【召喚時】自分のミニオン2体を破壊する。相手のミニオンを1体破壊する。
         //
@@ -1509,19 +1519,47 @@ public class CardEffectRegistry {
             ctx.actions().drawCards(ctx.room(), ctx.owner(), placed);
         });
 
-        // 墓穴の呪い: 山札の上から2枚を墓地に置く。墓地の枚数以下のHPを持つミニオンを全て破壊。
+        // 墓穴の呪い: 山札の上から2枚を墓地に置く。墓地以下の体力のミニオンを<b>2枚選び</b>破壊。
         // ★55(区分3a): セルフミル 3→2枚。判定は2枚を置いた後(発注者確認済み)。自分も巻き込む
+        //
+        // ★★★Batch 73(裁定303 の一族): <b>「2枚選び」を実装した。</b>
+        //   72 までは<b>閾値以下のミニオンを両者の場から全て破壊</b>していた ——
+        //   Ver0.4 の姿である。{@code notes/ver0.4-transcription-notes.md} 5章の台帳 0068 が
+        //   「破壊対象を<b>全体→2枚選び</b>に変更」と記録しており、読みは確定していた。
+        //   ★<b>55 はセルフミルの枚数(3→2)だけを直し、破壊の側を見ていなかった。</b>
+        //   同じ行の同じカードで、直した箇所と直していない箇所が隣り合っている。
+        //
+        // ★<b>閾値は解決の途中でしか決まらない</b>ので、宣言時の対象指定では表せない
+        //   (2枚ミルした後の墓地の枚数である)。割り込みで問う(裁定299)。
+        // ★<b>候補が2体以下なら問わずに全部壊す</b> —— 選ぶ余地が無いためである
+        //   (《詠唱の疾風騎士》の回収と同じ形)。
+        // ★★<b>少なく選ぶことは許す</b>({@code upTo})。
+        //   本文は「2枚選び」だが、裁定277 が《神風の大号令》について
+        //   「少なく選べてしまうが許す」と決めた前例に揃えた。
         spellEffects.put("QTE-M-DARK-24", ctx -> {
             ctx.actions().mill(ctx.room(), ctx.owner(), 2);
             int threshold = ctx.owner().getTrash().size();
-            ctx.room().addLog("【墓穴の呪い】: HP%d以下のミニオンを全て破壊します".formatted(threshold));
+            List<String> candidates = new ArrayList<>();
             for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
-                for (MinionInstance minion : List.copyOf(side.getMinionZone())) {
+                for (MinionInstance minion : side.getMinionZone()) {
                     if (minion.getCurrentHp() <= threshold) {
-                        ctx.actions().destroyMinion(ctx.room(), side, minion);
+                        candidates.add(minion.getInstanceId());
                     }
                 }
             }
+            if (candidates.isEmpty()) {
+                ctx.room().addLog("【墓穴の呪い】: 体力%d以下のミニオンが居ませんでした".formatted(threshold));
+                return;
+            }
+            if (candidates.size() <= 2) {
+                ctx.room().addLog("【墓穴の呪い】: 体力%d以下のミニオンを破壊します".formatted(threshold));
+                candidates.forEach(id -> destroyChosenMinion(ctx, id));
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.upTo(
+                    PendingChoice.Kind.MINION, candidates, 2, ResumePoint.GRAVE_CURSE_DESTROY,
+                    "【墓穴の呪い】: 破壊するミニオンを2体まで選んでください(体力%d以下)"
+                            .formatted(threshold)));
         });
 
         // 冥府への道: 相手のミニオンを2体選び破壊する
@@ -1841,7 +1879,22 @@ public class CardEffectRegistry {
             List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 4);
             List<Integer> guardIndexes = new ArrayList<>();
             for (int i = 0; i < revealed.size(); i++) {
-                if (cards.findById(revealed.get(i)).hasKeyword(Keyword.GUARD)) {
+                CardMaster revealedCard = cards.findById(revealed.get(i));
+                // ★★★Batch 73(裁定303 の一族・67 が塞いだ穴の3枚目):
+                // <b>種別を見る。</b>本文は「【守護】<b>ミニオン</b>を1体場に出し」である。
+                // 72 まではキーワードしか見ておらず、
+                // <b>《英霊・タイガラム》(光・【守護】・コスト7 の<b>進化</b>)が
+                // 素材ゼロで場に立っていた</b> —— 裁定226(効果で出す進化にも素材は要る)に反する。
+                //
+                // ★67 が《神の福音》《聖なる降誕の儀式》で塞いだのと同じ穴であり、
+                // <b>山札から出すこの経路だけが見落とされていた</b>。
+                // ★★<b>{@code CardType.isMinion()} を使わないのは暫定である</b>(裁定308(b))——
+                // 進化ミニオンもミニオンだが、この経路には<b>素材を確保する口が無い</b>。
+                // 68 が手札からの経路に作った {@code EVOLUTION_MATERIAL_FROM_HAND} にあたるものが、
+                // 墓地・マナ・山札からの経路にはまだ無い。
+                // ★<b>直すのはその工事と一緒である</b>(73 の裁定依頼を参照)。
+                if (revealedCard.type() == CardType.MINION
+                        && revealedCard.hasKeyword(Keyword.GUARD)) {
                     guardIndexes.add(i);
                 }
             }
@@ -1865,6 +1918,16 @@ public class CardEffectRegistry {
                     "【降臨の伝道師】: 公開した%d枚から場に出す【守護】ミニオンを選んでください"
                             .formatted(revealed.size())));
         });
+
+        // ★Batch 73: 光文明のスペルとウェポンは registerLightSpellsAndWeapons() へ分けた。
+        // 光文明の登録が1メソッドで300行を超え、tools/check_structure.py の
+        // 「飲み込みの兆候」の閾値に触れたためである(Batch 57 が闇文明で行ったのと同じ形)。
+        // 区切りは元からあった「---- スペル ----」の見出しそのままで、中身は動かしていない。
+        registerLightSpellsAndWeapons();
+    }
+
+    /** 光文明のスペルとウェポン(★Batch 73 で registerLightCards から切り出した) */
+    private void registerLightSpellsAndWeapons() {
 
         // ---- スペル ----
 
@@ -2137,6 +2200,26 @@ public class CardEffectRegistry {
         // 墓地にあるスペルを2枚まで手札に戻す(候補が2枚以下なら選ぶ余地がないため自動で全て回収し、
         // 3枚以上ならa9でプレイヤーに選ばせる)。コスト軽減はStatCalculator.effectiveCostが担う
         register("QTE-M-WIND-18", TriggerType.ON_TURN_END, ctx -> {
+            // ★★★Batch 73(裁定303 の一族): <b>自分のターンエンドだけである。</b>
+            // ON_TURN_END は両者の場を回す(TriggerType の Javadoc)のが意図した設計であり、
+            // 「自分のターンだけ」はこのカード固有の条件である
+            // ——《安らぎのガーディアン》(EARTH-20)が同じ形で先に書いている。
+            //
+            // ★<b>73 まで、この判定が無かった。</b>しかも
+            // {@code spellsCastThisTurn} を 0 に戻す {@code startTurnReset} は
+            // <b>ターンプレイヤーにしか走らない</b>ので、自分のターンに5回撃つと
+            // その値は相手のターン中ずっと 5 のまま残る ——
+            // <b>相手のターンエンドでもう一度発動し、1巡で最大4枚回収していた</b>。
+            // 本文の「このターン5回以上」は、相手のターンについては満たしていない。
+            //
+            // ★★<b>器の側(リセットの範囲)は直していない。</b>
+            // {@code spellsCastThisTurn} / {@code cardsUsedThisTurn} の読み手を全部数えたところ、
+            // <b>相手のターン中に読まれるのはこの1件だけ</b>であった
+            // (他はすべて使用条件・ON_SUMMON・コスト計算であり、自分のターンにしか走らない)。
+            // 読み手が増えたときは、器の側を見直すこと。
+            if (ctx.state().turnPlayer() != ctx.owner()) {
+                return;
+            }
             if (ctx.owner().getSpellsCastThisTurn() < 5) {
                 return;
             }
@@ -2397,22 +2480,35 @@ public class CardEffectRegistry {
         });
 
         // 風のマナ変換: 自分の表向きのマナを1枚手札に戻す。その後自分の手札から1枚を裏向きでマナに置く
+        //
+        // ★★★Batch 73(裁定299 の適用漏れ): <b>どの1枚を戻すかを本人が選ぶ。</b>
+        //   72 までは {@code returnFaceUpManaToHand} が<b>末尾から自動で選んで</b>いた ——
+        //   本文に順序の指定は無く、「末尾(最後に置かれたもの)」は実装が足した規則である。
+        //   ★<b>戻したカードはそのまま手札から使える</b>ので、どれが戻るかは実質的な選択である。
+        //   ★★Batch 64 が《嵐の呼び手》の「相手のミニオン1体」を自動決定から本人の選択へ移した
+        //   (裁定299)のと同じ形であり、<b>このカードだけが取り残されていた</b> ——
+        //   しかも<b>同じカードの後半(裏向きで置く手札)は初めから問い合わせている</b>。
+        //   1枚のカードの中で扱いが割れているのは、いちばん見つけにくい形である。
         spellEffects.put("QTE-M-WIND-23", ctx -> {
-            boolean returned = ctx.actions().returnFaceUpManaToHand(ctx.room(), ctx.owner());
-            if (!returned) {
+            List<String> faceUpPositions = new ArrayList<>();
+            List<ManaCard> zone = ctx.owner().getManaZone();
+            for (int i = 0; i < zone.size(); i++) {
+                if (zone.get(i).isFaceUp()) {
+                    faceUpPositions.add(String.valueOf(i));
+                }
+            }
+            if (faceUpPositions.isEmpty()) {
                 ctx.room().addLog("【風のマナ変換】: 表向きのマナが無いため、何も起こりませんでした");
                 return;
             }
-            if (ctx.owner().getHand().isEmpty()) {
+            // ★1枚しか無いなら選ぶ余地が無い(《詠唱の疾風騎士》の回収と同じ形)
+            if (faceUpPositions.size() == 1) {
+                manaConvertReturnThenPut(ctx, Integer.parseInt(faceUpPositions.get(0)));
                 return;
             }
-            List<String> handPositions = new ArrayList<>();
-            for (int i = 0; i < ctx.owner().getHand().size(); i++) {
-                handPositions.add(String.valueOf(i));
-            }
             ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
-                    PendingChoice.Kind.HAND, handPositions, ResumePoint.MANA_CONVERT_PUT,
-                    "【風のマナ変換】: 裏向きでマナに置く手札を選んでください"));
+                    PendingChoice.Kind.MANA, faceUpPositions, ResumePoint.MANA_CONVERT_RETURN,
+                    "【風のマナ変換】: 手札に戻す表向きのマナを選んでください"));
         });
 
         // サイクロン・リフレッシュ: 場か手札のカードを合計2枚デッキに戻してシャッフルする。
@@ -3834,6 +3930,10 @@ public class CardEffectRegistry {
                 }
             }
             // 風のマナ変換(QTE-M-WIND-23): 裏向きでマナに置く手札1枚を確定させる
+            // ★風のマナ変換(QTE-M-WIND-23): 手札に戻す表向きのマナが決まった。★Batch 73
+            case MANA_CONVERT_RETURN ->
+                manaConvertReturnThenPut(ctx, Integer.parseInt(chosen.get(0)));
+
             case MANA_CONVERT_PUT -> {
                 int idx = Integer.parseInt(chosen.get(0));
                 ctx.actions().putHandCardIntoManaFaceDown(ctx.room(), ctx.owner(), idx);
@@ -4088,6 +4188,13 @@ public class CardEffectRegistry {
                 }
             }
 
+            // ★墓穴の呪い(QTE-M-DARK-24): 体力が閾値以下のミニオンから2体を選ぶ。★Batch 73
+            // ★1体ずつ壊す。まとめて壊す口を作らないのは、
+            //   1体目の【破壊時】が2体目を場から動かしうるためである
+            //   —— destroyChosenMinion は instanceId で引き直すので、
+            //   既に居なくなっていれば何もしない(49 設計解説 2-3 の「実体を握らない」形)。
+            case GRAVE_CURSE_DESTROY -> chosen.forEach(id -> destroyChosenMinion(ctx, id));
+
             // ★聖なる降誕の儀式(LIGHT-11)/神の福音(LIGHT-12): 手札から出すミニオンが揃った。★Batch 68
             case PUT_FROM_HAND_SELECT -> {
                 List<String> picked = new ArrayList<>();
@@ -4104,6 +4211,30 @@ public class CardEffectRegistry {
      * 選ばれた instanceId のミニオンを破壊する(★Batch 68)。
      * どちらの場に居るかは instanceId から引く —— 相手の場のミニオンも対象になりうる。
      */
+    /**
+     * 《風のマナ変換》の後半(★Batch 73)。
+     * 選ばれた表向きのマナを手札に戻し、続けて「裏向きで置く手札」を問う。
+     *
+     * <p>★<b>戻す1枚が選ばれた後の流れは、自動で戻したときと同じである。</b>
+     * 1箇所にまとめておかないと、
+     * 「候補が1枚のときだけ後半が走らない」という形の穴が開く(66 の教訓)。
+     */
+    private void manaConvertReturnThenPut(EffectContext ctx, int manaIndex) {
+        if (!ctx.actions().returnManaToHandAt(ctx.room(), ctx.owner(), manaIndex)) {
+            return;
+        }
+        if (ctx.owner().getHand().isEmpty()) {
+            return;
+        }
+        List<String> handPositions = new ArrayList<>();
+        for (int i = 0; i < ctx.owner().getHand().size(); i++) {
+            handPositions.add(String.valueOf(i));
+        }
+        ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                PendingChoice.Kind.HAND, handPositions, ResumePoint.MANA_CONVERT_PUT,
+                "【風のマナ変換】: 裏向きでマナに置く手札を選んでください"));
+    }
+
     private void destroyChosenMinion(EffectContext ctx, String instanceId) {
         for (PlayerState side : List.of(ctx.owner(), ctx.opponent())) {
             side.getMinionZone().stream()

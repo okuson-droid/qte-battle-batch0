@@ -386,15 +386,72 @@ public class GameWsController {
         void apply(GameRoom room);
     }
 
+    /**
+     * ★★★Batch 73: <b>送られてこなければ断る関門</b>(72b の宿題)。
+     *
+     * <p>72b で {@code enhanced} を箱型にしたのは、
+     * <b>原始型の項目が本文に無いと変換ごと失敗する</b>(そしてそれが誰にも返らない)からである。
+     * 残りの項目も同じ地雷を踏みうるので、73 ですべて箱型にした ——
+     * <b>ただし、箱型にすることと畳むことは別である。</b>
+     *
+     * <h2>★畳んでよいのは、畳んだ先が「何もしない」に落ちるときだけである</h2>
+     * <ul>
+     *   <li>{@code enhanced} …… 無ければ false = <b>通常の使用</b>。
+     *       {@code play-soul} は送らないのが正しいので、畳むのが正しい</li>
+     *   <li>{@code handIndex} …… 無ければ 0 = <b>手札の1枚目をプレイする</b>。
+     *       送っていない人の意図と何の関係も無い操作が通ってしまう</li>
+     *   <li>{@code goFirst} …… 無ければ false = <b>後攻を選ぶ</b>。
+     *       ダイスに勝った人が選び直せない、取り返しのつかない選択である</li>
+     * </ul>
+     * → <b>既定値が「何もしない」にならない項目は、畳まずに断る。</b>
+     *
+     * <h2>★なぜ {@code IllegalArgumentException} なのか</h2>
+     * 素の自動開封({@code Integer} → {@code int})に任せると
+     * {@link NullPointerException} になり、{@link #execute} はそれを捕まえない ——
+     * <b>また無言に戻る</b>。ここで投げる2種類の例外だけが、
+     * 「操作した人へ理由を返す」経路に乗る。
+     *
+     * <p>★アクセサから呼ぶので、評価されるのは {@code execute} のラムダの中である
+     * (= try の中である)。呼び出し側で先に開封しないこと。
+     */
+    private static <T> T required(T value, String field) {
+        if (value == null) {
+            throw new IllegalArgumentException(
+                    "操作に必要な項目が送られていません: " + field);
+        }
+        return value;
+    }
+
     // ---- クライアントから受け取るメッセージの型 ----
 
     public record ActionRequest(String playerId) {
     }
 
-    public record ChooseOrderRequest(String playerId, boolean goFirst) {
+    /**
+     * ダイスの勝者による先攻 / 後攻の選択。
+     *
+     * @param goFirst ★Batch 73: <b>箱型だが畳まない</b>({@link #required})。
+     *                無いときに false と読むと<b>後攻を選んだこと</b>になり、
+     *                しかもこの選択はやり直せない。
+     */
+    public record ChooseOrderRequest(String playerId, Boolean goFirst) {
+
+        public Boolean goFirst() {
+            return required(goFirst, "goFirst");
+        }
     }
 
-    public record HandActionRequest(String playerId, int handIndex) {
+    /**
+     * 手札の位置だけを送る操作(マナチャージ)。
+     *
+     * @param handIndex ★Batch 73: <b>箱型だが畳まない</b>({@link #required})。
+     *                  無いときに 0 と読むと<b>手札の1枚目をマナに置く</b>ことになる。
+     */
+    public record HandActionRequest(String playerId, Integer handIndex) {
+
+        public Integer handIndex() {
+            return required(handIndex, "handIndex");
+        }
     }
 
     // ★Batch 60: TrashActionRequest(playerId + trashIndex だけ)は削除した。
@@ -420,9 +477,18 @@ public class GameWsController {
      *                    しかも捨てたことは誰にも返らない。
      *                    ★この形は {@code materialIds} / {@code manaIndexes} と同じである。
      */
-    public record PlayCardRequest(String playerId, int handIndex,
+    public record PlayCardRequest(String playerId, Integer handIndex,
             List<TargetChoice> targets, Boolean enhanced, List<String> materialIds,
             List<Integer> manaIndexes) {
+
+        /**
+         * ★Batch 73: <b>箱型だが畳まない</b>({@link #required})。
+         * 無いときに 0 と読むと<b>手札の1枚目をプレイする</b>ことになる ——
+         * {@code enhanced} と同じ record に居ながら、扱いは逆である。
+         */
+        public Integer handIndex() {
+            return required(handIndex, "handIndex");
+        }
 
         public Boolean enhanced() {
             return enhanced != null && enhanced;
@@ -443,8 +509,16 @@ public class GameWsController {
      * ★Batch 60: <b>墓地からの【特殊召喚】と、墓地からの召喚(《黄泉の召喚主》)が共用する。</b>
      * 後者は {@code materialIds} を読まない —— 出せるのはミニオンだけだからである。
      */
-    public record GraveSummonRequest(String playerId, int trashIndex,
+    public record GraveSummonRequest(String playerId, Integer trashIndex,
             List<TargetChoice> targets, List<String> materialIds) {
+
+        /**
+         * ★Batch 73: <b>箱型だが畳まない</b>({@link #required})。
+         * 無いときに 0 と読むと<b>墓地のいちばん古い1枚</b>を出すことになる。
+         */
+        public Integer trashIndex() {
+            return required(trashIndex, "trashIndex");
+        }
 
         public List<String> materialIds() {
             return materialIds == null ? List.of() : materialIds;
@@ -457,8 +531,17 @@ public class GameWsController {
     public record MulliganRequest(String playerId, List<Integer> handIndexes) {
     }
 
-    public record TabooRequest(String playerId, int tabooIndex,
+    public record TabooRequest(String playerId, Integer tabooIndex,
             List<Integer> manaIndexes, List<TargetChoice> targets, List<String> materialIds) {
+
+        /**
+         * ★Batch 73: <b>箱型だが畳まない</b>({@link #required})。
+         * 無いときに 0 と読むと<b>禁忌デッキの1枚目</b>を使うことになる ——
+         * しかも禁忌は使い終わると消滅ゾーンへ行き、二度と戻らない。
+         */
+        public Integer tabooIndex() {
+            return required(tabooIndex, "tabooIndex");
+        }
 
         public List<String> materialIds() {
             return materialIds == null ? List.of() : materialIds;

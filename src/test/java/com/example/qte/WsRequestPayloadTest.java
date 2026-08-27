@@ -2,6 +2,7 @@ package com.example.qte;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -16,7 +17,7 @@ import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.GenericMessage;
 
-import com.example.qte.web.GameBroadcaster;
+import com.example.qte.support.PeekingBroadcaster;
 import com.example.qte.web.GameWsController;
 
 /**
@@ -187,26 +188,101 @@ class WsRequestPayloadTest {
     }
 
     // ------------------------------------------------------------------
-    // 3) 読めなかったメッセージは黙って捨てられない(設計判断51)
+    // 3) ★Batch 73: 箱型にしたが畳まない項目 —— 欠けたら「断る」
     // ------------------------------------------------------------------
 
-    /** {@code sendError} だけを覗く器。★他の経路は使わないので依存は null でよい */
-    private static final class PeekingBroadcaster extends GameBroadcaster {
-        private String roomId;
-        private String playerId;
-        private String message;
+    /**
+     * ★★★<b>箱型にすることと、畳むことは別である。</b>
+     *
+     * <p>72b は {@code enhanced} を箱型にして null を false へ畳んだ。
+     * それが正しかったのは、<b>畳んだ先が「通常の使用」= 送らない入口の意図そのもの</b>
+     * だったからである。73 が箱型にした5項目は違う ——
+     * {@code handIndex} を 0 へ畳めば<b>手札の1枚目をプレイする</b>ことになり、
+     * {@code goFirst} を false へ畳めば<b>後攻を選んだ</b>ことになる。
+     *
+     * <p>→ <b>変換は通す</b>(メッセージを捨てない)。
+     * <b>読むときに断る</b>(操作した人へ理由が返る)。
+     *
+     * <p>★この2段は別のことを守っている。1段目が無いと 72b の不具合に戻り、
+     * 2段目が無いと「送っていない値で操作が通る」。
+     */
+    private static final List<Payload> 必須項目が欠けた本文 = List.of(
+            new Payload("choose-order(goFirst が無い)", "{" + P + "}",
+                    GameWsController.ChooseOrderRequest.class),
+            new Payload("charge-mana(handIndex が無い)", "{" + P + "}",
+                    GameWsController.HandActionRequest.class),
+            new Payload("play-card(handIndex が無い)", "{" + P + ",\"targets\":[]}",
+                    GameWsController.PlayCardRequest.class),
+            new Payload("summon-from-grave(trashIndex が無い)", "{" + P + ",\"targets\":[]}",
+                    GameWsController.GraveSummonRequest.class),
+            new Payload("play-taboo(tabooIndex が無い)", "{" + P + ",\"targets\":[]}",
+                    GameWsController.TabooRequest.class));
 
-        private PeekingBroadcaster() {
-            super(null, null);
-        }
-
-        @Override
-        public void sendError(String roomId, String playerId, String message) {
-            this.roomId = roomId;
-            this.playerId = playerId;
-            this.message = message;
+    @Test
+    @DisplayName("★必須項目が欠けていても、メッセージは捨てられない(変換は通る)")
+    void 必須項目が欠けても変換は通る() {
+        for (Payload s : 必須項目が欠けた本文) {
+            assertThatCode(() -> convert(s.本文(), s.受け口()))
+                    .as(s.宛先() + " で変換が失敗している(捨てられている): " + s.本文())
+                    .doesNotThrowAnyException();
         }
     }
+
+    /**
+     * ★★<b>例外の型が肝である。</b>{@code GameWsController.execute} が捕まえるのは
+     * {@code IllegalStateException} と {@code IllegalArgumentException} だけである ——
+     * 素の自動開封に任せると {@code NullPointerException} になり、
+     * <b>捕まえる人が居なくなって、また無言に戻る</b>(72b の宿題そのもの)。
+     */
+    @Test
+    @DisplayName("★必須項目が欠けたまま読もうとすると、返せる例外で断られる")
+    void 必須項目が欠けたら断る() {
+        assertThatThrownBy(
+                () -> convert("{" + P + "}", GameWsController.ChooseOrderRequest.class).goFirst())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("goFirst");
+        assertThatThrownBy(
+                () -> convert("{" + P + "}", GameWsController.HandActionRequest.class).handIndex())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("handIndex");
+        assertThatThrownBy(() -> convert("{" + P + ",\"targets\":[]}",
+                GameWsController.PlayCardRequest.class).handIndex())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("handIndex");
+        assertThatThrownBy(() -> convert("{" + P + ",\"targets\":[]}",
+                GameWsController.GraveSummonRequest.class).trashIndex())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("trashIndex");
+        assertThatThrownBy(() -> convert("{" + P + ",\"targets\":[]}",
+                GameWsController.TabooRequest.class).tabooIndex())
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tabooIndex");
+    }
+
+    /**
+     * ★<b>断る側だけを測ると、「常に断る」実装でも緑になる</b>(裁定181)。
+     * 送られてくれば、その値がそのまま読めることも見る。
+     */
+    @Test
+    @DisplayName("必須項目は、送られてくれば読める")
+    void 必須項目は送られてくれば読める() {
+        assertThat(convert("{" + P + ",\"goFirst\":true}",
+                GameWsController.ChooseOrderRequest.class).goFirst()).isTrue();
+        assertThat(convert("{" + P + ",\"goFirst\":false}",
+                GameWsController.ChooseOrderRequest.class).goFirst()).isFalse();
+        assertThat(convert("{" + P + ",\"handIndex\":3}",
+                GameWsController.HandActionRequest.class).handIndex()).isEqualTo(3);
+        assertThat(convert("{" + P + ",\"handIndex\":0,\"targets\":[]}",
+                GameWsController.PlayCardRequest.class).handIndex()).isZero();
+        assertThat(convert("{" + P + ",\"trashIndex\":2,\"targets\":[]}",
+                GameWsController.GraveSummonRequest.class).trashIndex()).isEqualTo(2);
+        assertThat(convert("{" + P + ",\"tabooIndex\":1,\"targets\":[]}",
+                GameWsController.TabooRequest.class).tabooIndex()).isEqualTo(1);
+    }
+
+    // ------------------------------------------------------------------
+    // 4) 読めなかったメッセージは黙って捨てられない(設計判断51)
+    // ------------------------------------------------------------------
 
     private static Message<byte[]> 届いたもの(String destination, String body) {
         SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
@@ -225,9 +301,9 @@ class WsRequestPayloadTest {
         controller.onUnreadableMessage(new MessageConversionException("読めない"),
                 届いたもの("/app/room/ABC123/play-soul", "{\"playerId\":\"p1\",\"handIndex\":0}"));
 
-        assertThat(broadcaster.roomId).isEqualTo("ABC123");
-        assertThat(broadcaster.playerId).isEqualTo("p1");
-        assertThat(broadcaster.message).contains("受け取れませんでした");
+        assertThat(broadcaster.roomId()).isEqualTo("ABC123");
+        assertThat(broadcaster.playerId()).isEqualTo("p1");
+        assertThat(broadcaster.message()).contains("受け取れませんでした");
     }
 
     @Test
@@ -239,6 +315,6 @@ class WsRequestPayloadTest {
         controller.onUnreadableMessage(new MessageConversionException("読めない"),
                 届いたもの("/app/room/ABC123/play-soul", "壊れた本文"));
 
-        assertThat(broadcaster.message).isNull();
+        assertThat(broadcaster.message()).isNull();
     }
 }

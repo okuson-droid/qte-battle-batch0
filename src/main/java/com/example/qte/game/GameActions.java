@@ -372,7 +372,7 @@ public class GameActions {
         }
         owner.setEquippedWeapon(null);
         room.addLog("【%s】が破壊されました".formatted(weapon.name()));
-        onWeaponLeftPlay(owner, weapon);
+        onWeaponLeftPlay(room, owner, weapon);
         sendToTrashOrRestore(room, owner, weapon, owner.isEquippedWeaponFromTaboo());
         owner.setEquippedWeaponFromTaboo(false);
         return true;
@@ -403,7 +403,7 @@ public class GameActions {
         boolean fromTaboo = owner.isEquippedWeaponFromTaboo();
         owner.setEquippedWeapon(null);
         owner.setEquippedWeaponFromTaboo(false);
-        onWeaponLeftPlay(owner, weapon);
+        onWeaponLeftPlay(room, owner, weapon);
         if (fromTaboo) {
             owner.getLostZone().add(weapon.id());
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(weapon.name()));
@@ -995,14 +995,30 @@ public class GameActions {
     // ---------------------------------------------------------------
 
     /**
-     * 詠唱の宝珠(QTE-M-LIGHT-28): ウェポンが場を離れたとき、次に唱えるスペルのコスト-1を付与する。
+     * 詠唱の宝珠(QTE-M-LIGHT-28): ウェポンが場を離れたとき、
+     * <b>次の自分のターンに唱える光のスペルのコスト-1</b>を付与する。
      * 破壊(destroyOwnWeapon)・新しいウェポンへの付け替え(GameService.equipWeapon)の
      * どちらの経路でも発動する(発注者確認済み)。ウェポンには破壊トリガーの仕組みがまだ無いため、
      * 「ウェポンが場を離れる」2箇所の処理から直接呼ぶ形にしている。
+     *
+     * <h2>★★★Batch 73: 「次の1枚」から「次の自分のターンの全部」へ直した</h2>
+     * Ver1.1 の本文は「次の自分のターン唱える光のスペルのコスト-1」であり、
+     * {@code notes/ver0.4-transcription-notes.md} の4章ルーリング #9(発注者確認済み)が
+     * <b>「すべてが対象(最初の1枚だけではない)」</b>と明記している。
+     * 72 まではスペルを1枚唱えた時点で消えており、
+     * しかも<b>期限がターンに紐づいていなかった</b>ので、
+     * その1枚を唱えなければ<b>何ターンでも残り続けていた</b>。
+     *
+     * <p>★<b>「次の自分のターン」は付与のこの瞬間に決まる。</b>
+     * 自分のターン中に外れたなら次の自分のターンは2つ先、
+     * 相手のターン中に外れたなら1つ先である ——
+     * <b>相手のターン中にスペルは唱えられない</b>ので、
+     * 「次の自分のターンの終了時まで」で本文どおりになる。
      */
-    public void onWeaponLeftPlay(PlayerState owner, CardMaster weapon) {
+    public void onWeaponLeftPlay(GameRoom room, PlayerState owner, CardMaster weapon) {
         if (CHANT_ORB.equals(weapon.id())) {
-            owner.getPersistentAuras().add(PersistentAura.untilNextSpell(CHANT_ORB));
+            owner.getPersistentAuras().add(
+                    PersistentAura.untilEndOfTurn(CHANT_ORB, nextOwnTurnNumber(room, owner)));
         }
         // 暴風の双剣がこのターン積み上げた攻撃力の加算は、ウェポンが外れた時点で消える
         owner.setWeaponAttackBonusThisTurn(0);
@@ -1011,6 +1027,22 @@ public class GameActions {
         // (攻撃していないため)ターン終了時に壊れない」という裁定が成立する。
         // 破壊・付け替えの両経路がこのメソッドを必ず通るため、落とす場所はここ1箇所でよい
         owner.setWeaponAttackedThisTurn(false);
+    }
+
+    /**
+     * 「次の自分のターン」のターン番号(★Batch 73)。
+     *
+     * <p>ターン番号は両者で共有する連番であり、手番は交互である。したがって
+     * <b>いま自分の手番なら2つ先、相手の手番なら1つ先</b>が次の自分のターンになる。
+     *
+     * <p>★<b>期限の判定は {@code GameService} のターン終了処理1箇所にある</b>
+     * ({@code turnNumber >= expiresAfterTurn} で落とす)。
+     * ここが計算するのは<b>いつまで持つか</b>だけであり、消し方は持たない(裁定130)。
+     */
+    private static int nextOwnTurnNumber(GameRoom room, PlayerState owner) {
+        GameState state = room.getGameState();
+        int now = state.getTurnNumber();
+        return state.turnPlayer() == owner ? now + 2 : now + 1;
     }
 
     /**

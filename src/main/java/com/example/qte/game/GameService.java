@@ -684,11 +684,6 @@ public class GameService {
         ValidatedTargets validated = validateTargets(state, player, handIndex, soul.targets(), choices);
         payCost(player, stats.effectiveSoulCost(state, player, master, soulCostOf(master)), manaIndexes);
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
-        // 【詠唱の宝珠】のような「次に唱えるスペル」限定の効果は、ここで使い切る。
-        // コストの計算が終わった後に消すこと(playSpell と同じ順序)
-        player.getPersistentAuras().removeIf(
-                aura -> aura.expiry() == PersistentAura.Expiry.ON_NEXT_SPELL);
-
         resolveSoulSpell(room, state, player, master, soul, resolved, false);
 
         player.setPlayedCardThisTurn(true);
@@ -909,10 +904,10 @@ public class GameService {
             player.setPendingSacrificeCount(0); // MP不足で弾かれた場合も必ず戻す
         }
         ResolvedTargets resolved = removePlayedAndTargets(player, handIndex, validated);
-        // 【詠唱の宝珠】のような「次に唱えるスペル」限定の効果は、ここで使い切る。
-        // コストの計算(effectiveCost)が終わった後に消すこと。順序を逆にすると軽減が乗らない
-        player.getPersistentAuras().removeIf(
-                aura -> aura.expiry() == PersistentAura.Expiry.ON_NEXT_SPELL);
+        // ★★★Batch 73: 【詠唱の宝珠】をここで「使い切る」処理は無くなった。
+        // Ver1.1 の本文は「次の自分のターンに唱える光のスペル<b>すべて</b>」であり、
+        // 1枚で消える形は Ver0.4 の姿だった(ver0.4-transcription-notes 4章 #9)。
+        // 期限はターン番号で持ち、落とすのはターン終了処理1箇所である。
         room.addLog("%sが【%s】を唱えました".formatted(player.getDisplayName(), master.name()));
 
         player.setPendingSpellDisposition(null);
@@ -1569,7 +1564,7 @@ public class GameService {
         CardMaster old = player.getEquippedWeapon();
         if (old != null) {
             // 詠唱の宝珠: 破壊(destroyOwnWeapon)だけでなく、付け替えで場を離れる場合も発動する
-            actions.onWeaponLeftPlay(player, old);
+            actions.onWeaponLeftPlay(room, player, old);
             if (player.isEquippedWeaponFromTaboo()) {
                 player.getLostZone().add(old.id());
                 room.addLog("【%s】は禁忌カードのため消滅しました".formatted(old.name()));
