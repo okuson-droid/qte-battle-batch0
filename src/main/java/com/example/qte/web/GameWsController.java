@@ -1,10 +1,17 @@
 package com.example.qte.web;
 
+import org.springframework.messaging.Message;
+import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.stereotype.Controller;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.example.qte.effect.TargetChoice;
 import com.example.qte.game.GameService;
@@ -13,6 +20,7 @@ import com.example.qte.room.GameRoomManager;
 import com.example.qte.room.SeatId;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * WebSocketメッセージの入口。MVCの@Controllerに相当する層で、役割も同じ:
@@ -26,6 +34,7 @@ import lombok.RequiredArgsConstructor;
  */
 @Controller
 @RequiredArgsConstructor
+@Slf4j
 public class GameWsController {
 
     private final GameRoomManager roomManager;
@@ -322,6 +331,56 @@ public class GameWsController {
         }
     }
 
+    /**
+     * ★★★Batch 72b: <b>読めなかったメッセージを黙って捨てない</b>(設計判断51)。
+     *
+     * <p>賢魂の不具合は、コードの筋がどこも間違っていないのに直らなかった ——
+     * クライアントは正しく送り、サーバのハンドラは正しく書かれていたが、
+     * <b>その二つの間</b>でメッセージが捨てられていたからである。
+     * 変換に失敗したメッセージはハンドラに入らないので {@code execute} を通らず、
+     * {@code sendError} の経路にも乗らない。画面には何も起きない。
+     *
+     * <p>→ 変換の失敗をここで受け、<b>操作した人に返す</b>。
+     * ★宛先(roomId)はヘッダから取れる。playerId は<b>読めなかった本文</b>の中にしかないので、
+     * そこから1つの項目だけを拾う —— 本文全体をもう一度解釈することはしない
+     * (解釈できないと分かっている物である)。拾えなければサーバのログだけが残る。
+     *
+     * <p>★<b>これは番人であって、直し方ではない。</b>原因そのものは
+     * 「クライアントが送らない項目を原始型で受けていたこと」であり、
+     * それは {@link PlayCardRequest#enhanced()} 側で直してある。
+     */
+    @MessageExceptionHandler(MessageConversionException.class)
+    public void onUnreadableMessage(MessageConversionException e, Message<byte[]> message) {
+        String destination = SimpMessageHeaderAccessor.getDestination(message.getHeaders());
+        log.error("受け取れないメッセージ: destination={} {}", destination, e.getMessage());
+        String roomId = roomIdOf(destination);
+        String playerId = playerIdOf(message.getPayload());
+        if (roomId == null || playerId == null) {
+            return;
+        }
+        broadcaster.sendError(roomId, playerId,
+                "操作を受け取れませんでした(送信の形が不正です)。画面を再読み込みしてください");
+    }
+
+    /** {@code /app/room/{roomId}/{action}} の roomId。形が違えば null */
+    private static String roomIdOf(String destination) {
+        if (destination == null) {
+            return null;
+        }
+        Matcher m = ROOM_IN_DESTINATION.matcher(destination);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** 読めなかった本文から playerId だけを拾う。見つからなければ null */
+    private static String playerIdOf(byte[] payload) {
+        Matcher m = PLAYER_ID_IN_BODY.matcher(new String(payload, StandardCharsets.UTF_8));
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static final Pattern ROOM_IN_DESTINATION = Pattern.compile("/room/([^/]+)/");
+    private static final Pattern PLAYER_ID_IN_BODY =
+            Pattern.compile("\"playerId\"\\s*:\\s*\"([^\"]+)\"");
+
     @FunctionalInterface
     private interface RoomAction {
         void apply(GameRoom room);
@@ -351,10 +410,23 @@ public class GameWsController {
      *                    <b>クリックからのプレイだけが送ってくる</b> ——
      *                    ドラッグ&ドロップは空で送り、サーバが
      *                    {@code ManaPayment.normalOrder} の順に自動で払う(裁定315・316)。
+     * @param enhanced    ★Batch 72b(不具合修正): <b>箱型である。</b>
+     *                    {@code play-soul} はこの宛先を共用しながら
+     *                    <b>強化使用を持たない</b>ので、送ってこない
+     *                    ({@link #playSoul} の説明も「読まない」と書いている)。
+     *                    原始型 {@code boolean} のままだと、
+     *                    <b>送られてこないこと自体が変換の失敗</b>になり、
+     *                    ハンドラに入る前にメッセージごと捨てられる ——
+     *                    しかも捨てたことは誰にも返らない。
+     *                    ★この形は {@code materialIds} / {@code manaIndexes} と同じである。
      */
     public record PlayCardRequest(String playerId, int handIndex,
-            List<TargetChoice> targets, boolean enhanced, List<String> materialIds,
+            List<TargetChoice> targets, Boolean enhanced, List<String> materialIds,
             List<Integer> manaIndexes) {
+
+        public Boolean enhanced() {
+            return enhanced != null && enhanced;
+        }
 
         public List<String> materialIds() {
             return materialIds == null ? List.of() : materialIds;

@@ -6843,6 +6843,104 @@ async function clearZoom(page) {
       && !!droppedWeapon && droppedWeapon.body.handIndex === 2,
     JSON.stringify({ droppedSpell, droppedWeapon }));
 
+  // ---- 70-6b. ★★★【賢魂】を持つミニオンをスペル枠へ落とすと play-soul になる(裁定318) ----
+  //
+  // ★★★<b>Batch 72 で足した。70 はこの経路を1件も測っていなかった。</b>
+  //   70 の落とし先の検査(70-4・70-6)が使う手札はミニオン・スペル・ウェポンの3枚で、
+  //   <b>賢魂を持つカードが1枚も居なかった</b> ——
+  //   裁定318 の中心(「落とし先が【賢魂】かどうかの宣言を兼ねる」)そのものが
+  //   <b>穴になっていた</b>。マスターの不具合報告で気づいた。
+  // ★★<b>賢魂を持つ7枚のうち4枚は進化ミニオンである。</b>だから種別も2通り測る ——
+  //   進化は落とし先が FIELD のときだけ素材を要求する形になっており、
+  //   SPELL へ落ちたときにその分岐へ入ってはいけない。
+  const soulCardView = (over = {}) => autoCard('QTE-M-DARK-37', 'グレイヴガールズファン', {
+    type: 'MINION', civilization: 'DARK', cost: 5, attack: 2, hp: 3,
+    text: '【守護】【賢魂：1】カードを1枚引く。その後自分の山札の上から1枚目を墓地に置く。',
+    soulCost: 1, soulEffectiveCost: 1, soulTargets: [],
+    soulText: 'カードを1枚引く。その後自分の山札の上から1枚目を墓地に置く。',
+    ...over,
+  });
+  const soulDropView = autoView({
+    you: autoPlayer({
+      hand: [
+        // ★[0] ミニオン(印刷コストは払えない・賢魂なら払える)
+        soulCardView(),
+        // ★[1] 進化(素材は場に居る)。★SPELL へ落ちたら素材を尋ねてはいけない
+        soulCardView({ id: 'QTE-M-WIND-31', name: '白ノ霊知者', type: 'EVOLUTION',
+          civilization: 'WIND', cost: 4, soulCost: 2, soulEffectiveCost: 2,
+          evolutionMin: 1, evolutionMax: 1, evolutionMaterialIds: ['sm0'],
+          evolutionText: '風文明のミニオン1体' }),
+      ],
+      handCount: 2, minions: [autoMinion('sm0', '素材にもなるミニオン')],
+      manaZone: payMana(3), totalMana: 3, availableMp: 3,
+      manaPayOrder: [0, 1, 2], tabooPayOrder: [0, 1, 2],
+      taboo: [soulCardView()], tabooCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+
+  const dropAsSoul = async (sel) => {
+    await autoDeliver(soulDropView);
+    await autoPage.evaluate(() => { window.__sent.length = 0; });
+    await realDrag(autoPage, sel, '#spell-drop');
+    return autoPage.evaluate(() => ({
+      sent: window.__sent[window.__sent.length - 1] || null,
+      /* eslint-disable no-undef */
+      evolving: !!evolution,
+      paying: !!manaPay,
+      selecting: pending ? pending.action : null,
+      /* eslint-enable no-undef */
+      message: document.getElementById('message-area').textContent,
+    }));
+  };
+
+  const soulReady = await autoPage.evaluate((v) => {
+    /* eslint-disable no-undef */
+    latestView = v; render(v);
+    return {
+      minion: dropZonesFor(v.you.hand[0], 'HAND', v),
+      evolution: dropZonesFor(v.you.hand[1], 'HAND', v),
+      taboo: dropZonesFor(v.you.taboo[0], 'TABOO', v),
+    };
+    /* eslint-enable no-undef */
+  }, soulDropView);
+  check('★★★【賢魂】を持つカードはスペル枠を落とし先に持つ(70-6b・裁定318)',
+    soulReady.minion.includes('SPELL') && soulReady.evolution.includes('SPELL')
+      && soulReady.taboo.includes('SPELL'), JSON.stringify(soulReady));
+
+  const soulMinionDrop = await dropAsSoul('#my-hand .auto-card');
+  check('★★★賢魂を持つミニオンをスペル枠へ落とすと play-soul へ飛ぶ(70-6b・裁定318)',
+    !!soulMinionDrop.sent && soulMinionDrop.sent.destination.endsWith('/play-soul')
+      && soulMinionDrop.sent.body.handIndex === 0
+      && Array.isArray(soulMinionDrop.sent.body.manaIndexes)
+      && soulMinionDrop.sent.body.manaIndexes.length === 0,
+    JSON.stringify(soulMinionDrop));
+
+  const soulEvolutionDrop = await dropAsSoul('#my-hand .auto-card:nth-child(2)');
+  check('★★★賢魂を持つ<b>進化</b>をスペル枠へ落としても素材を尋ねない(70-6b・裁定318)',
+    !!soulEvolutionDrop.sent && soulEvolutionDrop.sent.destination.endsWith('/play-soul')
+      && soulEvolutionDrop.sent.body.handIndex === 1
+      && soulEvolutionDrop.evolving === false && soulEvolutionDrop.message === '',
+    JSON.stringify(soulEvolutionDrop));
+
+  // ★禁忌デッキからの賢魂もドラッグで飛ぶ(マスター裁定 A6)。★帯を開いてから掴む
+  await autoDeliver(soulDropView);
+  await autoPage.evaluate(() => {
+    document.getElementById('taboo-strip').classList.remove('d-none');
+    window.__sent.length = 0;
+  });
+  await autoPage.waitForTimeout(60);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#spell-drop');
+  const soulTabooDrop = await autoPage.evaluate(() => {
+    const last = window.__sent[window.__sent.length - 1] || null;
+    document.getElementById('taboo-strip').classList.add('d-none');
+    return last;
+  });
+  check('★★禁忌デッキの【賢魂】もスペル枠へ落として使える(70-6b・マスター裁定 A6)',
+    !!soulTabooDrop && soulTabooDrop.destination.endsWith('/play-taboo-soul')
+      && soulTabooDrop.body.tabooIndex === 0,
+    JSON.stringify(soulTabooDrop));
+
   // ---- 70-7. ★★★裏向きマナが墓地送りになる禁忌は、ドラッグでも止まる(裁定317・321) ----
   //   ★<b>裁定321 の唯一の例外である。</b>取り返しのつかない支払いは確認を挟む
   const burnView = autoView({

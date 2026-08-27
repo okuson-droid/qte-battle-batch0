@@ -1,20 +1,20 @@
-# QTE 対戦アプリ — 引き継ぎ書 v79
+# QTE 対戦アプリ — 引き継ぎ書 v80
 
-最終更新: 2026-08-27。**Batch 72(試合の出入り = 席・退室・投了・再戦)を実施。**
+最終更新: 2026-08-27。**Batch 72(試合の出入り)を実施し、続けて ★★★不具合修正 72b(賢魂がスペル枠で使えない)を実施。**
 
 | 項目 | 現在値 |
 |---|---|
-| JUnit | ★**805件 全緑**(777 → +28) |
-| verify | ★**706件 全緑**(671 → +35)★うち4件は不具合報告の追補(設計解説11章) |
+| JUnit | ★**814件 全緑**(777 → 805 → **+9**)|
+| verify | ★**706件 全緑**(据え置き。★**72b は verify を1件も足していない** —— 理由は下の 72b 節)|
 | 効果の未実装 | **0枚**(据え置き) |
 | 本文と実装の突き合わせ | **47 / 235枚**(据え置き。★**72 はカード本文を1文字も触っていない**) |
 | 版数 | ★**`battle.css` v=53(★参照する5枚すべて)/ `battle.js` v=35**<br>(`manual-battle.js` v=34 / `SFX_VERSION`=1 は据え置き) |
 | 裁定 | **1〜323 の全323件が確定。欠番ゼロ**<br>★★**72 も裁定を1件も起こしていない**が、**マスターの回答4件が実質の裁定である**(下の 2章)。**新しい裁定は 324 から** |
 | カード定義 | 235枚(★72 では1文字も触っていない) |
-| ★**Java** | ★★★**変えた**(71 とは逆である。`GameRoom` / `GameService` / `GameActions` / `PlayerState` / ビュー / WS の入口) |
-| ★新設 | `tools/batch72_break_check.py` / `src/test/java/com/example/qte/Batch72SeatTest.java` / `notes/batch72-design-notes.md` |
+| ★**Java** | ★★★**変えた**(72: `GameRoom` / `GameService` / `GameActions` / `PlayerState` / ビュー / WS の入口)<br>★**72b が変えたのは `GameWsController.java` ただ1つである**(`PlayCardRequest.enhanced` を箱型に / 変換失敗の受け皿) |
+| ★新設 | (72)`tools/batch72_break_check.py` / `Batch72SeatTest.java` / `notes/batch72-design-notes.md`<br>★(72b)`tools/batch72b_break_check.py` / `src/test/java/com/example/qte/WsRequestPayloadTest.java` / `src/test/java/com/example/qte/WsErrorRoutingTest.java` / `notes/batch72b-bugfix-notes.md` |
 | ★削除 | **ファイル単位の削除は無い**(★事前実測用の使い捨てスクリプトは納品に含めていない) |
-| 壊し検証 | `tools/batch72_break_check.py` **40件(OK 40 / NG 0)**。軸は40(★38〜40 は追補) |
+| 壊し検証 | `tools/batch72_break_check.py` **40軸(OK 40 / NG 0)**<br>★`tools/batch72b_break_check.py` **6軸(OK 6 / NG 0)** |
 
 ---
 
@@ -23,10 +23,11 @@
 | 文書 | 役割 | 更新のしかた |
 |---|---|---|
 | `notes/qte-rulings.md` | **裁定1〜323 の全文・欠番ゼロ** | 追記専用。★**72 は1件も足していない** |
-| `notes/qte-pitfalls.md` | 既知の落とし穴 | 追記・訂正のみ。★**72 で1節を新設し、「切断・接続(Batch 33)」にも追記した** |
+| `notes/qte-pitfalls.md` | 既知の落とし穴 | 追記・訂正のみ。★**72 で1節を新設し、72b でもう1節(「クライアントとサーバの『あいだ』」)を新設した** |
 | `qte-project-reference.md` | プロジェクト定義・ゲームルール・設計判断 | 72 で 1-3/1-4/1-5/1-7・2-6・4章(**設計判断50・51 を新設**・9/27/28/38/40/45/46/49 に追記)・6章・7-5 |
 | 本ファイル(ハンドオフ) | 直近バッチの要点・次の作業 | 毎バッチ書き直す |
-| ★**`notes/batch72-design-notes.md`** | ★**72 の設計解説**(新規) | — |
+| ★**`notes/batch72b-bugfix-notes.md`** | ★★**72b の調査記録と修正の解説**(新規)**先に読むこと** | — |
+| ★**`notes/batch72-design-notes.md`** | ★**72 の設計解説** | — |
 | `notes/batch71-design-notes.md` | 71 の設計解説。★**10章の実機確認の依頼はまだ未報告である** | — |
 | `notes/batch70-design-notes.md` | 70 の設計解説。★**10章の実機確認の依頼はまだ未報告である** | — |
 
@@ -42,7 +43,8 @@
 
 1. **72 が作ったはずのファイルが在るか**(下の「72 の確認項目」)
 2. **`GameRoom.java` に `public Spectator standUp(` が在るか**(72 の中心である)
-3. **`mvn test` の件数がそのバッチの値か**(**805件**)
+3. **`mvn test` の件数がそのバッチの値か**(**814件**)
+4. ★**`GameWsController.java` に `onUnreadableMessage` が在るか**(72b の中心である)
 
 ### 手順
 
@@ -51,12 +53,91 @@
    (★特に**「★★★試合の出入り —— 席・退室・投了・再戦(Batch 72)」**と
    「通常モードの切断(Batch 71)」、「通常モードの受付(Batch 66)」、
    「モーダル・Esc・フォーカス(Batch 36・39・40)」)。
-3. 本ファイルと **`notes/batch72-design-notes.md`** を読む。
+3. 本ファイルと **`notes/batch72b-bugfix-notes.md`**(★不具合の教訓)と **`notes/batch72-design-notes.md`** を読む。
 4. ★**`notes/batch70-design-notes.md` と `batch71-design-notes.md` は
    「読む必要があれば読む」で足りる** —— ただし ★**どちらも 10章の実機確認の依頼が生きている**。
 5. ソースコード取得: `git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git`
 6. `m2repo.zip` を取り込んで `mvn -o -B "-Dmaven.repo.local=/root/m2work/repository" test`。
-   ★**805件全緑が出発点である。**緑でなければ止めて報告する。
+   ★**814件全緑が出発点である。**緑でなければ止めて報告する。
+
+---
+
+## ★★★72b がやったこと(不具合修正)
+
+調査記録と解説は **`notes/batch72b-bugfix-notes.md`**(新規)。
+マスターの報告は **「スペルのエリアにドラッグしても賢魂が使えない。落とせるけど何も起きない」**。
+
+### 1. 原因は「クライアントとサーバのあいだ」に在った
+
+クライアントは正しく `play-soul` を送り、`send()` も `true` を返していた。
+サーバのハンドラも正しかった。壊れていたのは **受け口の型** である。
+
+```java
+// 72 まで
+public record PlayCardRequest(String playerId, int handIndex,
+        List<TargetChoice> targets, boolean enhanced, ...) {}
+```
+
+`play-soul` は `enhanced` を送らない —— **そしてそれは正しい**。
+【賢魂】に強化使用は無く、`playSoul` の javadoc 自身が「`enhanced` は読まない」と書いている。
+だが Spring Boot 4(Jackson 3)は、**原始型の部品が本文に無いと変換ごと失敗させる**。
+変換は `@MessageMapping` に入る前に起きるので **`execute` も `sendError` も通らない** ——
+サーバのログにだけ例外が出て、押した人の画面には何も返らない。
+
+★**クリックから賢魂を使う道も同じ理由で壊れていた**(あちらも `extra` が `{}`)。
+
+### 2. 直したのは2つ
+
+1. **原因** …… `enhanced` を `Boolean` にし、`materialIds()` / `manaIndexes()` と同じ
+   **防御アクセサ**で null を false に畳む(新しい筋を持ち込んでいない。裁定130)
+2. **無言そのもの** …… `@MessageExceptionHandler(MessageConversionException.class)` を置き、
+   **開けなかったメッセージの送り主へ理由を返す**(設計判断51)。
+   ★宛先から `roomId`、読めない本文から `playerId` だけを拾う。
+   拾えなければサーバのログだけが残る
+
+### 3. 番人を2つ新設した(★どちらも「境目」に立っている)
+
+- **`WsRequestPayloadTest`**(7件)……
+  `battle.js` が実際に組み立てる本文を、**アプリと同じ変換器**へ通す。
+  宛先22すべて・**入口ごとに1行**の全29件の表を持つ。
+  ★**入口を足したらこの表に1行足すこと。**
+- **`WsErrorRoutingTest`**(2件)……
+  Spring が実際に使う `SimpAnnotationMethodMessageHandler` に壊れた本文を流し込み、
+  ブローカー行きの通路に ERROR が出ることを見る。
+  ★例外ハンドラを直接呼ぶ試験では「届かないこと」を見張れない(70・71 の教訓)。
+
+### 4. ★★★verify に軸を1つも置いていない理由
+
+ハーネス(`verify/build_harness.py`)は **Java を起動しない**。
+`verify/fixture.js` がビューを `render()` へ直接流し込む形なので、
+**送った本文がサーバで開けるかは、あちらでは永久に測れない**。
+★これは手抜きではなく、**この不具合を見つけられなかった理由そのもの**である。
+
+### 5. ★★調べ方の教訓
+
+ハーネスの上で何度測っても再現しなかった。再現したのは
+**本物のサーバを起こして本物のページを叩いた**ときである。
+
+```
+java -cp "target/classes:$(find /root/m2work/repository -name '*.jar' \
+        | grep -v sources | tr '\n' ':')" com.example.qte.QteBattleApplication
+```
+
+★`mvn spring-boot:run` はオフラインではプラグインが無くて動かない。
+
+---
+
+## 72b の確認項目(★これを照合する)
+
+- **新設**: `tools/batch72b_break_check.py` /
+  `src/test/java/com/example/qte/WsRequestPayloadTest.java` /
+  `src/test/java/com/example/qte/WsErrorRoutingTest.java` /
+  `notes/batch72b-bugfix-notes.md`
+- **`web/GameWsController.java`** …… `PlayCardRequest` の `enhanced` が **`Boolean`** であり、
+  `public Boolean enhanced()` が在る。`onUnreadableMessage` / `roomIdOf` / `playerIdOf` が在る
+- JUnit **814件全緑**(★`WsRequestPayloadTest` 7件 + `WsErrorRoutingTest` 2件)
+- `python3 tools/batch72b_break_check.py` が **OK 6 / NG 0**
+- ★**verify・カード定義・版数(`battle.js` v=35 / `battle.css` v=53)は72から変わっていない**
 
 ---
 
@@ -184,7 +265,7 @@
   **同じ宣言ブロックを共有**している(値が2度書かれていない)
 - **`battle.css` v=53 は5枚とも**(`battle.html` / `cards.html` / `manual-cards.html` /
   `manual-battle.html` / `manual-deck-maker.html`)
-- JUnit **805件全緑** / verify **706/706**
+- JUnit **814件全緑** / verify **706/706**
 - `python3 tools/report_effects.py --summary` で **未実装 0枚**
 - `python3 tools/check_all.py .` が **「項目 1・3・5・6 はすべてパスしました」**
 - `python3 tools/check_card_text_numbers.py` が **OK**
@@ -362,10 +443,13 @@ QTE Battle の開発を継続する。Batch 73 を行う。
 1. プロジェクトナレッジ内の `qte-project-reference.md`
    ★4章の設計判断50(試合の出入りは GameState の有無で決まる)と
      51(失敗しうる操作は送りっぱなしにしない)が Batch 72 で新設された。
-2. プロジェクトナレッジ内の `claude/qte-handoff-v79.md`(本ファイル)
-3. プロジェクトナレッジ内の `notes/batch72-design-notes.md`
-4. `notes/qte-pitfalls.md` の該当節
-   (特に「試合の出入り —— 席・退室・投了・再戦(Batch 72)」
+2. プロジェクトナレッジ内の `claude/qte-handoff-v80.md`(本ファイル)
+3. プロジェクトナレッジ内の `notes/batch72b-bugfix-notes.md`
+   ★★不具合修正の記録である。**次に何かが「押しても何も起きない」ときは、まずこれを読む。**
+4. プロジェクトナレッジ内の `notes/batch72-design-notes.md`
+5. `notes/qte-pitfalls.md` の該当節
+   (特に「クライアントとサーバの『あいだ』(Batch 72b)」
+    「試合の出入り —— 席・退室・投了・再戦(Batch 72)」
     「通常モードの切断(Batch 71)」
     「通常モードの受付(Batch 66)」
     「モーダル・Esc・フォーカス(Batch 36・39・40)」)
@@ -373,11 +457,12 @@ QTE Battle の開発を継続する。Batch 73 を行う。
 環境:
 5. git clone --depth 1 https://github.com/okuson-droid/qte-battle-batch0.git
    ★★clone の「新しさ」はコミットメッセージでも日付でも測れない(69 で実際に踏んだ)。
-     確かめるのは「GameRoom.java に standUp( が在るか」「mvn test が 805件か」である。
+     確かめるのは「GameWsController.java に onUnreadableMessage が在るか」
+     「mvn test が 814件か」である。
 6. 接続フォルダの m2repo.zip を device_stage_files で取り込んで /root/m2work へ展開し、
    mvn -o -B "-Dmaven.repo.local=/root/m2work/repository" test を回す。
-   ★805件全緑が出発点である。緑でなければ止めて報告する。
-7. 72 の反映を本ファイルの「72の確認項目」で照合し、verify 706/706 と
+   ★814件全緑が出発点である。緑でなければ止めて報告する。
+7. 72 と 72b の反映を本ファイルの「確認項目」2つで照合し、verify 706/706 と
    report_effects の「未実装0枚」、check_card_text_numbers と
    mark_text_reviewed --check の OK を確認する。
 
@@ -396,6 +481,8 @@ QTE Battle の開発を継続する。Batch 73 を行う。
        (71・72 の教訓)。
    ★★★番人を置く場所を選ぶ前に、そこまで届くかを確かめること(70・71・72 の教訓)。
    ★★★「新しく作れるようにした状態」には、新しく番人が要る(72 の教訓)。
+   ★★★WS の宛先や入口を増やしたら、その本文を WsRequestPayloadTest の表に足すこと
+     (72b の教訓。送る側と受ける側を別々に見ている番人は、あいだを見ていない)。
 
 呼び方は「クロエ」、こちらの呼び方は「マスター」で。会話は日本語カジュアル体、
 ドキュメントは通常文体(である調)で。
@@ -403,7 +490,22 @@ QTE Battle の開発を継続する。Batch 73 を行う。
 
 ---
 
-## 6. 72 完了時点の積み残し
+## 6. 72b 完了時点の積み残し
+
+★**72b が新たに載せたもの(マスターに諮る案件を含む):**
+
+- **★★★まだ原始型で受けている WS の項目がある。** いまはどの入口も送っているので落ちないが、
+  同じ形の地雷である —— `ChooseOrderRequest.goFirst` / `HandActionRequest.handIndex` /
+  `PlayCardRequest.handIndex` / `GraveSummonRequest.trashIndex` /
+  `TabooRequest.tabooIndex` / 手動モードの `ManualDragCue.Request.active`。
+  ★全部を箱型にするなら、`handIndex` が null のときに **`IllegalArgumentException` で断る**
+  関門が要る(素の自動開封は `NullPointerException` になり、`execute` が捕まえないので
+  **また無言に戻る**)。→ **設計判断としてマスターに諮ること。**
+- **手動モードには `WsRequestPayloadTest` にあたる表がまだ無い**
+  (`ManualOpRequest` 系の本文を受け口へ通す試験)。
+
+★以下は 72 完了時点からの持ち越しである。
+
 
 ### ★★マスターにお願いすること(実機確認)
 
