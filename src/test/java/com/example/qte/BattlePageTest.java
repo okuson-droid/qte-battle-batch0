@@ -344,21 +344,82 @@ class BattlePageTest {
     }
 
     /**
-     * ★★★Batch 77 は {@code battle.css} を<b>1文字も触っていない</b>(設計判断54)。
+     * ★★★Batch 78(裁定196): 撤去した番人が1つある ——
+     * {@code 通常モードの盤面のCSSの版数は77で据え置きである}。
      *
-     * <p>77 が足したのは JavaScript の分岐だけであり、
-     * 素材を選ぶ段の見た目({@code .auto-card.auto-evolution-material} など)は
-     * <b>Batch 52 が作ったものをそのまま使う</b> ——
-     * 入口が増えても、素材を選ぶ画面は1つだからである。
+     * <p>あれは <b>{@code battle.css?v=54} を名指しで要求する</b>形であり、
+     * 77 が CSS を1文字も触っていないことを測っていた。
+     * ★<b>78 は CSS を触った</b>(宣言モーダルの名前を z-index の規則に並べた・裁定353)ので、
+     * その値はもう画面に無い —— <b>据え置きの番人は、据え置かなくなった日に役目を終える</b>。
+     * ★★<b>76 が 74・75 の2件を撤去したのと、まったく同じ形である</b>
+     * (あのときも CSS を2バッチぶり に触った)。
      *
-     * <p>★<b>触っていないのに上げると、「前のバッチの値でないこと」を測る番人が意味を失う</b>
-     * (73 の教訓・リファレンス 7-5)。
-     * ★★この番人は<b>据え置きの番人</b>である —— 76 が撤去した2件と同じ形なので、
-     * <b>次に CSS を触ったバッチが撤去すること</b>(74・75 の2件がそうされた)。
+     * <p>★<b>消さずにハッシュだけ 55 へ書き換えるのは、番人を殺すことである</b> ——
+     * 「77 は触っていない」という<b>過去の事実</b>を測る試験が、
+     * <b>78 の値を要求する試験に化ける</b>(リファレンス 1-7)。
+     * ★★守っていた性質(「触っていないのに上げない」)は消えていない:
+     * 下の {@code …が78で上がっている} が<b>「触ったから上げた」側</b>から同じ規則を見張る。
+     * ★★★<b>5枚のテンプレートが同じ版数であること</b>は
+     * {@code Batch70PlayingCardTest} が引き続き見張っている(値を持たない番人である)。
+     *
+     * <p>★★<b>この赤は、壊し検証より先に出た</b> —— 78 が CSS を触った瞬間に
+     * {@code mvn test} が1件落ちた。<b>測っているものが生きている番人は、
+     * 実装が変わるとちゃんと赤くなる</b>(75 が同じことを書き残している)。
      */
     @Test
-    void 通常モードの盤面のCSSの版数は77で据え置きである() throws Exception {
+    void 通常モードの盤面のCSSの版数が78で上がっている() throws Exception {
         String html = battleHtml();
-        assertThat(html).contains("battle.css?v=54");
+        assertThat(html).doesNotContain("battle.css?v=54");
+        assertThat(html).contains("battle.css?v=");
+    }
+
+    /**
+     * ★★★Batch 78 は {@code battle.js} を変えている ——
+     * 素の {@code confirm()} 7箇所を宣言モーダルへ移し(裁定353)、
+     * モーダルの層とフォーカストラップを入れた(裁定354)。
+     *
+     * <p><b>版数を上げないと、既に開いている人だけが 39 のまま
+     * 「[キャンセル] が『やめる』ではなく『通常プレイする』を意味する」画面で遊び続ける。</b>
+     * ★<b>これは見た目の古さではなく、押した結果が違うということである</b> ——
+     * 39 の画面で [キャンセル] を押した人は、やめたつもりでカードを使ってしまう。
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が78で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=39");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 78(裁定353): 盤面に<b>宣言モーダルが在る</b>。
+     *
+     * <p>★<b>器そのものを測る</b> —— 77 まで「どちらの姿で使うか」は
+     * 素の {@code confirm()} で問うており、<b>DOM に痕跡が1つも無かった</b>。
+     * ★★3つの出口(A の姿 / B の姿 / やめる)がそろっていること、
+     * そして<b>初期フォーカスの名指しが [やめる] を指していること</b>を見る ——
+     * 名指しが外れると、層は<b>先頭の [A の姿で使う] に焦点を当てる</b>(裁定52 違反)。
+     */
+    @Test
+    void 通常モードの盤面に宣言モーダルがある() throws Exception {
+        String html = battleHtml();
+        assertThat(html).contains("id=\"auto-declare\"");
+        assertThat(html).contains("id=\"auto-declare-a\"");
+        assertThat(html).contains("id=\"auto-declare-b\"");
+        assertThat(html).contains("id=\"auto-declare-close\"");
+        assertThat(html).contains("data-initial-focus=\"#auto-declare-close\"");
+    }
+
+    /**
+     * ★★★Batch 78(裁定52・354): <b>確認モーダルの初期フォーカスも名指しへ移した。</b>
+     *
+     * <p>77 まで {@code askConfirm} は {@code .focus()} を直に呼んでいた ——
+     * 行き先は同じ [キャンセル] だが、<b>閉じたあとの戻り先を誰も決めていなかった</b>
+     * (裁定50 の残り半分)。78 で層が両方を持つようになったので、
+     * 名指しは HTML 側の {@code data-initial-focus} が持つ。
+     */
+    @Test
+    void 通常モードの確認モーダルは初期フォーカスをキャンセルに名指ししている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).contains("data-initial-focus=\"#auto-confirm-close\"");
     }
 }

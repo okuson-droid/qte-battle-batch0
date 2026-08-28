@@ -4903,6 +4903,28 @@ async function clearZoom(page) {
    * ★実マウスで押す —— 関数を直接呼ぶと「ボタンが出ていない」を緑にしてしまう。
    * ★確定そのものを測るのは 42-5 と 70 系である(ここは通過点として扱う)。
    */
+  /**
+   * ★★★Batch 78(裁定353): 宣言モーダルの答え。'A' / 'B' / 'CANCEL'。
+   * ★<b>本物の入口から答える</b>(裁定187)——
+   *   {@code runDeclare()} を直に叩くと、ボタンの結線が外れても緑のままになる。
+   */
+  const answerDeclare = async (which) => {
+    const id = which === 'A' ? '#auto-declare-a'
+      : which === 'B' ? '#auto-declare-b' : '#auto-declare-close';
+    const box = await autoPage.locator(id).boundingBox();
+    if (!box) return false;
+    await autoPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await autoPage.waitForTimeout(40);
+    return true;
+  };
+  const declareState = () => autoPage.evaluate(() => ({
+    open: !document.getElementById('auto-declare').classList.contains('d-none'),
+    text: document.getElementById('auto-declare-text').textContent,
+    a: document.getElementById('auto-declare-a').textContent,
+    b: document.getElementById('auto-declare-b').textContent,
+    focused: document.activeElement ? document.activeElement.id : null,
+  }));
+
   const payAndConfirm = async () => {
     const need = await autoPage.evaluate(() =>
       (manaPay ? manaPay.cost - manaPay.picked.length : -1));
@@ -5840,10 +5862,24 @@ async function clearZoom(page) {
 
   // ★押すと素材の選択に入り、確定すると special-summon-from-grave へ trashIndex ごと飛ぶ。
   //   進化なので<b>素材は墓地から出す場合でも要る</b>(裁定226)
+  // ★★★Batch 78: 素の confirm() ではなく<b>確認モーダル</b>を通る(裁定353)——
+  //   墓地から出す道に「もう一方の姿」は無いので、7箇所のうち<b>ここだけが確認</b>である。
   await autoPage.evaluate(() => {
-    window.confirm = () => true;
     showTrashList(true);
     document.querySelector('#info-modal-content .auto-zone-card button').click();
+  });
+  await autoPage.waitForTimeout(50);
+  const graveAsked = await autoPage.evaluate(() => ({
+    open: !document.getElementById('auto-confirm').classList.contains('d-none'),
+    okLabel: document.getElementById('auto-confirm-ok').textContent,
+    focused: document.activeElement ? document.activeElement.id : null,
+  }));
+  check('★★墓地からの特殊召喚は確認モーダルで問い、ボタンに動詞が載る(78・裁定353・55)',
+    graveAsked.open === true && graveAsked.okLabel === '墓地から特殊召喚する'
+      && graveAsked.focused === 'auto-confirm-close',
+    JSON.stringify(graveAsked));
+  await autoPage.evaluate(() => {
+    document.getElementById('auto-confirm-ok').click();
   });
   await autoPage.waitForTimeout(60);
   const graveSelecting = await autoPage.evaluate(() => ({
@@ -5903,27 +5939,34 @@ async function clearZoom(page) {
     soulBadges.length === 2 && soulBadges[0].includes('★賢魂:1') && soulBadges[1] === '',
     JSON.stringify(soulBadges));
 
-  // ★OK を押すと play-soul へ飛ぶ。★確認の文言に n と効果の文が入っていること
-  await autoPage.evaluate(() => {
-    window.__confirms = [];
-    window.confirm = (msg) => { window.__confirms.push(String(msg)); return true; };
-    window.__sent.length = 0;
-  });
+  // ★★★Batch 78(裁定353): 素の confirm() ではなく<b>宣言モーダル</b>を通る。
+  //   ★問いの本文に n と効果の文が入っていること、
+  //     そして<b>両方のボタンに動詞が載っていること</b>(裁定55)を同時に測る ——
+  //     77 まではボタンが [OK] / [キャンセル] しか出せず、
+  //     何が起きるかを<b>本文に全部書くしかなかった</b>(36 が捨てた理由2)。
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
   const soulHandBox = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
   await autoPage.mouse.click(soulHandBox.x + soulHandBox.width / 2,
     soulHandBox.y + soulHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  const soulAsked = await declareState();
+  check('★★★【賢魂】は宣言モーダルで問い、両方のボタンに動詞が載る(78・裁定353・55)',
+    soulAsked.open === true
+      && soulAsked.text.includes('【賢魂：1】')
+      && soulAsked.text.includes('山札の上から1枚目を墓地に置く')
+      && soulAsked.a.includes('スペルとして使う') && soulAsked.a.includes('コスト1')
+      && soulAsked.b.includes('ミニオンとして出す')
+      // ★★初期フォーカスは [やめる] である(裁定52)—— どちらのボタンも送る側だからである
+      && soulAsked.focused === 'auto-declare-close',
+    JSON.stringify(soulAsked));
+
+  await answerDeclare('A');
   await payAndConfirm();   // ★Batch 70(裁定319)
-  const soulSent = await autoPage.evaluate(() => ({
-    sent: window.__sent[window.__sent.length - 1] || null,
-    confirms: window.__confirms,
-  }));
-  check('★★★【賢魂】でOKを押すと play-soul へ飛ぶ(54)',
-    !!soulSent.sent && soulSent.sent.destination.endsWith('/play-soul')
-      && soulSent.sent.body.handIndex === 0
-      && soulSent.confirms.length === 1
-      && soulSent.confirms[0].includes('【賢魂：1】')
-      && soulSent.confirms[0].includes('山札の上から1枚目を墓地に置く'),
+  const soulSent = await autoPage.evaluate(() =>
+    window.__sent[window.__sent.length - 1] || null);
+  check('★★★【賢魂】で[スペルとして使う]を押すと play-soul へ飛ぶ(54・78)',
+    !!soulSent && soulSent.destination.endsWith('/play-soul')
+      && soulSent.body.handIndex === 0,
     JSON.stringify(soulSent));
 
   // ★<b>キャンセルなら通常の使用に落ちる</b>(そうでない側。裁定181) ——
@@ -5945,39 +5988,42 @@ async function clearZoom(page) {
     opponent: autoPlayer({ displayName: 'あいて' }),
   });
   await autoDeliver(soulRichView);
-  await autoPage.evaluate(() => {
-    window.__confirms = [];
-    window.confirm = (msg) => { window.__confirms.push(String(msg)); return false; };
-    window.__sent.length = 0;
-  });
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
   await autoPage.mouse.click(soulHandBox.x + soulHandBox.width / 2,
     soulHandBox.y + soulHandBox.height / 2);
   await autoPage.waitForTimeout(60);
-  await payAndConfirm();   // ★Batch 70(裁定319)。賢魂をキャンセルした先も確定を通る
+  await answerDeclare('B');   // ★[ミニオンとして出す]
+  await payAndConfirm();   // ★Batch 70(裁定319)。賢魂を選ばなかった先も確定を通る
   const plainHandBox = await autoPage.locator('#my-hand .auto-card').nth(1).boundingBox();
   await autoPage.mouse.click(plainHandBox.x + plainHandBox.width / 2,
     plainHandBox.y + plainHandBox.height / 2);
   await autoPage.waitForTimeout(60);
+  const plainAsked = await declareState();
   await payAndConfirm();
-  const soulFallback = await autoPage.evaluate(() => ({
-    destinations: window.__sent.map((s) => s.destination.split('/').pop()),
-    confirms: window.__confirms.length,
-  }));
-  check('★★★【賢魂】をキャンセルすると通常の使用になり、持たないカードは確認すら出ない(54)',
-    JSON.stringify(soulFallback.destinations) === JSON.stringify(['play-card', 'play-card'])
-      && soulFallback.confirms === 1,
-    JSON.stringify(soulFallback));
+  const soulFallback = await autoPage.evaluate(() =>
+    window.__sent.map((s) => s.destination.split('/').pop()));
+  check('★★★[ミニオンとして出す]なら通常の使用になり、持たないカードは問われすらしない(54・78)',
+    JSON.stringify(soulFallback) === JSON.stringify(['play-card', 'play-card'])
+      // ★<b>そうでない側</b>(裁定181): 賢魂を持たないカードでは宣言モーダルが開かない
+      && plainAsked.open === false,
+    JSON.stringify({ soulFallback, plainAsked }));
 
   // ★禁忌デッキからも賢魂として使える(マスター裁定 A6)。★退けるマナは n 枚である ——
   //   印刷コストの5枚を要求する実装なら、1枚選んだ時点では送信が起きない
   await autoDeliver(soulView);
   await autoPage.evaluate(() => {
-    window.confirm = () => true;
     window.__sent.length = 0;
     toggleTabooRow();
     document.querySelector('#my-taboo .auto-card').click();
   });
   await autoPage.waitForTimeout(60);
+  // ★★Batch 78: 禁忌の側のボタンは<b>「マナ n 枚」と書く</b> ——
+  //   禁忌はコスト軽減を受けないので、手札の側(実効コスト)とは<b>別の言い方になる</b>
+  const tabooSoulAsked = await declareState();
+  check('★★禁忌の【賢魂】の宣言は、退けるマナの枚数で書く(78・裁定353)',
+    tabooSoulAsked.open === true && tabooSoulAsked.a.includes('マナ1枚'),
+    JSON.stringify(tabooSoulAsked));
+  await answerDeclare('A');
   // ★Batch 70(裁定319): 禁忌も自動確定をやめたので、1枚選んでから[確定]を押す
   await payAndConfirm();
   const tabooSoulSent = await autoPage.evaluate(() => window.__sent[window.__sent.length - 1] || null);
@@ -7228,18 +7274,19 @@ async function clearZoom(page) {
   //     <b>それを見張る番人も2入口ぶん要る</b>。
   //   ★クリックの賢魂は素の {@code confirm()} で宣言する(72 が片肺として書き残した7箇所の1つ・
   //     候補 O)。ここでは真を返させて「賢魂として使う」を選ばせる。
+  // ★★Batch 78: 素の confirm() は宣言モーダルへ移った(裁定353)——
+  //   [スペルとして使う] を押すのが、77 の「OK」に当たる
   await autoDeliver(tabooSoulEvoView);
-  const soulClickReady = await autoPage.evaluate(() => {
-    window.__origConfirm = window.confirm;
-    window.confirm = () => true;
+  await autoPage.evaluate(() => {
     window.__sent.length = 0; tabooOpen = true; syncTabooRow();
     document.querySelector('#my-taboo .auto-card').click();
-    return true;
   });
   await autoPage.waitForTimeout(50);
+  const soulClickReady = await autoPage.evaluate(() =>
+    !document.getElementById('auto-declare').classList.contains('d-none'));
+  await answerDeclare('A');
   await payAndConfirm();
   const tabooSoulEvoClick = await autoPage.evaluate(() => {
-    window.confirm = window.__origConfirm;
     tabooOpen = false; syncTabooRow();
     return { sent: window.__sent[window.__sent.length - 1] || null, asking: !!evolution };
   });
@@ -7398,6 +7445,345 @@ async function clearZoom(page) {
       && manaSelectable.border !== manaPlain
       && manaSelectable.prompt.includes('マナ'),
     JSON.stringify({ manaSelectable, manaPlain }));
+
+  // =====================================================================
+  // ★★★Batch 78: 通常モードの確認の1本化(裁定353・354)
+  //
+  // ★★77 まで、通常モードには<b>素の confirm() が7箇所</b>あり、
+  //   <b>フォーカストラップが1つも無かった</b>(裁定50 が通常モードだけ未実施だった)。
+  //
+  // ★★★<b>規則が n 入口ぶんあるなら、番人も n 入口ぶん要る</b>(77 の教訓)——
+  //   宣言が出る入口は<b>4つ</b>ある: 手札クリック(賢魂 / 特殊召喚 / 強化)と
+  //   禁忌クリック(賢魂)と<b>ドラッグ</b>(特殊召喚 / 強化)である。
+  //   ★賢魂の2入口は上の 54 の節が見張っているので、ここでは<b>残りを名指しで測る</b>。
+  // =====================================================================
+
+  // ---- 78-1. ★★★特殊召喚の宣言 —— 3つの出口がそろっている(裁定353) ----
+  //   ★<b>77 まで「やめる」が無かった。</b>[キャンセル] は「通常プレイする」であり、
+  //     <b>ドラッグを取り消す手段が1つも無かった</b>。
+  const specialCard = autoCard('QTE-M-FIRE-32', '飛翔鉄人走太', {
+    type: 'MINION', civilization: 'FIRE', cost: 5, attack: 3, hp: 3,
+    canSpecialSummon: true, specialSummonText: '進化ミニオンがいるとき0コストで出せる',
+    specialTargets: [], specialSummonMpCost: 0,
+  });
+  const declareView = autoView({
+    you: autoPlayer({
+      hand: [specialCard], handCount: 1,
+      manaZone: payMana(5), totalMana: 5, availableMp: 5,
+      manaPayOrder: [0, 1, 2, 3, 4], tabooPayOrder: [0, 1, 2, 3, 4],
+      // ★★★78-5 は<b>禁忌の入口も踏む</b>ので1枚置いておく。
+      //   ★<b>賢魂を持たせてある</b> —— 素の confirm() が残っていた場所は
+      //     {@code card.soulCost != null} の中であり、<b>持たない禁忌では
+      //     壊した分岐に構造的に入れない</b>(壊し検証の軸11 が NG を返して教えた)。
+      //   ★★<b>77 の軸14 とまったく同じ形である</b> ——
+      //     あちらも「盤面の禁忌が進化でないので改変が効かない」だった。
+      taboo: [autoCard('QTE-M-DARK-2', '禁忌の1枚', {
+        civilization: 'DARK', cost: 1,
+        soulCost: 1, soulEffectiveCost: 1, soulTargets: [], soulText: 'カードを1枚引く',
+      })],
+      tabooCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  const clickFirstHand = async () => {
+    const box = await autoPage.locator('#my-hand .auto-card').first().boundingBox();
+    await autoPage.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await autoPage.waitForTimeout(60);
+  };
+
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await clickFirstHand();
+  const specialAsked = await declareState();
+  check('★★★特殊召喚は宣言モーダルで問い、両方に動詞が載る(78・裁定353・55)',
+    specialAsked.open === true
+      && specialAsked.text.includes('進化ミニオンがいるとき')
+      && specialAsked.a === '特殊召喚する'
+      && specialAsked.b === '通常プレイする'
+      && specialAsked.focused === 'auto-declare-close',
+    JSON.stringify(specialAsked));
+
+  // ★A を押すと special-summon、B を押すと play-card ——<b>両方の分岐に意味がある</b>
+  await answerDeclare('A');
+  await payAndConfirm();
+  const specialA = await autoPage.evaluate(() =>
+    window.__sent[window.__sent.length - 1] || null);
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await clickFirstHand();
+  await answerDeclare('B');
+  await payAndConfirm();
+  const specialB = await autoPage.evaluate(() =>
+    window.__sent[window.__sent.length - 1] || null);
+  check('★★★宣言の A と B は別の宛先へ飛ぶ(78・裁定353: 両方の分岐に意味がある)',
+    !!specialA && specialA.destination.endsWith('/special-summon')
+      && !!specialB && specialB.destination.endsWith('/play-card'),
+    JSON.stringify({ specialA, specialB }));
+
+  // ---- 78-2. ★★★[やめる] は<b>どちらでもない</b>(77 まで無かった出口) ----
+  //   ★<b>ここが 78 の中心である。</b>77 までの [キャンセル] は「通常プレイする」であり、
+  //     文言を読み飛ばした人が<b>やめたつもりでカードを使っていた</b>。
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await clickFirstHand();
+  await answerDeclare('CANCEL');
+  const declareCancelled = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    open: !document.getElementById('auto-declare').classList.contains('d-none'),
+    paying: !!manaPay,
+  }));
+  check('★★★宣言の[やめる]は、どちらの姿でも使わずに何も送らない(78・裁定353)',
+    declareCancelled.sent === 0 && declareCancelled.open === false
+      && declareCancelled.paying === false,
+    JSON.stringify(declareCancelled));
+
+  // ★Esc も × と同じ資格である(裁定35 の一般化)——<b>やめる</b>に落ちる
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await clickFirstHand();
+  await autoPage.keyboard.press('Escape');
+  await autoPage.waitForTimeout(40);
+  const declareEsc = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    open: !document.getElementById('auto-declare').classList.contains('d-none'),
+  }));
+  check('★★Esc も宣言を「やめる」に落とす(78・裁定353・裁定35 の一般化)',
+    declareEsc.sent === 0 && declareEsc.open === false,
+    JSON.stringify(declareEsc));
+
+  // ---- 78-3. ★★★ドラッグの入口でも同じ宣言が出る(規則は入口の数だけ要る・77 の教訓) ----
+  //   ★<b>77 まで、ドラッグで落としたあとの [キャンセル] が「通常プレイする」だった</b> ——
+  //     つまり<b>落としてしまったら、もう戻せなかった</b>。
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await realDrag(autoPage, '#my-hand .auto-card', '#my-minions');
+  const dropAsked = await declareState();
+  await answerDeclare('CANCEL');
+  const dropCancelled = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    open: !document.getElementById('auto-declare').classList.contains('d-none'),
+  }));
+  check('★★★ドラッグの入口でも宣言モーダルが出て、[やめる]で取り消せる(78・裁定353)',
+    dropAsked.open === true && dropAsked.a === '特殊召喚する'
+      && dropCancelled.sent === 0 && dropCancelled.open === false,
+    JSON.stringify({ dropAsked, dropCancelled }));
+
+  // ---- 78-4. ★★強化使用の宣言(3つ目のカード。★賢魂・特殊召喚とは別の枝である) ----
+  const enhancedCard = autoCard('QTE-M-WIND-24', '回帰の風穴', {
+    type: 'SPELL', civilization: 'WIND', cost: 2, attack: null, hp: null,
+    enhancedCost: 2, enhancedText: '追加で2払うと相手のミニオンも戻す',
+  });
+  await autoDeliver(autoView({
+    you: autoPlayer({
+      hand: [enhancedCard], handCount: 1,
+      manaZone: payMana(6), totalMana: 6, availableMp: 6, manaPayOrder: [0, 1, 2, 3, 4, 5],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  }));
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await clickFirstHand();
+  const enhancedAsked = await declareState();
+  await answerDeclare('A');
+  const enhancedPaying = await autoPage.evaluate(() =>
+    (manaPay ? { cost: manaPay.cost, enhanced: !!(manaPay.extra || {}).enhanced } : null));
+  await payAndConfirm();
+  const enhancedSent = await autoPage.evaluate(() =>
+    window.__sent[window.__sent.length - 1] || null);
+  check('★★★強化使用も宣言モーダルで問い、選ぶと追加コストぶん多く払う(78・裁定353)',
+    enhancedAsked.open === true
+      && enhancedAsked.text.includes('追加で2払うと')
+      && enhancedAsked.a.includes('追加コスト+2')
+      && enhancedAsked.b === '通常使用する'
+      // ★<b>コストに効く宣言である</b> —— 選んだ結果が払う枚数に現れる(2 + 2 = 4)
+      && !!enhancedPaying && enhancedPaying.cost === 4 && enhancedPaying.enhanced === true
+      && !!enhancedSent && enhancedSent.body.enhanced === true,
+    JSON.stringify({ enhancedAsked, enhancedPaying, enhancedSent }));
+
+  // ---- 78-5. ★★★盤面のどの操作でも素の confirm() を呼ばない(裁定53・7箇所ぶん) ----
+  //   ★★<b>72-15 は「取り返しのつかない4操作」だけを測っていた</b> ——
+  //     宣言の7箇所は<b>名指しで対象外</b>だった(72 が層が違うと書き残したため)。
+  //   ★★★<b>ここが 78 が広げた側である。</b>実際に張り込んで、
+  //     宣言の入口を<b>全部</b>踏んでも1度も呼ばれないことを見る。
+  await autoDeliver(declareView);
+  const nativeOnBoard = await autoPage.evaluate(() => {
+    const calls = [];
+    const original = window.confirm;
+    window.confirm = (t) => { calls.push(String(t)); return false; };
+    /* eslint-disable no-undef */
+    onHandCardClick(0); closeAutoDeclare();          // 特殊召喚
+    onTabooCardClick(0); closeAutoDeclare();          // 禁忌(賢魂を持たない盤面でも通る)
+    // ★★禁忌の入口は<b>確定待ちを立て、さらに禁忌の帯を開く</b>(syncTabooRow)。
+    //   ★★★<b>帯は手札の上に重なる</b>(.auto-taboo-strip は position:absolute)ので、
+    //     開いたまま次へ渡すと<b>以降の項目で手札のクリックが帯に当たる</b> ——
+    //     72 の教訓「遷移を起こしうる項目は自分で片付ける」の実例である。
+    cancelManaPayment();
+    tabooOpen = false; syncTabooRow();
+    /* eslint-enable no-undef */
+    window.confirm = original;
+    return { calls };
+  });
+  check('★★★宣言の入口でも素の confirm() を1度も呼ばない(78・裁定53)',
+    nativeOnBoard.calls.length === 0, JSON.stringify(nativeOnBoard));
+
+  // ---- 78-6. ★★★フォーカストラップ(裁定50・354)。<b>通常モードには1つも無かった</b> ----
+  //   ★Tab は層の中で折り返す。★閉じたら<b>元の場所へ戻る</b>(裁定50 の残り半分)。
+  await autoDeliver(declareView);
+  await clickFirstHand();
+  const trapped = await autoPage.evaluate(async () => {
+    const ids = [];
+    const modal = document.getElementById('auto-declare');
+    /* eslint-disable no-undef */
+    const open = !modal.classList.contains('d-none');
+    const stack = modalStack.map((l) => `${l.el.id}:${l.trap}`);
+    /* eslint-enable no-undef */
+    for (let i = 0; i < 5; i++) {
+      document.activeElement.blur();
+      // ★<b>裏の盤面へフォーカスを移そうとする</b> —— focusin の網が引き戻すはずである。
+      //   ★★<b>常に焦点を取れるものを選ぶ</b>: [投了] は席と状態で d-none になる ——
+      //     隠れた要素に focus() しても何も起きず、<b>網が働いたのか区別できない</b>
+      const outside = document.getElementById('btn-sound');
+      if (outside) outside.focus();
+      await new Promise((r) => setTimeout(r, 0));
+      ids.push(modal.contains(document.activeElement));
+    }
+    return { open, stack, pulledBack: ids, inside: modal.contains(document.activeElement) };
+  });
+  check('★★★裏の盤面へフォーカスを移しても、宣言モーダルへ引き戻す(78・裁定50・354)',
+    trapped.inside === true && trapped.pulledBack.every((v) => v === true),
+    JSON.stringify(trapped));
+
+  // ★Tab の折り返し: 最後の要素から Tab を押すと先頭へ戻る(盤面へ抜けない)
+  const wrapped = await autoPage.evaluate(() => {
+    const modal = document.getElementById('auto-declare');
+    const list = [...modal.querySelectorAll('button')];
+    list[list.length - 1].focus();
+    return { last: document.activeElement.id, count: list.length };
+  });
+  await autoPage.keyboard.press('Tab');
+  await autoPage.waitForTimeout(30);
+  const afterTab = await autoPage.evaluate(() => ({
+    id: document.activeElement ? document.activeElement.id : null,
+    inside: document.getElementById('auto-declare').contains(document.activeElement),
+  }));
+  check('★★Tab は宣言モーダルの中で折り返す(78・裁定354)',
+    wrapped.count >= 3 && afterTab.inside === true && afterTab.id !== wrapped.last,
+    JSON.stringify({ wrapped, afterTab }));
+  // ★★自分で閉じてから次へ渡す(78-5 と同じ理由)——
+  //   開いたままだと次の項目の「開く前のフォーカス」がモーダルの中になる
+  await answerDeclare('CANCEL');
+
+  // ---- 78-7. ★★閉じたらフォーカスが元へ戻る(裁定50 の残り半分) ----
+  //   ★77 までの {@code askConfirm} は {@code .focus()} を直に呼ぶだけで、
+  //     <b>閉じたあとの戻り先を誰も決めていなかった</b>。
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  const beforeOpen = await autoPage.evaluate(() => {
+    const btn = document.getElementById('btn-sound');   // ★ヘッダに常設(78-6 と同じ理由)
+    btn.focus();
+    return document.activeElement.id;
+  });
+  await autoPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    askDeclare('テストの問い', 'Aする', () => {}, 'Bする', () => {});
+    /* eslint-enable no-undef */
+  });
+  await autoPage.waitForTimeout(30);
+  const whileOpen = await autoPage.evaluate(() =>
+    (document.activeElement ? document.activeElement.id : null));
+  await answerDeclare('CANCEL');
+  const afterClose = await autoPage.evaluate(() =>
+    (document.activeElement ? document.activeElement.id : null));
+  check('★★★閉じたらフォーカスが開く前の場所へ戻る(78・裁定50)',
+    beforeOpen === 'btn-sound' && whileOpen === 'auto-declare-close'
+      && afterClose === 'btn-sound',
+    JSON.stringify({ beforeOpen, whileOpen, afterClose }));
+
+  // ---- 78-9b. ★★★問うているあいだに盤面が動いたら、答えても何もしない ----
+  //
+  // ★★★<b>78 が新しく開けた穴である。</b>裁定53 の理由3 は
+  //   「素の {@code confirm()} は JavaScript を止める」だった —— 止まっている間は
+  //   STOMP の受信も描画も進まない。78 はそれを直した。
+  //   ★<b>ところが、直した結果として逆の穴が開く</b>: 問うている間も配信は届き、
+  //     <b>盤面が動きうる</b>。答えが返った時点の「手札の0枚目」は、
+  //     問うたときの0枚目と<b>同じカードとは限らない</b>。
+  // ★★77 までのコールバック(投了・席・退室・再戦)は<b>どれも位置を持たなかった</b>ので、
+  //   この問題に当たらなかった —— <b>78 が初めて「手札の何枚目」を非同期の向こうへ運ぶ</b>。
+  // ★★★<b>違うカードを使ってしまうより、何も起きないほうが桁違いにましである</b>
+  //   (設計判断49 の「畳まない」と同じ筋)。
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => { window.__sent.length = 0; });
+  await clickFirstHand();
+  const movedAsked = await declareState();
+  // ★<b>問うている最中に配信が届く</b> —— 手札の0枚目が別のカードに入れ替わる
+  await autoDeliver(autoView({
+    you: autoPlayer({
+      hand: [autoCard('QTE-M-FIRE-6', '別のカード', { cost: 2 })], handCount: 1,
+      manaZone: payMana(5), totalMana: 5, availableMp: 5, manaPayOrder: [0, 1, 2, 3, 4],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  }));
+  await answerDeclare('A');
+  const movedAnswered = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    paying: !!manaPay,
+    open: !document.getElementById('auto-declare').classList.contains('d-none'),
+  }));
+  check('★★★宣言のあいだに手札が入れ替わったら、答えても何も送らない(78・素の confirm() を捨てた代償)',
+    movedAsked.open === true
+      && movedAnswered.sent === 0 && movedAnswered.paying === false
+      && movedAnswered.open === false,
+    JSON.stringify({ movedAsked, movedAnswered }));
+
+  // ---- 78-8. ★★情報モーダルにも Esc が効くようになった(裁定35 の一般化) ----
+  //   ★<b>77 まで、[閉じる] を持っているのにキーボードだけでは出られなかった。</b>
+  await autoDeliver(declareView);
+  await autoPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    showModal('テスト', ['1行目']);
+    /* eslint-enable no-undef */
+  });
+  await autoPage.waitForTimeout(30);
+  const infoOpen = await autoPage.evaluate(() =>
+    !document.getElementById('info-modal').classList.contains('d-none'));
+  await autoPage.keyboard.press('Escape');
+  await autoPage.waitForTimeout(30);
+  const infoClosed = await autoPage.evaluate(() =>
+    document.getElementById('info-modal').classList.contains('d-none'));
+  check('★★情報モーダルは Esc で閉じる(78・裁定35 の一般化。77 まで効かなかった)',
+    infoOpen === true && infoClosed === true,
+    JSON.stringify({ infoOpen, infoClosed }));
+
+  // ---- 78-9. ★★★出口の無い層では Esc も効かない(裁定34) ----
+  //   ★デッキゲートに [閉じる] は無い(出るなら [ロビーへ戻る])。
+  //     <b>出口の有無という1つの事実から、× と Esc の2つが同時に決まる。</b>
+  await autoDeliver(autoView({
+    status: 'WAITING',
+    you: autoPlayer({ displayName: 'テスト' }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+    room: { viewerSeat: 'A', spectatorAllowed: true, seatA: { name: 'テスト' }, seatB: null },
+  }));
+  const deckGateState = await autoPage.evaluate(() => ({
+    shown: !document.getElementById('deck-gate').classList.contains('d-none'),
+  }));
+  if (deckGateState.shown) {
+    await autoPage.keyboard.press('Escape');
+    await autoPage.waitForTimeout(30);
+  }
+  const deckGateAfter = await autoPage.evaluate(() => ({
+    shown: !document.getElementById('deck-gate').classList.contains('d-none'),
+    inside: document.getElementById('deck-gate').contains(document.activeElement),
+  }));
+  check('★★★デッキゲートは出口が無いので Esc で閉じない。ただし閉じ込める(78・裁定34・354)',
+    deckGateState.shown === true && deckGateAfter.shown === true
+      && deckGateAfter.inside === true,
+    JSON.stringify({ deckGateState, deckGateAfter }));
+
+
+  // ★★★<b>盤面を素の姿へ戻してから次へ渡す</b>(72 の教訓)——
+  //   78-9 はデッキゲートを開いたまま終わる。開いたままだと
+  //   <b>以降の項目でドロップ先が1つも光らなくなる</b>(dropZonesFor は見ないが、
+  //   ゲートが盤面を覆うので実マウスの操作が当たらない)。
+  await autoDeliver(declareView);
 
   check('★通常モードの盤面(69 の追加ぶん)でJSエラーが出ない',
     autoErrors.length === 0, autoErrors.join(' | '));
@@ -8270,9 +8656,12 @@ async function clearZoom(page) {
 
   // ---- 72-15. ★★取り返しのつかない4操作で素の confirm() を呼ばない ----
   // ★★<b>裁定53 は「素の confirm() を書かない」である。</b>
-  //   通常モードには宣言のための confirm() が7箇所あり(【賢魂】・特殊召喚・強化)、
-  //   72 はそちらを直していない —— 層が違うからである。
-  //   ★<b>だから「4操作で呼ばない」と名指しで測る</b>(裁定186: 空振りを緑にしない)。
+  //   ★★★<b>Batch 78 で残り7箇所も片付いた</b>(裁定353)——
+  //     72 が「層が違うので直していない」と書き残した宣言の confirm() は、
+  //     もう {@code battle.js} に1つも無い。
+  //   ★<b>この項目はそのまま残す</b>: 4操作の側は 72 の性質であり、
+  //     78 が広げたのは<b>別の7箇所</b>である —— 混ぜると、どちらが落ちたのか分からなくなる。
+  //     ★★盤面ぜんぶを覆う番人は 78-5 が別に置いた。
   await exitReset();
   await exitDeliver(exitView({ status: 'FINISHED', winnerName: 'あいて',
     room: { rematchOfferedBySeat: 'B', rematchOfferedByName: 'ばんり' } }));

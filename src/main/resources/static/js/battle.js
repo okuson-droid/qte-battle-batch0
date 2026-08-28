@@ -170,41 +170,179 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.target === logPanel) toggleLogPanel();
     });
 });
+// ---------------------------------------------------------------
+// ★★★1-1b) モーダルの層(Batch 78・裁定354)
+// ---------------------------------------------------------------
+//
+// ★★<b>手動モードの 36(0-3)を通常モードへ写した。</b>
+//   77 まで、ここは <b>Esc の優先順を5段ベタ書きした if の列</b>だった ——
+//   確認 → 席替えゲート → 拡大 → 音 → ログ、の順である。
+//   ★★★<b>フォーカストラップは1つも無かった</b>(裁定50 が通常モードだけ未実施だった)。
+//
+// ★<b>なぜ層のスタックにするのか</b>(36 が書いた理由が、そのまま通常モードにも効く)——
+//   画面を覆うものは<b>12種</b>ある(確認・宣言・情報・音・席ゲート・デッキゲート・
+//   拡大・ログ・切断・部屋消失・ホバー・プレイ中)。
+//   「いま Esc が誰のものか」をそれぞれが自分で判断すると、<b>重なったときに2つ同時に閉じる</b>。
+//   ★★78 は<b>宣言モーダルを1つ足す</b>ので、ベタ書きなら6段目になっていた ——
+//     <b>段が増えるほど、順を書き忘れる場所が増える</b>。
+//
+// ★★★<b>Esc は × と同じ資格しか持たない</b>(裁定35 の一般化)。
+//   出口を持たない層では Esc も効かない —— 入室前の席選択(JOIN・裁定34)と
+//   デッキゲートがそれである。
+// ★★<b>Esc は下の層へ落とさない。</b>いちばん上に出口が無ければ、そこで止まる。
+//
+// ★<b>トラップするのはモーダルだけである</b>(確認・宣言・情報・音・2つのゲート)。
+//   ★★<b>次の3つは層に積むが、閉じ込めない</b> ——
+//     - 拡大(#auto-zoom) …… 焦点可能な要素が<b>1つも無い</b>。閉じ込める先が無い
+//     - ログ(#log-panel) …… <b>配信のたびに中身を作り直す</b>ので、
+//       フォーカスを持った要素が再描画で消える(36 が帯・全面表示を外したのと同じ理由)
+//     - 切断(#auto-offline) …… ★<b>71 が「覆うことを安全装置にしない」と決めたもの</b>である。
+//       操作を止めているのは {@code send()} のガードであって覆いではない ——
+//       閉じ込めると <b>[盤面を確認する] で畳める</b>という 71 の性質と矛盾する。
+//       ★<b>それでも層には積む</b>: z-index 1970 は確認(1965)より<b>上</b>であり、
+//       積まないと「見えていない確認モーダルにフォーカスが閉じ込められる」。
+//       <b>重ね順の真実と、層の真実を一致させる</b>(裁定56)。
+//   ★ホバー・プレイ中・接続の帯は {@code pointer-events: none} か帯であり、層ではない。
+
+/** 焦点を取れる要素。★disabled と tabindex="-1" は除く */
+const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]),'
+    + ' select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// { el, trap, escape, restore } を開いた順に積む。いちばん後ろが「今の主役」である
+const modalStack = [];
+
+/**
+ * 画面に出ているか。
+ * ★{@code offsetParent} は使えない。{@code .info-modal} は position: fixed であり、
+ * 出ていても offsetParent が null になる。矩形の有無で見る。
+ */
+function isShown(el) {
+    return !!el && el.isConnected && el.getClientRects().length > 0;
+}
+
+function focusablesIn(el) {
+    return Array.from(el.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isShown);
+}
+
+/**
+ * 初期フォーカス。
+ *
+ * ★既定は「見出し帯の × を<b>除いた</b>最初の焦点可能要素」である ——
+ *   × は出口であって用件ではない。
+ * ★用件が先頭に無いモーダルは {@code data-initial-focus} で名指しする。
+ *   ★★<b>確認モーダルと宣言モーダルがそれである</b> ——
+ *     既定のままだと[実行]や[Aの姿で使う]に載る。<b>送る側に初期フォーカスを載せない</b>(裁定52)。
+ */
+function applyInitialFocus(el) {
+    const hint = el.getAttribute('data-initial-focus');
+    const named = hint ? el.querySelector(hint) : null;
+    if (isShown(named)) {
+        named.focus();
+        return;
+    }
+    const list = focusablesIn(el);
+    const body = list.filter((n) => !n.classList.contains('info-modal-x'));
+    const target = body.length > 0 ? body[0] : list[0];
+    if (target) target.focus();
+}
+
+/** 閉じたあとの戻り先。★消えている要素へは戻さない(戻せないなら body へ落とす) */
+function restoreFocus(el) {
+    if (isShown(el) && typeof el.focus === 'function') {
+        el.focus();
+        return;
+    }
+    if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+    }
+}
+
+/**
+ * 層を積む。
+ * @param el      画面を覆っている要素(トラップの範囲でもある)
+ * @param options escape: Esc で呼ぶもの(無ければ Esc は効かない) /
+ *                trap: フォーカスを閉じ込めるか(既定 true)
+ */
+function pushModalLayer(el, options) {
+    if (!el) return;
+    const opts = options || {};
+    const trap = opts.trap !== false;
+    // ★★二重に積まない。<b>通常モードはここが手動モードより効く</b> ——
+    //   デッキゲート(renderDeckGate)も切断オーバーレイ(updateOfflineLock)も
+    //   <b>配信のたびに呼ばれる</b>ので、積み直しは日常的に起きる。
+    //   ★<b>フォーカスが中にあるうちは触らない</b>。当て直すのは、
+    //     中身の作り直しでフォーカスを持った要素が消えたときだけでよい
+    //     (でないと、デッキファイルを選んでいる最中に先頭のボタンへ飛ぶ)。
+    const known = modalStack.find((layer) => layer.el === el);
+    if (known) {
+        if (known.trap && !el.contains(document.activeElement)) applyInitialFocus(el);
+        return;
+    }
+    modalStack.push({ el, trap, escape: opts.escape || null, restore: document.activeElement });
+    if (trap) applyInitialFocus(el);
+}
+
+/**
+ * 層を降ろす。
+ * ★いちばん上でなければフォーカスを戻さない。配信由来で勝手に閉じるもの
+ * (デッキゲート・切断オーバーレイ)が下から抜けることがあり、
+ * そのときに戻すと<b>上に出ているモーダルからフォーカスを奪う</b>。
+ */
+function popModalLayer(el) {
+    const index = modalStack.findIndex((layer) => layer.el === el);
+    if (index < 0) return;
+    const layer = modalStack.splice(index, 1)[0];
+    if (index !== modalStack.length) return;
+    if (layer.trap) restoreFocus(layer.restore);
+}
+
+function topModalLayer() {
+    return modalStack.length > 0 ? modalStack[modalStack.length - 1] : null;
+}
+
+/** 層の出し入れを1行で書くための糖衣。★開閉と層への出入りを離さないためである */
+function syncModalLayer(id, shown, options) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (shown) pushModalLayer(el, options); else popModalLayer(el);
+}
+
+// ★Esc と Tab は<b>1つのハンドラ</b>で受ける。どちらも「いちばん上の層は誰か」を
+//   最初に決めてから分岐するので、判断が2箇所に分かれると必ずずれる。
 document.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return;
-    // ★★★Batch 72: 確認モーダルがいちばん上である(z-index 1965)。
-    //   ★Esc を下の層へ落とさない —— 36 の裁定49 を通常モードでも守る
-    if (isAutoConfirmOpen()) {
+    const top = topModalLayer();
+    if (!top) return;
+    if (e.key === 'Escape') {
+        // ★出口が無くても preventDefault する。ここで止めるのが「下へ落とさない」の実体である
         e.preventDefault();
-        closeAutoConfirm();
+        if (top.escape) top.escape();
         return;
     }
-    // ★★Batch 72: 席を変えるためのゲートには<b>出口が在る</b>([やめる])ので Esc も効く。
-    //   ★入室前の席選択(JOIN)には出口が無い(裁定34)。同じ要素だが別の状態である
-    if (seatGateMode === 'CHANGE'
-            && !document.getElementById('seat-gate').classList.contains('d-none')) {
+    if (e.key !== 'Tab' || !top.trap) return;
+    const list = focusablesIn(top.el);
+    if (list.length === 0) {
         e.preventDefault();
-        closeSeatChangeGate();
         return;
     }
-    const overlay = document.getElementById('auto-zoom');
-    if (overlay && !overlay.classList.contains('d-none')) {
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = document.activeElement;
+    const outside = !top.el.contains(active);
+    if (e.shiftKey && (outside || active === first)) {
         e.preventDefault();
-        closeZoom();
-        return;
-    }
-    // ★Batch 62: 音の設定も Esc で閉じる(手動モードと同じ流儀)
-    const soundModal = document.getElementById('sound-modal');
-    if (soundModal && !soundModal.classList.contains('d-none')) {
+        last.focus();
+    } else if (!e.shiftKey && (outside || active === last)) {
         e.preventDefault();
-        closeSoundModal();
-        return;
+        first.focus();
     }
-    const logPanel = document.getElementById('log-panel');
-    if (logPanel && !logPanel.classList.contains('d-none')) {
-        e.preventDefault();
-        toggleLogPanel();
-    }
+});
+
+// ★Tab の折り返しだけでは足りない。裏の盤面を<b>クリック</b>したときや、
+//   ブラウザが独自にフォーカスを移したときは keydown を通らない。網をもう1枚張る。
+document.addEventListener('focusin', (e) => {
+    const top = topModalLayer();
+    if (!top || !top.trap || top.el.contains(e.target)) return;
+    applyInitialFocus(top.el);
 });
 
 function setConnectionStatus(text) {
@@ -337,6 +475,17 @@ function updateOfflineLock() {
     const offline = !isConnected() && !connectionFatal && !isGateVisible();
     document.getElementById('auto-offline')
         .classList.toggle('d-none', !offline || offlinePeeking);
+    // ★★★Batch 78(裁定354): <b>層には積むが、閉じ込めない。</b>
+    //   ★閉じ込めないのは 71 の判断そのものである —— 操作を止めているのは
+    //     {@code send()} のガードであって覆いではなく、<b>[盤面を確認する] で畳める</b>。
+    //     閉じ込めると、その性質と正面から矛盾する。
+    //   ★★<b>それでも積むのは重ね順のためである</b>: このオーバーレイは z-index 1970 で
+    //     確認モーダル(1965)より<b>上</b>にある —— 積まないと
+    //     <b>見えていない確認モーダルにフォーカスが閉じ込められる</b>。
+    //     積んでおけば「いちばん上は閉じ込めない層」になり、Tab は盤面へ抜ける(裁定56)。
+    //   ★Esc は与えない。[盤面を確認する] は「閉じる」ではなく「畳む」であり、
+    //     畳んでも切断は続いている —— <b>出口ではない</b>。
+    syncModalLayer('auto-offline', offline && !offlinePeeking, { trap: false });
     if (offline) {
         setConnBar(offlinePeeking
             ? '切断中 — 操作は相手に届きません(再接続中)'
@@ -562,6 +711,10 @@ function showGateFatal(message) {
     gateEl('seat-gate-buttons').classList.add('d-none');
     showGateError(message);
     gateEl('seat-gate').classList.remove('d-none');
+    // ★★Batch 78(裁定354): <b>Esc は効かせない。</b>ここから出る道は
+    //   [ロビーへ戻る](遷移)しかなく、<b>閉じても部屋は戻らない</b>(裁定345)——
+    //   出口が無い層では Esc も効かない(裁定34・JOIN の席選択と同じ扱い)
+    syncModalLayer('seat-gate', true);
     updateOfflineLock();   // ★Batch 71: 「入れませんでした」と「再接続を待って」を重ねない
 }
 
@@ -595,6 +748,9 @@ function openSeatChangeGate() {
     //   ここで押して起きることは「席に着くのをやめる」でしかない
     gateEl('seat-gate-spectate').textContent = 'やめる(観戦を続ける)';
     gateEl('seat-gate').classList.remove('d-none');
+    // ★★Batch 78(裁定354): CHANGE には<b>出口が在る</b>([やめる])ので Esc も効く。
+    //   ★JOIN と同じ要素だが<b>別の状態</b>である —— 77 までのベタ書きも同じ区別をしていた
+    syncModalLayer('seat-gate', true, { escape: closeSeatChangeGate });
     // ★★71 の判定はモードを見る(isGateVisible)。CHANGE のあいだは切断の案内を出す
     updateOfflineLock();
 }
@@ -603,6 +759,7 @@ function openSeatChangeGate() {
 function closeSeatChangeGate() {
     seatGateMode = 'JOIN';
     gateEl('seat-gate').classList.add('d-none');
+    syncModalLayer('seat-gate', false);
     gateEl('seat-gate-name-wrap').classList.remove('d-none');
     gateEl('seat-gate-spectate').textContent = '観戦する';
     updateOfflineLock();
@@ -648,6 +805,7 @@ gateEl('seat-gate-buttons').addEventListener('click', async (e) => {
         const data = await res.json();
         saveOccupant(data.playerId, data.displayName);
         gateEl('seat-gate').classList.add('d-none');
+        syncModalLayer('seat-gate', false);
         updateOfflineLock();   // ★Batch 71: 盤面に入った。ここから先は切断の案内を出す
         gateResolve(data.playerId);
     } catch (err) {
@@ -711,6 +869,12 @@ function renderDeckGate(view) {
     const gate = gateEl('deck-gate');
     const waiting = view.status === 'WAITING' && !viewerIsSpectator() && !!viewerSeat();
     gate.classList.toggle('d-none', !waiting);
+    // ★★★Batch 78(裁定354): <b>ここは配信のたびに呼ばれる</b> ——
+    //   {@code pushModalLayer} が二重に積まないこと、
+    //   そして<b>フォーカスが中にあるうちは当て直さないこと</b>が効く。
+    //   当て直すと<b>デッキファイルを選んでいる最中に先頭のボタンへ飛ぶ</b>。
+    //   ★<b>Esc は効かせない</b> —— このゲートに [閉じる] は無い(出るなら[ロビーへ戻る])
+    syncModalLayer('deck-gate', waiting);
     if (!waiting) return;
     gateEl('deck-gate-code').textContent = view.roomId;
     gateEl('deck-gate-seat').textContent = '席' + viewerSeat();
@@ -1226,10 +1390,13 @@ function syncSoundPanel() {
 function openSoundModal() {
     syncSoundPanel();
     document.getElementById('sound-modal').classList.remove('d-none');
+    // ★Batch 78: 用件はミュートと音量なので、初期フォーカスは既定のまま(× を除く先頭)でよい
+    syncModalLayer('sound-modal', true, { escape: closeSoundModal });
 }
 
 function closeSoundModal() {
     document.getElementById('sound-modal').classList.add('d-none');
+    syncModalLayer('sound-modal', false);
 }
 
 document.getElementById('sound-mute').addEventListener('change', (e) => {
@@ -1357,20 +1524,25 @@ let autoConfirmPending = null;
  * ★<b>問いは1つずつ</b> —— 開いている間の askConfirm は捨てる。
  */
 function askConfirm(text, okLabel, onOk) {
-    if (autoConfirmPending) return false;
+    if (autoConfirmPending || isAutoDeclareOpen()) return false;
     autoConfirmPending = onOk;
     document.getElementById('auto-confirm-text').textContent = text;
     document.getElementById('auto-confirm-ok').textContent = okLabel;
     document.getElementById('auto-confirm').classList.remove('d-none');
-    // ★初期フォーカスは [キャンセル] である(裁定52)。
+    // ★★Batch 78(裁定354): 初期フォーカスは<b>層が当てる</b>。
+    //   行き先は変わっていない —— [キャンセル] である(裁定52)。
     //   <b>破壊的操作の [実行] に初期フォーカスを載せてはいけない。</b>
-    document.getElementById('auto-confirm-close').focus();
+    //   ★77 までは {@code .focus()} を直に呼んでいたが、それだと
+    //     <b>閉じたあとの戻り先が誰も決めていなかった</b>(裁定50 の残り半分)。
+    //   ★名指しは HTML の {@code data-initial-focus} が持つ。
+    syncModalLayer('auto-confirm', true, { escape: closeAutoConfirm });
     return true;
 }
 
 function closeAutoConfirm() {
     autoConfirmPending = null;
     document.getElementById('auto-confirm').classList.add('d-none');
+    syncModalLayer('auto-confirm', false);
 }
 
 function isAutoConfirmOpen() {
@@ -1384,6 +1556,107 @@ document.getElementById('auto-confirm-ok').addEventListener('click', () => {
     closeAutoConfirm();
     if (run) run();
 });
+
+// ---------------------------------------------------------------
+// ★★★2-2b) 宣言モーダル(Batch 78・裁定353)
+// ---------------------------------------------------------------
+//
+// ★★<b>確認(2-2)とは層が違う。</b>72 がそう書き残していた ——
+//   あちらは「本当にやるか(取り返しがつかない)」、こちらは「<b>どの規則で使うか</b>」である。
+//   【賢魂】・【特殊召喚】・強化使用の3つで、77 まで<b>素の confirm() が7箇所</b>あった。
+//
+// ★★★<b>72 の askConfirm には載らなかった。</b>あれは<b>実行する側しかない器</b>であり
+//   (裁定54)、宣言は<b>両方の分岐に意味がある</b> ——
+//   [キャンセル] が「やめる」ではなく<b>「通常プレイする」</b>を意味していた。
+//   ★<b>これは裁定55(ボタンには動詞を書く)の真逆である</b> ——
+//     文言を読み飛ばした人が、やめたつもりで<b>通常プレイしてしまう</b>。
+//   ★★実際、77 まで<b>ドラッグを取り消す手段が1つも無かった</b>:
+//     特殊召喚を持つカードを場へ落として [キャンセル] を押すと、通常プレイで出た。
+//
+// ★★★<b>だから出口を3つにした</b>(裁定353)——
+//   A の姿で使う / B の姿で使う / <b>やめる</b>(× ・Esc ・[やめる])。
+//   ★<b>やめても失うものは何も無い</b>: 宣言の時点でサーバへは1バイトも送っていない。
+//     まだ「使い始める前」であり、取り返しがつくどころか<b>何も起きていない</b>。
+//
+// ★<b>初期フォーカスは [やめる] である</b>(裁定52 の筋)。
+//   A も B も<b>どちらも送る側</b>なので、Enter を押しただけで片方が選ばれてはいけない。
+//   ★名指しは HTML の {@code data-initial-focus="#auto-declare-close"} が持つ。
+//
+// ★★<b>音は鳴らさない</b>(72 と同じ)。取り付け点は send() と onMessage の2つだけである。
+
+let autoDeclarePending = null;
+
+/**
+ * 「どちらの姿で使うか」を尋ねる(★Batch 78・裁定353)。
+ *
+ * @param text   何を選ぶのか(カードが持つ説明文をそのまま出す)
+ * @param aLabel A の姿のボタン。★<b>動詞を書く</b>(裁定55)
+ * @param onA    A を選んだときに呼ぶもの
+ * @param bLabel B の姿のボタン。★こちらも<b>動詞</b>である(「キャンセル」ではない)
+ * @param onB    B を選んだときに呼ぶもの
+ * @return 問いを出したか(既に問いが出ているときは false)
+ */
+function askDeclare(text, aLabel, onA, bLabel, onB) {
+    // ★<b>問いは1つずつ</b>(72 と同じ)。確認と宣言も重ねない ——
+    //   重ねると、答えたのがどちらの問いなのか画面から分からなくなる
+    if (autoDeclarePending || isAutoConfirmOpen()) return false;
+    autoDeclarePending = { onA, onB };
+    document.getElementById('auto-declare-text').textContent = text;
+    document.getElementById('auto-declare-a').textContent = aLabel;
+    document.getElementById('auto-declare-b').textContent = bLabel;
+    document.getElementById('auto-declare').classList.remove('d-none');
+    syncModalLayer('auto-declare', true, { escape: closeAutoDeclare });
+    return true;
+}
+
+/** ★やめる(× ・Esc ・[やめる])。<b>どちらの姿でも使わない</b> */
+function closeAutoDeclare() {
+    autoDeclarePending = null;
+    document.getElementById('auto-declare').classList.add('d-none');
+    syncModalLayer('auto-declare', false);
+}
+
+function isAutoDeclareOpen() {
+    return !document.getElementById('auto-declare').classList.contains('d-none');
+}
+
+/** 選ばれた側を走らせる。★先に閉じるのは確認モーダルと同じ理由である */
+function runDeclare(pick) {
+    const held = autoDeclarePending;
+    closeAutoDeclare();
+    if (!held) return;
+    const run = pick === 'A' ? held.onA : held.onB;
+    if (run) run();
+}
+
+document.getElementById('auto-declare-close').addEventListener('click', closeAutoDeclare);
+document.getElementById('auto-declare-a').addEventListener('click', () => runDeclare('A'));
+document.getElementById('auto-declare-b').addEventListener('click', () => runDeclare('B'));
+
+/**
+ * ★★★宣言のあいだに、指しているカードが動いていないか(Batch 78)。
+ *
+ * <h3>なぜ要るのか —— 素の confirm() を捨てると生まれる穴である</h3>
+ *
+ * 裁定53 の理由3 は「素の {@code confirm()} は<b>JavaScript を止める</b>」だった ——
+ * 止まっている間は STOMP の受信も描画も進まない。78 はそれを直した。
+ * ★<b>ところが、直した結果として逆の穴が開く</b>: 問うている間も配信は届き、
+ * <b>盤面が動きうる</b>。
+ *
+ * ★★77 までのコールバック(投了・席・退室・再戦)は<b>どれも位置を持たなかった</b>ので、
+ * この問題に当たらなかった。★<b>78 が初めて「手札の何枚目」を非同期の向こうへ運ぶ。</b>
+ *
+ * ★★★<b>だから答えが返った時点で引き直して照合する。</b>
+ * 一致しなければ何もしない —— <b>違うカードを使ってしまうより、
+ * 何も起きないほうが桁違いにましである</b>(設計判断49 の「畳まない」と同じ筋)。
+ *
+ * ★自分のターン中に自分の手札が動く経路は多くないが、
+ * <b>「多くない」は「無い」ではない</b>(74 の教訓・陰)。
+ */
+function stillThere(zone, index, cardId) {
+    const list = latestView && latestView.you ? latestView.you[zone] : null;
+    return !!(list && list[index] && list[index].cardId === cardId);
+}
 
 // ---------------------------------------------------------------
 // ★★★2-3) 試合の出入り(Batch 72): 席・退室・投了・再戦
@@ -1502,29 +1775,60 @@ function onHandCardClick(index) {
     // ★★Batch 70: これは<b>確認ではなく「どちらの姿で使うか」の宣言</b>である。
     //   裁定321 が挟むなと言っているのは前者であり、後者は入口を問わず要る
     //   (ドラッグでは落とし先が宣言になる。裁定318)
+    // ★★★Batch 78(裁定353): 素の confirm() をやめ、宣言モーダルへ移した。
+    //   ★<b>問いは連鎖する</b>(賢魂 → 特殊召喚 / 強化)。
+    //     235枚に「賢魂かつ特殊召喚」も「賢魂かつ強化」も<b>今は1枚も無い</b>が、
+    //     <b>無いことに寄りかからない</b> —— 連鎖する形で書いてある(74 の教訓・陰)。
     if (card.soulCost != null) {
-        if (confirm(soulPrompt(card))) {
-            beginPlayFromHand(index, card, 'play-soul', card.soulTargets, {}, false);
-            return;
-        }
+        askDeclare(soulPrompt(card),
+            `スペルとして使う(${soulCostLabel(card)})`,
+            () => { if (stillThere('hand', index, card.cardId)) {
+                beginPlayFromHand(index, card, 'play-soul', card.soulTargets, {}, false);
+            } },
+            'ミニオンとして出す',
+            () => { if (stillThere('hand', index, card.cardId)) declarePlayForm(index, card); });
+        return;
     }
+    declarePlayForm(index, card);
+}
 
-    // 特殊召喚が可能なら通常召喚とどちらにするか確認する
-    let action = 'play-card';
-    let specs = card.targets;
-    let enhanced = false;
+/**
+ * 【特殊召喚】/ 強化使用の宣言(★Batch 78・裁定353)。
+ *
+ * ★<b>賢魂を選ばなかった先でもある</b>ので、関数に切り出してある ——
+ * 77 までは同じ関数の中に落ちる `else` だったが、
+ * 問いが非同期になった以上、<b>続きは名前を持っていなければ渡せない</b>。
+ *
+ * ★★<b>「通常プレイする」を選んだあとに強化を問い直さない</b> ——
+ * 77 までの {@code else if} と<b>同じ振る舞いを保つ</b>(74 の教訓・据え置き)。
+ * 変えるなら裁定が要る話であり、78 の母集団の外である。
+ */
+function declarePlayForm(index, card) {
     if (card.canSpecialSummon && latestView.phase === 'MAIN') {
-        if (confirm(card.specialSummonText + '\n\nOK = 特殊召喚 / キャンセル = 通常プレイ')) {
-            action = 'special-summon';
-            specs = card.specialTargets;
-        }
-    } else if (card.enhancedCost > 0) {
+        askDeclare(card.specialSummonText,
+            '特殊召喚する',
+            () => startHandPlay(index, card, 'special-summon', card.specialTargets, false),
+            '通常プレイする',
+            () => startHandPlay(index, card, 'play-card', card.targets, false));
+        return;
+    }
+    if (card.enhancedCost > 0) {
         // 追加コストによる強化使用(a5: 回帰の風穴・風弾の跳弾)。
         // コストに影響するモード選択のため、対象選択より前に確定させる
-        enhanced = confirm(card.enhancedText + `\n\nOK = 追加コスト+${card.enhancedCost}を払う / キャンセル = 通常使用`);
+        askDeclare(card.enhancedText,
+            `追加コスト+${card.enhancedCost}を払う`,
+            () => startHandPlay(index, card, 'play-card', card.targets, true),
+            '通常使用する',
+            () => startHandPlay(index, card, 'play-card', card.targets, false));
+        return;
     }
-    const extra = enhanced ? { enhanced: true } : { enhanced: false };
-    beginPlayFromHand(index, card, action, specs, extra, card.type === 'EVOLUTION');
+    startHandPlay(index, card, 'play-card', card.targets, false);
+}
+
+/** 宣言が済んだ手札のプレイを始める。★答えが返った時点で手札を引き直して照合する */
+function startHandPlay(index, card, action, specs, enhanced) {
+    if (!stillThere('hand', index, card.cardId)) return;
+    beginPlayFromHand(index, card, action, specs, { enhanced }, card.type === 'EVOLUTION');
 }
 
 /**
@@ -1564,11 +1868,22 @@ function playCostOf(card, action, extra) {
  * 押す前に何マナ払うかが分かるようにするためである。
  */
 function soulPrompt(card) {
+    // ★★★Batch 78(裁定353・55): <b>「OK = / キャンセル =」の尾を落とした。</b>
+    //   あれは素の confirm() が<b>ボタンの文言を決められない</b>ために、
+    //   何が起きるかを問いの本文へ全部書くしかなかった名残である(36 が捨てた理由2)。
+    //   ★いまは<b>ボタンに動詞が載る</b>ので、本文はカードの話だけをすればよい。
+    return `【賢魂：${card.soulCost}】${card.soulText || ''}`;
+}
+
+/**
+ * 賢魂として使うときに払うコストの表示(★Batch 78)。
+ * ★実効コストが n と違うとき(コスト軽減・増加)は両方を出す ——
+ * <b>押す前に何マナ払うかが分かるようにする</b>(54 からの性質をボタン側へ移した)。
+ */
+function soulCostLabel(card) {
     const eff = card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost;
-    const cost = eff === card.soulCost ? `コスト${card.soulCost}`
+    return eff === card.soulCost ? `コスト${card.soulCost}`
         : `コスト${card.soulCost} → 実効${eff}`;
-    return `【賢魂：${card.soulCost}】${card.soulText || ''}\n\n`
-        + `OK = スペルとして使う(${cost}) / キャンセル = ミニオンとして出す`;
 }
 
 /**
@@ -1941,6 +2256,7 @@ function showModalRows(title, rows, mode) {
         });
     }
     document.getElementById('info-modal').classList.remove('d-none');
+    openInfoModalLayer();   // ★Batch 78(裁定354): 開閉と層への出入りを離さない
 }
 
 /**
@@ -2007,14 +2323,30 @@ function onTabooCardClick(index) {
     // ★Batch 54: 禁忌デッキからも【賢魂】として使える(マスター裁定 A6)。
     // ★<b>退けるマナは n 枚</b>である —— 賢魂として使うならコストは n だからである。
     //   禁忌の支払いはコスト軽減を受けない(マナ枚数で払う)ので、印刷値の n をそのまま使う
-    let action = 'play-taboo';
-    let cost = card.cost;
-    let specs = card.targets;
-    if (card.soulCost != null && confirm(soulPrompt(card))) {
-        action = 'play-taboo-soul';
-        cost = card.soulCost;
-        specs = card.soulTargets;
+    // ★★★Batch 78(裁定353): 素の confirm() をやめ、宣言モーダルへ移した。
+    //   ★<b>退けるマナの枚数は印刷値の n である</b>(禁忌はコスト軽減を受けない)ので、
+    //     ボタンの文言も「マナ n 枚」と書く —— 手札の側(実効コスト)とは別物である
+    if (card.soulCost != null) {
+        askDeclare(soulPrompt(card),
+            `スペルとして使う(マナ${card.soulCost}枚)`,
+            () => startTabooPlay(index, card, 'play-taboo-soul', card.soulCost, card.soulTargets),
+            'ミニオンとして出す',
+            () => startTabooPlay(index, card, 'play-taboo', card.cost, card.targets));
+        return;
     }
+    startTabooPlay(index, card, 'play-taboo', card.cost, card.targets);
+}
+
+/**
+ * 宣言が済んだ禁忌カードの使用を始める(★Batch 78)。
+ *
+ * ★★<b>マナが足りるかの検査は宣言の「あと」である</b> ——
+ * 賢魂として使うなら n 枚、ミニオンとして出すなら印刷コストぶん要るので、
+ * <b>どちらを選んだかが決まるまで必要枚数が決まらない</b>。
+ * ★77 までも同じ順だった(confirm のあとに検査していた)。振る舞いは変えていない。
+ */
+function startTabooPlay(index, card, action, cost, specs) {
+    if (!stillThere('taboo', index, card.cardId)) return;
     // 支払いに使えるマナ(ピュア・エレメントの一時マナは禁忌コストに使えない)
     const payable = latestView.you.manaZone.filter(m => !m.temporary).length;
     if (payable < cost) {
@@ -2449,27 +2781,56 @@ function playByDrop(d, zone, droppedOnInstanceId) {
         beginSelection('play-soul', d.index, card.soulTargets, { manaIndexes: [] });
         return;
     }
-    let action = 'play-card';
-    let specs = card.targets;
-    let enhanced = false;
-    if (card.canSpecialSummon && latestView.phase === 'MAIN'
-            && confirm(card.specialSummonText + '\n\nOK = 特殊召喚 / キャンセル = 通常プレイ')) {
-        action = 'special-summon';
-        specs = card.specialTargets;
-    } else if (card.enhancedCost > 0) {
-        enhanced = confirm(card.enhancedText
-            + `\n\nOK = 追加コスト+${card.enhancedCost}を払う / キャンセル = 通常使用`);
+    // ★★★Batch 78: <b>落とし先の検査を宣言より前へ出した。</b>
+    //   77 まで、進化を素材でない場所へ落とすと<b>先に特殊召喚を問われてから</b>
+    //   「素材の上に落としてください」で捨てられていた ——
+    //   ★<b>答えが捨てられる問いを出さない。</b>
+    //   ★★<b>禁忌の道(77)は既にこの順である</b> —— 入口で手触りを揃えた(裁定352 の筋)。
+    if (card.type === 'EVOLUTION' && (!droppedOnInstanceId
+            || !(card.evolutionMaterialIds || []).includes(droppedOnInstanceId))) {
+        showMessage('進化は素材にできるミニオンの上に落としてください(条件: '
+            + card.evolutionText + ')');
+        return;
     }
+    // ★★★Batch 78(裁定353): 素の confirm() をやめ、宣言モーダルへ移した。
+    //   ★<b>ここで初めて「やめる」が作れた</b> —— 77 までは [キャンセル] が
+    //     「通常プレイする」を意味しており、<b>ドラッグを取り消す手段が1つも無かった</b>。
+    if (card.canSpecialSummon && latestView.phase === 'MAIN') {
+        askDeclare(card.specialSummonText,
+            '特殊召喚する',
+            () => startDropPlay(d, card, 'special-summon', card.specialTargets,
+                false, droppedOnInstanceId),
+            '通常プレイする',
+            () => startDropPlay(d, card, 'play-card', card.targets,
+                false, droppedOnInstanceId));
+        return;
+    }
+    if (card.enhancedCost > 0) {
+        askDeclare(card.enhancedText,
+            `追加コスト+${card.enhancedCost}を払う`,
+            () => startDropPlay(d, card, 'play-card', card.targets, true, droppedOnInstanceId),
+            '通常使用する',
+            () => startDropPlay(d, card, 'play-card', card.targets, false, droppedOnInstanceId));
+        return;
+    }
+    startDropPlay(d, card, 'play-card', card.targets, false, droppedOnInstanceId);
+}
+
+/**
+ * 宣言が済んだドラッグのプレイを始める(★Batch 78)。
+ *
+ * ★<b>落とし先({@code droppedOnInstanceId})を宣言の向こうまで運ぶ</b> ——
+ * 77 が禁忌の焼ける道で {@code materialSeed} を運んだのと同じ形である。
+ * ★★素材にできるかの検査は<b>問う前</b>で済んでいるが、
+ * 問うているあいだに素材が場を離れることはありうる ——
+ * そのときは {@code pickEvolutionMaterial} が「素材にできません」で受け止める。
+ */
+function startDropPlay(d, card, action, specs, enhanced, droppedOnInstanceId) {
+    if (!stillThere('hand', d.index, card.cardId)) return;
     const extra = { enhanced, manaIndexes: [] };
     if (card.type === 'EVOLUTION') {
         // ★★裁定322: <b>落とした先が1体目の素材</b>であり、残りは今までどおり問い合わせる。
         //   ★52 が作った素材選択の器をそのまま使う(足す物が無い)
-        if (!droppedOnInstanceId
-                || !(card.evolutionMaterialIds || []).includes(droppedOnInstanceId)) {
-            showMessage('進化は素材にできるミニオンの上に落としてください(条件: '
-                + card.evolutionText + ')');
-            return;
-        }
         beginEvolutionSelection(action, d.index, specs, extra, card);
         if (evolution) pickEvolutionMaterial(droppedOnInstanceId);
         return;
@@ -2582,10 +2943,24 @@ function showModal(title, lines) {
         });
     }
     document.getElementById('info-modal').classList.remove('d-none');
+    openInfoModalLayer();
+}
+
+/**
+ * 情報モーダルを層へ積む(★Batch 78)。
+ *
+ * ★★<b>77 まで、ここには Esc が1つも効いていなかった</b> ——
+ *   [閉じる] を持っているのに、キーボードだけでは出られなかった。
+ *   裁定35 の一般化(Esc は × と同じ資格を持つ)からすれば、<b>効くのが正である</b>。
+ * ★閉じ方の本体は {@code hideModal} 1箇所のままである(器を増やしていない)。
+ */
+function openInfoModalLayer() {
+    syncModalLayer('info-modal', true, { escape: hideModal });
 }
 
 function hideModal() {
     document.getElementById('info-modal').classList.add('d-none');
+    syncModalLayer('info-modal', false);
 }
 
 /** ★44: 名前の文字列 → フェイス一覧に格上げ(showZoneFaces)。旧関数名は互換のため残す */
@@ -2918,10 +3293,14 @@ function openZoom(data) {
     holder.innerHTML = '';
     holder.appendChild(cardFace(data, 'large'));
     overlay.classList.remove('d-none');
+    // ★★Batch 78(裁定354): 層には積むが<b>閉じ込めない</b> ——
+    //   焦点可能な要素が1つも無いので、閉じ込める先が無い。Esc は効く
+    syncModalLayer('auto-zoom', true, { trap: false, escape: closeZoom });
 }
 
 function closeZoom() {
     document.getElementById('auto-zoom').classList.add('d-none');
+    syncModalLayer('auto-zoom', false);
 }
 
 // ---------------------------------------------------------------
@@ -3063,6 +3442,7 @@ function showZoneFaces(title, cards, graveSummon) {
         content.appendChild(grid);
     }
     document.getElementById('info-modal').classList.remove('d-none');
+    openInfoModalLayer();   // ★Batch 78(裁定354): 開閉と層への出入りを離さない
 }
 
 /**
@@ -3075,18 +3455,23 @@ function beginGraveSpecialSummon(trashIndex, card) {
         showMessage('墓地からの特殊召喚はメインフェイズにのみ行えます');
         return;
     }
-    if (!confirm(card.specialSummonText + '\n\nOK = 墓地から特殊召喚する')) {
-        return;
-    }
-    hideModal();
-    const action = 'special-summon-from-grave';
-    const specs = card.specialTargets;
-    const extra = { trashIndex };
-    if (card.type === 'EVOLUTION') {
-        beginEvolutionSelection(action, null, specs, extra, card);
-        return;
-    }
-    beginSelection(action, null, specs, extra);
+    // ★★★Batch 78: <b>ここだけは「確認」である</b>(7箇所のうち1つ)——
+    //   墓地から出す道に「もう一方の姿」は無い(通常プレイできない)ので、
+    //   選択肢は<b>やるか、やめるか</b>しかない。72 の器がそのまま使える。
+    //   ★ボタンには動詞を書く(裁定55)。
+    askConfirm(card.specialSummonText, '墓地から特殊召喚する', () => {
+        // ★答えが返った時点で墓地を引き直す(宣言モーダルと同じ理由。stillThere を参照)
+        if (!stillThere('trash', trashIndex, card.cardId)) return;
+        hideModal();
+        const action = 'special-summon-from-grave';
+        const specs = card.specialTargets;
+        const extra = { trashIndex };
+        if (card.type === 'EVOLUTION') {
+            beginEvolutionSelection(action, null, specs, extra, card);
+            return;
+        }
+        beginSelection(action, null, specs, extra);
+    });
 }
 
 // ---------------------------------------------------------------
@@ -3892,7 +4277,12 @@ function renderLog(log) {
 }
 
 function toggleLogPanel() {
-    document.getElementById('log-panel').classList.toggle('d-none');
+    const panel = document.getElementById('log-panel');
+    panel.classList.toggle('d-none');
+    // ★★Batch 78(裁定354): <b>配信のたびに中身を作り直す</b>ので閉じ込めない ——
+    //   フォーカスを持った要素が再描画で消える(36 が帯・全面表示を外したのと同じ理由)
+    syncModalLayer('log-panel', !panel.classList.contains('d-none'),
+        { trap: false, escape: toggleLogPanel });
 }
 
 function renderOpponent(opp, view) {

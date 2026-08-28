@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=54)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=55)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -267,7 +267,8 @@
     その上に確認を重ねると「実行しても何も起きない問い」を最前面に出すことになる。
   ★初期フォーカスは [キャンセル] である(裁定52)。実行に載せてはいけない。
 -->
-<div id="auto-confirm" class="info-modal auto-confirm d-none">
+<div id="auto-confirm" class="info-modal auto-confirm d-none"
+     data-initial-focus="#auto-confirm-close">
     <div class="info-modal-body" role="dialog" aria-modal="true"
          aria-labelledby="auto-confirm-title" style="max-width:380px;">
         <div class="info-modal-head">
@@ -282,6 +283,45 @@
             <button type="button" id="auto-confirm-ok" class="btn btn-sm btn-warning">実行</button>
             <button type="button" id="auto-confirm-close"
                     class="btn btn-sm btn-outline-light">キャンセル</button>
+        </div>
+    </div>
+</div>
+
+<!--
+  ★★★Batch 78(裁定353): 「どちらの姿で使うか」の宣言。
+
+  ★★<b>確認(#auto-confirm)とは層が違う。</b>72 がそう書き残していた ——
+    あちらは「本当にやるか(取り返しがつかない)」、こちらは「<b>どの規則で使うか</b>」である。
+    【賢魂】・【特殊召喚】・強化使用の3つで、77 まで<b>素の confirm() が7箇所</b>あった。
+  ★★★<b>72 の askConfirm には載らなかった。</b>あれは実行する側しかない器であり(裁定54)、
+    宣言は<b>両方の分岐に意味がある</b> ——
+    [キャンセル] が「やめる」ではなく<b>「通常プレイする」</b>を意味していた。
+    <b>裁定55(ボタンには動詞を書く)の真逆である。</b>
+  ★★だから出口を3つにした: A の姿 / B の姿 / <b>やめる</b>(× ・Esc ・[やめる])。
+    <b>やめても失うものは何も無い</b> —— 宣言の時点でサーバへは1バイトも送っていない。
+  ★<b>初期フォーカスは [やめる] である</b>(裁定52 の筋)——
+    A も B も<b>どちらも送る側</b>なので、Enter だけで片方が選ばれてはいけない。
+  ★★★<b>CSS は共有した。</b>z-index 1965 の規則は battle.css に 36 から在り、
+    セレクタに .auto-declare を並べただけである(71 の「規則は1つ、名前は2つ」)。
+    ★<b>幅だけは広い</b>: 両方のボタンに動詞を書くぶん、文言が長くなる。
+-->
+<div id="auto-declare" class="info-modal auto-declare d-none"
+     data-initial-focus="#auto-declare-close">
+    <div class="info-modal-body" role="dialog" aria-modal="true"
+         aria-labelledby="auto-declare-title" style="max-width:440px;">
+        <div class="info-modal-head">
+            <h6 id="auto-declare-title">どちらの姿で使うか</h6>
+            <button type="button" id="auto-declare-x"
+                    class="btn btn-sm btn-outline-light info-modal-x"
+                    onclick="closeAutoDeclare()"
+                    aria-label="やめる" title="やめる">&times;</button>
+        </div>
+        <p id="auto-declare-text" class="small mb-3"></p>
+        <div class="d-flex justify-content-end gap-1 flex-wrap">
+            <button type="button" id="auto-declare-a" class="btn btn-sm btn-warning">A</button>
+            <button type="button" id="auto-declare-b" class="btn btn-sm btn-info">B</button>
+            <button type="button" id="auto-declare-close"
+                    class="btn btn-sm btn-outline-light">やめる</button>
         </div>
     </div>
 </div>
@@ -442,10 +482,13 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<!-- ★★★Batch 77: 版数を上げた(v=38 → v=39)。禁忌からの進化召喚で素材を問う段を通す。
-     ★<b>版数を上げないと、既に開いている人だけが 38 のまま「禁忌の進化が出せない」で遊び続ける</b>。
-     ★★battle.css は<b>1文字も触っていないので据え置き(v=54)</b>である ——
-       上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5・73 の教訓)。 -->
-<script th:src="@{/js/battle.js(v=39)}"></script>
+<!-- ★★★Batch 78: 版数を上げた(v=39 → v=40)。素の confirm() を宣言モーダルへ移し(裁定353)、
+     モーダルの層とフォーカストラップを入れた(裁定354)。
+     ★<b>版数を上げないと、既に開いている人だけが 39 のまま
+       「[キャンセル] が通常プレイを意味する」画面で遊び続ける</b>。
+     ★★battle.css も上げた(v=54 → v=55・参照する5枚すべて)——
+       宣言モーダルの名前を z-index の規則に並べたためである。
+       上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5)。 -->
+<script th:src="@{/js/battle.js(v=40)}"></script>
 </body>
 </html>
