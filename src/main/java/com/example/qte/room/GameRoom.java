@@ -1,8 +1,10 @@
 package com.example.qte.room;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,6 +57,37 @@ public class GameRoom {
 
     /** 対戦ログ(両者に公開される進行記録) */
     private final List<String> log = new ArrayList<>();
+
+    /**
+     * ★★★Batch 75: いま WebSocket が繋がっている人(occupantId → sessionId)。
+     *
+     * <h2>なぜ席にも観戦者にも置かないのか</h2>
+     * 66 が {@link PlayerSlot} と {@link Spectator} を<b>別の型</b>にしたのは、
+     * 席を見るのを忘れた分岐が観戦者をプレイヤーとして扱うのをコンパイルで止めるためであり、
+     * その理由は今も生きている。しかし<b>「繋がっているか」はどちらでもまったく同じ性質</b>であり、
+     * 両方の型に同じフィールドを足すと<b>同じ規則が2箇所に書かれる</b>(設計判断38)。
+     * ★{@link Spectator} は record なので状態を持てない、という事情もあるが、
+     * <b>それは理由ではなく結果である</b> —— 状態を持たない型でよかったのは、
+     * 観戦者の性質が「id と名前」だけだったからである。
+     *
+     * <p>★★<b>72 の不変条件がそのまま効く</b>: 1つの id は席と観戦者のどちらか一方にしか居ない。
+     * だから鍵が id であることに曖昧さが無い —— 席を立って観戦に降りても
+     * ({@link #standUp})、id は変わらないので<b>接続の記録はそのまま持ち越される</b>。
+     *
+     * <p>★<b>ビューには載せない。</b>{@code RoomView} は「相手が繋がっているか」を持たない ——
+     * 75 はそれを変えていない(積み残しとして書き残した)。
+     */
+    private final Map<String, String> sessions = new HashMap<>();
+
+    /**
+     * 接続している人が0人になった時刻(★Batch 75)。1人でも繋がっていれば null。
+     *
+     * <p>★<b>初期値は「今」である。</b>部屋を作った直後は誰も購読していない ——
+     * 作った人が盤面へ飛んで {@code ready} を撃つまでの数秒だけ、この部屋は無人である。
+     * 手動モードの {@code ManualRoom.emptySince} と同じ初期値であり、
+     * <b>「部屋だけ作って誰も来なかった」を掃除の対象にする</b>ためにこの形が要る。
+     */
+    private Instant emptySince = Instant.now();
 
     @Setter
     private GameState gameState;
@@ -258,9 +291,17 @@ public class GameRoom {
      * <b>相手に勝ちを渡してから</b>抜ける。
      * ★決着後({@link GameStatus#FINISHED})は退室できる。
      *
-     * <p>★★<b>部屋は残る。</b>通常モードには無人部屋の掃除が無い(66 の積み残し)。
-     * 72 はそれを直していない —— 直すなら {@code ManualCleanupScheduler} にあたるものが要り、
-     * それは「退室できるようにする」とは別の工事である。
+     * <p>★★<b>Batch 75 で訂正: 部屋は残らなくなった。</b>72 は
+     * 「直すなら {@code ManualCleanupScheduler} にあたるものが要り、それは別の工事である」と
+     * 書いていた —— 75 がその工事である({@code GameCleanupScheduler}・裁定342)。
+     * ★退室そのものは今も部屋を消さない。消すのは<b>誰も繋がっていない状態が続いたとき</b>であり、
+     * 判定は {@link #desertedFor} が持つ。
+     *
+     * <p>★★★<b>接続の記録もここで外す</b>(★Batch 75)。外さないと、
+     * 退室した人のセッションが {@code sessions} に残り、
+     * <b>誰も居ない部屋が永久に「1人繋がっている」と答える</b> ——
+     * 切断イベントは退室のあとにも来るが、来ない経路
+     * (退室してそのまま同じタブで別の部屋へ入る)がある。
      */
     public void leave(String occupantId) {
         PlayerSlot slot = findSlot(occupantId).orElse(null);
@@ -275,6 +316,8 @@ public class GameRoom {
         if (occupantId.equals(rematchOfferedBy)) {
             rematchOfferedBy = null;
         }
+        sessions.remove(occupantId);
+        noteSessionsChanged();
     }
 
     // ---- ★★★再戦(Batch 72) ----
@@ -313,6 +356,95 @@ public class GameRoom {
         log.clear();
         for (PlayerSlot slot : getSlots()) {
             slot.clearDeck();
+        }
+    }
+
+    // ---- ★★★接続と無人(Batch 75・裁定342) ----
+    //
+    // ★★★<b>通常モードの無人判定は1段である。</b>手動モードは2段
+    //   (切断から5分で席を空ける → 在室者0が5分続いたら部屋を消す)だが、
+    //   通常モードは<b>席を空ける段を作らない</b>(裁定342)。理由は3つある。
+    //     (1) 対戦中に席が空いても、誰も座れない({@link #takeSeat} が gameState を見て断る)。
+    //     (2) WAITING 中に席を空けることには意味があるが、それは 72 が
+    //         {@link #leave}(明示的な退室)として作った ——<b>切断は退室ではない</b>。
+    //     (3) 席と {@code GameState} の2人は1対1であり、対戦中に席が消えると
+    //         盤面の持ち主が消える(72 が「対戦中は退室できない」と決めた理由そのものである)。
+    //   ★★<b>同じ穴を塞ぐことと、同じ形で塞ぐことは別である</b>(71 の教訓)。
+    //
+    // ★★<b>猶予の起点を書く場所は2つある。</b>接続が減る経路が
+    //   {@link #markDisconnected}(切断)と {@link #leave}(退室)の2つあるためで、
+    //   判定そのものは {@link #noteSessionsChanged} 1本に閉じてある(裁定130)。
+
+    /**
+     * 購読が済んだことを記録する(★Batch 75)。{@code ready} を受けた入口だけが呼ぶ。
+     *
+     * <p>★<b>{@code PlayerSlot.ready} とは別物である。</b>あちらは
+     * 「試合を始めてよいか」({@link #bothReady()})のための旗であり、
+     * <b>一度立ったら倒れない</b> —— 再戦でも倒さないと 72 が決めている。
+     * こちらは<b>いま繋がっているか</b>であり、切断で倒れる。
+     * ★同じ {@code ready} という操作が2つの事実を書くが、寿命が違う。
+     *
+     * @param sessionId WebSocket セッションID。{@code @Header("simpSessionId")} が運ぶ
+     */
+    public void markConnected(String occupantId, String sessionId) {
+        if (occupantId == null || sessionId == null) {
+            return;
+        }
+        sessions.put(occupantId, sessionId);
+        emptySince = null;
+    }
+
+    /**
+     * WebSocket が切れたことを記録する(★Batch 75)。
+     *
+     * <p>★<b>席も観戦者も動かさない</b>(裁定342)。ここがやるのは
+     * 「繋がっている人の一覧から外す」ことだけであり、
+     * <b>席はそのまま残る</b> —— 戻ってくれば {@link #markConnected} でまた載る。
+     *
+     * @return 切断した人の occupantId。この部屋の人でなければ null
+     */
+    public String markDisconnected(String sessionId) {
+        if (sessionId == null) {
+            return null;
+        }
+        String occupantId = sessions.entrySet().stream()
+                .filter(e -> sessionId.equals(e.getValue()))
+                .map(Map.Entry::getKey)
+                .findFirst().orElse(null);
+        if (occupantId == null) {
+            return null;
+        }
+        sessions.remove(occupantId);
+        noteSessionsChanged();
+        return occupantId;
+    }
+
+    /** 繋がっている人の数(★Batch 75)。★<b>席と観戦者の区別をしない</b> */
+    public int connectedCount() {
+        return sessions.size();
+    }
+
+    /**
+     * 誰も繋がっていない状態が続いている時間(★Batch 75・裁定342)。
+     * 1人でも繋がっていれば {@link Duration#ZERO}。
+     *
+     * <p>★手動モードの {@code ManualRoom.emptyFor} と同じ形だが、
+     * <b>数えている集合が違う</b> —— あちらは<b>在室者</b>(切断猶予中も含む)、
+     * こちらは<b>繋がっている人</b>である。
+     * ★<b>名前を変えてあるのはそのためである</b>(empty ではなく deserted)。
+     * 同じ名前にすると、次の人が「同じものだ」と読んで手動モードの値を写す。
+     */
+    public Duration desertedFor(Instant now) {
+        if (!sessions.isEmpty() || emptySince == null) {
+            return Duration.ZERO;
+        }
+        return Duration.between(emptySince, now);
+    }
+
+    /** 接続者が減ったときに猶予の起点を立てる。★判定はここ1箇所だけが持つ(裁定130) */
+    private void noteSessionsChanged() {
+        if (sessions.isEmpty() && emptySince == null) {
+            emptySince = Instant.now();
         }
     }
 

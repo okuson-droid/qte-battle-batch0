@@ -22,6 +22,8 @@ public final class PeekingBroadcaster extends GameBroadcaster {
     private String roomId;
     private String playerId;
     private String message;
+    private int roomLostCount;
+    private int broadcastCount;
 
     public PeekingBroadcaster() {
         super(null, null);
@@ -32,6 +34,46 @@ public final class PeekingBroadcaster extends GameBroadcaster {
         this.roomId = roomId;
         this.playerId = playerId;
         this.message = message;
+    }
+
+    /**
+     * ★Batch 75(裁定344): 部屋消失も覗く。
+     *
+     * <p>★<b>{@link #message} には何も書かない。</b>ROOM_LOST は本文を持たない型であり、
+     * ここで文言を作ると<b>試験の中に、実装には無い文字列が生まれる</b>(裁定181)。
+     * ★数だけを数えるのは、「ERROR ではなくこちらが呼ばれた」ことが測りたいものだからである。
+     */
+    @Override
+    public void sendRoomLost(String roomId, String occupantId) {
+        this.roomId = roomId;
+        this.playerId = occupantId;
+        this.roomLostCount++;
+    }
+
+    /** 部屋消失を返した回数(★Batch 75)。★0 なら ERROR の側へ行っている */
+    public int roomLostCount() {
+        return roomLostCount;
+    }
+
+    /**
+     * ★Batch 75: <b>成功したときの配信を受け止める。</b>
+     *
+     * <p>73 まで、この器を使う試験は<b>拒否される操作しか流していなかった</b> ——
+     * 成功すると {@code execute} が {@code broadcast} を呼び、
+     * 依存が null のこの器は<b>そこで落ちる</b>。
+     * ★75 は「{@code ready} を通すと接続が記録される」を測るために
+     * <b>成功する操作</b>を流す必要があった(72 の教訓「番人は実際の入口から起こす」)。
+     * ★<b>ビューは組み立てない。</b>ここで測りたいのは配信の中身ではなく、
+     * <b>部屋の状態が変わったこと</b>である。
+     */
+    @Override
+    public void broadcast(com.example.qte.room.GameRoom room) {
+        broadcastCount++;
+    }
+
+    /** 配信が起きた回数(★Batch 75)。操作が受理されたことの目印である */
+    public int broadcastCount() {
+        return broadcastCount;
     }
 
     public String roomId() {

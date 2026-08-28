@@ -33,6 +33,7 @@ public class GameBroadcaster {
      * クライアントへ送るメッセージの型。
      * type=VIEW のとき view が入り、type=ERROR のとき message が入る。
      * ★Batch 72: type=LEFT(退室が受理された)が3つ目である。どちらも入らない。
+     * ★★Batch 75: type=ROOM_LOST(部屋がもう無い)が4つ目である。これもどちらも入らない。
      */
     public record WsMessage(String type, GameView view, String message) {
 
@@ -42,6 +43,24 @@ public class GameBroadcaster {
 
         static WsMessage ofError(String message) {
             return new WsMessage("ERROR", null, message);
+        }
+
+        /**
+         * 部屋がサーバ上にもう無い(★Batch 75・裁定344)。
+         *
+         * <p>★★★<b>ERROR で代用しない。</b>72 が {@link #ofLeft} について書いたのと同じ理由である ——
+         * ERROR は「その操作が拒否された理由」であって、画面はそれを出して<b>その場に留まる</b>。
+         * 部屋消失は<b>留まれない</b>(次のどの操作も同じ結末になる)。
+         *
+         * <p>★★<b>手動モードは本文の文字列で判定している</b>
+         * ({@code msg.message === 'この部屋に入室していません'})。
+         * あれは<b>サーバの文言を1文字直しただけで黙って効かなくなる</b> ——
+         * 実際に効かなくなっても、画面は「エラーが出た」ように見えるので誰も気づかない
+         * (74 の教訓「効きすぎている実装は別の規則の陰に隠れる」の裏側の形である)。
+         * ★通常モードは型で運ぶ。手動モードを揃えていないことは設計解説に書き残した。
+         */
+        static WsMessage ofRoomLost() {
+            return new WsMessage("ROOM_LOST", null, null);
         }
 
         /**
@@ -97,6 +116,22 @@ public class GameBroadcaster {
      */
     public void sendLeft(String roomId, String occupantId) {
         messagingTemplate.convertAndSend(destinationOf(roomId, occupantId), WsMessage.ofLeft());
+    }
+
+    /**
+     * 部屋がもう無いことを、操作しようとした人へ返す(★Batch 75・裁定344)。
+     *
+     * <p>★<b>部屋が無いので {@link #broadcast} は使えない</b> ——
+     * 宛先の一覧を持っているのは部屋だからである。{@link #sendLeft} と同じ形で、
+     * <b>操作を送ってきた1人にだけ</b>返す。
+     *
+     * <p>★★<b>他の在室者には届かない。</b>部屋が消えたときに全員へ知らせる経路は無い ——
+     * 台帳から消えた時点で、誰が居たかを知っているものが1つも無いためである。
+     * ★それでよい: 部屋が消えるのは<b>全員が切断してから</b>なので(裁定342)、
+     * 知らせる相手はどのみち居ない。戻ってきた人が {@code ready} を撃った瞬間にこれを受け取る。
+     */
+    public void sendRoomLost(String roomId, String occupantId) {
+        messagingTemplate.convertAndSend(destinationOf(roomId, occupantId), WsMessage.ofRoomLost());
     }
 
     private String destinationOf(String roomId, String playerId) {

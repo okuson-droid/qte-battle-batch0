@@ -9069,6 +9069,176 @@ async function clearZoom(page) {
   check('進化まわりの操作でJSエラーが出ない', evoErrors.length === 0, evoErrors.join(' | '));
   await evoPage.close();
 
+  // =========================================================================
+  // ★★★Batch 75: 部屋消失の検出(裁定344・345)
+  //
+  // ★★<b>専用のページで回す。</b>showRoomLostFatal は client を止め、
+  //   ゲートで盤面を覆う —— 以降の項目にとって毒である(71 の connPage と同じ判断)。
+  //
+  // ★★★<b>ここにしか照合先が無い。</b>サーバ側(ROOM_LOST を送ること・掃除・接続の記録)は
+  //   Batch75RoomLifecycleTest が持っている —— ハーネスは Java を起こさないので、
+  //   {@code GameBroadcaster} を壊してもこちらには1件も届かない
+  //   (70 の教訓「回る場所を選ぶ前に、そこまで届くかを確かめる」)。
+  //   逆に<b>受け取った側の畳み方</b>は JUnit からは見えない。
+  // =========================================================================
+
+  // ★★<b>エラーの受け皿はこの章の先頭で用意する</b>(66 の一時的死角を自分で作らない)。
+  //   const は宣言より前では触れない —— 下の項目より後ろに置くと ReferenceError になる。
+  const lostErrors = [];
+
+  // ---- 75-0. ★★★判定は「型」であって本文の文字列ではない ----
+  // ★★★<b>手動モードは本文で判定している</b>
+  //   ({@code msg.message === 'この部屋に入室していません'})。
+  //   あれはサーバの文言を1文字直しただけで黙って効かなくなる ——
+  //   しかも画面は「エラーが出た」ように見えるので、誰も気づかない。
+  //   ★通常モードは型で運ぶ(裁定344)。<b>ERROR は何を書かれていても部屋消失にしない。</b>
+  const lostPage2 = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  lostPage2.on('pageerror', (e) => lostErrors.push(String(e)));
+  await lostPage2.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await lostPage2.waitForTimeout(200);
+  const errorIsNotFatal = await lostPage2.evaluate(() => {
+    /* eslint-disable no-undef */
+    window.__lobby = 0;
+    goToLobby = () => { window.__lobby++; };
+    onMessage({ body: JSON.stringify(
+      { type: 'ERROR', message: '部屋が見つかりません: TESTRM' }) });
+    /* eslint-enable no-undef */
+    return {
+      // eslint-disable-next-line no-undef
+      fatal: connectionFatal,
+      navigated: window.__lobby,
+      gateShown: !document.getElementById('seat-gate').classList.contains('d-none'),
+    };
+  });
+  check('★★★部屋消失は型で判定する。ERROR の本文では畳まない(75・裁定344)',
+    errorIsNotFatal.fatal === false && errorIsNotFatal.navigated === 0
+      && errorIsNotFatal.gateShown === false, JSON.stringify(errorIsNotFatal));
+  await lostPage2.close();
+
+  const lostPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  lostPage.on('pageerror', (e) => lostErrors.push(String(e)));
+  await lostPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await lostPage.waitForTimeout(300);
+
+  // ---- 75-1. ★★★ROOM_LOST を受け取ると、理由を出して畳む ----
+  const roomLostShown = await lostPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    window.__lobby = 0;
+    goToLobby = () => { window.__lobby++; };
+    localStorage.setItem(OCCUPANT_STORAGE_KEY, JSON.stringify({ playerId: 'p1' }));
+    // ★★★<b>投げても検証を殺さない</b>(72 の教訓「死ぬ検証は、番人ではなく無音である」)。
+    //   ROOM_LOST の分岐を落とすと、この本文は差分の採取層へ流れて例外になる ——
+    //   捕まえないと<b>この項目もこの先の項目も1つも走らず、答えが EMPTY になる</b>。
+    //   ★EMPTY は OK ではない。番人は<b>落ちて</b>初めて仕事をしたと言える。
+    try {
+        onMessage({ body: JSON.stringify({ type: 'ROOM_LOST' }) });
+    } catch (e) {
+        window.__threw = String(e);
+    }
+    /* eslint-enable no-undef */
+    const gate = document.getElementById('seat-gate');
+    const err = document.getElementById('seat-gate-error');
+    return {
+      gateShown: !gate.classList.contains('d-none'),
+      message: err.textContent,
+      // ★★<b>無言で遷移しない。</b>28 が手動モードで直したのと同じ筋である
+      navigatedImmediately: window.__lobby,
+      buttonLabel: document.getElementById('seat-gate-buttons').textContent.trim(),
+      status: document.getElementById('connection-status').textContent,
+      // eslint-disable-next-line no-undef
+      occupantForgotten: localStorage.getItem(OCCUPANT_STORAGE_KEY) === null,
+    };
+  });
+  check('★★★部屋が消えたら、無言で遷移せず理由を画面に出す(75・裁定345)',
+    roomLostShown.navigatedImmediately === 0 && roomLostShown.gateShown
+      && roomLostShown.message.includes('サーバ上に存在しません')
+      && roomLostShown.message.includes('復元できません')
+      && roomLostShown.buttonLabel === 'ロビーへ戻る'
+      && roomLostShown.status.includes('部屋が失われました'),
+    JSON.stringify(roomLostShown));
+  check('★★在席の記録を捨てる(75・戻っても同じ席へは戻れないため)',
+    roomLostShown.occupantForgotten === true, JSON.stringify(roomLostShown));
+
+  // ---- 75-2. ★★★切断の案内と部屋消失を同時に出さない ----
+  // ★★<b>showRoomLostFatal は client.deactivate() を呼ぶ</b>ので onWebSocketClose が走り、
+  //   何もしなければ「再接続を待ってください」のオーバーレイが<b>必ず</b>出る。
+  //   ★前者は待てば直ると言い、後者は直らないと言う —— 並べると人はどちらも信じられない。
+  //
+  // ★★★<b>ゲートの陰で測ってはいけない。</b>{@code isGateVisible()} は
+  //   「入室前(JOIN)のゲートが出ているか」であり、<b>これも</b>案内を抑える ——
+  //   素直に測ると<b>ゲートのおかげで隠れているだけ</b>のものを
+  //   {@code connectionFatal} の手柄と読んでしまう(71 が「偽の緑」として踏んだ形)。
+  //   ★実際の抜け道は<b>観戦者が席替えのゲートを開いている最中</b>である ——
+  //     あのとき {@code seatGateMode} は 'CHANGE' なので {@code isGateVisible()} は偽になり、
+  //     {@code connectionFatal} だけが案内を止めている。<b>そこで測る。</b>
+  const roomLostOverlay = await lostPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    seatGateMode = 'CHANGE';            // ★ゲートに隠れさせない(72-12 と同じ状態)
+    client.onWebSocketClose();          // ★実際の切断と同じ入口から、もう一度落とす
+    updateOfflineLock();
+    /* eslint-enable no-undef */
+    return {
+      // eslint-disable-next-line no-undef
+      fatal: connectionFatal,
+      // eslint-disable-next-line no-undef
+      gateCounts: isGateVisible(),
+      overlayShown: !document.getElementById('auto-offline').classList.contains('d-none'),
+      barShown: !document.getElementById('auto-conn-bar').classList.contains('d-none'),
+    };
+  });
+  check('★★★部屋消失のあいだは切断の案内を出さない(75・33 と同じ判断)',
+    roomLostOverlay.fatal === true && roomLostOverlay.gateCounts === false
+      && roomLostOverlay.overlayShown === false
+      && roomLostOverlay.barShown === false, JSON.stringify(roomLostOverlay));
+  await lostPage.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    seatGateMode = 'JOIN';              // ★次の項目のために戻す(状態は引き継がれる)
+  });
+
+  // ---- 75-3. ★★★[ロビーへ戻る] は席選択の委譲リスナーに拾われない ----
+  // ★★★<b>#seat-gate-buttons には席選択の委譲リスナーが付いている。</b>
+  //   {@code e.target.closest('button')} で拾われ、しかも {@code data-seat} が無いので
+  //   <b>「観戦する」として扱われる</b> —— stopPropagation を落とすとここが赤くなる。
+  //   ★<b>遷移を起こす項目なので、この節の末尾に近い位置に置いてある</b>(72 の教訓)。
+  //   ★★<b>「送信が0件」では測れない。</b>入室前(JOIN)の委譲は WebSocket ではなく
+  //     <b>HTTP の受付 API</b>を叩くので、{@code window.__sent} は0のままである ——
+  //     <b>壊しても落ちない</b>(74 の「照合先がそこまで届いていない」)。
+  //   ★委譲が走ったことは<b>同期的に</b> {@code setGateBusy(true)} が現れる ——
+  //     ボタン列が丸ごと {@code disabled} になるので、押したボタン自身で読める。
+  const lobbyButton = await lostPage.evaluate(() => {
+    window.__sent.length = 0;
+    window.__lobby = 0;
+    // ★★★<b>前の項目が倒れていても、この項目は答えを返す</b>(72 の教訓)。
+    //   ここで素の null 参照にすると evaluate ごと投げ、<b>以降が1件も走らなくなる</b>。
+    const button = document.getElementById('seat-gate-to-lobby');
+    if (!button) return { lobby: -1, sent: -1, delegated: null, mode: null };
+    button.click();
+    return { lobby: window.__lobby, sent: window.__sent.length,
+      // ★委譲が走ると setGateBusy(true) がここを倒す(= 伝播が止まっていない)
+      delegated: button.disabled,
+      // eslint-disable-next-line no-undef
+      mode: seatGateMode };
+  });
+  check('★★★[ロビーへ戻る]は委譲リスナーに拾われない(75・伝播を止めている)',
+    lobbyButton.lobby === 1 && lobbyButton.sent === 0
+      && lobbyButton.delegated === false, JSON.stringify(lobbyButton));
+
+  // ---- 75-4. ★★★部屋消失のあとは、どの操作も飛ばない ----
+  // ★<b>止めているのは 71 のガードである</b>(deactivate → client.connected === false)。
+  //   ★<b>ゲートが覆っていることを安全装置にしていない</b> —— 71 の中心そのものである。
+  const lostSend = await lostPage.evaluate(() => {
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('end-turn', {});
+    return { ok, sent: window.__sent.length };
+  });
+  check('★★部屋が消えたあとは send() が publish しない(75・番人は send である)',
+    lostSend.ok === false && lostSend.sent === 0, JSON.stringify(lostSend));
+
+  check('部屋消失の検出(75)でJSエラーが出ない',
+    lostErrors.length === 0, lostErrors.join(' | '));
+  await lostPage.close();
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();

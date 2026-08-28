@@ -92,6 +92,20 @@ class WsErrorRoutingTest {
         assertThat(本文).contains("ERROR").contains("受け取れませんでした");
     }
 
+    /**
+     * ★★★Batch 75 で返るものが変わった(裁定344)。
+     *
+     * <p>74 まで、部屋が引けなかったときの {@code execute} は
+     * 「部屋が見つかりません: RM0002」という <b>ERROR</b> を返していた。
+     * 75 はそれを <b>ROOM_LOST</b> という型に変えている ——
+     * ERROR は「その操作が拒否された理由」であって画面はその場に留まるが、
+     * 部屋消失は留まれないからである。
+     *
+     * <p>★★<b>この試験が測っているものは変わっていない</b> ——
+     * 「開ける本文は {@code MessageConversionException} の受け皿を通らず、
+     * <b>別の理由で</b>断られる」ことである。<b>変えたのは、その別の理由の名前だけ</b>である。
+     * ★<b>両方が同じものになっていたら、この試験は何も区別できていない</b>。
+     */
     @Test
     @DisplayName("開ける本文は、この受け皿を通らない(部屋が無いという別の理由で断られる)")
     void 開ける本文はここを通らない() {
@@ -100,14 +114,17 @@ class WsErrorRoutingTest {
         流し込む("/app/room/RM0002/play-soul",
                 "{\"playerId\":\"P-2\",\"handIndex\":0,\"targets\":[],\"manaIndexes\":[]}");
 
-        // ★同じ宛先に返るが、理由が違う —— こちらは execute の「部屋が見つかりません」である。
-        //   ★<b>両方が同じ文言になっていたら、この試験は何も区別できていない</b>
         String 本文 = captured.stream()
                 .filter(m -> "/topic/room/RM0002/player/P-2"
                         .equals(SimpMessageHeaderAccessor.getDestination(m.getHeaders())))
                 .map(m -> new String((byte[]) m.getPayload(), StandardCharsets.UTF_8))
                 .findFirst().orElse("");
-        assertThat(本文).contains("部屋が見つかりません");
-        assertThat(本文).doesNotContain("受け取れませんでした");
+        assertThat(本文)
+                .as("★Batch 75(裁定344): 部屋が無いときは ROOM_LOST であって ERROR ではない")
+                .contains("ROOM_LOST");
+        assertThat(本文)
+                .as("★変換の受け皿(ERROR)を通っていないこと —— この試験の本題である")
+                .doesNotContain("受け取れませんでした")
+                .doesNotContain("\"type\":\"ERROR\"");
     }
 }

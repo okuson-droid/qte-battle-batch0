@@ -278,4 +278,38 @@ class BattlePageTest {
                 .as("★74 は battle.css を触っていない。触っていないなら上げない(73 の教訓)")
                 .contains("battle.css?v=53");
     }
+
+    /**
+     * ★★★Batch 75 は {@code battle.js} を変えている ——
+     * 部屋消失({@code ROOM_LOST})を受け取って画面を畳む経路が増えた(裁定344・345)。
+     *
+     * <p><b>版数を上げないと、既に開いている人だけが 36 のまま
+     * 「サーバは部屋が消えたと言っているのに、画面は接続済みのまま古い盤面を出し続ける」
+     * 状態になる。</b>75 が潰したのはまさにその状態であり、
+     * <b>古い JS を掴んだ人にはその修正が1文字も届かない</b>。
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が75で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=36");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 75 も {@code battle.css} を<b>1文字も触っていない</b>ので据え置きである。
+     *
+     * <p>部屋消失の画面が使うのは既に在るもの({@code #seat-gate} と
+     * Bootstrap の {@code .btn.btn-primary.w-100})だけであり、
+     * <b>新しい見た目を1つも作っていない</b> ——
+     * 「器が無いと思ったら、まず在るかどうかを見る」(65 の教訓)。
+     * ★<b>2バッチ続けて据え置くので、なおさら書き残す価値がある</b>:
+     * 触っていないのに上げると、上の「前のバッチの値でないこと」を測る番人が意味を失う。
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数は75でも据え置きである() throws Exception {
+        String html = battleHtml();
+        assertThat(html)
+                .as("★75 は battle.css を触っていない。触っていないなら上げない(73 の教訓)")
+                .contains("battle.css?v=53");
+    }
 }

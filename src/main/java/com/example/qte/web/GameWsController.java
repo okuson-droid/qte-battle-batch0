@@ -3,6 +3,7 @@ package com.example.qte.web;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.converter.MessageConversionException;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.MessageExceptionHandler;
 import org.springframework.messaging.handler.annotation.MessageMapping;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
@@ -49,16 +50,30 @@ public class GameWsController {
      * (配信は誰かが動いたときにしか起きない)。席に着いていない人は
      * 準備の旗を立てず、{@code execute} の末尾の配信だけを受け取る。
      * ★席にも観戦者にも見つからない id は、理由を返して弾く。
+     *
+     * <p>★★★<b>Batch 75: セッションIDを記録する</b>(裁定342)。
+     * 手動モードの {@code ManualWsController#ready} が 19a からやっていたのと同じ形である ——
+     * {@code SessionDisconnectEvent} は<b>セッションIDしか運ばない</b>ので、
+     * アプリ側の id と結びつける場所がここにしか無い。
+     *
+     * <p>★<b>記録するのは検証を通ってからである。</b>席にも観戦者にも居ない id は
+     * 上で例外になるので、この行には到達しない ——
+     * <b>部屋に居ない人のセッションが載ると、その部屋は永久に無人にならない</b>。
+     * ★{@code slot.setReady(true)} と<b>並べない</b>のもそのためである
+     * (観戦者は ready を立てないが、繋がってはいる)。
      */
     @MessageMapping("/room/{roomId}/ready")
-    public void ready(@DestinationVariable String roomId, ActionRequest request) {
+    public void ready(@DestinationVariable String roomId, ActionRequest request,
+            @Header("simpSessionId") String sessionId) {
         execute(roomId, request, room -> {
             var slot = room.findSlot(request.playerId()).orElse(null);
             if (slot == null) {
                 room.findSpectator(request.playerId()).orElseThrow(
                         () -> new IllegalStateException("この部屋に入室していません"));
+                room.markConnected(request.playerId(), sessionId);
                 return;
             }
+            room.markConnected(request.playerId(), sessionId);
             slot.setReady(true);
             gameService.startIfBothReady(room);
         });
@@ -325,7 +340,16 @@ public class GameWsController {
         GameRoom room = roomManager.findRoom(roomId)
                 .orElse(null);
         if (room == null) {
-            broadcaster.sendError(roomId, playerId, "部屋が見つかりません: " + roomId);
+            // ★★★Batch 75(裁定344): <b>ERROR ではなく ROOM_LOST を返す。</b>
+            //   74 まではここが「部屋が見つかりません: XXX」という ERROR だったので、
+            //   画面はそれを showMessage に出して<b>その場に留まっていた</b> ——
+            //   サーバが再起動したあと、STOMP は再接続に成功し、
+            //   {@code onConnect} が ready を撃ち、この行が ERROR を返し、
+            //   人には<b>「接続済み」と表示されたまま古い盤面が残る</b>。
+            //   ★★<b>roomId はページに埋め込まれた値である</b>ので、
+            //     通常モードで「間違った部屋IDを送る」経路は無い ——
+            //     ここに来たということは、部屋が本当に消えたということである。
+            broadcaster.sendRoomLost(roomId, playerId);
             return;
         }
         try {

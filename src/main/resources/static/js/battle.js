@@ -232,15 +232,18 @@ function setConnectionStatus(text) {
 //   しかも選んだマナまで消えた」になる。
 //   → <b>send() は送ったかどうかを返し、呼び出し側は送れなかったら畳まない</b>(4-2)。
 //
-// ★★<b>部屋消失(手動モードの connectionFatal)にあたるものは作っていない。</b>
-//   通常モードには showRoomLostFatal が無く(66 が作らなかった)、
-//   <b>その旗を立てる人が1人も居ない</b>。使い手の無い状態変数は、
-//   70 が見つけた `.mana-chip` と同じもの(書いてあるのに効いていない器)になる。
-//   ★作らなかったことは notes/batch71-design-notes.md と落とし穴に書き残してある(裁定196)。
+// ★★<b>Batch 75 で訂正: 部屋消失を作った。</b>71 は
+//   「showRoomLostFatal が無く、<b>その旗を立てる人が1人も居ない</b>」という理由で
+//   作らなかった(裁定178。書いてあるのに効いていない器を増やさない)。
+//   ★★<b>75 で立てる人ができた</b> —— サーバが {@code ROOM_LOST} を送る(裁定344)。
+//     旗を立てるのは onMessage の1箇所だけである。
+//   ★71 の判断は誤りではなかった。<b>前提(立てる人が居ない)が消えたので結論が変わった</b>
+//     だけである(62 が裁定74 を失効させたのと同じ形)。
 
 const CONN_BAR_MS = 3500;
 
 let connectionEstablishedOnce = false;   // 一度でも接続できたか(=次は「再接続」)
+let connectionFatal = false;             // ★Batch 75: 部屋消失。切断の案内より優先する
 let offlinePeeking = false;              // 「盤面を確認する」でロックを畳んだ状態
 let socketDown = false;                  // onWebSocketClose / onStompError の記録
 let connBarTimer = null;
@@ -326,7 +329,12 @@ function setConnBar(text, kind, ms) {
  * ★<b>出す/出さないの判定をここ1箇所に閉じる</b>(重ね順で解決しない)。
  */
 function updateOfflineLock() {
-    const offline = !isConnected() && !isGateVisible();
+    // ★★★Batch 75: <b>部屋消失のときは切断の案内を出さない</b>(手動モードの 33 と同じ判断)。
+    //   showRoomLostFatal は client.deactivate() を呼ぶので onWebSocketClose が必ず走るが、
+    //   <b>「再接続を待ってください」と「この対戦は戻りません」を同時に出してはならない</b>。
+    //   ★前者は待てば直ると言っており、後者は直らないと言っている ——
+    //     2つ並べると、人はどちらを信じてよいか決められない(32b のターンの帯と同じ理屈)。
+    const offline = !isConnected() && !connectionFatal && !isGateVisible();
     document.getElementById('auto-offline')
         .classList.toggle('d-none', !offline || offlinePeeking);
     if (offline) {
@@ -360,6 +368,73 @@ document.getElementById('auto-offline-peek').addEventListener('click', () => {
     offlinePeeking = true;
     updateOfflineLock();
 });
+
+/**
+ * ロビーへ戻る(★Batch 75)。
+ *
+ * ★<b>1行の関数に切り出してあるのは検証のためである。</b>{@code location.href} は
+ * 代入を差し替えられないので、ハーネスから乗っ取れる入口をここに1つ作る
+ * (手動モードの {@code reloadPage} と同じ手口)。
+ * ★<b>行き先が退室(onMessage の LEFT)と同じ /auto である</b>のは偶然ではない ——
+ * どちらも「この部屋にはもう用が無い」という同じ結末だからである。
+ */
+function goToLobby() {
+    location.href = '/auto';
+}
+
+/**
+ * ★★★Batch 75(裁定344・345): 部屋がサーバ上にもう無いと分かったときの扱い。
+ *
+ * <h3>いつ来るか</h3>
+ * サーバの {@code execute} が部屋を引けなかったときである。通常モードの roomId は
+ * <b>ページに埋め込まれた値</b>なので「間違った部屋IDを送った」経路が無く、
+ * これが届いたということは<b>部屋が本当に消えた</b>ということである
+ * (サーバの再起動か、誰も繋がらないまま5分が過ぎたか。裁定342)。
+ *
+ * <h3>★★★71 が残していた穴がこれである</h3>
+ * 74 まで、サーバが再起動すると STOMP は<b>再接続に成功する</b> ——
+ * {@code onConnect} が走り、状態表示は「接続済み」になり、{@code ready} が飛び、
+ * サーバは ERROR を返し、画面はそれを {@code showMessage} に出すだけだった。
+ * <b>人には「接続済み」と出たまま古い盤面が残り、押しても何も起きない</b>。
+ * ★これは 71 が潰した「気づきにくい事故」の生き残りである。
+ *
+ * <h3>★手動モードと違うところ</h3>
+ * あちらは [入り直す](ページの再読み込み)を出す —— <b>猶予切れで席が空いただけで、
+ * 部屋はまだ在る</b>ことがあるからである。通常モードは席を空けないので(裁定342)、
+ * これが来たときは部屋が本当に無い。再読み込みしても同じゲートが出るだけなので、
+ * <b>ロビーへ戻す</b>(裁定345)。
+ */
+function showRoomLostFatal() {
+    // ★★<b>先に旗を立てる。</b>deactivate() は onWebSocketClose を呼ぶので、
+    //   立てる前に切ると updateOfflineLock が一瞬「再接続中」を出す
+    connectionFatal = true;
+    client.deactivate();
+    forgetOccupant();
+    setConnBar(null);
+    setConnectionStatus('部屋が失われました');
+    updateOfflineLock();
+    showGateFatal('この部屋はサーバ上に存在しません。'
+        + 'サーバの再起動か、全員が接続を失ったまま時間が過ぎたことが原因です。'
+        + '部屋はサーバのメモリ上にしか無いため、この対戦の盤面は復元できません。');
+    // ★showGateFatal はボタン列を隠す。ロビーへの導線だけを1つ出す
+    const box = gateEl('seat-gate-buttons');
+    box.innerHTML = '';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'seat-gate-to-lobby';
+    button.className = 'btn btn-primary w-100';
+    button.textContent = 'ロビーへ戻る';
+    // ★★★<b>伝播を必ず止める。</b>このコンテナには席選択の委譲リスナーが付いており、
+    //   {@code e.target.closest('button')} で拾われる ——
+    //   しかも {@code data-seat} が無いので<b>「観戦する」として扱われる</b>。
+    //   ★手動モードの showRoomLostFatal がまったく同じ罠を踏まないようにしている
+    button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        goToLobby();
+    });
+    box.appendChild(button);
+    box.classList.remove('d-none');
+}
 
 // ---------------------------------------------------------------
 // ★★★0) 在席(Batch 66)
@@ -3143,6 +3218,15 @@ function weaponFaceData(p) {
 
 function onMessage(frame) {
     const message = JSON.parse(frame.body);
+    // ★★★Batch 75(裁定344): 部屋がもう無い。<b>ERROR より先に見る。</b>
+    //   ★<b>本文の文字列で判定しない</b> —— 手動モードは
+    //     {@code msg.message === 'この部屋に入室していません'} と書いており、
+    //     サーバの文言を1文字直しただけで黙って効かなくなる。
+    //     しかも効かなくなっても画面は「エラーが出た」ように見えるので、誰も気づかない。
+    if (message.type === 'ROOM_LOST') {
+        showRoomLostFatal();
+        return;
+    }
     if (message.type === 'ERROR') {
         showMessage(message.message);
         pending = null; // サーバに拒否された選択は最初からやり直す
