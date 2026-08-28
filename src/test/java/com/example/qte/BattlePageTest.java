@@ -263,23 +263,6 @@ class BattlePageTest {
     }
 
     /**
-     * ★★★Batch 74 は {@code battle.css} を<b>1文字も触っていない</b>ので、版数を上げていない。
-     *
-     * <p>この試験は「上げていないこと」ではなく<b>「5枚が揃っていること」</b>を測る
-     * {@code Batch70PlayingCardTest} の側にある —— ここでは
-     * <b>73 と同じ値のままである</b>ことだけを書き残しておく。
-     * ★<b>触っていないのに上げると、上の「前のバッチの値でないこと」を測る番人が意味を失う</b>
-     * (73 の教訓)。
-     */
-    @Test
-    void 通常モードの盤面のCSSの版数は74で据え置きである() throws Exception {
-        String html = battleHtml();
-        assertThat(html)
-                .as("★74 は battle.css を触っていない。触っていないなら上げない(73 の教訓)")
-                .contains("battle.css?v=53");
-    }
-
-    /**
      * ★★★Batch 75 は {@code battle.js} を変えている ——
      * 部屋消失({@code ROOM_LOST})を受け取って画面を畳む経路が増えた(裁定344・345)。
      *
@@ -296,20 +279,48 @@ class BattlePageTest {
     }
 
     /**
-     * ★★★Batch 75 も {@code battle.css} を<b>1文字も触っていない</b>ので据え置きである。
+     * ★★★Batch 76(裁定196): 撤去した番人が2つある ——
+     * {@code 通常モードの盤面のCSSの版数は74で据え置きである} と
+     * {@code …は75でも据え置きである}。
      *
-     * <p>部屋消失の画面が使うのは既に在るもの({@code #seat-gate} と
-     * Bootstrap の {@code .btn.btn-primary.w-100})だけであり、
-     * <b>新しい見た目を1つも作っていない</b> ——
-     * 「器が無いと思ったら、まず在るかどうかを見る」(65 の教訓)。
-     * ★<b>2バッチ続けて据え置くので、なおさら書き残す価値がある</b>:
-     * 触っていないのに上げると、上の「前のバッチの値でないこと」を測る番人が意味を失う。
+     * <p>どちらも <b>{@code battle.css?v=53} を名指しで要求する</b>形であり、
+     * 74・75 が CSS を1文字も触っていないことを測っていた。
+     * ★<b>76 は CSS を触った</b>(裏向きマナの名前・裁定351)ので、その値はもう画面に無い ——
+     * <b>据え置きの番人は、据え置かなくなった日に役目を終える</b>。
+     * ★★守っていた性質(「触っていないのに上げない」)は消えていない:
+     * 下の2つが<b>「触ったから上げた」側</b>から同じ規則を見張る。
+     * ★★★<b>5枚のテンプレートが同じ版数であること</b>は
+     * {@code Batch70PlayingCardTest} が引き続き見張っている(値を持たない番人である)。
+     *
+     * <p>★<b>2つを消さずにハッシュだけ 54 へ書き換えるのは、番人を殺すことである</b> ——
+     * 「74 は触っていない」という<b>過去の事実</b>を測る試験が、
+     * <b>76 の値を要求する試験に化ける</b>(リファレンス 1-7)。
+     *
+     * <p>ここで測るのは 76 の側である。{@code battle.js} は
+     * 使用条件の印(裁定350)・マナのホバーと名前(裁定351)・
+     * 4枚ぶんの割り込み(裁定346〜349)で変わった。
+     * <b>版数を上げないと、既に開いている人だけが 37 のまま
+     * 「サーバは選ばせようとしているのに、画面が古い」状態になる。</b>
      */
     @Test
-    void 通常モードの盤面のCSSの版数は75でも据え置きである() throws Exception {
+    void 通常モードの盤面のJSの版数が76で上がっている() throws Exception {
         String html = battleHtml();
-        assertThat(html)
-                .as("★75 は battle.css を触っていない。触っていないなら上げない(73 の教訓)")
-                .contains("battle.css?v=53");
+        assertThat(html).doesNotContain("battle.js?v=37");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 76 は {@code battle.css} を<b>2バッチぶりに触った</b> ——
+     * 裏向きマナの名前({@code .mana-tile-back-name})を裏面画像の上に重ねる規則である。
+     *
+     * <p><b>版数を上げないと、既に開いている人の裏向きマナだけ名前が絵の下に沈む</b> ——
+     * 要素は増えるが、重なりの順を決めるのは CSS の側だからである。
+     * ★<b>上げるのも据え置くのも「触ったかどうか」だけで決まる</b>(リファレンス 7-5)。
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数が76で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.css?v=53");
+        assertThat(html).contains("battle.css?v=");
     }
 }

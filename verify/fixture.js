@@ -301,6 +301,25 @@ function autoCard(cardId, name, overrides = {}) {
     // ★Batch 54:【賢魂：n】としての姿(裁定152)。
     //   n も効果の文もサーバが読んで送る —— クライアントはテキストを割らない(裁定234)
     soulCost: null, soulEffectiveCost: null, soulTargets: [], soulText: null,
+    // ★★★Batch 76(裁定350): 使用条件を満たしているか。
+    //   判定はサーバが済ませて真偽値だけを送る(⚠効果未実装 の印と同じ形)。
+    //   条件を持たないカードは常に true —— 235枚のほとんどがこちらである
+    playConditionMet: true,
+    ...overrides,
+  };
+}
+
+/**
+ * ★★★Batch 76(裁定351): マナ1枚のビュー(サーバの {@code ManaView})。
+ *
+ * ★<b>裏向きの中身は持ち主のビューにしか入らない</b>ので、
+ *   {@code cardId} / {@code name} が null であることが「相手の裏向き」を意味する ——
+ *   席の判定はクライアントに1つも無い(設計判断9)。
+ */
+function autoMana(overrides = {}) {
+  return {
+    faceUp: true, tapped: false, temporary: false,
+    cardId: 'QTE-M-FIRE-6', name: '炎の従者',
     ...overrides,
   };
 }
@@ -349,6 +368,7 @@ function autoView(overrides = {}) {
 }
 
 module.exports.autoCard = autoCard;
+module.exports.autoMana = autoMana;
 module.exports.autoMinion = autoMinion;
 module.exports.autoPlayer = autoPlayer;
 module.exports.autoView = autoView;

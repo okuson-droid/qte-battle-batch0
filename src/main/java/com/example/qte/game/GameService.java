@@ -1116,6 +1116,19 @@ public class GameService {
             return;
         }
 
+        // ★★★Batch 76(不具合の修正): 使用条件({@code playConditions})をここでも見る。
+        //   ★75 までこの呼び出しが<b>無かった</b> —— 禁忌デッキに入れた瞬間、
+        //     使用条件を持つ9枚(《静寂の瞑想》《禁忌の代償》《絶望の連鎖》ほか)の条件が
+        //     <b>まるごと消えていた</b>。マスターが実機で踏んだのは
+        //     「禁忌デッキの《静寂の瞑想》が、そのターン1枚目でなくても使えてしまう」である。
+        //   ★★裁定 A6 は「禁忌も通常のプレイと同じ規則を通る」と言っており、
+        //     これは裁定の解釈の問題ではなく<b>写し忘れ</b>である(71 の教訓・片肺)。
+        //   ★★★<b>賢魂として使う道(上の asSoul)には掛けない</b> ——
+        //     あの表はミニオンとしての姿に紐づく条件であり、
+        //     {@code requireSoul} の Javadoc が 54 の時点から明記している。
+        //   ★コストの支払いより前である必要があるので、支払いの手前に置く(通常のプレイと同じ)。
+        effects.requirePlayable(master.id(), state, player);
+
         // ★進化は素材を必ず1体消費するので、場が満杯でも枠は空く
         if (master.type() == CardType.MINION && player.isMinionZoneFull()) {
             throw new IllegalStateException("ミニオンは%d体までです".formatted(player.getMinionZoneLimit()));

@@ -2170,12 +2170,21 @@ function handCardPlayability(card, view) {
     const soulAffordable = card.soulCost != null
         && (card.soulEffectiveCost != null ? card.soulEffectiveCost : card.soulCost)
             <= view.you.availableMp;
+    // ★★★Batch 76(裁定350): 使用条件(《静寂の瞑想》《禁忌の代償》ほか9枚)。
+    //   ★<b>判定はサーバが済ませて真偽値だけを送ってくる</b> ——
+    //     条件は「このターンまだ1枚も使っていない」「裏向きマナが在る」「墓地に候補が居る」など
+    //     ばらばらで、クライアントに写すと2つ目の正になる(裁定163・234 と同じ理由)。
+    //   ★★<b>マナチャージには掛けない。</b>マナに置くのは「カードの使用」ではないので、
+    //     サーバ側({@code playCard} だけが requirePlayable を呼ぶ)も掛けていない。
+    //   ★★★undefined は真として扱う —— 値を持たないビューが来ても盤面を壊さない。
+    const conditionMet = card.playConditionMet !== false;
     const charge = !!view.myTurn && view.phase === 'MANA_CHARGE';
-    const main = !!view.myTurn && view.phase === 'MAIN' && card.type !== 'LEADER'
+    const main = !!view.myTurn && view.phase === 'MAIN' && card.type !== 'LEADER' && conditionMet
         && (affordable || card.canSpecialSummon || soulAffordable);
-    const sub = !!view.myTurn && view.phase === 'SUB'
+    const sub = !!view.myTurn && view.phase === 'SUB' && conditionMet
         && (card.type === 'SPELL' ? affordable : soulAffordable);
-    return { affordable, soulAffordable, charge, main, sub, playable: charge || main || sub };
+    return { affordable, soulAffordable, conditionMet, charge, main, sub,
+        playable: charge || main || sub };
 }
 
 /** マナチャージができる状態か。★判定は 43 から在るこの1本を呼ぶ(裁定130) */
@@ -2196,20 +2205,31 @@ function dropZonesFor(card, from, view) {
         return (from === 'HAND' && canChargeMana(view)) ? ['MANA'] : [];
     }
     const zones = [];
+    // ★★★Batch 76(裁定350): 使用条件は<b>「そのままの姿で使う道」にだけ掛かる</b>。
+    //   サーバで {@code requirePlayable} を通るのは {@code playCard} と
+    //   {@code playTabooCard}(76 で足した)の2つだけであり、
+    //   <b>【賢魂】と【特殊召喚】は通らない</b>(前者は 54 の時点から明記されている)。
+    //   ★<b>掛ける場所を、掛かる場所より広く取らない</b> ——
+    //     広く取ると「サーバは通すのに掴めない」が生まれる(72 の教訓・幅)。
+    //   ★★今の235枚では、使用条件を持つ9枚に賢魂も特殊召喚も1枚も無い ——
+    //     <b>だからこそ、ここで区別しておかないと誰も気づけない</b>。
+    const conditionMet = card.playConditionMet !== false;
     if (from === 'TABOO') {
         if (view.phase !== 'MAIN') return [];   // 3-3: 禁忌はメインフェイズのみ
         const payable = view.you.manaZone.filter(m => !m.temporary).length;
         if (card.soulCost != null && card.soulCost <= payable) zones.push('SPELL');
-        if (card.cost <= payable) zones.push(dropZoneOfType(card.type));
+        if (conditionMet && card.cost <= payable) zones.push(dropZoneOfType(card.type));
         return [...new Set(zones)];
     }
     const p = handCardPlayability(card, view);
     if (p.soulAffordable && (view.phase === 'MAIN' || view.phase === 'SUB')) zones.push('SPELL');
     if (view.phase === 'MAIN' && card.type !== 'LEADER'
-            && (p.affordable || card.canSpecialSummon)) {
+            && ((conditionMet && p.affordable) || card.canSpecialSummon)) {
         zones.push(dropZoneOfType(card.type));
     }
-    if (view.phase === 'SUB' && card.type === 'SPELL' && p.affordable) zones.push('SPELL');
+    if (view.phase === 'SUB' && card.type === 'SPELL' && conditionMet && p.affordable) {
+        zones.push('SPELL');
+    }
     return [...new Set(zones)];
 }
 
@@ -2533,17 +2553,13 @@ function showLostList(isSelf) {
     showZoneFaces(`${p.displayName}の消滅ゾーン(${p.lostCount}枚)`, p.lost || []);
 }
 
-function showManaList(isSelf) {
-    if (!latestView || !latestView.you) return;
-    const p = isSelf ? latestView.you : latestView.opponent;
-    const lines = p.manaZone.map((m, i) => {
-        const state = (m.tapped ? 'タップ' : 'アンタップ') + '/' + (m.faceUp ? '表' : '裏');
-        // 相手の裏向きマナだけは中身が見えない(サーバがnameを送っていない)
-        const name = m.name || '(裏向きのカード)';
-        return `${i + 1}. ${name} [${state}]${m.temporary ? '(一時マナ)' : ''}`;
-    });
-    showModal(`${p.displayName}のマナ(${p.totalMana}枚)`, lines);
-}
+// ★★★Batch 76(裁定178・196): showManaList(マナの一覧をモーダルに文字列で出す)を消した。
+//   ★<b>定義は在ったが、どこからも呼ばれていなかった</b> ——
+//     パイル列(renderPiles)には墓地・消滅・禁忌のチップが在るのに、マナのチップが無い。
+//     <b>「書いてあるのに効いていない」の一族である</b>(70 の教訓・空文)。
+//   ★★マスターの「裏向きのマナが確認できない」は、まさにこの器が<b>届いていなかった</b>ことの
+//     現れである —— 器を生かすのではなく、<b>裁定351 のホバーと名前で置き換えた</b>。
+//     文字列の一覧より、面が読めるほうが強い(44 が墓地・消滅で通った道と同じである)。
 
 function showLeaderInfo(isSelf) {
     if (!latestView || !latestView.you) return;
@@ -3180,7 +3196,21 @@ function applyAutoManaOverlap(row) {
 /**
  * マナタイル1枚(両席で共用・45)。表向き=名前と文明色、裏向き=実物の裏面画像。
  * ★表向きのマナは公開情報であり、相手の表向きにも名前が出る(45・マスター指摘)。
- *   裏向きの中身はサーバが持ち主にしか送らない(こちらは title にだけ出る)。
+ *
+ * <h2>★★★Batch 76(裁定351): 裏向きのマナも読めるようにした</h2>
+ *
+ * 75 までは <b>{@code title} 属性(素のツールチップ)にしか出していなかった</b>。
+ * ★<b>マナ行は重なって描かれる</b>(applyAutoManaOverlap)ので、狙って当てるのが難しく、
+ *   出るまでにも間があり、出ても効果テキストは読めない。
+ * ★★<b>マナタイルだけ {@code attachHover} が付いていなかった</b> ——
+ *   手札・場・リーダー・墓地一覧・禁忌には 69〜70 で全部付いている。
+ *   <b>69 の教訓「途中」が、ここでもう一度起きていた</b>(4箇所に足して1箇所に足さなかった)。
+ *
+ * ★★★<b>持ち主には裏面画像の上から名前を重ねる</b>(マスター指示)——
+ *   ホバーは「1枚を確かめる」道具であり、<b>並んでいるものを見比べる</b>には足りない。
+ *   裏向きマナの中身を送るのは持ち主のビューだけなので、
+ *   <b>{@code mana.name} が在ることがそのまま「自分のマナである」ことの根拠</b>になる
+ *   (クライアントは席の判定を持たない・裁定163)。
  */
 function buildManaTile(mana) {
     const tile = document.createElement('div');
@@ -3194,11 +3224,44 @@ function buildManaTile(mana) {
         tile.appendChild(nameEl);
     } else {
         fillCardBack(tile);
-        if (mana.name) tile.title = `(裏向き)${mana.name}`;   // 持ち主にだけ届いている
-        else tile.title = '(裏向き)';
+        if (mana.name) {
+            tile.title = `(裏向き)${mana.name}`;   // 持ち主にだけ届いている
+            // ★★★裏面画像の上に名前だけを重ねる。位置指定は CSS 側が持つ
+            //   (.auto-back-img が position:absolute なので、名前には重なりの順が要る)
+            const backName = document.createElement('div');
+            backName.className = 'mana-tile-name mana-tile-back-name';
+            backName.textContent = mana.name;
+            tile.appendChild(backName);
+        } else {
+            tile.title = '(裏向き)';
+        }
     }
     if (mana.temporary) tile.classList.add('mana-temporary');
+    // ★★★Batch 76(裁定351): マナにもホバープレビューを出す。
+    //   ★<b>中身が届いているマナだけ</b>である —— 相手の裏向きは cardId が null で来るので、
+    //     面を出しようがない(サーバのフィルタが唯一の正である。設計判断9)
+    if (mana.cardId) attachHover(tile, () => faceDataFromMana(mana));
     return tile;
+}
+
+/**
+ * ManaView → フェイスのデータ(★Batch 76・裁定351)。
+ *
+ * ★属性は card-library(autoLibrary)から補う ——
+ *   ビューが運ぶのは cardId と name だけである(設計判断28・裁定144)。
+ * ★★キーワードは持たない(ウェポンの面 {@code weaponFaceData} と同じ扱い)——
+ *   キーワードはテキストから決まる(裁定158)ので、面に出るテキストで読める。
+ */
+function faceDataFromMana(mana) {
+    const lib = mana.cardId ? autoLibrary.get(mana.cardId) : null;
+    return {
+        name: mana.name || (lib ? lib.name : ''),
+        type: lib ? lib.type : null,
+        civilization: lib ? lib.civilization : null,
+        cost: lib ? lib.cost : null,
+        keywords: [], text: lib ? lib.text : '',
+        attack: lib ? lib.attack : null, hp: lib ? lib.hp : null,
+    };
 }
 
 /** ウェポンの面。効果テキストは card-library から(B2 の weaponCardId 経由・裁定144) */
@@ -4032,7 +4095,14 @@ function createTabooCardEl(card, index, view) {
     const payable = view.you.manaZone.filter(m => !m.temporary).length;
     // ★Batch 54: 禁忌の【賢魂】は n 枚で払える(マスター裁定 A6)
     const cheapest = card.soulCost != null ? Math.min(card.cost, card.soulCost) : card.cost;
-    if (!pending && !manaPay && view.myTurn && view.phase === 'MAIN' && payable >= cheapest) {
+    // ★★★Batch 76(裁定350): 使用条件を満たしていないカードは光らせない。
+    //   ★<b>賢魂として使う道は使用条件を通らない</b>ので、賢魂を持つカードは光ったままである
+    //     ({@code dropZonesFor} の 'TABOO' 分岐と同じ切り分けである)。
+    //   ★★<b>禁忌デッキこそが発端である</b> —— 75 まで、サーバは禁忌経路で
+    //     使用条件を1度も見ておらず、画面にも印が無かった(両方 76 で塞いだ)
+    const tabooUsable = card.playConditionMet !== false || card.soulCost != null;
+    if (!pending && !manaPay && view.myTurn && view.phase === 'MAIN' && payable >= cheapest
+            && tabooUsable) {
         el.classList.add('playable');
     }
     if (manaPay && manaPay.kind === 'TABOO' && manaPay.tabooIndex === index) {
@@ -4041,6 +4111,7 @@ function createTabooCardEl(card, index, view) {
     el.appendChild(cardFace(faceDataFromCardView(card), 'full'));
     const badges = newBadgeBox();
     if (card.soulCost != null) addBadge(badges, '★賢魂:' + card.soulCost);
+    addConditionBadge(badges, card);
     addUnimplementedBadge(badges, card);
     attachBadges(el, badges);
     const tabooFace = () => faceDataFromCardView(card);
@@ -4089,6 +4160,22 @@ function attachBadges(el, box) {
 function addUnimplementedBadge(box, cardOrMinion) {
     if (cardOrMinion && cardOrMinion.effectUnimplemented) {
         addBadge(box, '⚠効果未実装', 'auto-badge-unimplemented');
+    }
+}
+
+/**
+ * 使用条件を満たしていないカードの印(★★★Batch 76・裁定350)。
+ *
+ * ★<b>「光らない」だけでは足りない。</b>マナが足りないカードも光らないので、
+ *   印が無いと<b>なぜ使えないのかが盤面から読めない</b> ——
+ *   マスターが実機で踏んだのは「使えてしまう」だったが、
+ *   直したあとに残るのは「なぜ使えないのか分からない」である。
+ * ★★判定はサーバ({@code CardView.playConditionMet})1本であり、
+ *   ここは<b>受け取った真偽値を描くだけ</b>である(⚠効果未実装 の印と同じ形・裁定234)。
+ */
+function addConditionBadge(box, card) {
+    if (card && card.playConditionMet === false) {
+        addBadge(box, '⚠条件未達', 'auto-badge-unimplemented');
     }
 }
 
@@ -4187,6 +4274,8 @@ function createHandCardEl(card, index, view) {
     const badges = newBadgeBox();
     if (card.canSpecialSummon) addBadge(badges, '★特殊召喚可');
     if (card.soulCost != null) addBadge(badges, '★賢魂:' + card.soulCost);
+    // ★★★Batch 76(裁定350): 使用条件を満たしていないことを盤面に出す
+    addConditionBadge(badges, card);
     addUnimplementedBadge(badges, card);
     attachBadges(el, badges);
     const handFace = () => faceDataFromCardView(card);

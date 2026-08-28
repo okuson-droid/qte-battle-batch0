@@ -1503,26 +1503,30 @@ public class CardEffectRegistry {
         // ★<b>使用条件を持たない。</b>旧は「表向きのマナが1枚以上あること」を要求していたが、
         //   新は「あるだけ置く」形なので、0枚でも使用できる
         //   (《神風の大号令》の裁定269(b) と同じ扱いに揃えた)。
-        // ★<b>どの2枚を置くかは選ばせない。</b>本文に「選び」が無いためである(裁定211)。
-        //   墓地の古い順(墓地リストの先頭から)に取る —— 墓地は置かれた順のリストであり、
-        //   「先に死んだものから土に還る」が最も素直な並びである。
+        // ★★★<b>Batch 76(裁定346): どの2枚を置くかは本人が選ぶ。</b>
+        //   ★59 は「本文に『選び』が無いから選ばせない」(裁定211)として
+        //     <b>墓地の古い順</b>に取っていた。★★<b>裁定346 がその読みを否定した</b> ——
+        //     <b>このゲームでは「自動で選ぶ」ことがそもそも想定されていない</b>。
+        //     裁定211 は「本文に無い<b>限定</b>を足さない」規則であって、
+        //     「本文に無い<b>選択</b>を奪ってよい」規則ではない。
+        //   ★★<b>本文は1文字も直さない</b>(裁定346)—— 直すのは実装の側である。
+        //     したがって {@code text-impl-review.json} の台帳も動かない。
+        //   ★候補が2枚以下なら選ぶ余地が無いので問わない(12b・51 からの流儀)。
         spellEffects.put("QTE-M-DARK-11", ctx -> {
-            List<String> candidates = ctx.owner().getTrash().stream()
-                    .filter(id -> cards.findById(id).civilization() == Civilization.DARK)
-                    .limit(2)
-                    .toList();
-            int placed = 0;
-            for (String id : candidates) {
-                if (ctx.actions().putTrashCardIntoManaFaceDown(ctx.room(), ctx.owner(), id)) {
-                    placed++;
-                }
-            }
-            if (placed <= 0) {
+            List<String> positions = trashPositionsOfCivilization(ctx.owner(), Civilization.DARK);
+            if (positions.isEmpty()) {
                 ctx.room().addLog("【マナを貪る怨霊】: 墓地に闇文明のカードが無いため、何も起きませんでした");
                 return;
             }
-            ctx.room().addLog("【マナを貪る怨霊】: 墓地から%d枚を裏向きでマナに置きました".formatted(placed));
-            ctx.actions().drawCards(ctx.room(), ctx.owner(), placed);
+            int count = Math.min(2, positions.size());
+            if (positions.size() <= count) {
+                resolveManaWraithPut(ctx, positions);
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.of(
+                    PendingChoice.Kind.TRASH, positions, count, count,
+                    ResumePoint.MANA_WRAITH_TRASH_TO_MANA,
+                    "【マナを貪る怨霊】: 裏向きでマナに置く闇文明のカードを%d枚選んでください".formatted(count)));
         });
 
         // 墓穴の呪い: 山札の上から2枚を墓地に置く。墓地以下の体力のミニオンを<b>2枚選び</b>破壊。
@@ -1622,11 +1626,27 @@ public class CardEffectRegistry {
                 new Requirement(Kind.TRASH, Side.SELF, 1, false, false,
                         List.of(Filter.MINION_CARD, Filter.COST_4_OR_LESS),
                         "場に出すコスト4以下のミニオンを墓地から選んでください")));
+        // ★★★<b>Batch 76(裁定347): 破壊する裏向きマナは本人が選ぶ。</b>
+        //   ★75 までは {@code destroyFaceDownMana} が<b>末尾から</b>取っていた ——
+        //     <b>ここには自動決定である旨が1文字も書かれておらず</b>、規則が共通処理の奥に
+        //     埋まっていた(74 の「効きすぎている実装は陰に隠れる」の同族である)。
+        //   ★★<b>後半で出すカードは payload で運ぶ。</b>問い合わせは<b>後回し</b>
+        //     ({@link PendingChoice} の Javadoc)なので、ここで {@code effectPutSequence} を
+        //     続けて呼ぶと<b>「破壊 → その後出す」の順序が逆転する</b>。
+        //   ★候補が1枚なら選ぶ余地が無いので問わない(使用条件が0枚を弾いている)。
         spellEffects.put("QTE-M-DARK-10", ctx -> {
-            ctx.actions().destroyFaceDownMana(ctx.room(), ctx.owner(), 1);
-            // ★Batch 74: 出すところは共通の列へ寄せた(進化なら素材を問う)
-            effectPutSequence(ctx, EffectPutState.of(EffectPutSource.TRASH, "QTE-M-DARK-10",
-                    ctx.targets().get(0).trashCardIds(), false));
+            List<String> putTargets = ctx.targets().get(0).trashCardIds();
+            List<String> positions = faceDownManaPositions(ctx.owner());
+            if (positions.size() <= 1) {
+                resolveTabooPriceDestroy(ctx, positions.isEmpty() ? -1
+                        : Integer.parseInt(positions.get(0)), putTargets);
+                return;
+            }
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MANA, positions,
+                    ResumePoint.TABOO_PRICE_MANA_DESTROY,
+                    "【禁忌の代償】: 破壊する裏向きのマナを1枚選んでください")
+                    .withPayload(String.join(",", putTargets)));
         });
 
         // 死者蘇生: 好きな数の自分のミニオンを破壊してもよい(その数だけコスト-1)。
@@ -1964,16 +1984,19 @@ public class CardEffectRegistry {
         // ホーリー・シグナル: 相手の場で最も攻撃力の高いミニオン1体と最も体力の低いミニオン1体を破壊。
         // ★Batch 56(区分4): Ver1.1 で「最も体力の低いミニオン1体」の同時破壊が追加された
         // (rework-triage.md 区分4)。
-        // ★最低体力側はTargetSpec.Requirementにせず、lowestCurrentHp で自動決定する。
-        // ★★Batch 64: 自動決定がこの1件だけ残った理由は「本人に選ばせたくない」からではなく、
-        //   対象指定の検証と噛み合わないという<b>構造上の都合</b>だからである(下記)。
-        //   他の7件は AutoChoice ごと退役させ、本人の選択へ移した(裁定299)。
-        //   理由: GameService.validateTargetsは1枚のカードの
-        // 検証中、Requirementをまたいでusedひとつの Set<String> usedMinionIds を使い回すため、
-        // 2つのRequirementにすると「同じミニオンが両方の条件を満たす」ケース
-        // (例: 相手の場が1体しかいない)で「同じミニオンを重複して選べません」の例外になり、
-        // カードが使用不能になってしまう。最高攻撃力側だけはタイのとき実質選択の意味があるため
-        // (同値が複数いれば選ばせる)、引き続きプレイヤーが選ぶRequirementのまま残した。
+        // ★64 までの但し書き(残しておく): 最低体力側を2つ目の Requirement にできないのは、
+        //   GameService.validateTargets が1枚のカードの検証中に
+        //   ひとつの Set<String> usedMinionIds を Requirement をまたいで使い回すためである。
+        //   2つの Requirement にすると「同じミニオンが両方の条件を満たす」ケース
+        //   (相手の場が1体しかいない)で「同じミニオンを重複して選べません」の例外になり、
+        //   <b>カードが使用不能になってしまう</b>。
+        // ★★★<b>Batch 76(裁定349): 最低体力側も本人が選ぶ。</b>
+        //   ★上の但し書きが禁じていたのは<b>2つ目の Requirement</b> であって、
+        //     <b>選ばせること</b>ではない —— 割り込み(a9)なら usedMinionIds を1度も通らない。
+        //   ★★<b>1枚のカードの中で扱いが割れていた</b>: 最高攻撃力側は 56 の時点から
+        //     同値のとき選べたのに、最低体力側は選べなかった(《風のマナ変換》73 と同じ形)。
+        //   ★★★<b>破壊は両方まとめて再開先で行う</b> ——
+        //     「まだ何も壊れていない盤面で先に確定してから破壊する」を保つためである。
         // 【潜伏】持ちであっても破壊できる(発注者確認済み。IGNORES_STEALTHで潜伏の対象化禁止を上書き)
         playConditions.put("QTE-M-LIGHT-10",
                 (state, player) -> !state.opponentOf(player.getPlayerId()).getMinionZone().isEmpty());
@@ -1984,17 +2007,20 @@ public class CardEffectRegistry {
         spellEffects.put("QTE-M-LIGHT-10", ctx -> {
             // 両方の対象を、効果解決前(=まだ何も壊れていない)盤面で先に確定してから破壊する。
             // 片方の破壊で盤面が変わり、もう片方の判定が狂うのを防ぐため
-            List<MinionInstance> beforeOpp = new ArrayList<>(ctx.opponent().getMinionZone());
-            MinionInstance lowestHp = lowestCurrentHp(beforeOpp);
-
-            List<MinionInstance> toDestroy = new ArrayList<>();
-            ctx.targets().get(0).minions().forEach(t -> toDestroy.add(t.minion()));
-            // 同じミニオンが両方の条件を満たす場合は1回だけ破壊する(重複して足さない)
-            if (lowestHp != null && toDestroy.stream()
-                    .noneMatch(m -> m.getInstanceId().equals(lowestHp.getInstanceId()))) {
-                toDestroy.add(lowestHp);
+            List<MinionInstance> lowest = lowestCurrentHpAll(ctx.opponent().getMinionZone());
+            String highest = ctx.targets().get(0).minions().stream()
+                    .map(t -> t.minion().getInstanceId()).findFirst().orElse("");
+            if (lowest.size() <= 1) {
+                resolveHolySignal(ctx, highest,
+                        lowest.isEmpty() ? null : lowest.get(0).getInstanceId());
+                return;
             }
-            toDestroy.forEach(m -> ctx.actions().destroyMinion(ctx.room(), ctx.opponent(), m));
+            ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
+                    PendingChoice.Kind.MINION,
+                    lowest.stream().map(MinionInstance::getInstanceId).toList(),
+                    ResumePoint.HOLY_SIGNAL_LOWEST_HP,
+                    "【ホーリー・シグナル】: 破壊する「最も体力の低いミニオン」を1体選んでください")
+                    .withPayload(highest));
         });
 
         // 聖光の武装解除: ウェポンを1枚破壊する。そうしたらカードを1枚引く。【還元】。
@@ -4232,6 +4258,29 @@ public class CardEffectRegistry {
                 }
             }
 
+            // ★★★Batch 76: ここから先は resumeChoiceLate が持つ。
+            //   <b>1つの switch が 300行の上限を超えた</b>ためであり、切り方に意味は無い
+            //   (74 が一度超えたときと同じ処置である)。
+            //   ★★<b>あちらの switch は default で例外を投げる</b> ——
+            //     再開先を足して<b>どちらの switch にも書き忘れる</b>と、
+            //     ここで黙って何も起きずに終わってしまう。<b>無音にしない</b>。
+            default -> resumeChoiceLate(ctx, choice, chosen);
+        }
+    }
+
+    /**
+     * {@link #resumeChoice} の続き(★Batch 76)。
+     *
+     * <p>★<b>分けた理由は行数だけである。</b>{@code tools/check_structure.py} が
+     * 1メソッド300行を上限にしており、76 が4つの再開先を足して 318行になった
+     * (74 も一度超えて分割している)。
+     *
+     * <p>★★★<b>default で例外を投げる。</b>片方の switch が {@code default} で
+     * こちらへ委ねている以上、<b>両方に書き忘れた再開先は「何も起きない」で終わる</b> ——
+     * <b>無音は番人ではない</b>(72 の教訓)。ここで落ちれば、書き忘れは必ず表に出る。
+     */
+    private void resumeChoiceLate(EffectContext ctx, PendingChoice choice, List<String> chosen) {
+        switch (choice.resumeAt()) {
             // ★墓穴の呪い(QTE-M-DARK-24): 体力が閾値以下のミニオンから2体を選ぶ。★Batch 73
             // ★1体ずつ壊す。まとめて壊す口を作らないのは、
             //   1体目の【破壊時】が2体目を場から動かしうるためである
@@ -4243,6 +4292,35 @@ public class CardEffectRegistry {
             case PUT_FROM_HAND_SELECT ->
                 effectPutSequence(ctx, EffectPutState.fromHand(choice.payload(),
                         handCardIdsAt(ctx.owner(), chosen)));
+
+            // ★★★Batch 76(裁定346): マナを貪る怨霊(DARK-11)が墓地から動かす2枚が決まった
+            case MANA_WRAITH_TRASH_TO_MANA -> resolveManaWraithPut(ctx, chosen);
+
+            // ★★★Batch 76(裁定347): 禁忌の代償(DARK-10)が破壊する裏向きマナが決まった。
+            //   ★出す先は payload が運んでいる(問い合わせは後回しなので、
+            //     ここで初めて「破壊 → その後出す」の順に並ぶ)
+            case TABOO_PRICE_MANA_DESTROY -> resolveTabooPriceDestroy(ctx,
+                    Integer.parseInt(chosen.get(0)),
+                    choice.payload() == null || choice.payload().isEmpty()
+                            ? List.of() : List.of(choice.payload().split(",")));
+
+            // ★★★Batch 76(裁定348): 光霊・モアニール(LIGHT-36)の肩代わりで壊れる1体が決まった。
+            //   ★<b>選んだ個体が既に居なければ、残っているモアニールを1体壊す。</b>
+            //     1回の解決でリーダーが2度ダメージを受けると、2つの問い合わせの候補に
+            //     <b>同じ個体が並ぶ</b> —— 「居ないから何もしない」に落とすと
+            //     <b>肩代わり1回がただになる</b>。失われるのは選択であって、代償ではない
+            //   ★★<b>どのカードが肩代わりするかを、この switch の側に書き写さない</b>(裁定130)——
+            //     正は {@code RuleGuards.leaderDamageInterceptors} 1本である
+            case MOANIRU_INTERCEPT ->
+                ctx.actions().destroyChosenGuardian(ctx.room(), ctx.owner(), chosen.get(0));
+
+            // ★★★Batch 76(裁定349): ホーリー・シグナル(LIGHT-10)の「最も体力の低い1体」が決まった。
+            //   ★最高攻撃力側は payload が運んでいる —— <b>破壊は両方ここでまとめて行う</b>
+            case HOLY_SIGNAL_LOWEST_HP ->
+                resolveHolySignal(ctx, choice.payload(), chosen.get(0));
+
+            default -> throw new IllegalStateException(
+                    "再開先がどちらの switch にも書かれていません: " + choice.resumeAt());
         }
     }
 
@@ -4323,26 +4401,131 @@ public class CardEffectRegistry {
     }
 
     /**
-     * 現在HPが最も低いミニオンを選ぶ(《ホーリー・シグナル》QTE-M-LIGHT-10)。
-     * 同値なら盤面の並び順(先に出た方)で安定させる。
+     * 現在HPが最も低いミニオン<b>すべて</b>(《ホーリー・シグナル》QTE-M-LIGHT-10)。
      *
-     * <h2>★Batch 64: 自動決定として最後に残った1件である</h2>
+     * <h2>★★★Batch 76(裁定349): 「1体を返す」から「同値の全員を返す」へ変えた</h2>
      *
-     * 10b から 63 まで、解決中の選択は {@code AutoChoice} という1つのクラスに集めて
-     * 自動で決めていた。64 でその7件は本人の選択へ移り、クラスごと退役した(裁定299)。
+     * 64 はここを<b>自動決定として最後に残った1件</b>と書き、その理由を
+     * 「本人に選ばせたくないからではなく、対象指定の検証と噛み合わないから」と説明していた ——
+     * <b>2つ目の {@code Requirement} にすると {@code usedMinionIds} に引っかかる</b>という
+     * 構造上の都合である(その都合自体は今も生きているので、呼び出し側にも書き残した)。
      *
-     * <p>これだけが残るのは、<b>本人に選ばせたくないからではなく、
-     * 対象指定の検証と噛み合わないから</b>である ——
-     * 2つ目の {@code Requirement} にすると {@code GameService.validateTargets} の
-     * {@code usedMinionIds}(要求をまたいだ重複選択の防止)に引っかかり、
-     * 相手の場が1体しか居ないときに<b>カードが使用不能になる</b>。
-     * ★{@code AutoChoice} を残さずここへ移したのは、「自動決定という方針」の集約ではなく
-     * <b>1枚のカードの都合</b>になったからである。方針が消えたなら、その入れ物も消す。
+     * <p>★<b>禁じられていたのは「2つ目の Requirement」であって「選ばせること」ではない。</b>
+     * 割り込み(a9)は {@code validateTargets} を1度も通らないので、この都合に触れない ——
+     * <b>64 の判断は誤りではなく、前提が「宣言時に選ばせるなら」だった</b>(75 の教訓の形である)。
+     *
+     * <p>★★<b>64 の「最後に残った1件」という記述は、当時から正しくなかった。</b>
+     * {@code AutoChoice} を通らない自動決定が3つ在り(《マナを貪る怨霊》《禁忌の代償》
+     * 《光霊・モアニール》)、<b>あの棚卸しは器の名前で母集団を作っていた</b> ——
+     * <b>名前で数えた母集団は、名前を通らないものを数え落とす</b>。
+     *
+     * @return 同値なら全員。候補が空なら空
      */
-    private MinionInstance lowestCurrentHp(List<MinionInstance> candidates) {
+    private List<MinionInstance> lowestCurrentHpAll(List<MinionInstance> candidates) {
         return candidates.stream()
                 .min(Comparator.comparingInt(MinionInstance::getCurrentHp))
-                .orElse(null);
+                .map(min -> candidates.stream()
+                        .filter(m -> m.getCurrentHp() == min.getCurrentHp())
+                        .toList())
+                .orElseGet(List::of);
+    }
+
+    /**
+     * 《ホーリー・シグナル》の破壊(★Batch 76・裁定349)。
+     *
+     * <p>★<b>自動で決めたときも、選ばせたときも、ここ1本を通る</b> ——
+     * 66 の教訓(「候補が1つのときだけ後半が走らない」形の穴)を避けるためである。
+     *
+     * @param highestInstanceId 宣言時に選ばれた最高攻撃力のミニオン(空文字なら居ない)
+     * @param lowestInstanceId  最低体力のミニオン(null なら居ない)
+     */
+    private void resolveHolySignal(EffectContext ctx, String highestInstanceId,
+            String lowestInstanceId) {
+        List<String> toDestroy = new ArrayList<>();
+        if (highestInstanceId != null && !highestInstanceId.isEmpty()) {
+            toDestroy.add(highestInstanceId);
+        }
+        // 同じミニオンが両方の条件を満たす場合は1回だけ破壊する(重複して足さない)
+        if (lowestInstanceId != null && !toDestroy.contains(lowestInstanceId)) {
+            toDestroy.add(lowestInstanceId);
+        }
+        toDestroy.forEach(id -> destroyChosenMinion(ctx, id));
+    }
+
+    /**
+     * 墓地の中で、指定した文明のカードが在る位置(★Batch 76・裁定346)。
+     *
+     * <p>★<b>カードIDではなく位置を返す。</b>同名のカードが墓地に複数あるとき、
+     * IDで問い合わせると<b>候補が同じ文字列で並んで区別できない</b>し、
+     * {@link PendingChoice#pointsAtZonePositions()} の控え(裁定64 の番人)も効かない。
+     */
+    private List<String> trashPositionsOfCivilization(PlayerState owner, Civilization civilization) {
+        List<String> positions = new ArrayList<>();
+        List<String> trash = owner.getTrash();
+        for (int i = 0; i < trash.size(); i++) {
+            if (cards.findById(trash.get(i)).civilization() == civilization) {
+                positions.add(String.valueOf(i));
+            }
+        }
+        return positions;
+    }
+
+    /** マナゾーンの中で、裏向きのカードが在る位置(★Batch 76・裁定347) */
+    private List<String> faceDownManaPositions(PlayerState owner) {
+        List<String> positions = new ArrayList<>();
+        for (int i = 0; i < owner.getManaZone().size(); i++) {
+            if (!owner.getManaZone().get(i).isFaceUp()) {
+                positions.add(String.valueOf(i));
+            }
+        }
+        return positions;
+    }
+
+    /**
+     * 《マナを貪る怨霊》の後半(★Batch 76・裁定346)。
+     *
+     * <p>★★★<b>位置をカードIDへ写してから動かす。</b>
+     * {@code putTrashCardIntoManaFaceDown} は<b>カードIDで墓地から取り除く</b>ので、
+     * 1枚目を動かした時点で2枚目の位置がずれる —— 先に全部の位置を読み切る。
+     * ★同名が2枚選ばれたときは同じ文字列が2つ並ぶが、
+     * {@code List.remove(Object)} は1回に1枚しか外さないので枚数は合う。
+     */
+    private void resolveManaWraithPut(EffectContext ctx, List<String> trashPositions) {
+        List<String> trash = ctx.owner().getTrash();
+        List<String> cardIds = new ArrayList<>();
+        for (String position : trashPositions) {
+            int index = Integer.parseInt(position);
+            if (index >= 0 && index < trash.size()) {
+                cardIds.add(trash.get(index));
+            }
+        }
+        int placed = 0;
+        for (String cardId : cardIds) {
+            if (ctx.actions().putTrashCardIntoManaFaceDown(ctx.room(), ctx.owner(), cardId)) {
+                placed++;
+            }
+        }
+        if (placed <= 0) {
+            ctx.room().addLog("【マナを貪る怨霊】: 墓地に闇文明のカードが無いため、何も起きませんでした");
+            return;
+        }
+        ctx.room().addLog("【マナを貪る怨霊】: 墓地から%d枚を裏向きでマナに置きました".formatted(placed));
+        ctx.actions().drawCards(ctx.room(), ctx.owner(), placed);
+    }
+
+    /**
+     * 《禁忌の代償》の解決(★Batch 76・裁定347)。破壊してから出す ——
+     * <b>本文の「その後」を守るために、出す側もここへ運んでいる</b>。
+     *
+     * @param manaIndex 破壊する裏向きマナの位置(-1 なら裏向きマナが1枚も無い)
+     */
+    private void resolveTabooPriceDestroy(EffectContext ctx, int manaIndex, List<String> putTargets) {
+        if (manaIndex >= 0) {
+            ctx.actions().destroyManaAt(ctx.room(), ctx.owner(), manaIndex);
+        }
+        // ★Batch 74: 出すところは共通の列へ寄せた(進化なら素材を問う)
+        effectPutSequence(ctx, EffectPutState.of(EffectPutSource.TRASH, "QTE-M-DARK-10",
+                putTargets, false));
     }
 
     /**
@@ -4987,10 +5170,28 @@ public class CardEffectRegistry {
      * GameServiceがコストの支払いより前に呼ぶ。
      */
     public void requirePlayable(String cardId, GameState state, PlayerState player) {
-        BiPredicate<GameState, PlayerState> condition = playConditions.get(cardId);
-        if (condition != null && !condition.test(state, player)) {
+        if (!playConditionMet(cardId, state, player)) {
             throw new IllegalStateException("このカードを使用する条件を満たしていません");
         }
+    }
+
+    /**
+     * 使用条件を満たしているか(★Batch 76・裁定350)。条件を持たないカードは常に true。
+     *
+     * <h2>★なぜ照会の口を足したか</h2>
+     *
+     * 75 まで、使用条件を知っているのは<b>サーバだけ</b>だった ——
+     * {@link CardView} は条件を1つも運んでおらず、クライアントは
+     * <b>使えないカードを普通に使えるカードとして描いていた</b>。
+     * 掴んで落として初めて「条件を満たしていません」と言われる。
+     *
+     * <p>★<b>{@link #requirePlayable} がこれを呼ぶ</b>ので、画面の判定と検証の判定は
+     * 同じ1本である(裁定130)—— 「押せるのに弾かれる」がずれとして生まれない。
+     * ★★{@code MinionView.canAttack} が {@code RuleGuards} をそのまま呼んでいるのと同じ形である。
+     */
+    public boolean playConditionMet(String cardId, GameState state, PlayerState player) {
+        BiPredicate<GameState, PlayerState> condition = playConditions.get(cardId);
+        return condition == null || condition.test(state, player);
     }
 
     /**

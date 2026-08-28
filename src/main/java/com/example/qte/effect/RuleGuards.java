@@ -1,5 +1,6 @@
 package com.example.qte.effect;
 
+import java.util.List;
 import java.util.Set;
 
 import org.springframework.stereotype.Component;
@@ -232,24 +233,31 @@ public class RuleGuards {
     }
 
     /**
-     * リーダーへのダメージを肩代わりするミニオン(光霊・モアニール)。居なければ null。
+     * リーダーへのダメージを肩代わりできるミニオン<b>すべて</b>(光霊・モアニール)。
      *
      * <blockquote>自分のリーダーがダメージを受けるとき代わりにこのカードを破壊する。</blockquote>
      *
      * <b>戦闘・効果を問わず、すべてのダメージが対象である</b>(マスター裁定202)。
      * 肩代わりが起きるとダメージは0になり、モアニール1体が破壊される。
-     * 複数体並んでいれば、ダメージ1回につき1体ずつ消費される
-     * (選ぶのは盤面の並び順の先頭。どれが消えても盤面の結果は同じであり、
-     * プレイヤーに選ばせる意味が無いため問い合わせは出さない)。
+     * 複数体並んでいれば、ダメージ1回につき1体ずつ消費される。
      *
-     * ★<b>破壊そのものはここでは行わない。</b> このクラスは判定層であり、
+     * <h2>★★★Batch 76(裁定348): 「先頭の1体」から「候補すべて」へ変えた</h2>
+     *
+     * 75 までここは {@code findFirst()} で<b>盤面の並び順の先頭</b>を返しており、
+     * Javadoc は「どれが消えても盤面の結果は同じであり、プレイヤーに選ばせる意味が無い」と
+     * 書いていた —— <b>強化を受けた個体と素の個体が並んでいれば、結果は同じではない</b>。
+     * ★<b>「同じである」という前提のほうが誤っていた</b>(73 の教訓・前提)。
+     *
+     * <p>★どれを壊すかを問うのは {@code GameActions.tryReplaceLeaderDamageWithGuardian} である ——
+     * <b>破壊そのものはここでは行わない。</b>このクラスは判定層であり、
      * 状態を変えるのは {@code GameActions} の仕事である(このクラスの冒頭の設計方針)。
+     *
+     * @return 候補の一覧(盤面の並び順)。1体も居なければ空
      */
-    public MinionInstance leaderDamageInterceptor(PlayerState target) {
+    public List<MinionInstance> leaderDamageInterceptors(PlayerState target) {
         return target.getMinionZone().stream()
                 .filter(m -> MOANIRU.equals(m.getMaster().id()))
-                .findFirst()
-                .orElse(null);
+                .toList();
     }
 
     /**

@@ -6,6 +6,7 @@ import com.example.qte.effect.CardEffectRegistry;
 import com.example.qte.effect.EffectContext;
 import com.example.qte.effect.PendingChoice;
 import com.example.qte.effect.PersistentAura;
+import com.example.qte.effect.ResumePoint;
 import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.StatCalculator;
 import com.example.qte.effect.TriggerType;
@@ -905,19 +906,62 @@ public class GameActions {
      * ({@link #tryInterceptLeaderAttackWithShield})と同じ扱いである。
      *
      * <p>効果ダメージ({@link #damageLeader})・ミニオンの攻撃・ウェポンでの攻撃の
-     * 3経路すべてから呼ばれる。どれを選ぶかの判定は {@link RuleGuards#leaderDamageInterceptor} にある。
+     * 3経路すべてから呼ばれる。誰が肩代わりできるかの判定は
+     * {@link RuleGuards#leaderDamageInterceptors} にある。
+     *
+     * <h2>★★★Batch 76(裁定348): 2体以上並んでいたら本人に選ばせる</h2>
+     *
+     * 75 までは並び順の先頭を黙って壊していた。強化を受けた個体と素の個体が並んでいれば
+     * <b>どれが消えるかは意味を持つ</b>。
+     *
+     * <p>★<b>問い合わせは「後回し」である</b>({@code PendingChoice} の Javadoc)——
+     * ここで {@code true} を返した時点でダメージは0になり、
+     * <b>破壊は答えが返ってから起きる</b>。そのあいだ盤面が動かないことは、
+     * {@code GameService.requireTurnPlayer}(両者の選択待ちを見る)と
+     * {@code pendingAttack}(戦闘の解決を保留する)が既に保証している ——
+     * ★<b>番人を置く場所を選ぶ前に、そこまで届くかを確かめた</b>(70〜75 の教訓)。
      *
      * @return 肩代わりが発生した(=リーダーへのダメージを無効化した)ならtrue
      */
     public boolean tryReplaceLeaderDamageWithGuardian(GameRoom room, PlayerState target) {
-        MinionInstance interceptor = guards.leaderDamageInterceptor(target);
-        if (interceptor == null) {
+        java.util.List<MinionInstance> interceptors = guards.leaderDamageInterceptors(target);
+        if (interceptors.isEmpty()) {
             return false;
         }
         room.addLog("【%s】がリーダーへのダメージを肩代わりしました"
-                .formatted(interceptor.getMaster().name()));
-        destroyMinion(room, target, interceptor);
+                .formatted(interceptors.get(0).getMaster().name()));
+        if (interceptors.size() == 1) {
+            destroyMinion(room, target, interceptors.get(0));
+            return true;
+        }
+        requestChoice(room, target, PendingChoice.one(
+                PendingChoice.Kind.MINION,
+                interceptors.stream().map(MinionInstance::getInstanceId).toList(),
+                ResumePoint.MOANIRU_INTERCEPT,
+                "【光霊・モアニール】: 肩代わりで破壊する1体を選んでください"));
         return true;
+    }
+
+    /**
+     * 肩代わりで壊れる1体を確定させる(★Batch 76・裁定348)。
+     *
+     * <p>★★★<b>選んだ個体が既に居なければ、残っている候補を1体壊す。</b>
+     * 1回の解決でリーダーが2度ダメージを受けると問い合わせが2つ積まれ、
+     * <b>どちらの候補にも同じ個体が並ぶ</b> ——
+     * 「居ないから何もしない」に落とすと<b>肩代わり1回がただになる</b>。
+     * <b>失われるのは選択であって、代償ではない。</b>
+     */
+    public void destroyChosenGuardian(GameRoom room, PlayerState owner, String instanceId) {
+        java.util.List<MinionInstance> candidates = guards.leaderDamageInterceptors(owner);
+        MinionInstance victim = candidates.stream()
+                .filter(m -> m.getInstanceId().equals(instanceId))
+                .findFirst()
+                .orElseGet(() -> candidates.isEmpty() ? null : candidates.get(0));
+        if (victim == null) {
+            room.addLog("【光霊・モアニール】: 肩代わりするミニオンが場に居ませんでした");
+            return;
+        }
+        destroyMinion(room, owner, victim);
     }
 
     /** 墓地のカード1枚を手札に戻す(墓場の怨念集合体・死霊の収鎌) */
@@ -931,75 +975,54 @@ public class GameActions {
     }
 
     /**
-     * 表向きのマナを裏向きにする(マナを貪る怨霊・カース・ボーン)。
+     * 位置を指定してマナ1枚を破壊する(★Batch 76・裁定347。《禁忌の代償》)。
      *
-     * @return 実際に裏向きにできた枚数
-     */
-    public int turnManaFaceDown(GameRoom room, PlayerState owner, int count) {
-        int turned = 0;
-        for (ManaCard mana : owner.getManaZone()) {
-            if (turned >= count) {
-                break;
-            }
-            if (mana.isFaceUp()) {
-                mana.turnFaceDown();
-                turned++;
-            }
-        }
-        if (turned > 0) {
-            room.addLog("%sのマナ%d枚が裏向きになりました".formatted(owner.getDisplayName(), turned));
-        }
-        return turned;
-    }
-
-    /** 裏向きのマナを表向きに戻す(禁忌の冥魔剣)。戻せた枚数を返す */
-    public int turnManaFaceUp(GameRoom room, PlayerState owner, int count) {
-        int turned = 0;
-        for (ManaCard mana : owner.getManaZone()) {
-            if (turned >= count) {
-                break;
-            }
-            if (!mana.isFaceUp()) {
-                mana.turnFaceUp();
-                turned++;
-            }
-        }
-        if (turned > 0) {
-            room.addLog("%sのマナ%d枚が表向きに戻りました".formatted(owner.getDisplayName(), turned));
-        }
-        return turned;
-    }
-
-    /**
-     * 裏向きのマナを破壊する(禁忌の代償・不滅のネクロマンサー)。
-     * 総則では「マナの墓地送り」は破壊として扱わないが、これらのカードはテキストで
+     * 総則では「マナの墓地送り」は破壊として扱わないが、このカードはテキストで
      * 「破壊」と書いているため、テキスト優先の原則によりここでは破壊として扱う。
      * 破壊されたカードは墓地へ行き、マナ離脱イベントが発火する。
      *
-     * @return 実際に破壊できた枚数
+     * <h2>★★★75 までは {@code destroyFaceDownMana(room, owner, count)} だった</h2>
+     *
+     * あちらは<b>マナゾーンを末尾から走査して、最初に見つかった裏向きを壊す</b>ものだった ——
+     * <b>どれを壊すかを、共通処理が黙って決めていた</b>。
+     * 呼び出し元(《禁忌の代償》)のコメントには自動決定である旨が1文字も無く、
+     * <b>規則が共通処理の奥に埋まっていた</b>(74 の「効きすぎている実装は陰に隠れる」の同族)。
+     * ★<b>位置を受け取る形に変えたので、選ぶのは呼び出し元の仕事になった</b>(裁定347)。
+     * ★★向きを見ないのは意図である —— <b>候補を絞るのは呼び出し元</b>であり、
+     * ここで二度目の絞り込みを行うと「候補に出したのに壊せない」が生まれる。
+     *
+     * @param index マナゾーンの位置
+     * @return 実際に破壊できたなら true(範囲外なら false)
      */
-    public int destroyFaceDownMana(GameRoom room, PlayerState owner, int count) {
-        int destroyed = 0;
-        for (int i = owner.getManaZone().size() - 1; i >= 0 && destroyed < count; i--) {
-            ManaCard mana = owner.getManaZone().get(i);
-            if (mana.isFaceUp()) {
-                continue;
-            }
-            owner.getManaZone().remove(i);
-            room.addLog("裏向きのマナ【%s】が破壊されました".formatted(cards.findById(mana.getCardId()).name()));
-            putIntoTrashFromElsewhere(room, owner, mana.getCardId()); // マナから = 場以外から(★Batch 50)
-            destroyed++;
+    public boolean destroyManaAt(GameRoom room, PlayerState owner, int index) {
+        if (index < 0 || index >= owner.getManaZone().size()) {
+            return false;
         }
-        if (destroyed > 0) {
-            manaLeft(room, owner);
-        }
-        return destroyed;
+        ManaCard mana = owner.getManaZone().remove(index);
+        room.addLog("マナの【%s】が破壊されました".formatted(cards.findById(mana.getCardId()).name()));
+        putIntoTrashFromElsewhere(room, owner, mana.getCardId()); // マナから = 場以外から(★Batch 50)
+        manaLeft(room, owner);
+        return true;
     }
 
     // ★Batch 57: returnFaceDownManaToHand(裏向きのマナ1枚を手札に戻す)は削除した。
     // 唯一の使い手だった《冥府の禁皇》の起動能力が Ver1.1 で参照ゾーンを墓地へ変えたため、
     // 呼び出し元が1つも無くなったからである(死んだコードを残さない)。
-    // 表向き版の returnFaceUpManaToHand(風のマナ変換)は使い手が居るので残っている。
+    //
+    // ★★★Batch 76(裁定178・196): 同じ理由で、さらに4つの名前を消した。
+    //   - turnManaFaceDown ……… 表向きのマナを先頭から n 枚 裏向きにする。
+    //       コメントは「マナを貪る怨霊・カース・ボーン」と書いていたが、
+    //       <b>その2枚は Ver1.1 でどちらも参照ゾーンを墓地へ変えている</b>(呼び手0)。
+    //   - turnManaFaceUp ……… 裏向きのマナを先頭から n 枚 表向きに戻す。
+    //       コメントの「禁忌の冥魔剣」も既にこの処理を持たない(呼び手0)。
+    //   - returnFaceUpManaToHand … 表向きのマナを末尾から1枚 手札へ戻す。
+    //       ★<b>Batch 73 が《風のマナ変換》を選択へ移した時点で呼び手が消えていた</b>のに、
+    //         すぐ上の行に「表向き版は使い手が居るので残っている」と書き残されていた ——
+    //         ★★<b>コメントは、事実が変わっても自分では変わらない</b>(67 の教訓・写し)。
+    //   - destroyFaceDownMana … 裏向きのマナを末尾から n 枚 破壊する。
+    //       ★裁定347 により {@link #destroyManaAt} へ置き換えた。
+    //   ★★<b>4つとも「ゾーンの一部を、コードの都合で選ぶ」形だった</b> ——
+    //     裁定346 が想定していないと言い切った形が、死んだまま4つ残っていた。
 
     /**
      * 墓地のカードを裏向きでマナゾーンに置く(禁忌の墓地利用)。
@@ -1142,32 +1165,11 @@ public class GameActions {
     }
 
     /**
-     * 表向きのマナ1枚を手札に戻す(Batch 12b。風のマナ変換)。
-     * 戻す1枚は末尾(最後に置かれたもの)から探す。
-     *
-     * @return 戻せたらtrue(表向きのマナが1枚もなければfalse)
-     */
-    public boolean returnFaceUpManaToHand(GameRoom room, PlayerState owner) {
-        for (int i = owner.getManaZone().size() - 1; i >= 0; i--) {
-            ManaCard mana = owner.getManaZone().get(i);
-            if (!mana.isFaceUp()) {
-                continue;
-            }
-            owner.getManaZone().remove(i);
-            owner.getHand().add(mana.getCardId());
-            room.addLog("表向きのマナ【%s】が手札に戻りました"
-                    .formatted(cards.findById(mana.getCardId()).name()));
-            manaLeft(room, owner);
-            return true;
-        }
-        return false;
-    }
-
-    /**
      * マナゾーンの指定位置のカード1枚を手札に戻す(Batch 13c。地砕きの突撃兵の攻撃時効果)。
      *
-     * 表向き・裏向きのどちらでも戻せる({@link #returnFaceUpManaToHand} は「向きで自動選択する」
-     * 用途、こちらは「プレイヤーが選んだ1枚を戻す」用途であり役割が異なる)。
+     * 表向き・裏向きのどちらでも戻せる。
+     * ★★★Batch 76: 隣に在った {@code returnFaceUpManaToHand}(「末尾の表向きを自動で選ぶ」)は
+     * 消した —— <b>73 が《風のマナ変換》を選択へ移した時点で呼び手が居なくなっていた</b>。
      *
      * マナがマナゾーンを離れるため、ゾーン横断トリガー({@link #manaLeft})の発火まで
      * このメソッドの中で行う。呼び出し側で発火を書くと漏れるため、ここに閉じている。

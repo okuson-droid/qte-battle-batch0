@@ -51,6 +51,17 @@ import com.example.qte.master.Keyword;
  *                          賢魂を持たないカードは null
  * @param soulTargets       賢魂として使うときの対象選択。ミニオンとしての {@link #targets} とは別物である
  * @param soulText          賢魂の効果の文(確認ダイアログに出す)。賢魂を持たないカードは null
+ * @param playConditionMet  ★★★Batch 76(裁定350)。<b>今この瞬間、このカードの使用条件を
+ *                          満たしているか</b>({@code CardEffectRegistry.playConditions})。
+ *                          条件を持たないカードは常に true。
+ *                          ★<b>75 までビューは使用条件を1つも運んでいなかった</b> ——
+ *                          クライアントは使えないカードを普通に使えるカードとして描き、
+ *                          <b>掴んで落として初めて「条件を満たしていません」と言われた</b>。
+ *                          ★★判定の正はサーバ1本である
+ *                          ({@code requirePlayable} が同じ述語を読む)ので、
+ *                          「押せるのに弾かれる」がずれとして生まれない ——
+ *                          {@code MinionView.canAttack} が {@code RuleGuards} を
+ *                          そのまま呼んでいるのと同じ形である(裁定130)
  */
 public record CardView(
         String cardId,
@@ -80,7 +91,8 @@ public record CardView(
         Integer soulCost,
         Integer soulEffectiveCost,
         List<TargetReqView> soulTargets,
-        String soulText) {
+        String soulText,
+        boolean playConditionMet) {
 
     public static List<String> keywordNames(CardMaster master) {
         return master.keywords().stream().map(Keyword::getDisplayName).toList();

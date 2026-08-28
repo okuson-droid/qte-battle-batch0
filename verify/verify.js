@@ -14,7 +14,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 const {
   baseView, versusView, roomSummary, card, occupant, syncCounts, startState, declaration,
-  rite, dealRite, shuffleRite, autoCard, autoMinion, autoPlayer, autoView,
+  rite, dealRite, shuffleRite, autoCard, autoMana, autoMinion, autoPlayer, autoView,
 } = require('./fixture');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -5591,13 +5591,22 @@ async function clearZoom(page) {
       count: tiles.length,
       firstName: (tiles[0].querySelector('.mana-tile-name') || {}).textContent || '',
       tappedRotated: getComputedStyle(tapped).transform !== 'none',
-      faceDownHasName: !!faceDown.querySelector('.mana-tile-name'),
+      // ★★★Batch 76(裁定351): <b>ここは「名前が無いこと」を測っていた。</b>
+      //   44 は「裏向きは中身を出さない」と決めており、持ち主のビューに中身が
+      //   届いていても盤面には出していなかった —— <b>マスターの
+      //   「裏向きのマナがどんなカードだったか確認できない」はこの判断そのものである</b>。
+      //   ★裁定351 が判断を覆したので、<b>この項目は否定から肯定へ裏返した</b>
+      //   (74・75 の「据え置きの番人」が据え置かなくなった日に役目を終えるのと同じ形)。
+      //   ★★<b>相手の裏向きに名前が出ないこと</b>は 76 の章が別に測っている ——
+      //   こちらは自席の行だけを見ている。
+      faceDownName: (faceDown.querySelector('.mana-tile-back-name') || {}).textContent || null,
       oneLine: [...tiles].every(t => t.offsetTop === tiles[0].offsetTop),
     };
   });
-  check('★★★マナは名前つきタイルで、タップは回転・裏向きは名前を出さない・1行に収まる(44)',
+  check('★★★マナは名前つきタイルで、タップは回転・裏向きも持ち主には名前が出る・1行に収まる(44・★76 で裏返した)',
     manaState.count === 8 && manaState.firstName === 'マグマ・ストレート'
-      && manaState.tappedRotated && !manaState.faceDownHasName && manaState.oneLine,
+      && manaState.tappedRotated && manaState.faceDownName === '秘密のカード'
+      && manaState.oneLine,
     JSON.stringify(manaState));
 
   // ---- 44-4. 相手の手札は裏面の列 ----
@@ -9068,6 +9077,163 @@ async function clearZoom(page) {
 
   check('進化まわりの操作でJSエラーが出ない', evoErrors.length === 0, evoErrors.join(' | '));
   await evoPage.close();
+
+  // =========================================================================
+  // ★★★Batch 76: 使用条件の印(裁定350)と、裏向きマナの読み方(裁定351)
+  //
+  // ★★★<b>75 の章より前に置く。</b>あちらは {@code showRoomLostFatal} で client を止め、
+  //   ゲートで盤面を覆う —— <b>遷移を起こしうる項目は末尾へ、独立した項目は先頭へ</b>
+  //   (72・75 の教訓)。ここは描いて読むだけであり、何も遷移させない。
+  //
+  // ★★<b>ここにしか照合先が無い。</b>サーバ側(どのカードが条件を満たすか・
+  //   問い合わせが立つか)は {@code Batch76ChoiceTest} が持っている ——
+  //   ハーネスは Java を起こさないので、{@code playConditions} を壊しても
+  //   こちらには1件も届かない(70 の教訓)。
+  //   逆に<b>受け取った真偽値が絵になっているか</b>は JUnit からは見えない。
+  // =========================================================================
+  const condErrors = [];
+  const condPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  condPage.on('pageerror', (e) => condErrors.push(String(e)));
+  await condPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await condPage.waitForTimeout(300);   // card-library の取得を待つ
+
+  // ★<b>端の盤面を先に作る</b>(65 の教訓)——
+  //   手札 0: 条件未達 / 1: 条件を満たす / 2: 条件未達だが賢魂を持つ
+  const condView = autoView({
+    you: autoPlayer({
+      availableMp: 5,
+      hand: [
+        autoCard('QTE-M-WATER-26', '静寂の瞑想', {
+          type: 'SPELL', civilization: 'WATER', cost: 1, attack: null, hp: null,
+          text: '2枚引く。このカードはメインフェーズの最初にしか使えない。',
+          playConditionMet: false,
+        }),
+        autoCard('QTE-M-FIRE-6', '炎の従者', { cost: 2 }),
+        autoCard('QTE-M-EARTH-36', '勝阿外', {
+          cost: 4, soulCost: 2, soulEffectiveCost: 2, soulText: '相手はスペルを唱えられない',
+          playConditionMet: false,
+        }),
+      ],
+      taboo: [
+        autoCard('QTE-M-DARK-10', '禁忌の代償', {
+          type: 'SPELL', civilization: 'DARK', cost: 3, attack: null, hp: null,
+          playConditionMet: false,
+        }),
+        autoCard('QTE-M-DARK-11', 'マナを貪る怨霊', {
+          type: 'SPELL', civilization: 'DARK', cost: 4, attack: null, hp: null,
+        }),
+      ],
+      tabooCount: 2,
+      // ★表向き2枚 + 裏向き2枚。★<b>相手の裏向きは中身が null で来る</b>。
+      //   ★★表向きが2枚要るのは、禁忌の支払い可能枚数(表向き+裏向き=4)を
+      //     《マナを貪る怨霊》のコスト4に届かせるためである ——
+      //     <b>端の盤面は「掴める側」も作らないと、塞ぎすぎに気づけない</b>(72 の教訓・幅)
+      manaZone: [
+        autoMana(),
+        autoMana(),
+        autoMana({ faceUp: false, cardId: 'QTE-M-DARK-9', name: '絶望の連鎖' }),
+        autoMana({ faceUp: false, cardId: 'QTE-M-DARK-11', name: 'マナを貪る怨霊' }),
+      ],
+      totalMana: 4,
+    }),
+    opponent: autoPlayer({
+      displayName: 'あいて',
+      manaZone: [
+        autoMana(),
+        autoMana({ faceUp: false, cardId: null, name: null }),
+      ],
+      totalMana: 2,
+    }),
+  });
+  await condPage.evaluate((view) => { latestView = view; render(view); }, condView);
+
+  // ---- 76-1. ★★★条件を満たしていない手札は光らない ----
+  const condHand = await condPage.evaluate(() => {
+    const cells = [...document.querySelectorAll('#my-hand .auto-card-hand')];
+    return cells.map((el) => ({
+      playable: el.classList.contains('playable'),
+      badges: [...el.querySelectorAll('.auto-badge')].map((b) => b.textContent),
+    }));
+  });
+  check('★★★使用条件を満たしていない手札は光らない(76・裁定350)',
+    condHand.length === 3 && condHand[0].playable === false && condHand[1].playable === true,
+    JSON.stringify(condHand));
+
+  // ---- 76-2. ★★★理由が読める印を出す ----
+  // ★<b>「光らない」だけでは足りない</b> —— マナが足りないカードも光らないので、
+  //   印が無いと<b>なぜ使えないのかが盤面から読めない</b>。
+  check('★★★使用条件を満たしていない手札には印が出る(76・裁定350)',
+    condHand.length === 3 && condHand[0].badges.some((b) => b.includes('条件未達'))
+      && !condHand[1].badges.some((b) => b.includes('条件未達')),
+    JSON.stringify(condHand));
+
+  // ---- 76-3. ★★★掴めない(「光っているのに落とせない」の裏返しを作らない) ----
+  const condDrag = await condPage.evaluate(() => {
+    /* eslint-disable no-undef */
+    const v = latestView;
+    return {
+      blocked: dropZonesFor(v.you.hand[0], 'HAND', v),
+      allowed: dropZonesFor(v.you.hand[1], 'HAND', v),
+      // ★★<b>賢魂の道は使用条件を通らない</b>(サーバも通していない)——
+      //   掛ける場所を、掛かる場所より広く取らない(72 の教訓・幅)
+      soul: dropZonesFor(v.you.hand[2], 'HAND', v),
+      tabooBlocked: dropZonesFor(v.you.taboo[0], 'TABOO', v),
+      tabooAllowed: dropZonesFor(v.you.taboo[1], 'TABOO', v),
+    };
+    /* eslint-enable no-undef */
+  });
+  check('★★★条件を満たしていない手札は掴めない。満たしていれば掴める(76・裁定350)',
+    condDrag.blocked.length === 0 && condDrag.allowed.length > 0,
+    JSON.stringify(condDrag));
+  check('★★★賢魂として使う道は使用条件を通らない(76・掛かる場所より広く取らない)',
+    condDrag.soul.includes('SPELL') && !condDrag.soul.includes('FIELD'),
+    JSON.stringify(condDrag));
+  check('★★★禁忌デッキにも同じ規則が掛かる(76・このバッチの発端)',
+    condDrag.tabooBlocked.length === 0 && condDrag.tabooAllowed.length > 0,
+    JSON.stringify(condDrag));
+
+  // ---- 76-4. ★★★裏向きマナに名前が重なる(持ち主だけ) ----
+  const condMana = await condPage.evaluate(() => {
+    const read = (rowId) => [...document.querySelectorAll(`#${rowId} .mana-tile`)].map((t) => {
+      const back = t.querySelector('.mana-tile-back-name');
+      const style = back ? getComputedStyle(back) : null;
+      return {
+        faceDown: t.classList.contains('face-down'),
+        backName: back ? back.textContent : null,
+        // ★裏面画像の<b>上</b>に居ること。position:static のままだと絵の下に沈む
+        positioned: style ? style.position !== 'static' : null,
+        hover: typeof t.onmouseenter === 'function',
+      };
+    });
+    return { mine: read('my-mana-row'), theirs: read('opp-mana-row') };
+  });
+  check('★★★持ち主の裏向きマナには、裏面の上に名前が出る(76・裁定351)',
+    condMana.mine.length === 4
+      && condMana.mine[2].faceDown === true && condMana.mine[2].backName === '絶望の連鎖'
+      && condMana.mine[2].positioned === true
+      && condMana.mine[3].backName === 'マナを貪る怨霊',
+    JSON.stringify(condMana.mine));
+  check('★★表向きのマナには裏向き用の名前を重ねない(76・二重に出さない)',
+    condMana.mine.length === 4 && condMana.mine[0].faceDown === false
+      && condMana.mine[0].backName === null && condMana.mine[1].backName === null,
+    JSON.stringify(condMana.mine));
+  check('★★★相手の裏向きマナには名前が出ない(76・見せる/見せないの正はサーバである)',
+    condMana.theirs.length === 2 && condMana.theirs[1].faceDown === true
+      && condMana.theirs[1].backName === null,
+    JSON.stringify(condMana.theirs));
+
+  // ---- 76-5. ★★★マナにもホバープレビューが付く ----
+  // ★<b>中身が届いているマナだけ</b>である —— 相手の裏向きは cardId が null で来るので、
+  //   面を出しようがない。★★69〜70 で手札・場・リーダー・墓地一覧・禁忌には付いたのに、
+  //   マナだけ取り残されていた(69 の教訓「途中」の再演)。
+  check('★★★マナタイルにホバープレビューが付く。相手の裏向きには付かない(76・裁定351)',
+    condMana.mine.every((m) => m.hover === true)
+      && condMana.theirs[0].hover === true && condMana.theirs[1].hover === false,
+    JSON.stringify(condMana));
+
+  check('使用条件と裏向きマナ(76)でJSエラーが出ない',
+    condErrors.length === 0, condErrors.join(' | '));
+  await condPage.close();
 
   // =========================================================================
   // ★★★Batch 75: 部屋消失の検出(裁定344・345)

@@ -438,7 +438,14 @@ public class GameViewBuilder {
                 soulCost,
                 soulCost == null ? null : stats.effectiveSoulCost(state, player, master, soulCost),
                 soul == null ? List.of() : toReqViews(soul.targets()),
-                soulCost == null ? null : CardTextKeywords.soulText(master.text()));
+                soulCost == null ? null : CardTextKeywords.soulText(master.text()),
+                // ★★★Batch 76(裁定350): 使用条件を満たしているか。
+                //   ★<b>ビューは条件を計算しない。</b>述語の正は CardEffectRegistry 1本であり、
+                //     検証({@code requirePlayable})が読むのと同じものをそのまま呼ぶ ——
+                //     「押せるのに弾かれる」がずれとして生まれない形である(裁定130)。
+                //   ★★手札・禁忌デッキ・墓地のどの面でも同じ述語を通す ——
+                //     <b>禁忌デッキの面にも要る</b>のがこのバッチの発端である
+                effects.playConditionMet(master.id(), state, player));
     }
 
     /**

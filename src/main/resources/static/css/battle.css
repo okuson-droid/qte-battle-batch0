@@ -1908,6 +1908,19 @@ body.manual-drag-active .manual-band {
    今は battle.js の applyAutoManaOverlap が style で直接書く。
    ★.auto-mana-overlap クラスは使い手を失ったので撤去した(裁定178)。 */
 .auto-mana-row .mana-tile.mana-temporary { box-shadow: inset 0 0 0 2px #6edff6; }
+/* ★★★Batch 76(裁定351): 裏向きマナの名前。<b>裏面画像の上から</b>重ねる。
+   ★.auto-back-img は position:absolute; inset:0 で敷き詰められているので、
+     名前の側に重なりの順(position + z-index)を与えないと<b>絵の下に沈む</b>。
+   ★★出るのは<b>持ち主の席だけ</b>である —— 相手の裏向きマナはサーバが name を送らないので、
+     battle.js がこの要素をそもそも作らない
+     (見せる/見せないの正はサーバ1本である・設計判断9)。
+   ★★★地を敷くのは、裏面の絵柄が濃くて白文字が沈むためである。 */
+.auto-mana-row .mana-tile .mana-tile-back-name {
+    position: relative; z-index: 1; width: 100%;
+    padding: 1px 3px; border-radius: 3px;
+    background: rgba(0, 0, 0, 0.62);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+}
 
 /* ---------- ゾーン一覧のフェイス格子(墓地・消滅のモーダル) ---------- */
 .auto-zone-grid { display: flex; flex-wrap: wrap; gap: 8px; }
