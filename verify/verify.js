@@ -7033,6 +7033,224 @@ async function clearZoom(page) {
       && evoGood.body.manaIndexes.length === 0,
     JSON.stringify({ evoBad, evoGood }));
 
+  // =====================================================================
+  // ★★★Batch 77: 禁忌デッキからの進化召喚(裁定341 の写し忘れ・裁定352)
+  //
+  // ★★<b>発端はマスターの実機確認である</b>(候補 L)——
+  //   「禁忌デッキからゾクシムを進化させようとしたら、自分のミニオンを選択できなくて
+  //    進化できませんでした。」
+  //
+  // ★★★<b>ここが 77 の本体の番人である。</b>
+  //   サーバは 52 から正しく({@code playTabooCard} が {@code resolveMaterials} を呼ぶ)、
+  //   素材の候補も 52 から禁忌の面に届いていた({@code buildCardView} が handIndex=-1 でも添える)——
+  //   <b>読んでいなかったのは battle.js だけである</b>。
+  //   したがって「素材を問う段が出るか」「materialIds が実際に飛ぶか」は、
+  //   <b>クライアントを動かさないと1件も測れない</b>(設計判断45: 番人は回る場所で選ぶ)。
+  //
+  // ★★<b>入口ごとに当てる</b>(71・75・76 の教訓)。禁忌から場へ出る道は4つある ——
+  //   クリック / ドラッグ(表向きから払える) / ドラッグ(裏向きが焼ける) / 素材でない場所。
+  //   ★<b>賢魂の道は5つ目であり、こちらは素材を取ってはいけない側である</b>(裁定181)。
+  // =====================================================================
+  //
+  // ★★★<b>手札の進化(70-8)と同じ盤面・同じ所作で並べてある。</b>
+  //   裁定352 が言っているのは「入口で手触りを変えない」であり、
+  //   <b>2つの節を並べて読めることが、その裁定が守られている証拠になる</b>。
+  const tabooEvoCard = (over = {}) => autoCard('QTE-M-WATER-32', '海淵獣ゾクシム', {
+    type: 'EVOLUTION', civilization: 'WATER', cost: 1, attack: 2, hp: 1,
+    evolutionMaterialIds: ['m0'], evolutionMin: 1, evolutionMax: 1,
+    evolutionText: '水文明ではないミニオン1体', ...over,
+  });
+  // ★マナは表向き3枚だけ。★<b>tabooPayOrder が表向きを指すので焼けない</b>(裁定317)
+  const tabooEvoView = autoView({
+    you: autoPlayer({
+      manaZone: payMana(3), totalMana: 3, availableMp: 3,
+      manaPayOrder: [0, 1, 2], tabooPayOrder: [0, 1, 2],
+      minions: [autoMinion('m0', '素材A'), autoMinion('m1', '素材でないB')],
+      taboo: [tabooEvoCard()], tabooCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+
+  // ---- 77-1. ★★★クリックの入口: マナを確定したら<b>素材を問う段に入る</b> ----
+  //   ★76 まではここで {@code play-taboo} が飛んでいた —— 素材の指定を1つも持たずに。
+  //     サーバが「進化素材は1体を選んでください」で断り、画面には導線が何も出なかった。
+  await autoDeliver(tabooEvoView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+    document.querySelector('#my-taboo .auto-card').click();
+  });
+  await autoPage.waitForTimeout(50);
+  await payAndConfirm();
+  const tabooEvoAsking = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    asking: !!evolution,
+    prompt: document.getElementById('selection-prompt').textContent,
+    // ★候補にだけ印が付く(52 の attack-target / exhausted)。
+    //   ★<b>素材でない m1 まで光っていたら、候補の絞り込みが効いていない</b>
+    marked: [...document.querySelectorAll('#my-minions .auto-card')]
+      .map((el) => el.classList.contains('attack-target')),
+  }));
+  check('★★★禁忌をクリックして進化を使うと、マナの確定のあと素材を問う(77・裁定341)',
+    tabooEvoAsking.sent === 0 && tabooEvoAsking.asking === true
+      && tabooEvoAsking.prompt.includes('進化素材')
+      && tabooEvoAsking.prompt.includes('海淵獣ゾクシム')
+      && JSON.stringify(tabooEvoAsking.marked) === JSON.stringify([true, false]),
+    JSON.stringify(tabooEvoAsking));
+
+  // ★素材を選ぶと play-taboo が<b>materialIds を連れて</b>飛ぶ。
+  //   ★★<b>tabooIndex と manaIndexes も一緒に運ばれること</b>を同時に測る ——
+  //     素材を足したせいで禁忌の本文が壊れていないことの裏取りである(72b の教訓・あいだ)
+  const materialBox = await autoPage.locator('#my-minions .auto-card').first().boundingBox();
+  await autoPage.mouse.click(materialBox.x + materialBox.width / 2,
+    materialBox.y + materialBox.height / 2);
+  await autoPage.waitForTimeout(50);
+  const tabooEvoSent = await autoPage.evaluate(() =>
+    window.__sent[window.__sent.length - 1] || null);
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  check('★★★禁忌の進化は materialIds を連れて play-taboo へ飛ぶ(77・このバッチの発端)',
+    !!tabooEvoSent && tabooEvoSent.destination.endsWith('/play-taboo')
+      && JSON.stringify(tabooEvoSent.body.materialIds) === JSON.stringify(['m0'])
+      && tabooEvoSent.body.tabooIndex === 0
+      && tabooEvoSent.body.manaIndexes.length === 1
+      && tabooEvoSent.body.handIndex === undefined,
+    JSON.stringify(tabooEvoSent));
+
+  // ---- 77-2. ★★★ドラッグの入口: <b>落とした先が1体目の素材</b>である(裁定352) ----
+  //   ★手札の 70-8(裁定322)とまったく同じ所作で、同じことが起きる。
+  await autoDeliver(tabooEvoView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+  });
+  await autoPage.waitForTimeout(40);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#my-minions .auto-card:nth-child(1)');
+  const tabooEvoDropped = await autoPage.evaluate(() => ({
+    sent: window.__sent[window.__sent.length - 1] || null, asking: !!evolution,
+  }));
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  check('★★★禁忌のドラッグも、落とした先が1体目の素材になる(77・裁定352)',
+    !!tabooEvoDropped.sent && tabooEvoDropped.sent.destination.endsWith('/play-taboo')
+      && JSON.stringify(tabooEvoDropped.sent.body.materialIds) === JSON.stringify(['m0'])
+      && tabooEvoDropped.sent.body.tabooIndex === 0
+      && tabooEvoDropped.asking === false,
+    JSON.stringify(tabooEvoDropped));
+
+  // ---- 77-3. ★<b>そうでない側</b>(裁定181): 素材でない場所に落としたら止まる ----
+  await autoDeliver(tabooEvoView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+  });
+  await autoPage.waitForTimeout(40);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#my-minions .auto-card:nth-child(2)');
+  const tabooEvoBad = await autoPage.evaluate(() => ({
+    sent: window.__sent.length,
+    paying: !!manaPay,
+    asking: !!evolution,
+    message: document.getElementById('message-area').textContent,
+  }));
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  check('★★禁忌の進化を素材でない場所に落としたら、送らず問わずに止まる(77・裁定352)',
+    tabooEvoBad.sent === 0 && tabooEvoBad.paying === false
+      && tabooEvoBad.asking === false && tabooEvoBad.message.includes('素材'),
+    JSON.stringify(tabooEvoBad));
+
+  // ---- 77-4. ★★★裏向きが焼ける禁忌の進化は、<b>確定を挟んでも落とし先を覚えている</b> ----
+  //   ★裁定317 の警告(70-7)と裁定352 が<b>同時に効く</b>唯一の道である ——
+  //     確定待ちを1段はさむので、落とし先を向こう側まで運ばないと消える。
+  const tabooEvoBurnView = autoView({
+    you: autoPlayer({
+      manaZone: [
+        ...payMana(2),
+        { name: '裏の1枚', cardId: 'QTE-M-FIRE-6', tapped: false, faceUp: false, temporary: false },
+      ],
+      totalMana: 3, availableMp: 3,
+      manaPayOrder: [2, 0, 1], tabooPayOrder: [2, 0, 1],   // ★裏向き(位置2)から払う = 焼ける
+      minions: [autoMinion('m0', '素材A'), autoMinion('m1', '素材でないB')],
+      taboo: [tabooEvoCard()], tabooCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(tabooEvoBurnView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+  });
+  await autoPage.waitForTimeout(40);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#my-minions .auto-card:nth-child(1)');
+  const tabooEvoBurnPaying = await autoPage.evaluate(() => ({
+    sent: window.__sent.length, paying: !!manaPay, warn: manaPay ? manaPay.warn : null,
+  }));
+  await payAndConfirm();
+  const tabooEvoBurnSent = await autoPage.evaluate(() =>
+    window.__sent[window.__sent.length - 1] || null);
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  check('★★★焼ける禁忌の進化は確認で止まり、確定したら落とし先を素材にして飛ぶ(77・裁定317・352)',
+    tabooEvoBurnPaying.sent === 0 && tabooEvoBurnPaying.paying === true
+      && !!tabooEvoBurnPaying.warn
+      && !!tabooEvoBurnSent && tabooEvoBurnSent.destination.endsWith('/play-taboo')
+      && JSON.stringify(tabooEvoBurnSent.body.materialIds) === JSON.stringify(['m0']),
+    JSON.stringify({ tabooEvoBurnPaying, tabooEvoBurnSent }));
+
+  // ---- 77-5. ★★★賢魂の道は素材を取らない(掛ける場所を広く取らない・72 の教訓・幅) ----
+  //   ★★<b>【賢魂】を持つ7枚のうち4枚が進化である</b>(72 の「多数派が穴に落ちる」)——
+  //     この分岐が無いと、進化かつ賢魂の禁忌をスペル枠へ落とした人に
+  //     <b>素材を問う段が出てしまう</b>(スペルとして使うので場には出ないのに)。
+  const tabooSoulEvoView = autoView({
+    you: autoPlayer({
+      manaZone: payMana(3), totalMana: 3, availableMp: 3,
+      manaPayOrder: [0, 1, 2], tabooPayOrder: [0, 1, 2],
+      minions: [autoMinion('m0', '素材A')],
+      taboo: [tabooEvoCard({ soulCost: 1, soulEffectiveCost: 1, soulTargets: [], soulText: 'カードを1枚引く' })],
+      tabooCount: 1,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて' }),
+  });
+  await autoDeliver(tabooSoulEvoView);
+  await autoPage.evaluate(() => {
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+  });
+  await autoPage.waitForTimeout(40);
+  await realDrag(autoPage, '#my-taboo .auto-card', '#spell-drop');
+  const tabooSoulEvo = await autoPage.evaluate(() => ({
+    sent: window.__sent[window.__sent.length - 1] || null, asking: !!evolution,
+  }));
+  await autoPage.evaluate(() => { tabooOpen = false; syncTabooRow(); });
+  check('★★★進化かつ賢魂の禁忌をスペル枠へ落としても、素材は問わない(77・72 の教訓・幅)',
+    !!tabooSoulEvo.sent && tabooSoulEvo.sent.destination.endsWith('/play-taboo-soul')
+      && tabooSoulEvo.asking === false
+      && tabooSoulEvo.sent.body.materialIds === undefined,
+    JSON.stringify(tabooSoulEvo));
+
+  // ---- 77-6. ★★★<b>クリックの入口でも</b>賢魂の道は素材を取らない ----
+  //   ★★<b>この項目は壊し検証が見つけさせた</b>(軸14)——
+  //     77-5(ドラッグ)だけを置いた時点で {@code onTabooCardClick} の側を壊してみたら、
+  //     <b>落ちる番人が1つも無かった</b>。
+  //   ★★★<b>76 の教訓「同じ規則を、入口の数だけ書き忘れる」が、番人の側で再演した。</b>
+  //     77 が直した規則そのものが2入口ぶんあるのだから、
+  //     <b>それを見張る番人も2入口ぶん要る</b>。
+  //   ★クリックの賢魂は素の {@code confirm()} で宣言する(72 が片肺として書き残した7箇所の1つ・
+  //     候補 O)。ここでは真を返させて「賢魂として使う」を選ばせる。
+  await autoDeliver(tabooSoulEvoView);
+  const soulClickReady = await autoPage.evaluate(() => {
+    window.__origConfirm = window.confirm;
+    window.confirm = () => true;
+    window.__sent.length = 0; tabooOpen = true; syncTabooRow();
+    document.querySelector('#my-taboo .auto-card').click();
+    return true;
+  });
+  await autoPage.waitForTimeout(50);
+  await payAndConfirm();
+  const tabooSoulEvoClick = await autoPage.evaluate(() => {
+    window.confirm = window.__origConfirm;
+    tabooOpen = false; syncTabooRow();
+    return { sent: window.__sent[window.__sent.length - 1] || null, asking: !!evolution };
+  });
+  check('★★★進化かつ賢魂の禁忌をクリックで賢魂として使っても、素材は問わない(77・軸14 が要求した)',
+    soulClickReady === true
+      && !!tabooSoulEvoClick.sent
+      && tabooSoulEvoClick.sent.destination.endsWith('/play-taboo-soul')
+      && tabooSoulEvoClick.asking === false
+      && tabooSoulEvoClick.sent.body.materialIds === undefined,
+    JSON.stringify(tabooSoulEvoClick));
+
   // ---- 70-9. ★★★マナチャージ(裁定323)。フェイズで落とし先が切り替わる ----
   const chargeView = autoView({
     phase: 'MANA_CHARGE', phaseDisplay: 'マナチャージ',

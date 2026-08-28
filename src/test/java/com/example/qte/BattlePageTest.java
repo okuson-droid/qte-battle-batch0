@@ -323,4 +323,42 @@ class BattlePageTest {
         assertThat(html).doesNotContain("battle.css?v=53");
         assertThat(html).contains("battle.css?v=");
     }
+
+    /**
+     * ★★★Batch 77 は {@code battle.js} を変えている ——
+     * 禁忌デッキから進化ミニオンを使う2つの入口(クリック・ドラッグ)が、
+     * <b>素材を問う段を通るようになった</b>(裁定341 の写し忘れの修正・裁定352)。
+     *
+     * <p><b>版数を上げないと、既に開いている人だけが 38 のまま
+     * 「サーバは素材の候補を送ってきているのに、選ぶ導線が1つも出ない」状態で遊び続ける。</b>
+     * ★候補({@code evolutionMaterialIds})は <b>Batch 52 から禁忌の面にも届いていた</b> ——
+     * 77 が直したのは<b>読む側だけ</b>である。だからこそ、古い JS を掴んだ人には
+     * <b>この修正が1文字も届かない</b>(サーバは何も変わっていないので、
+     * 「サーバを直せば直る」という逃げ道が無い)。
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が77で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=38");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 77 は {@code battle.css} を<b>1文字も触っていない</b>(設計判断54)。
+     *
+     * <p>77 が足したのは JavaScript の分岐だけであり、
+     * 素材を選ぶ段の見た目({@code .auto-card.auto-evolution-material} など)は
+     * <b>Batch 52 が作ったものをそのまま使う</b> ——
+     * 入口が増えても、素材を選ぶ画面は1つだからである。
+     *
+     * <p>★<b>触っていないのに上げると、「前のバッチの値でないこと」を測る番人が意味を失う</b>
+     * (73 の教訓・リファレンス 7-5)。
+     * ★★この番人は<b>据え置きの番人</b>である —— 76 が撤去した2件と同じ形なので、
+     * <b>次に CSS を触ったバッチが撤去すること</b>(74・75 の2件がそうされた)。
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数は77で据え置きである() throws Exception {
+        String html = battleHtml();
+        assertThat(html).contains("battle.css?v=54");
+    }
 }

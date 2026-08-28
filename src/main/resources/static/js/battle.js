@@ -2024,7 +2024,13 @@ function onTabooCardClick(index) {
     // ★★Batch 70(裁定319): コスト0でも自動で確定しない。
     //   「選ぶ余地が無いから自動でよい」は<b>効果の解決中の選択</b>についての流儀であって、
     //   プレイそのものを始めてよいかという層には効かない(69 の見立てはここで外れた)
-    beginManaPayment({ kind: 'TABOO', cost, card, tabooIndex: index, action, specs });
+    // ★★★Batch 77: 禁忌からの進化召喚も素材を宣言のときに選ぶ(裁定341・2-12 の表)。
+    //   ★<b>賢魂として使うなら素材は取らない</b> —— あちらはスペルの姿であり、場には出ない。
+    //   ★素材の候補({@code evolutionMaterialIds})は <b>Batch 52 から禁忌の面にも届いていた</b>
+    //     (GameViewBuilder.buildCardView が handIndex = -1 でも添える)——
+    //     読んでいなかったのはこちらである(76 の教訓・届いているのに出していない)
+    beginManaPayment({ kind: 'TABOO', cost, card, tabooIndex: index, action, specs,
+        evolutionFlow: action === 'play-taboo' && card.type === 'EVOLUTION' });
 }
 
 /**
@@ -2092,19 +2098,40 @@ function confirmManaPayment() {
         if (!send('charge-mana', { handIndex: pay.handIndex })) return restoreManaPayment(pay);
         return;
     }
-    if (pay.kind === 'TABOO') {
-        if (!beginSelection(pay.action || 'play-taboo', null, pay.specs,
-            { tabooIndex: pay.tabooIndex, manaIndexes: pay.picked })) return restoreManaPayment(pay);
-        return;
-    }
-    const extra = Object.assign({}, pay.extra || {}, { manaIndexes: pay.picked });
+    // ★★★Batch 77(裁定341・2-12): <b>素材を問う段は「出どころ」で分かれない。</b>
+    //
+    //   ★76 まで、この関数は {@code kind === 'TABOO'} を先に見て<b>そこで return していた</b> ——
+    //     禁忌から進化ミニオンを使うと、素材を問う段を通らずに送信まで行き、
+    //     サーバが「進化素材は1体を選んでください」で弾いていた。
+    //     <b>画面には素材を選ぶ導線が1つも出ない</b>ので、遊ぶ人には「進化できない」としか見えない。
+    //   ★★<b>これは規則の読み違いではなく写し忘れである</b>(76 の教訓・入口)——
+    //     裁定341 の表は「手札からの進化召喚 / 特殊召喚 / <b>禁忌</b>」を
+    //     まとめて「使用宣言のときに素材を選ぶ」側に置いている。
+    //   ★★★だから<b>出どころで分かれる物と分かれない物を、順番で表す</b> ——
+    //     送る本文(handIndex / tabooIndex)は出どころで違うので先に作り、
+    //     <b>素材を問うかどうかは kind を1度も見ずに決める</b>。
+    //     kind の分岐の中に書くと、入口が増えるたびに書き忘れる。
+    const isTaboo = pay.kind === 'TABOO';
+    const action = isTaboo ? (pay.action || 'play-taboo') : pay.action;
+    // ★禁忌は手札の位置を持たない。★<b>null であって undefined ではない</b> ——
+    //   buildActionPayload は {@code handIndex === null} で本文の形を変える
+    const handIndex = isTaboo ? null : pay.handIndex;
+    const extra = isTaboo
+        ? { tabooIndex: pay.tabooIndex, manaIndexes: pay.picked }
+        : Object.assign({}, pay.extra || {}, { manaIndexes: pay.picked });
     if (pay.evolutionFlow) {
         // ★進化素材の選択は<b>送信を伴わない</b>ので、ここは必ず先へ進む
         //   (送るのは素材を選び終えたあとの confirmEvolutionSelection である)
-        beginEvolutionSelection(pay.action, pay.handIndex, pay.specs, extra, pay.card);
+        beginEvolutionSelection(action, handIndex, pay.specs, extra, pay.card);
+        // ★★★裁定352: 禁忌をドラッグして落としたときは、<b>落とした先が1体目の素材</b>である。
+        //   ★裏向きのマナが焼ける払い方(裁定317)だけは確定待ちを挟むので、
+        //     落とし先をここまで運ぶ必要がある —— 焼けない禁忌は playByDrop が直接進む。
+        //   ★{@code beginEvolutionSelection} は素材が足りなければ始めない(evolution が立たない)。
+        //     立っていないのに種を蒔くと「素材にできません」が二重に出る
+        if (evolution && pay.materialSeed) pickEvolutionMaterial(pay.materialSeed);
         return;
     }
-    if (!beginSelection(pay.action, pay.handIndex, pay.specs, extra)) return restoreManaPayment(pay);
+    if (!beginSelection(action, handIndex, pay.specs, extra)) return restoreManaPayment(pay);
 }
 
 /**
@@ -2379,18 +2406,39 @@ function playByDrop(d, zone, droppedOnInstanceId) {
         const action = asSoul ? 'play-taboo-soul' : 'play-taboo';
         const specs = asSoul ? card.soulTargets : card.targets;
         const cost = asSoul ? card.soulCost : card.cost;
+        // ★★★Batch 77(裁定352): 禁忌からの進化召喚も、<b>落とした先が1体目の素材</b>である。
+        //   ★裁定322 を禁忌の入口にも及ぼした(マスター裁定)——
+        //     <b>入口で手触りを変えない</b>。手札のドラッグと同じ所作で同じことが起きる。
+        //   ★賢魂として落としたとき(スペル枠)は進化ではない。あちらは場に出ない
+        const asEvolution = !asSoul && card.type === 'EVOLUTION';
+        if (asEvolution && (!droppedOnInstanceId
+                || !(card.evolutionMaterialIds || []).includes(droppedOnInstanceId))) {
+            showMessage('進化は素材にできるミニオンの上に落としてください(条件: '
+                + card.evolutionText + ')');
+            return;
+        }
         if (tabooPayBurns(cost)) {
             // ★★裁定317: 裏向きのマナは墓地へ行き、二度と戻らない。
             //   ★確認の器を新しく作らない —— 自動の払い方をあらかじめ選んだ状態で
             //     確定待ちへ入れる。人はそのまま[確定]でも、選び直してもよい
+            //   ★★Batch 77: 進化なら<b>落とし先を確定待ちの向こうまで運ぶ</b>
+            //     (confirmManaPayment が materialSeed として蒔く)
             beginManaPayment({
                 kind: 'TABOO', cost, card, tabooIndex: d.index, action, specs,
+                evolutionFlow: asEvolution,
+                materialSeed: asEvolution ? droppedOnInstanceId : null,
                 picked: (latestView.you.tabooPayOrder || []).slice(0, cost),
                 warn: '裏向きのマナが墓地へ送られます(マナが永久に減ります)',
             });
             return;
         }
         // ★指定を空で送る。サーバが ManaPayment.tabooOrder の順に払う(裁定317)
+        if (asEvolution) {
+            beginEvolutionSelection(action, null, specs,
+                { tabooIndex: d.index, manaIndexes: [] }, card);
+            if (evolution) pickEvolutionMaterial(droppedOnInstanceId);
+            return;
+        }
         beginSelection(action, null, specs, { tabooIndex: d.index, manaIndexes: [] });
         return;
     }
