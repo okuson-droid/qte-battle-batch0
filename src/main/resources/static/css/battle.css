@@ -2113,3 +2113,123 @@ body.manual-drag-active .manual-band {
    ★判定はホバーを出す関数の中に1つだけ置く(裁定130) ——
      呼び出し側が位置を決めると、また呼び出しの数だけ規則が散る。 */
 .auto-hover.auto-hover-left { right: auto; left: 12px; }
+
+/* ============================================================
+   ★★★Batch 80: 通常モードの演出(fx層)。裁定355〜358。
+   設計解説 notes/batch80-design-notes.md。
+
+   ★★<b>手動モードの .manual-fx-* とは別の名前にしてある。</b>
+     理由は3つで、どれも「揃えると壊れる」ものである:
+       1. ★<b>時間が違う</b>(裁定358)。通常モードはサーバが解決するので、
+          画面を見ている人は「何が起きたか」を演出からしか読めない。
+       2. ★<b>裏面の作り方が違う</b>(手動は cardBackFace、通常は fillCardBack)。
+       3. ★<b>手動モードを1文字も触らない</b> —— 共有の名前へ寄せると、
+          次に通常モードの演出を直す人が<b>手動モードも直してしまう</b>。
+     ★★★<b>値が重なっているのは偶然であって要求ではない</b>ので、
+       一致を見張る番人は置かない(設計判断38 の警告)。
+       逆に<b>時間だけは「揃っていないこと」が要求である</b> —— そちらには番人が在る。
+
+   ★★z-index は <b>1020</b>。盤面(最大5)より上、
+     通常モードの fixed な層(席ゲート1060 / 拡大1500 / ホバー1400 /
+     確認1965 / 切断1970)より<b>すべて下</b>である。
+     ★<b>演出は装飾であり、操作の道具より上に出てはいけない</b>
+       (手動モードの「fx層 1030 < ドラッグ軌跡 1035」と同じ考え方)。
+
+   ★★動かすのは transform と opacity だけである(コンポジタ合成・reflow なし)。
+   ============================================================ */
+
+.auto-fx-layer {
+    position: fixed; inset: 0; z-index: 1020;
+    /* ★★操作を一切妨げない。ゴーストの下のカードはそのまま押せる */
+    pointer-events: none;
+    overflow: hidden;
+}
+
+/* ---- 飛ぶ・消える・現れるゴースト ---- */
+/* ★位置は採取した旧位置(ビューポート座標)をそのまま left/top に置く。
+   層が inset:0 の fixed なので、絶対座標がそのままビューポート座標になる。 */
+.auto-fx-ghost {
+    position: absolute; opacity: 0.95;
+    transform: translate(0, 0);
+    transition-property: transform, opacity;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-duration: 0ms;
+    will-change: transform, opacity;
+    filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55));
+}
+/* 中身は既存のフェイス関数が作る(.mcard)。入れ物いっぱいに敷く。
+   ★裁定111 により、通常モードの cardFace も .mcard を出す ——
+     だから<b>カードフェイスの実装は2つのままである</b>(候補 C は増えていない)。 */
+.auto-fx-ghost > .mcard { width: 100%; height: 100%; aspect-ratio: auto; }
+/* ★名前が届かなかったカードの裏面。中身を1文字も運ばない */
+.auto-fx-back {
+    width: 100%; height: 100%; position: relative; overflow: hidden;
+    border-radius: 4px; background: #2a2440; border: 1px solid #4a4460;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #b9b3d0;
+}
+
+/* ---- 出現(★場のミニオンは実要素に当てる。ゴーストを作らない) ---- */
+/* ★★transition ではなく animation を使う。transition で書くには
+   「盤面のカード全部に transition-property を生やす」ことになり、
+   マナのタップ回転(transform)まで巻き込む。
+   animation なら効果はクラスの付いた要素だけに閉じる。 */
+.auto-fx-enter { animation: auto-fx-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes auto-fx-in {
+    from { opacity: 0; transform: scale(0.92); }
+    to { opacity: 1; transform: none; }
+}
+
+/* ---- LP増減のポップアップ ---- */
+/* ★★色は<b>黒背景の上</b>で選んである。増加 #6ee7a0 / 減少 #ff9b9b は
+   rgba(0,0,0,0.72) の上でどちらも 4.5:1 を大きく超える(手動モードで実測済み)。
+   ★このラベルはコントラストの機械判定の対象セレクタに入れてある(verify 80-8) ——
+     <b>fx層は body 直下に在り、盤面のセレクタでは網に掛からない</b>ためである。 */
+.auto-fx-lp {
+    position: absolute; transform: translate(-50%, 0);
+    padding: 2px 8px; border-radius: 10px;
+    font-size: 17px; font-weight: 900; line-height: 1.2; white-space: nowrap;
+    background: rgba(0, 0, 0, 0.72); border: 1px solid rgba(255, 255, 255, 0.18);
+    transition-property: transform, opacity;
+    transition-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1);
+    transition-duration: 0ms;
+    will-change: transform, opacity;
+}
+.auto-fx-lp-up { color: #6ee7a0; }
+.auto-fx-lp-down { color: #ff9b9b; }
+
+/* ---- 状態系(タップ・裏返り・進化)。★どれも実要素に当てる ---- */
+/* ★★<b>回転そのものは動かさない。</b>タップの角度は .tapped-minion / .mana-tile.tapped が
+   持っており、そこへトランジションを足すと<b>盤面のすべてのカードに transition が生える</b>。
+   ★ここが語るのは「この1枚の状態が変わった」であって「何度回った」ではない ——
+     角度は描き直された盤面が既に語っている。 */
+.auto-fx-tap { animation: auto-fx-tap 200ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes auto-fx-tap {
+    0% { filter: none; }
+    45% { filter: brightness(1.55); }
+    100% { filter: none; }
+}
+/* ★裏返り。横方向に潰れて戻る1段で「めくれた」が読める
+   (手動モードの2段のめくりと違い、こちらは<b>表裏どちらの面も描き直しが持っている</b>)。 */
+.auto-fx-flip { animation: auto-fx-flip 260ms cubic-bezier(0.4, 0, 0.6, 1); }
+@keyframes auto-fx-flip {
+    0% { transform: scaleX(1); }
+    50% { transform: scaleX(0.06); }
+    100% { transform: scaleX(1); }
+}
+/* ★進化。素材が下へ沈み、上に乗ったものが着地する */
+.auto-fx-sink { animation: auto-fx-sink 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes auto-fx-sink {
+    0% { transform: translateY(-7px) scale(1.05); }
+    100% { transform: none; }
+}
+
+/* ★★見た目は CSS と JS の<b>両方</b>で止める(fxAllowed と対になっている)。
+   CSS だけだと DOM は作られ続け、JS だけだと将来 CSS で足した演出が漏れる。 */
+@media (prefers-reduced-motion: reduce) {
+    .auto-fx-layer { display: none; }
+    .auto-fx-enter { animation: none; }
+    .auto-fx-tap { animation: none; }
+    .auto-fx-flip { animation: none; }
+    .auto-fx-sink { animation: none; }
+}

@@ -10158,6 +10158,378 @@ async function clearZoom(page) {
     lostErrors.length === 0, lostErrors.join(' | '));
   await lostPage.close();
 
+  // =============================================================
+  // ★★★Batch 80: 通常モードの演出(裁定355〜358)
+  // =============================================================
+  //
+  // ★★<b>この節は独立している</b>(72・75 の教訓)—— 自分でページを開き、自分で閉じる。
+  //   ★遷移を起こす項目は1つも無い。
+  // ★★★<b>差分の語彙(純オブジェクト)と、実際に出る画面の両方を測る。</b>
+  //   片方だけでは「値は正しいが画面に出ない」「出ているが根拠が違う」を捕まえられない
+  //   (70 の教訓「書いてあるのに効いていない」の演出版)。
+  const fxPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const fxErrors = [];
+  fxPage.on('pageerror', (e) => fxErrors.push(String(e)));
+  fxPage.on('console', (m) => { if (m.type() === 'error') fxErrors.push(m.text()); });
+  await fxPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await fxPage.waitForTimeout(300);
+
+  /** 配信を1つ届ける。★★<b>onMessage を通す</b> —— ここだけが「サーバから来た出来事」の入口 */
+  const fxDeliver = async (v) => {
+    await fxPage.evaluate((view) => {
+      // eslint-disable-next-line no-undef
+      onMessage({ body: JSON.stringify({ view: view }) });
+    }, v);
+    await fxPage.waitForTimeout(40);
+  };
+  /** ★差分の語彙だけを読む(DOM に触らない純オブジェクトの比較・手動モードと同じ性質) */
+  const fx80Kinds = (a, b) => fxPage.evaluate(([prev, next]) =>
+    // eslint-disable-next-line no-undef
+    fxEffects(fxDiff(prev, next)).map((fx) => ({
+      kind: fx.kind,
+      from: fx.from ? fx.from.seat + '/' + fx.from.zone : null,
+      to: fx.to ? fx.to.seat + '/' + fx.to.zone : null,
+      name: fx.face ? fx.face.name : null,
+    })), [a, b]);
+
+  const fxCard = (name) => autoCard('QTE-M-FIRE-6', name);
+  const fxBase = autoView({});
+
+  // ---- 80-1. ★★★ドローは「山札 → 同じ席の手札」である(裁定355)----
+  // ★★<b>山札は名前を持たない。</b>だから名前では結べず、
+  //   <b>「残りが出口1・入口1」だから</b>結ばれる —— これが匿名で結ぶ段の唯一の出番である。
+  const fxDrawView = autoView({
+    you: autoPlayer({ deckCount: 29, handCount: 1, hand: [fxCard('炎の従者')] }),
+  });
+  const fxDrawKinds = await fx80Kinds(fxBase, fxDrawView);
+  check('★★★ドローは山札から同じ席の手札へ飛ぶ(80・裁定355)',
+    fxDrawKinds.length === 1 && fxDrawKinds[0].kind === 'draw'
+      && fxDrawKinds[0].from === 'you/DECK' && fxDrawKinds[0].to === 'you/HAND',
+    JSON.stringify(fxDrawKinds));
+
+  // ---- 80-2. ★★★ミニオンの破壊は「場 → 墓地」である(裁定355)----
+  // ★★<b>マスターが名指しした2つめである。</b>場は instanceId を持つので出発点が確定し、
+  //   墓地は公開情報なので着地点も名前で確定する —— <b>同一性を1つも足していない</b>。
+  const fxOnField = autoView({ you: autoPlayer({ minions: [autoMinion('m1', '炎の従者')] }) });
+  const fxDead = autoView({
+    you: autoPlayer({
+      minions: [], trashCount: 1, trashCardNames: ['炎の従者'], trash: [fxCard('炎の従者')],
+    }),
+  });
+  const fxDeadKinds = await fx80Kinds(fxOnField, fxDead);
+  check('★★★ミニオンの破壊は場から墓地へ飛ぶ(80・裁定355)',
+    fxDeadKinds.length === 1 && fxDeadKinds[0].kind === 'move'
+      && fxDeadKinds[0].from === 'you/FIELD' && fxDeadKinds[0].to === 'you/TRASH'
+      && fxDeadKinds[0].name === '炎の従者',
+    JSON.stringify(fxDeadKinds));
+
+  // ---- 80-3. ★★★カード名で結ぶので、2つの移動が同時でも取り違えない(裁定355)----
+  // ★★<b>これが「枚数の対だけ」では解けない場面である。</b>
+  //   スペルを使って(手札 → 墓地)、その効果でミニオンが1体壊れた(場 → 墓地)——
+  //   出口2・入口2 なので、匿名では<b>どちらがどちらか決まらない</b>。
+  //   ★名前が両端で照らせるので、2本とも正しく結ばれる。
+  const fxTwoBefore = autoView({
+    you: autoPlayer({
+      handCount: 1, hand: [fxCard('火炎弾')], minions: [autoMinion('m1', '炎の従者')],
+    }),
+  });
+  const fxTwoAfter = autoView({
+    you: autoPlayer({
+      handCount: 0, hand: [], minions: [],
+      trashCount: 2, trashCardNames: ['火炎弾', '炎の従者'],
+      trash: [fxCard('火炎弾'), fxCard('炎の従者')],
+    }),
+  });
+  const fxTwoKinds = await fx80Kinds(fxTwoBefore, fxTwoAfter);
+  const fxTwoMoves = fxTwoKinds.filter((f) => f.kind === 'move');
+  check('★★★同じ配信で2つ動いても、名前で結ぶので取り違えない(80・裁定355)',
+    fxTwoKinds.length === 2 && fxTwoMoves.length === 2
+      && fxTwoMoves.every((m) => m.to === 'you/TRASH')
+      && fxTwoMoves.some((m) => m.from === 'you/HAND' && m.name === '火炎弾')
+      && fxTwoMoves.some((m) => m.from === 'you/FIELD' && m.name === '炎の従者'),
+    JSON.stringify(fxTwoKinds));
+
+  // ---- 80-4. ★★★一意に決まらないときは結ばない(裁定356)----
+  // ★★<b>「何も出さない」ではない。</b>「1枚が場から消えた」は観測できている ——
+  //   観測できていないのは<b>行き先だけ</b>である。観測できたところまでを語り、その先は黙る。
+  const fxAmbiguous = autoView({
+    you: autoPlayer({
+      minions: [],
+      trashCount: 1, trashCardNames: ['別のなにか'], trash: [fxCard('別のなにか')],
+      lostCount: 1, lostCardNames: ['また別のなにか'], lost: [fxCard('また別のなにか')],
+    }),
+  });
+  const fxAmbKinds = await fx80Kinds(fxOnField, fxAmbiguous);
+  check('★★★行き先が一意に決まらない出口は、移動にせず消滅として語る(80・裁定356)',
+    fxAmbKinds.filter((f) => f.kind === 'move').length === 0
+      && fxAmbKinds.filter((f) => f.kind === 'vanish').length === 1
+      && fxAmbKinds.filter((f) => f.kind === 'appear').length === 2,
+    JSON.stringify(fxAmbKinds));
+
+  // ---- 80-5. ★★★山札では出現も消滅も出さない(裁定356 の例外)----
+  // ★★<b>山札は中身が1枚も届かない「窓」である。</b>そこで消滅を描いても、
+  //   <b>裏面が1枚点滅するだけで何も語らない</b>。
+  //   ★<b>移動の端にはなれる</b>(80-1 が結んでいる)—— 語れなくなるのは端が片方だけのときである。
+  const fxDeckOnly = autoView({ you: autoPlayer({ deckCount: 28 }) });
+  const fxDeckKinds = await fx80Kinds(fxBase, fxDeckOnly);
+  check('★★★山札だけが減った配信では、演出を1つも出さない(80・裁定356 の窓)',
+    fxDeckKinds.length === 0, JSON.stringify(fxDeckKinds));
+
+  // ---- 80-6. ★★相手の席でも同じ規則が掛かる(77・79 の教訓: 入口の数だけ番人を置く)----
+  // ★★★<b>規則が n 席ぶんあるなら、番人も n 席ぶん要る。</b>
+  //   差分層は「誰の手か」を区別しない —— <b>区別しないことを測る</b>。
+  //
+  // ★★★<b>この1件が、実装の穴を1つ見つけた。</b>最初の版は「中身が届いているか」を
+  //   <b>{@code hand} が null かどうか</b>で見分けており、
+  //   <b>相手のドローを1件も採れなかった</b>(この項目だけが赤くなった)。
+  //   ★<b>フィクスチャは相手席にも {@code hand: []} を入れている</b> ——
+  //     サーバは null を入れるが、<b>それは実装の都合であって規則ではない</b>。
+  //   ★★直し方は<b>手動モードの語彙に寄せること</b>だった:
+  //     <b>枚数 &gt; 届いた配列の長さ なら「窓」である</b>({@code fxWindowedZones} と同じ規則)。
+  //   ★★★<b>壊し検証より先に、番人が教えた</b> —— 75 が書いた
+  //     「測っているものが生きている番人は、実装が変わるとちゃんと赤くなる」の、
+  //     <b>置いたその日に効いた</b>例である。
+  const fxOppDraw = autoView({
+    opponent: autoPlayer({ displayName: 'あいて', deckCount: 29, handCount: 1 }),
+  });
+  const fxOppKinds = await fx80Kinds(fxBase, fxOppDraw);
+  check('★★★相手のドローも同じ規則で結ばれる(80・席で区別しない)',
+    fxOppKinds.length === 1 && fxOppKinds[0].kind === 'draw'
+      && fxOppKinds[0].from === 'opponent/DECK' && fxOppKinds[0].to === 'opponent/HAND'
+      // ★相手の手札は中身が届かないので、名前は無い(裏面のゴーストが飛ぶ)
+      && fxOppKinds[0].name === null,
+    JSON.stringify(fxOppKinds));
+
+  // ---- 80-7. ★★マナの裏返りは、枚数が変わっていない配信でだけ採る ----
+  // ★★★<b>マナには識別子が無いので位置で追うしかない。</b>枚数が変われば位置がずれ、
+  //   <b>裏返っていないマナを「裏返った」と描いてしまう</b>。
+  const fxManaUp = autoView({ you: autoPlayer({ manaZone: [autoMana({}), autoMana({})] }) });
+  const fxManaFlipped = autoView({
+    you: autoPlayer({ manaZone: [autoMana({}), autoMana({ faceUp: false })] }),
+  });
+  const fxFlipKinds = await fx80Kinds(fxManaUp, fxManaFlipped);
+  check('★★マナが裏返ると flip を出す(80・裁定357)',
+    fxFlipKinds.length === 1 && fxFlipKinds[0].kind === 'flip', JSON.stringify(fxFlipKinds));
+  const fxManaGrew = autoView({
+    you: autoPlayer({
+      manaZone: [autoMana({}), autoMana({ faceUp: false }), autoMana({ name: '増えたマナ' })],
+    }),
+  });
+  const fxGrewKinds = await fx80Kinds(fxManaUp, fxManaGrew);
+  check('★★★マナの枚数が変わった配信では裏返りを採らない(80・位置がずれるため)',
+    fxGrewKinds.filter((f) => f.kind === 'flip').length === 0, JSON.stringify(fxGrewKinds));
+
+  // ---- 80-8. ★★★配信で本当にゴーストが飛ぶ(器ではなく、出るところを測る)----
+  // ★★<b>語彙が正しくても画面に出ないことがある</b>(70 の教訓「書いてあるのに効いていない」)。
+  //   ★アンカーが引けなければ演出は出ない —— <b>ここが器と実装をつなぐ1件である</b>。
+  await fxDeliver(fxOnField);
+  await fxDeliver(fxDead);
+  const fx80Ghosts = await fxPage.evaluate(() => {
+    const layer = document.getElementById('auto-fx-layer');
+    return {
+      layer: !!layer,
+      ghosts: layer ? layer.querySelectorAll('.auto-fx-ghost').length : -1,
+      // ★中身が名前つきのフェイスであること(裏面に落ちていない)
+      named: layer ? !!layer.querySelector('.auto-fx-ghost .mcard') : false,
+      // ★★<b>層は操作を妨げない</b> —— ゴーストの下のカードはそのまま押せる
+      through: layer ? getComputedStyle(layer).pointerEvents : null,
+    };
+  });
+  check('★★★配信でゴーストが飛ぶ。層は操作を妨げない(80・裁定355)',
+    fx80Ghosts.layer === true && fx80Ghosts.ghosts >= 1
+      && fx80Ghosts.named === true && fx80Ghosts.through === 'none',
+    JSON.stringify(fx80Ghosts));
+
+  // ---- 80-9. ★★★取り付け点は onMessage であって render ではない(62 の形の演出版)----
+  // ★★<b>render(latestView) は画面の操作のたびにも走る</b>(15箇所)——
+  //   あそこに置くと<b>クリックのたびに演出が出る</b>。
+  await fxPage.evaluate(() => {
+    const layer = document.getElementById('auto-fx-layer');
+    if (layer) layer.innerHTML = '';
+    // eslint-disable-next-line no-undef
+    render(latestView);
+    // eslint-disable-next-line no-undef
+    render(latestView);
+  });
+  await fxPage.waitForTimeout(60);
+  const fxAfterRender = await fxPage.evaluate(() =>
+    document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length);
+  check('★★★描き直しただけでは演出が出ない(80・取り付け点は onMessage である)',
+    fxAfterRender === 0, String(fxAfterRender));
+  // ★★★<b>振る舞いだけでは足りない</b>(壊し検証の軸18 が教えた)——
+  //   {@code render()} の中へ {@code fxSpawn()} を足しても<b>上の項目は緑のままである</b>。
+  //   {@code pendingFx} を1回で使い切るので、2度目以降は何も出ないからである。
+  //   ★<b>守りが二重にあること自体は良いことだが、番人が片方しか見ていないのは別の話である</b>。
+  //   ★★そこで<b>取り付け点が1箇所であること</b>を構造として測る ——
+  //     これが裁定287 が言っている性質そのものである(62 は音で同じことを決めた)。
+  //   ★★★<b>「書いてあるのに効いていない」の逆で、こちらは「効いているが書き方が違う」</b> ——
+  //     70 の教訓(クラスの数を数える検証では見つからない)の裏側である。
+  const fxCallSites = fs.readFileSync(path.join(RES, 'static/js/battle.js'), 'utf8')
+    .split('\n')
+    .filter((line) => /(^|[^\w.])fxSpawn\s*\(/.test(line) && !/^function\s+fxSpawn/.test(line.trim()))
+    .map((line) => line.trim());
+  check('★★★演出を起こす口は1つだけである(80・裁定287 の構造版)',
+    fxCallSites.length === 1 && fxCallSites[0] === 'fxSpawn();',
+    JSON.stringify(fxCallSites));
+
+  // ---- 80-10. ★★★アンカーは18本ある。一時公開ゾーンには無い(母集団C)----
+  // ★★<b>器を用意したら、それを読む番人を同じバッチで置く</b>(77 の教訓)。
+  //   ★★★<b>「届かない2つ」も測る</b> —— revealedCards はビューに載っているのに
+  //     battle.js が1度も読んでいない(44 から在る穴・設計解説 0-3)。
+  //     <b>塞いだ日にこの番人が赤くなり、アンカーを足すことを思い出させる</b>。
+  const fxAnchors = await fxPage.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    const keys = [...autoAnchors.keys()].sort();
+    return {
+      count: keys.length,
+      keys: keys,
+      // ★★アンカーが「本当に画面上の要素」であること(外れた参照を持っていない)
+      // eslint-disable-next-line no-undef
+      live: [...autoAnchors.values()].every((el) => document.body.contains(el)),
+    };
+  });
+  const fxWantZones = ['DECK', 'HAND', 'MANA', 'FIELD', 'TRASH', 'LOST', 'TABOO',
+    'LEADER', 'WEAPON'];
+  const fxWantKeys = [];
+  for (const seat of ['opponent', 'you']) {
+    for (const zone of fxWantZones) fxWantKeys.push(`${seat}|${zone}`);
+  }
+  check('★★★演出のアンカーは9ゾーン × 2席 = 18本そろっている(80・母集団C)',
+    fxAnchors.count === 18 && fxAnchors.live === true
+      && JSON.stringify(fxAnchors.keys) === JSON.stringify(fxWantKeys.slice().sort()),
+    JSON.stringify(fxAnchors));
+  check('★★★一時公開ゾーンにはアンカーが無い(80・画面に1度も描かれていない・積み残し)',
+    !fxAnchors.keys.includes('you|REVEALED')
+      && !fxAnchors.keys.includes('opponent|REVEALED'),
+    JSON.stringify(fxAnchors.keys));
+
+  // ---- 80-11. ★★★上限を超えた配信は、音も演出も出さない(裁定8 の通常モード版)----
+  // ★★<b>1手で盤面が大きく動いた配信は語れない。</b>
+  //   ★上限は 62 の SFX_DIFF_LIMIT と<b>同じ値である</b>(裁定130)——
+  //     別の定数にすると、片方だけ直す形の事故がいつでも起きる。
+  const fxLimits = await fxPage.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    fx: FX_LIMIT, sfx: SFX_DIFF_LIMIT,
+  }));
+  const fxBulk = autoView({
+    you: autoPlayer({
+      lp: 11, deckCount: 20, handCount: 4,
+      hand: [1, 2, 3, 4].map((i) => autoCard('QTE-M-FIRE-6', '手札' + i)),
+      minions: ['a', 'b', 'c'].map((k) => autoMinion(k, 'ミニオン' + k)),
+      trashCount: 3, trashCardNames: ['x', 'y', 'z'],
+      trash: ['x', 'y', 'z'].map((n) => autoCard('QTE-M-FIRE-6', n)),
+    }),
+  });
+  const fxBulkKinds = await fx80Kinds(fxBase, fxBulk);
+  await fxPage.evaluate(() => {
+    const layer = document.getElementById('auto-fx-layer');
+    if (layer) layer.innerHTML = '';
+  });
+  await fxDeliver(fxBulk);
+  const fxBulkGhosts = await fxPage.evaluate(() =>
+    document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length);
+  check('★★★上限を超えた配信は演出を1つも出さない。上限は音と同じ1つである(80・裁定130)',
+    fxLimits.fx === fxLimits.sfx && fxBulkKinds.length > fxLimits.fx && fxBulkGhosts === 0,
+    JSON.stringify({ ...fxLimits, effects: fxBulkKinds.length, ghosts: fxBulkGhosts }));
+
+  // ---- 80-12. ★★★演出の時間は手動モードより長い(裁定358)----
+  // ★★<b>「揃っていないこと」が要求である珍しい番人である。</b>
+  //   ★JUnit(BattlePageTest)は<b>ソースの値</b>を読む。ここは<b>実際に走る画面</b>で読む ——
+  //     片方だけでは「定数は違うが使われていない」形を捕まえられない。
+  const fxAutoMs = await fxPage.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    move: FX_MOVE_MS, draw: FX_DRAW_MS, fade: FX_FADE_MS,
+  }));
+  const fxManualMs = await page.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    move: FX_MOVE_MS, draw: FX_DRAW_MS, fade: FX_FADE_MS,
+  }));
+  check('★★★通常モードの演出は手動モードより長い(80・裁定358)',
+    fxAutoMs.move > fxManualMs.move && fxAutoMs.draw > fxManualMs.draw
+      && fxAutoMs.fade > fxManualMs.fade,
+    JSON.stringify({ auto: fxAutoMs, manual: fxManualMs }));
+
+  // ---- 80-13. ★★★LPのラベルは黒地の上で読める(32a からの規約: fx層の文字も網に入れる)----
+  // ★★<b>fx層は body 直下に在る</b>ので、盤面のセレクタでは判定の網に静かに漏れる。
+  await fxPage.evaluate(() => {
+    const layer = document.getElementById('auto-fx-layer');
+    if (layer) layer.innerHTML = '';
+  });
+  await fxDeliver(autoView({ you: autoPlayer({ lp: 20 }) }));
+  await fxDeliver(autoView({ you: autoPlayer({ lp: 17 }) }));
+  const fxLp = await fxPage.evaluate(() => {
+    const el = document.querySelector('#auto-fx-layer .auto-fx-lp');
+    if (!el) return { found: false };
+    const style = getComputedStyle(el);
+    const rgb = (s) => (s.match(/[\d.]+/g) || []).map(Number);
+    const lum = (c) => {
+      const f = c.map((v) => {
+        const x = v / 255;
+        return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+      });
+      return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2];
+    };
+    // ★ラベルの背景 rgba(0,0,0,0.72) を、盤面の地(#212529 相当)の上に合成する
+    const base = rgb(getComputedStyle(document.body).backgroundColor).slice(0, 3);
+    const bg = rgb(style.backgroundColor);
+    const alpha = bg.length > 3 ? bg[3] : 1;
+    const mixed = [0, 1, 2].map((i) => bg[i] * alpha + base[i] * (1 - alpha));
+    const fg = rgb(style.color).slice(0, 3);
+    const a = lum(fg);
+    const b = lum(mixed);
+    const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    return { found: true, text: el.textContent, cls: el.className, ratio: ratio };
+  });
+  check('★★★LPのラベルは符号つきで出て、黒地の上で 4.5:1 を超える(80・32a からの規約)',
+    fxLp.found === true && fxLp.text === '−3'
+      && fxLp.cls.includes('auto-fx-lp-down') && fxLp.ratio >= 4.5,
+    JSON.stringify(fxLp));
+
+  check('通常モードの演出(80)でJSエラーが出ない', fxErrors.length === 0, fxErrors.join(' | '));
+  await fxPage.close();
+
+  // ---- 80-14. ★★★演出を切っている人には出ない。★<b>音は道連れにしない</b> ----
+  // ★★{@code prefers-reduced-motion} は CSS と JS の<b>両方</b>で止める ——
+  //   CSS だけだと DOM は作られ続け、JS だけだと将来 CSS で足した演出が漏れる。
+  // ★★★<b>差分そのものは採り続ける</b>(fxDiffNeeded)—— 見た目のゲートで
+  //   差分の計算を飛ばすと、<b>音が道連れで消える</b>(37 が手動モードで踏んだ形)。
+  const fxCalm = await browser.newPage({
+    viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce',
+  });
+  const fxCalmErrors = [];
+  fxCalm.on('pageerror', (e) => fxCalmErrors.push(String(e)));
+  await fxCalm.addInitScript(audioSpy);
+  await fxCalm.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await fxCalm.waitForTimeout(300);
+  await fxCalm.locator('#btn-sound').click();   // ★このクリックが unlock を兼ねる
+  await fxCalm.keyboard.press('Escape');
+  await fxCalm.waitForTimeout(120);
+  const fxCalmState = await fxCalm.evaluate(([a, b]) => {
+    window.__audio.nodes = [];
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify({ view: a }) });
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify({ view: b }) });
+    return {
+      // eslint-disable-next-line no-undef
+      allowed: fxAllowed(), needed: fxDiffNeeded(),
+      ghosts: document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length,
+      sounds: window.__audio.nodes.length,
+      // eslint-disable-next-line no-undef
+      pending: pendingFx,
+      layerHidden: !!document.getElementById('auto-fx-layer')
+        && getComputedStyle(document.getElementById('auto-fx-layer')).display === 'none',
+    };
+  }, [fxOnField, fxDead]);
+  check('★★★演出を切っている人には出ない。★音は道連れにしない(80・裁定358)',
+    fxCalmState.allowed === false && fxCalmState.needed === true
+      && fxCalmState.ghosts === 0 && fxCalmState.pending === null
+      && fxCalmState.sounds === 1,
+    JSON.stringify(fxCalmState));
+  check('演出を切った画面(80)でJSエラーが出ない',
+    fxCalmErrors.length === 0, fxCalmErrors.join(' | '));
+  await fxCalm.close();
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();

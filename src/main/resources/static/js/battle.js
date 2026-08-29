@@ -1046,6 +1046,13 @@ const SFX_SPECS = {
         files: ['select_001.mp3', 'select_002.mp3', 'select_007.mp3', 'select_008.mp3'],
         gain: 0.30,
     },
+    // ★★Batch 80: めくる(0.77秒)。<b>マナが裏返る</b>ときに鳴る(裁定357 の flip)。
+    //   ★79 まで通常モードにこの音は無かった —— <b>裏返りを差分から採っていなかった</b>
+    //     からであって、鳴らさないと決めていたからではない。
+    //   ★★<b>手動モードとまったく同じファイル・同じ gain である</b> ——
+    //     こう書くことで、62-3 の番人(両モードに共通する音は同じである)が
+    //     <b>足した瞬間からこの音も見張る</b>。値を1つでも変えると赤くなる
+    flip: { files: ['card-shove-1.mp3'], gain: 0.45 },
     // ★★LPが減る(0.26秒)。★{@code error_} を当ててはいけない —— LPが減るのは失敗ではない
     lpDown: { files: ['minimize_001.mp3'], gain: 0.60 },
     // LPが増える(0.26秒)。★上の対である
@@ -1068,9 +1075,14 @@ const SFX_SPECS = {
  */
 const SFX_FOR_KIND = {
     draw: 'draw',
+    // ★★Batch 80: 移動とスタックへの吸収。★<b>耳から見ればどれも「カードが動いた」である</b>
+    //   (音の語彙は演出の語彙より粗くてよい・裁定72)。値は手動モードと同じである
+    move: 'place',
     appear: 'place',
     vanish: 'place',
+    sink: 'place',
     tap: 'tap',
+    flip: 'flip',
     declare: 'decisive',
     mulligan: 'shuffle',
 };
@@ -1081,7 +1093,7 @@ const SFX_FOR_KIND = {
  * ★{@code commit} と {@code attack} はここに無い。差分から来ないので競合しない
  * (手動モードの {@code commit} と同じ扱いである)。
  */
-const SFX_PRIORITY = ['decisive', 'shuffle', 'lpDown', 'lpUp', 'draw', 'tap', 'place'];
+const SFX_PRIORITY = ['decisive', 'shuffle', 'lpDown', 'lpUp', 'draw', 'flip', 'tap', 'place'];
 
 /** 音量スライダーを動かしたときの試聴音 */
 const SFX_PREVIEW = 'place';
@@ -1301,73 +1313,392 @@ function sfxChoose(effects) {
     return best;
 }
 
-// ---- ★★差分の採取(裁定287 = A・範囲は採取まで)----
+// ---- ★★★差分の採取(62 の裁定287 = A / ★Batch 80 が「出口と入口」へ広げた)----
+//
+// ★★<b>62 はここを音のためだけに使ったが、それは演出の材料でもある</b>と 62 自身が
+//   書いていた(裁定287)。80 はその予告どおり、同じ層の上に fx を乗せる ——
+//   <b>発火点は1つも増えていない</b>(裁定68)。
+//
+// ★★★<b>手動モードの diffViews を写していない</b>(裁定355・設計解説 0-7)。
+//   あちらは<b>全ゾーンのカードが instanceId を持つこと</b>を前提に書かれている。
+//   通常モードで同一性を持つのは<b>場のミニオンだけ</b>であり、
+//   手札・山札・墓地・消滅・禁忌は {@code List<String>}、マナも識別子を持たない。
+//   ★写したのは<b>形</b>だけである —— 純オブジェクトの比較で採り、DOM には触らない。
+//
+// ★★★<b>語彙は「出口」と「入口」である</b>(設計解説 0-4)。
+//   1回の配信で、席ごとに<b>何が減って何が増えたか</b>を並べ、
+//   それを突き合わせて「移動」にする(裁定355)。突き合わせられなかったものは
+//   「その場で消えた」「その場で現れた」として語る(裁定356)。
+
+/** ★席の名前。ビューの欄名そのものである(母集団A の表と1対1) */
+const FX_SEATS = ['you', 'opponent'];
 
 /**
- * 1つの席の差分を採る。
- *
- * ★★<b>手動モードのように全ゾーンのカードを instanceId で追うことはしない。</b>
- * 通常モードのビューは、場のミニオンだけが {@code instanceId} を持ち、
- * 手札・マナ・墓地は<b>枚数と中身の列</b>で来る。追えるものだけを追い、
- * 残りは<b>枚数の増減</b>で採る —— 音が要るのは「何が起きたか」であって
- * 「どのカードがどこへ動いたか」ではない(裁定72: 音の語彙は粗くてよい)。
- *
- * ★<b>相手の席も同じように採る。</b>差分層は誰の手かを区別しない ——
- * 手動モードも差分由来なので相手の手で鳴っている。
+ * ★★同時に走らせる演出の上限、および1配信で扱う差分の上限。
+ * ★<b>62 の {@link SFX_DIFF_LIMIT} と同じ値を使う</b>(裁定130)——
+ * 「1手で盤面が大きく動いた配信は語れない」という規則は音と見た目で1つである。
+ * <b>別の定数にすると、片方だけ直す形の事故がいつでも起きる。</b>
  */
-function fxDiffSeat(list, before, after) {
-    if (!before || !after) return;
-    // LP。★増と減で音が変わる唯一のもの
-    if (before.lp !== after.lp) list.push({ kind: 'lp', delta: after.lp - before.lp });
-    // 手札が増えた = ドロー。★減ったほうは場・墓地の側が語る
-    if (after.handCount > before.handCount) list.push({ kind: 'draw' });
-    // マナが増えた = 置いた
-    if (after.totalMana > before.totalMana) list.push({ kind: 'appear' });
-    // 場のミニオン。★instanceId を持つ唯一のゾーンである
+const FX_LIMIT = SFX_DIFF_LIMIT;
+
+/**
+ * ★★★演出の時間(裁定358)。<b>手動モードより長い。</b>
+ *
+ * ★<b>手動モードは人が1手ずつ動かす</b>ので、動かした本人は何をしたか知っている。
+ * ★★<b>通常モードはサーバが解決する</b>ので、画面を見ている人は
+ * 「何が起きたか」を<b>演出からしか読めない</b> —— だから同じ値ではいけない。
+ * ★★★<b>揃っていないことが要求である</b>。両モードの値が同じになったら
+ * 番人が赤くなる(verify 80-1)—— 裁定54 の「変えないと決めたことにも番人を置く」の裏返しで、
+ * <b>こちらは「違えると決めたこと」に番人を置いている</b>。
+ */
+const FX_MOVE_MS = 340;
+const FX_DRAW_MS = 380;
+const FX_FADE_MS = 260;
+const FX_LP_MS = 700;
+const FX_TAP_MS = 200;
+const FX_FLIP_MS = 260;
+const FX_SINK_MS = 220;
+
+/**
+ * 演出の有効フラグ。
+ * ★検証の「わざと壊す」入口である。★★<b>設定UIは作らない</b>(裁定358)——
+ * 作るなら両モードに作る(裁定111・289 の一族)。
+ */
+let fxEnabled = true;
+
+/** renderAll の前に採った差分と旧位置。★{@link fxSpawn} で使い切って null に戻す */
+let pendingFx = null;
+
+/**
+ * 演出を出してよいか。
+ * ★{@code prefers-reduced-motion} は CSS と JS の両方で止める(手動モードと同じ)。
+ * CSS だけだと DOM は作られ続け、JS だけだと将来 CSS で足した演出が漏れる。
+ */
+function fxAllowed() {
+    if (!fxEnabled) return false;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * 差分を採る必要があるか。
+ * ★見た目と音は<b>別のゲート</b>だが、材料(ビューの差分)は共通である。
+ * どちらか一方でも使うなら採る(手動モードの {@code fxDiffNeeded} と同じ)。
+ */
+function fxDiffNeeded() {
+    return fxAllowed() || sfxReady();
+}
+
+/** 演出の居場所。★{@code seat} はビューの欄名、{@code zone} は母集団A の名前である */
+function fxPlace(seat, zone) {
+    return { seat: seat, zone: zone };
+}
+
+/**
+ * 出口・入口の1件。
+ *
+ * @param name  カード名。★<b>分からなければ null</b>(相手の手札・山札・相手の裏向きマナ)
+ * @param face  ゴーストに使うフェイスのデータ。★<b>採るその場で作る</b> ——
+ *              ゾーンごとにフェイスの作り方が違う(CardView / MinionView / ManaView /
+ *              ウェポン)ので、あとで作ろうとするとゾーンの分岐がもう1箇所増える
+ * @param blind ★★中身が1枚も届かないゾーンか。<b>ここでは出現・消滅を出さない</b>(裁定356)
+ */
+function fxItem(seat, zone, name, face, blind) {
+    return {
+        seat: seat, zone: zone, name: name || null,
+        face: face || null, blind: !!blind, id: null,
+    };
+}
+
+/**
+ * ★★中身の列が来るゾーンの出入り。<b>カード名の多重集合の差</b>を取る。
+ *
+ * ★<b>名前が null の要素は「匿名の1件」として数える</b> ——
+ * 相手の裏向きマナがこれである(タイルは見えているので居場所は分かるが、中身は届かない)。
+ * ★★<b>これは同一性の代用ではない。</b>同名4枚のどれが動いたかは分からないままであり、
+ * 分かるのは「その名前のカードが1枚、このゾーンから出た(入った)」だけである。
+ */
+function fxListDelta(out, seat, zone, beforeList, afterList, faceOf) {
+    const tally = (list) => {
+        const m = new Map();
+        for (const c of list || []) m.set((c && c.name) || '', (m.get((c && c.name) || '') || 0) + 1);
+        return m;
+    };
+    const b = tally(beforeList);
+    const a = tally(afterList);
+    const pick = (list, key) => (list || []).find((c) => ((c && c.name) || '') === key) || null;
+    for (const key of new Set([...b.keys(), ...a.keys()])) {
+        const delta = (a.get(key) || 0) - (b.get(key) || 0);
+        const source = delta > 0 ? pick(afterList, key) : pick(beforeList, key);
+        for (let i = 0; i < Math.abs(delta); i++) {
+            const item = fxItem(seat, zone, key || null, source ? faceOf(source) : null, false);
+            (delta > 0 ? out.entries : out.exits).push(item);
+        }
+    }
+}
+
+/**
+ * ★枚数しか届かないゾーンの出入り。★★<b>必ず {@code blind} である</b> ——
+ * 山札(両席)・相手の手札・相手の禁忌がこれにあたる。
+ */
+function fxCountDelta(out, seat, zone, beforeCount, afterCount) {
+    const delta = (afterCount || 0) - (beforeCount || 0);
+    for (let i = 0; i < Math.abs(delta); i++) {
+        (delta > 0 ? out.entries : out.exits).push(fxItem(seat, zone, null, null, true));
+    }
+}
+
+/**
+ * ★★★中身が届いているゾーンは名前で、届いていないゾーンは枚数で採る。
+ *
+ * <h3>★★「窓」の見分け方は<b>枚数と配列の長さの比較</b>である</h3>
+ * これは手動モードの {@code fxWindowedZones} とまったく同じ規則である ——
+ * <b>枚数 &gt; 届いた配列の長さ</b> なら、そのゾーンは中身を全部は語っていない。
+ *
+ * ★<b>「配列が null かどうか」で見分けない。</b>サーバは相手の手札に null を入れるが、
+ * <b>それは実装の都合であって規則ではない</b> —— 空配列で来ても、
+ * 一部だけ来ても、<b>枚数と合わなければ名前では語れない</b>のは同じである。
+ * ★★<b>これは実際に踏んだ穴である</b>: 検証のフィクスチャは相手席にも
+ * {@code hand: []} を入れており、<b>null で見分ける書き方だと
+ * 相手のドローが1件も採れなかった</b>(壊し検証ではなく、番人が先に教えた)。
+ */
+function fxZoneDelta(out, seat, zone, beforeList, beforeCount, afterList, afterCount, faceOf) {
+    const full = (list, count) => !!list && list.length === (count || 0);
+    if (full(beforeList, beforeCount) && full(afterList, afterCount)) {
+        fxListDelta(out, seat, zone, beforeList, afterList, faceOf);
+        return;
+    }
+    fxCountDelta(out, seat, zone, beforeCount, afterCount);
+}
+
+/**
+ * ★★★場の出入りと状態(母集団A の Z4)。
+ * <b>通常モードで唯一、同一性で追えるゾーンである。</b>
+ *
+ * ★<b>状態(タップ・進化)は「居場所が変わっていないミニオンだけ」を見る</b> ——
+ * 動いたカードはゴーストが既に語っており、同じ1枚に2つの演出を重ねると
+ * かえって読めなくなる(手動モード 32b と同じ切り分け)。
+ */
+function fxFieldDelta(out, seat, before, after) {
     const was = new Map((before.minions || []).map((m) => [m.instanceId, m]));
     const now = new Map((after.minions || []).map((m) => [m.instanceId, m]));
     for (const [id, m] of now) {
         const old = was.get(id);
         if (!old) {
-            list.push({ kind: 'appear' });
-        } else if (old.tapped !== m.tapped) {
-            // ★居場所が変わっていないミニオンだけ状態を見る(手動モード 32b と同じ切り分け)
-            list.push({ kind: 'tap' });
+            const item = fxItem(seat, 'FIELD', m.name, faceDataFromMinion(m), false);
+            item.id = id;
+            out.entries.push(item);
+            continue;
+        }
+        if (old.tapped !== m.tapped) {
+            out.tapChanged.push({ id: id, at: fxPlace(seat, 'FIELD') });
+        }
+        // ★進化。★<b>増加だけを見る</b>(解体は素材が場へ出るので、出入りの側が語る)
+        if ((m.underCardIds || []).length > (old.underCardIds || []).length) {
+            out.stackGrew.push({ id: id, at: fxPlace(seat, 'FIELD') });
         }
     }
-    for (const id of was.keys()) {
-        if (!now.has(id)) list.push({ kind: 'vanish' });
+    for (const [id, m] of was) {
+        if (now.has(id)) continue;
+        const item = fxItem(seat, 'FIELD', m.name, faceDataFromMinion(m), false);
+        item.id = id;
+        out.exits.push(item);
     }
 }
 
 /**
- * 1配信ぶんの差分を採る。
- * ★★<b>これは音のためだけの層ではない。</b>演出を乗せるならここが材料になる(裁定287)。
+ * ★★マナの表裏とタップ(母集団A の Z3)。
+ *
+ * ★★★<b>枚数が変わった配信では採らない。</b>マナには識別子が無いので<b>位置で追うしかなく</b>、
+ * 枚数が変われば位置がずれる —— <b>裏返っていないマナを「裏返った」と描いてしまう</b>。
+ * ★<b>枚数が変わった配信で起きたことは、出入りの側が語る</b>(置いた・墓地へ送った)。
+ */
+function fxManaState(out, seat, before, after) {
+    const b = before.manaZone || [];
+    const a = after.manaZone || [];
+    if (b.length !== a.length) return;
+    for (let i = 0; i < a.length; i++) {
+        if (b[i].faceUp !== a[i].faceUp) {
+            out.flipped.push({ seat: seat, index: i, at: fxPlace(seat, 'MANA') });
+        } else if (b[i].tapped !== a[i].tapped) {
+            // ★裏返りと同時にタップが変わっても、語るのは裏返りだけである
+            //   (1枚に2つの演出を重ねない・上の切り分けと同じ)
+            out.tapChanged.push({ id: null, seat: seat, index: i, at: fxPlace(seat, 'MANA') });
+        }
+    }
+}
+
+/** ★ウェポン(母集団A の Z8)。★付け替えは「外れて付く」の2件になる(裁定336 と整合する) */
+function fxWeaponDelta(out, seat, before, after) {
+    if ((before.weaponName || null) === (after.weaponName || null)) return;
+    if (before.weaponName) {
+        out.exits.push(fxItem(seat, 'WEAPON', before.weaponName, weaponFaceData(before), false));
+    }
+    if (after.weaponName) {
+        out.entries.push(fxItem(seat, 'WEAPON', after.weaponName, weaponFaceData(after), false));
+    }
+}
+
+/**
+ * 1つの席の出入りを採る。
+ * ★★<b>自席か相手席かをここで判定しない。</b>「中身が全部届いているか」だけを見る
+ * ({@link fxZoneDelta})—— <b>サーバのフィルタが唯一の正である</b>(設計判断9)。
+ * ★<b>ここに「自分かどうか」の別の判定を書くと、フィルタの写しが1つ増える</b>(67 の教訓・写し)。
+ */
+function fxDiffSeat(out, seat, before, after) {
+    if (!before || !after) return;
+    if (before.lp !== after.lp) {
+        out.lpChanged.push({ seat: seat, delta: after.lp - before.lp });
+    }
+    // ★山札は中身が1枚も届かない。★<b>配列そのものがビューに無い</b>ので、必ず枚数で採る
+    fxCountDelta(out, seat, 'DECK', before.deckCount, after.deckCount);
+    // 手札。★自席は中身、相手席は枚数だけ(サーバが null を入れる)
+    fxZoneDelta(out, seat, 'HAND', before.hand, before.handCount,
+        after.hand, after.handCount, faceDataFromCardView);
+    // 禁忌。★自席は中身、相手席は枚数だけ(総合ルール3-2)
+    fxZoneDelta(out, seat, 'TABOO', before.taboo, before.tabooCount,
+        after.taboo, after.tabooCount, faceDataFromCardView);
+    // マナ。★裏向きも自席なら名前つきで届く(裁定351)。相手の裏向きは name が null で来る
+    fxZoneDelta(out, seat, 'MANA', before.manaZone, before.totalMana,
+        after.manaZone, after.totalMana, faceDataFromMana);
+    // 墓地・消滅は両席とも公開情報である
+    fxZoneDelta(out, seat, 'TRASH', before.trash, before.trashCount,
+        after.trash, after.trashCount, faceDataFromCardView);
+    fxZoneDelta(out, seat, 'LOST', before.lost, before.lostCount,
+        after.lost, after.lostCount, faceDataFromCardView);
+    fxFieldDelta(out, seat, before, after);
+    fxWeaponDelta(out, seat, before, after);
+    fxManaState(out, seat, before, after);
+}
+
+/** 出口1件と入口1件を1本の移動にする。★山札 → 同じ席の手札だけが「ドロー」である */
+function fxJoin(exit, entry) {
+    const draw = exit.zone === 'DECK' && entry.zone === 'HAND' && exit.seat === entry.seat;
+    return {
+        kind: draw ? 'draw' : 'move',
+        from: fxPlace(exit.seat, exit.zone),
+        to: fxPlace(entry.seat, entry.zone),
+        // ★<b>面はどちらか語れるほうを使う</b>。片端しか名前を持たない移動が多い
+        //   (山札 → 手札は、入口だけが中身を知っている)
+        face: entry.face || exit.face,
+        fromId: exit.id,
+        toId: entry.id,
+    };
+}
+
+/**
+ * ★★★出口と入口を突き合わせて移動にする(裁定355)。
+ *
+ * <ol>
+ *   <li>★<b>カード名で結ぶ。</b>同じ席を先に見る —— 同名のカードが両席に在るときに
+ *       「相手の場から自分の墓地へ」という<b>起きていない移動</b>を作らないためである。</li>
+ *   <li>残りが全体で<b>出口1・入口1</b>なら匿名で結ぶ。
+ *       ★ドローはここで結ばれる(山札は名前を持たない)。</li>
+ *   <li>それでも残ったものは結ばない。★呼び出し側が消滅・出現として語る(裁定356)。</li>
+ * </ol>
+ *
+ * ★★<b>「多いほうに合わせて総当たりする」ことはしない。</b>
+ * 総当たりは<b>当たることも外すこともある</b>推測であり、外したときに嘘を描く。
+ * <b>一意に決まるときだけ結ぶ</b>のが、観測の範囲を越えない唯一の書き方である。
+ */
+function fxMatchMoves(out) {
+    const moves = [];
+    for (const sameSeat of [true, false]) {
+        for (let i = out.exits.length - 1; i >= 0; i--) {
+            const exit = out.exits[i];
+            if (!exit.name) continue;
+            const j = out.entries.findIndex((entry) =>
+                entry.name === exit.name && (!sameSeat || entry.seat === exit.seat));
+            if (j < 0) continue;
+            moves.push(fxJoin(exit, out.entries[j]));
+            out.entries.splice(j, 1);
+            out.exits.splice(i, 1);
+        }
+    }
+    if (out.exits.length === 1 && out.entries.length === 1) {
+        moves.push(fxJoin(out.exits[0], out.entries[0]));
+        out.exits.length = 0;
+        out.entries.length = 0;
+    }
+    return moves;
+}
+
+/**
+ * 1配信ぶんの差分を採る。★<b>DOM には一切触らない純オブジェクトの比較</b>であり、
+ * 検証がこの1本を直接叩ける(手動モードの {@code diffViews} と同じ性質)。
  */
 function fxDiff(prev, next) {
-    const list = [];
-    if (!prev || !next) return list;
-    fxDiffSeat(list, prev.you, next.you);
-    fxDiffSeat(list, prev.opponent, next.opponent);
+    const out = {
+        exits: [], entries: [], lpChanged: [],
+        tapChanged: [], flipped: [], stackGrew: [],
+        declared: false, mulliganDone: false,
+    };
+    if (!prev || !next) return out;
+    fxDiffSeat(out, 'you', prev.you, next.you);
+    fxDiffSeat(out, 'opponent', prev.opponent, next.opponent);
     // ★決着。★status が FINISHED へ変わった配信でだけ出す(再配信で二度は出さない)
-    if (prev.status !== 'FINISHED' && next.status === 'FINISHED') {
-        list.push({ kind: 'declare' });
+    out.declared = prev.status !== 'FINISHED' && next.status === 'FINISHED';
+    // ★マリガンが終わった。★★<b>見た目は足していない</b>(裁定357)——
+    //   飛翔を描くには「何枚戻して何枚引いたか」が要り、それは差分からは出てこない
+    out.mulliganDone = !!prev.mulligan && !next.mulligan;
+    return out;
+}
+
+/**
+ * 差分を「1つずつ独立に走る演出」の平たい列にする。
+ * ★鍵は演出ごとに一意にする(同じ鍵の演出は新しいほうが古いほうを即座に置き換える)。
+ */
+function fxEffects(diff) {
+    const list = [];
+    let n = 0;
+    for (const m of fxMatchMoves(diff)) {
+        list.push(Object.assign({ key: m.kind + ':' + (n++) }, m));
     }
-    // ★マリガンが終わった
-    if (prev.mulligan && !next.mulligan) list.push({ kind: 'mulligan' });
+    // ★★結べなかった出口・入口(裁定356)。★<b>中身が届かないゾーンでは出さない</b> ——
+    //   裏面が1枚点滅するだけで、何も語らないからである
+    for (const exit of diff.exits) {
+        if (exit.blind) continue;
+        list.push({
+            kind: 'vanish', key: 'vanish:' + (n++),
+            from: fxPlace(exit.seat, exit.zone), face: exit.face, fromId: exit.id,
+        });
+    }
+    for (const entry of diff.entries) {
+        if (entry.blind) continue;
+        list.push({
+            kind: 'appear', key: 'appear:' + (n++),
+            to: fxPlace(entry.seat, entry.zone), face: entry.face, toId: entry.id,
+        });
+    }
+    for (const lp of diff.lpChanged) {
+        list.push({ kind: 'lp', key: 'lp:' + lp.seat, seat: lp.seat, delta: lp.delta });
+    }
+    for (const t of diff.tapChanged) {
+        list.push({
+            kind: 'tap', key: 'tap:' + (t.id || (t.seat + '#' + t.index)),
+            id: t.id, seat: t.seat, index: t.index, at: t.at,
+        });
+    }
+    for (const f of diff.flipped) {
+        list.push({
+            kind: 'flip', key: 'flip:' + f.seat + '#' + f.index,
+            seat: f.seat, index: f.index, at: f.at,
+        });
+    }
+    for (const s of diff.stackGrew) {
+        list.push({ kind: 'sink', key: 'sink:' + s.id, id: s.id, at: s.at });
+    }
+    // ★鍵は席にもカードにも属さない1つだけ(連続で届いても帯は1本しか走らない)
+    if (diff.declared) list.push({ kind: 'declare', key: 'declare' });
+    if (diff.mulliganDone) list.push({ kind: 'mulligan', key: 'mulligan' });
     return list;
 }
 
-/**
- * ★★配信1つにつき音を1つ鳴らす(裁定70)。
- * ★差分が上限を超えたら何も鳴らさない(裁定8 の通常モード版) ——
- * 1手で盤面が大きく動いた配信は、音では語れない。
- */
-function sfxForDelivery(prev, next) {
-    if (!sfxReady()) return;
-    const list = fxDiff(prev, next);
-    if (list.length === 0 || list.length > SFX_DIFF_LIMIT) return;
-    const name = sfxChoose(list);
+/** ★1配信につき1音だけ鳴らす(裁定70)。選び方は {@link sfxChoose} の1箇所にある */
+function sfxPlayForEffects(effects) {
+    const name = sfxChoose(effects);
     if (name) sfxPlay(name);
 }
 
@@ -3356,29 +3687,42 @@ function pileEl(label, opts) {
     return el;
 }
 
-/** 両席のパイル列。★描画のたびに作り直す(バッジの id はここで生まれる) */
+/**
+ * 両席のパイル列。★描画のたびに作り直す(バッジの id はここで生まれる)。
+ *
+ * ★★★Batch 80: <b>演出のアンカーをここで登録する</b>(裁定355 の器)。
+ *   ★<b>添字で引かない。</b>4枚とも同じクラス({@code .auto-pile})なので、
+ *     並び順を変えた日に<b>黙ってずれる</b> —— 作った本人がその場で名乗るのが唯一安全である
+ *     (手動モードの {@code registerZoneAnchor} と同じ形)。
+ */
 function renderPiles(isSelf, p) {
     const wrap = document.getElementById(isSelf ? 'my-piles' : 'opp-piles');
     wrap.innerHTML = '';
     const prefix = isSelf ? 'my' : 'opp';
+    const seat = isSelf ? 'you' : 'opponent';
     const who = isSelf ? 'あなた' : p.displayName;
-    wrap.appendChild(pileEl('山札', { back: 'QTE', countId: prefix + '-deck-count' }));
+    const put = (zone, label, opts) => {
+        const el = pileEl(label, opts);
+        registerAutoAnchor(el, seat, zone);
+        wrap.appendChild(el);
+    };
+    put('DECK', '山札', { back: 'QTE', countId: prefix + '-deck-count' });
     const trashTop = (p.trash && p.trash.length > 0) ? p.trash[p.trash.length - 1] : null;
-    wrap.appendChild(pileEl('墓地', {
+    put('TRASH', '墓地', {
         top: trashTop, countId: prefix + '-trash-count',
         onClick: () => showZoneFaces(`${who}の墓地(${p.trashCount}枚)`, p.trash, isSelf),
-    }));
+    });
     const lostTop = (p.lost && p.lost.length > 0) ? p.lost[p.lost.length - 1] : null;
-    wrap.appendChild(pileEl('消滅', {
+    put('LOST', '消滅', {
         top: lostTop, countId: prefix + '-lost-count',
         onClick: () => showZoneFaces(`${who}の消滅ゾーン(${p.lostCount}枚)`, p.lost),
-    }));
+    });
     const tabooOpts = { back: '禁忌', countId: prefix + '-taboo-count' };
     if (isSelf) {
         tabooOpts.onClick = toggleTabooRow;
         tabooOpts.id = 'btn-taboo-toggle';   // ★43 のチップの id を引き継ぐ(syncTabooRow の参照先)
     }
-    wrap.appendChild(pileEl('禁忌', tabooOpts));
+    put('TABOO', '禁忌', tabooOpts);
 }
 
 /**
@@ -3709,6 +4053,346 @@ function weaponFaceData(p) {
 }
 
 // ---------------------------------------------------------------
+// ★★★2-9) 演出(Batch 80・裁定355〜358)
+// ---------------------------------------------------------------
+//
+// ★★<b>全消し再描画のまま演出を成立させる</b>(手動モード 32a と同じ形)。
+//   動く要素を盤面DOMの外(position: fixed のオーバーレイ)に置けば、
+//   下で render が全消し再構築しても演出は生き続ける。
+//
+// ★★★<b>読む相と書く相を分ける。</b>旧位置は {@code render()} の<b>前</b>に読み、
+//   新位置は<b>後</b>に読む。描き直したあとでは、出発点の要素はもう存在しない。
+//   ★取り付け点は {@code onMessage} の1箇所である —— {@code render(latestView)} は
+//     画面の操作のたびにも走る(15箇所)ので、あそこでは「配信」と「再描画」を区別できない。
+//
+// ★★<b>アンカーは描画関数がその場で登録する</b>(手動モードの registerZoneAnchor と同じ)。
+//   別途セレクタの一覧を持つと、レイアウトを変えたときに片方だけ直して壊れる。
+//   ★★とくに<b>パイルは4枚とも同じクラス</b>({@code .auto-pile})なので、
+//     添字で引くと並び順を変えた日に<b>黙ってずれる</b>。
+
+/** ゾーン → アンカー要素の対応表。★{@code render} のたびに登録し直される */
+const autoAnchors = new Map();
+
+function autoAnchorKey(seat, zone) {
+    return `${seat}|${zone}`;
+}
+
+/** ★描画関数が自分の作った要素をその場で登録する(上の章) */
+function registerAutoAnchor(el, seat, zone) {
+    if (el) autoAnchors.set(autoAnchorKey(seat, zone), el);
+}
+
+function autoAnchorElement(place) {
+    if (!place) return null;
+    return autoAnchors.get(autoAnchorKey(place.seat, place.zone)) || null;
+}
+
+/** 走行中の演出。鍵ごとに1つだけ持ち、新しい演出が古いものを即座に置き換える */
+const fxRunning = new Map();
+
+function fxLayer() {
+    let el = document.getElementById('auto-fx-layer');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'auto-fx-layer';
+    el.className = 'auto-fx-layer';
+    document.body.appendChild(el);
+    return el;
+}
+
+// ---- 位置の採取(read)----
+
+function fxRectOf(el) {
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+}
+
+/** ★場のミニオンは実要素が引ける({@code data-instance-id} は Batch 70 から在る) */
+function fxMinionElement(instanceId) {
+    if (!instanceId) return null;
+    return document.querySelector(`[data-instance-id="${instanceId}"]`);
+}
+
+/** ★マナは識別子を持たないので<b>位置で引く</b>(タップ・裏返りだけが使う) */
+function fxManaTileElement(seat, index) {
+    const row = document.getElementById(seat === 'you' ? 'my-mana-row' : 'opp-mana-row');
+    if (!row || index === null || index === undefined) return null;
+    return row.children[index] || null;
+}
+
+/**
+ * ★実要素が引ければそれを、引けなければゾーンのアンカーを使う。
+ * ★★<b>引けないほうが普通である</b> —— 通常モードで実要素を持つのは場のミニオンだけであり、
+ * 手札・墓地・マナから動いた1枚は「どの要素か」が構造的に決まらない(母集団A)。
+ * <b>ゾーン全体を根にすることで、どの1枚かは漏れない</b>。
+ */
+function fxEndRect(instanceId, place) {
+    return fxRectOf(fxMinionElement(instanceId)) || fxRectOf(autoAnchorElement(place));
+}
+
+/** ★{@code render()} の<b>前</b>に呼ぶ。書き込み前のきれいなDOMに対する read である */
+function fxCaptureOrigins(effects) {
+    const origins = new Map();
+    for (const fx of effects) {
+        if (fx.kind !== 'move' && fx.kind !== 'draw' && fx.kind !== 'vanish') continue;
+        const rect = fxEndRect(fx.fromId, fx.from);
+        if (rect) origins.set(fx.key, rect);
+    }
+    return origins;
+}
+
+// ---- ゴーストの組み立て ----
+
+/**
+ * ★見た目は既存のフェイス関数で作る。<b>ゴースト専用の見た目を作らない</b>
+ * (見た目の正は1箇所、という 25 以来の方針の延長)。
+ * ★★<b>通常モードの {@link cardFace} を使う</b> —— 手動モードのフェイスを持ち込むと
+ * <b>カードフェイスの実装が3つ</b>になる(候補 C は2つのままである)。
+ * ★裏面は名前を1文字も運ばないので、非公開情報が漏れることは構造的に無い。
+ */
+function fxGhostBody(face, rect) {
+    if (face && face.name) return cardFace(face, rect.width >= 64 ? 'full' : 'mini');
+    const back = document.createElement('div');
+    back.className = 'auto-fx-back';
+    if (!fillCardBack(back)) back.textContent = 'QTE';
+    return back;
+}
+
+function fxGhost(rect, face) {
+    const el = document.createElement('div');
+    el.className = 'auto-fx-ghost';
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.height = rect.height + 'px';
+    el.appendChild(fxGhostBody(face, rect));
+    return el;
+}
+
+/**
+ * 走行中の演出として登録する。
+ * ★★終了は<b>終了イベントとタイムアウトの二重保険</b>で必ず来る ——
+ * 片方だけだと、値が変わらず transition が発火しなかったときにゴーストが残る。
+ *
+ * @param opts.keep   真なら要素をDOMから外さない(<b>実要素</b>に当てる演出のため)
+ * @param opts.event  終了イベント名。既定は {@code transitionend}
+ * @param opts.onStop 終了時の後始末。★<b>実要素へ当てたクラスは必ずここで剥がす</b>
+ */
+function fxRegister(key, el, ms, play, opts) {
+    fxStop(key);
+    const options = opts || {};
+    const entry = {
+        el: el,
+        keep: !!options.keep,
+        event: options.event === undefined ? 'transitionend' : options.event,
+        onStop: options.onStop || null,
+        timer: null,
+        done: null,
+    };
+    // ★イベントは子要素からも上がってくる。自分自身のぶんでなければ終了と見なさない
+    entry.done = (e) => {
+        if (e && e.target && e.target !== el) return;
+        fxStop(key);
+    };
+    entry.timer = setTimeout(() => fxStop(key), ms + 140);
+    if (entry.event) el.addEventListener(entry.event, entry.done);
+    fxRunning.set(key, entry);
+    return play;
+}
+
+function fxStop(key) {
+    const entry = fxRunning.get(key);
+    if (!entry) return;
+    fxRunning.delete(key);
+    clearTimeout(entry.timer);
+    if (entry.event) entry.el.removeEventListener(entry.event, entry.done);
+    if (entry.onStop) entry.onStop();
+    if (!entry.keep && entry.el.parentNode) entry.el.parentNode.removeChild(entry.el);
+}
+
+/** 飛ぶ系(move / draw)。★動かすのは transform と opacity だけである */
+function fxBuildFlight(fx, origin, layer) {
+    const target = fxEndRect(fx.toId, fx.to);
+    if (!target) return null;
+    const dx = target.left - origin.left;
+    const dy = target.top - origin.top;
+    if (Math.abs(dx) < 2 && Math.abs(dy) < 2) return null;   // 見た目が動かないなら演出しない
+    const ghost = fxGhost(origin, fx.face);
+    ghost.dataset.fxKind = fx.kind;
+    layer.appendChild(ghost);
+    const ms = fx.kind === 'draw' ? FX_DRAW_MS : FX_MOVE_MS;
+    return fxRegister(fx.key, ghost, ms, () => {
+        // transform は全区間、opacity は最後だけ(着地の瞬間に本物へ受け渡す)
+        ghost.style.transitionDuration = ms + 'ms, 120ms';
+        ghost.style.transitionDelay = '0ms, ' + Math.max(0, ms - 120) + 'ms';
+        ghost.style.transform = `translate(${dx}px, ${dy}px)`;
+        ghost.style.opacity = '0';
+    });
+}
+
+/** ★結べなかった出口(裁定356)。その場で縮んで消える */
+function fxBuildVanish(fx, origin, layer) {
+    const ghost = fxGhost(origin, fx.face);
+    ghost.dataset.fxKind = 'vanish';
+    layer.appendChild(ghost);
+    return fxRegister(fx.key, ghost, FX_FADE_MS, () => {
+        ghost.style.transitionDuration = FX_FADE_MS + 'ms, ' + FX_FADE_MS + 'ms';
+        ghost.style.transform = 'scale(0.86)';
+        ghost.style.opacity = '0';
+    });
+}
+
+/**
+ * ★結べなかった入口(裁定356)。
+ * ★★場のミニオンは<b>実要素</b>のフェードインで行う(ゴーストを作らない)——
+ * 途中で次の配信が来て再構築されても「最終状態で即時表示」に落ちるだけで、壊れ方が無い。
+ * ★実要素が無いゾーン(墓地・消滅など)は、アンカーの上にゴーストを出して現れさせる。
+ */
+function fxBuildAppear(fx, layer) {
+    const el = fxMinionElement(fx.toId);
+    if (el) {
+        el.classList.add('auto-fx-enter');
+        return fxRegister(fx.key, el, FX_FADE_MS, () => { /* animation は付与だけで走る */ }, {
+            keep: true,
+            event: 'animationend',
+            onStop: () => el.classList.remove('auto-fx-enter'),
+        });
+    }
+    const rect = fxRectOf(autoAnchorElement(fx.to));
+    if (!rect) return null;
+    const ghost = fxGhost(rect, fx.face);
+    ghost.dataset.fxKind = 'appear';
+    ghost.style.opacity = '0';
+    ghost.style.transform = 'scale(0.86)';
+    layer.appendChild(ghost);
+    return fxRegister(fx.key, ghost, FX_FADE_MS, () => {
+        ghost.style.transitionDuration = FX_FADE_MS + 'ms, ' + FX_FADE_MS + 'ms';
+        ghost.style.transform = 'scale(1)';
+        ghost.style.opacity = '1';
+    });
+}
+
+/** LP の増減。★符号は「増えたか減ったか」だけを語る(回復か被弾かは判断しない) */
+function fxBuildLp(fx, layer) {
+    const rect = fxRectOf(autoAnchorElement(fxPlace(fx.seat, 'LEADER')));
+    if (!rect) return null;
+    const pop = document.createElement('div');
+    pop.className = 'auto-fx-lp ' + (fx.delta > 0 ? 'auto-fx-lp-up' : 'auto-fx-lp-down');
+    pop.textContent = (fx.delta > 0 ? '+' : '−') + Math.abs(fx.delta);
+    pop.dataset.fxSeat = fx.seat;
+    pop.style.left = (rect.left + rect.width / 2) + 'px';
+    pop.style.top = (rect.top + rect.height * 0.35) + 'px';
+    layer.appendChild(pop);
+    return fxRegister(fx.key, pop, FX_LP_MS, () => {
+        pop.style.transitionDuration = FX_LP_MS + 'ms, ' + FX_LP_MS + 'ms';
+        pop.style.transform = 'translate(-50%, -28px)';
+        pop.style.opacity = '0';
+    });
+}
+
+/** タップ・アンタップ。★実要素に当てる(場のミニオン / マナのタイル) */
+function fxBuildTap(fx) {
+    const el = fx.id ? fxMinionElement(fx.id) : fxManaTileElement(fx.seat, fx.index);
+    if (!el) return null;
+    el.classList.add('auto-fx-tap');
+    return fxRegister(fx.key, el, FX_TAP_MS, () => { /* animation は付与だけで走る */ }, {
+        keep: true,
+        event: 'animationend',
+        onStop: () => el.classList.remove('auto-fx-tap'),
+    });
+}
+
+/** マナの裏返り。★実要素に当てる(マナには識別子が無いので位置で引く) */
+function fxBuildFlip(fx) {
+    const el = fxManaTileElement(fx.seat, fx.index);
+    if (!el) return null;
+    el.classList.add('auto-fx-flip');
+    return fxRegister(fx.key, el, FX_FLIP_MS, () => { /* animation は付与だけで走る */ }, {
+        keep: true,
+        event: 'animationend',
+        onStop: () => el.classList.remove('auto-fx-flip'),
+    });
+}
+
+/** 進化。★素材が下へ沈む(手動モードの sink と同じ語彙である) */
+function fxBuildSink(fx) {
+    const el = fxMinionElement(fx.id);
+    if (!el) return null;
+    el.classList.add('auto-fx-sink');
+    return fxRegister(fx.key, el, FX_SINK_MS, () => { /* animation は付与だけで走る */ }, {
+        keep: true,
+        event: 'animationend',
+        onStop: () => el.classList.remove('auto-fx-sink'),
+    });
+}
+
+/**
+ * ★★決着とマリガンは<b>見た目を作らない</b>(裁定357)。
+ * 決着は右列の中段に面が出る(72 の {@code renderResult})ので、帯を重ねると二重になる。
+ * ★<b>音は既に鳴っている</b>(62)—— 列に並んでいることに意味がある(裁定68)。
+ */
+function fxBuild(fx, origin, layer) {
+    if (fx.kind === 'lp') return fxBuildLp(fx, layer);
+    if (fx.kind === 'appear') return fxBuildAppear(fx, layer);
+    if (fx.kind === 'tap') return fxBuildTap(fx);
+    if (fx.kind === 'flip') return fxBuildFlip(fx);
+    if (fx.kind === 'sink') return fxBuildSink(fx);
+    if (fx.kind === 'declare' || fx.kind === 'mulligan') return null;
+    if (!origin) return null;   // 旧位置が採れなかったものは演出しない(推測で描かない)
+    if (fx.kind === 'vanish') return fxBuildVanish(fx, origin, layer);
+    return fxBuildFlight(fx, origin, layer);
+}
+
+/**
+ * ★★★{@code render()} の<b>前</b>に呼ぶ。差分を採り、音を鳴らし、旧位置を読む。
+ *
+ * ★<b>62 の音の取り付け点と順序を1文字も変えていない</b> ——
+ * 音は今までどおり「配信を受けて、描き直す前」に鳴る。
+ * ★★<b>見た目のゲート({@link fxAllowed})より前で鳴らす</b>のも 62 と同じである。
+ * 音は動きではないので {@code prefers-reduced-motion} では止めない。
+ */
+function fxCaptureDelivery(prev, next) {
+    pendingFx = null;
+    if (!fxDiffNeeded() || !prev || !next) return;
+    const effects = fxEffects(fxDiff(prev, next));
+    // ★1手で盤面が大きく動いた配信は、音でも演出でも語れない(裁定8 の通常モード版)
+    if (effects.length === 0 || effects.length > FX_LIMIT) return;
+    if (sfxReady()) sfxPlayForEffects(effects);
+    if (!fxAllowed()) return;
+    pendingFx = { effects: effects, origins: fxCaptureOrigins(effects) };
+}
+
+/**
+ * ★★★{@code render()} の<b>後</b>に呼ぶ。新位置を読み、まとめて走らせる。
+ *
+ * ★強制同期レイアウトは<b>1回だけ</b>である。全部の開始状態をDOMに載せてから
+ * ルート要素の高さを読んで確定させ、そのあと終了状態を当てる。
+ * ★★<b>rAF を待たない</b>ので、検証が配信直後にそのまま観測できる
+ * (待ち時間に依存する検証にしない・設計判断61 の趣旨と同じ)。
+ */
+function fxSpawn() {
+    const pending = pendingFx;
+    pendingFx = null;
+    if (!pending || !fxAllowed()) return;
+    const layer = fxLayer();
+    const plays = [];
+    for (const fx of pending.effects) {
+        if (fxRunning.size >= FX_LIMIT) break;   // 追いつけない演出は捨ててよい
+        const play = fxBuild(fx, pending.origins.get(fx.key), layer);
+        if (play) plays.push(play);
+    }
+    if (plays.length === 0) return;
+    // ★★開始状態をここで<b>確定</b>させてから、まとめて終了状態を当てる。
+    //   これをしないとブラウザから見て開始状態が存在せず、遷移が発火しない。
+    //   ★読む相手はルート要素である —— 実要素に当てる演出(tap / flip / sink / appear)は
+    //     盤面のDOMの中に居るので、fx層だけを読んでも「なぜ足りるのか」が読めない
+    void document.documentElement.offsetHeight;
+    for (const play of plays) play();
+}
+
+// ---------------------------------------------------------------
 // 3) 受信と描画
 // ---------------------------------------------------------------
 
@@ -3743,7 +4427,12 @@ function onMessage(frame) {
     //   ★<b>ここが「配信」の唯一の入口である。</b>render(latestView) は画面の操作でも
     //   走るので、あちらで差分を採ると「配信」と「再描画」を区別できない。
     //   ★差し替え前の latestView が「前回の盤面」そのものである
-    sfxForDelivery(latestView, message.view);
+    // ★★★Batch 80: <b>同じ1行が演出の取り付け点にもなった</b>(裁定355)——
+    //   62 が「演出を乗せる土台は次のバッチに残る」と書いたのがここである。
+    //   ★<b>音の順序は1文字も変えていない</b>(描き直す前に鳴る)。
+    //   ★★あわせて<b>旧位置</b>をここで読む —— 描き直したあとでは、
+    //     出発点の要素はもう存在しない(読む相と書く相の分離)。
+    fxCaptureDelivery(latestView, message.view);
     latestView = message.view;
     // 盤面が変わったら選択状態は仕切り直す(対象が既にいない可能性があるため)
     if (!latestView.myTurn || latestView.phase !== 'BATTLE') {
@@ -3756,6 +4445,10 @@ function onMessage(frame) {
     pending = null;
     manaPay = null;
     render(latestView);
+    // ★★★Batch 80: 描き直したあとに新位置を読み、まとめて走らせる(裁定355)。
+    //   ★<b>ここでしか呼ばない。</b>render は画面の操作でも走るので、
+    //     あちらに置くと<b>クリックのたびに演出が出る</b>
+    fxSpawn();
 }
 
 function render(view) {
@@ -4287,6 +4980,15 @@ function toggleLogPanel() {
 
 function renderOpponent(opp, view) {
     renderPiles(false, opp);   // ★44: 先にパイルを作る(枚数バッジの id はパイルが持つ)
+    // ★★★Batch 80: 演出のアンカー(裁定355)。★<b>パイル以外は作り替えられない要素</b>だが、
+    //   登録もここに置く —— <b>アンカーの一覧を1箇所にまとめない</b>ためである。
+    //   まとめると、レイアウトを変えた人が「描画」だけ直して「一覧」を忘れる
+    registerAutoAnchor(document.getElementById('opp-hand-backs'), 'opponent', 'HAND');
+    registerAutoAnchor(document.getElementById('opp-mana-row'), 'opponent', 'MANA');
+    registerAutoAnchor(document.getElementById('opp-minions'), 'opponent', 'FIELD');
+    registerAutoAnchor(document.getElementById('opp-leader'), 'opponent', 'LEADER');
+    registerAutoAnchor(
+        document.querySelector('#opp-leader .auto-leader-weapon'), 'opponent', 'WEAPON');
     document.getElementById('opp-leader-name').textContent = opp.leaderName;
     document.getElementById('opp-lp').textContent = opp.lp;
     document.getElementById('opp-leader-ability').textContent = opp.leaderText || '';
@@ -4373,6 +5075,13 @@ function canSelectedAttackLeader(view) {
 
 function renderSelf(you, view) {
     renderPiles(true, you);   // ★44: 先にパイルを作る(バッジと禁忌トグルの id はパイルが持つ)
+    // ★★★Batch 80: 演出のアンカー(裁定355)。★理由は renderOpponent と同じである
+    registerAutoAnchor(document.getElementById('my-hand'), 'you', 'HAND');
+    registerAutoAnchor(document.getElementById('my-mana-row'), 'you', 'MANA');
+    registerAutoAnchor(document.getElementById('my-minions'), 'you', 'FIELD');
+    registerAutoAnchor(document.getElementById('my-leader'), 'you', 'LEADER');
+    registerAutoAnchor(
+        document.querySelector('#my-leader .auto-leader-weapon'), 'you', 'WEAPON');
     document.getElementById('my-leader-name').textContent = you.leaderName;
     document.getElementById('my-lp').textContent = you.lp;
     document.getElementById('my-leader-ability').textContent = you.leaderText || '';

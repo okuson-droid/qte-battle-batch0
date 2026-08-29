@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=55)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=56)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -482,13 +482,14 @@
 </script>
 <!-- ★★Batch 41: 自前配信。これが読めないと盤面が一生来ない(設計解説 1-2) -->
 <script th:src="@{/vendor/stomp-7.0.0.umd.min.js}"></script>
-<!-- ★★★Batch 78: 版数を上げた(v=39 → v=40)。素の confirm() を宣言モーダルへ移し(裁定353)、
-     モーダルの層とフォーカストラップを入れた(裁定354)。
-     ★<b>版数を上げないと、既に開いている人だけが 39 のまま
-       「[キャンセル] が通常プレイを意味する」画面で遊び続ける</b>。
-     ★★battle.css も上げた(v=54 → v=55・参照する5枚すべて)——
-       宣言モーダルの名前を z-index の規則に並べたためである。
-       上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5)。 -->
-<script th:src="@{/js/battle.js(v=40)}"></script>
+<!-- ★★★Batch 80: 版数を上げた(v=40 → v=41)。演出(fx層)を乗せた(裁定355〜358)。
+     ★<b>版数を上げないと、既に開いている人だけが 40 のまま
+       「何がどこへ動いたか分からない」画面で遊び続ける</b>。
+     ★★battle.css も上げた(v=55 → v=56・参照する5枚すべて)——
+       fx層のクラスと keyframes を足したためである。
+       上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5)。
+     ★79 が4系統すべて据え置いたのは、静的ファイルを1文字も触っていなかったからである。
+     ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
+<script th:src="@{/js/battle.js(v=41)}"></script>
 </body>
 </html>

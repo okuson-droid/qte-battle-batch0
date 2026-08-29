@@ -422,4 +422,86 @@ class BattlePageTest {
         String html = battleHtml();
         assertThat(html).contains("data-initial-focus=\"#auto-confirm-close\"");
     }
+
+    /**
+     * ★★★Batch 80 は {@code battle.js} を変えている —— 演出(fx層)を乗せた(裁定355〜358)。
+     *
+     * <p><b>版数を上げないと、既に開いている人だけが 40 のまま
+     * 「ドローもミニオンの破壊も一瞬で終わり、どこからどこへ動いたか分からない」画面で
+     * 遊び続ける。</b>
+     * ★<b>これはサーバを直しても届かない</b> —— 80 は Java を1行も変えていないので、
+     * 直したものは<b>全部クライアントの中に在る</b>(77 と同じ性質である)。
+     *
+     * <p>★★★<b>Batch 79 が4系統すべて据え置いたのは、静的ファイルを1文字も
+     * 触っていなかったからである</b>(変えたのは {@code verify/verify.js} だけ)。
+     * <b>上げるのも据え置くのも「触ったかどうか」だけで決まる</b>(リファレンス 7-5)。
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が80で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=40");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 80 は {@code battle.css} を触った —— fx層のクラスと {@code @keyframes} である。
+     *
+     * <p><b>版数を上げないと、既に開いている人の画面ではゴーストが
+     * 「左上に貼りついた素のdiv」として出る</b> ——
+     * JS は要素を作るが、<b>位置も見た目も CSS の側が決めている</b>からである。
+     * ★<b>JS だけ上げて CSS を据え置くほうが、両方据え置くより悪い</b>。
+     *
+     * <p>★★<b>据え置きの番人は1本も撤去していない</b>(裁定196)——
+     * 78 が 77 のぶんを撤去して以降、据え置きを名指しする番人は<b>1本も無い</b>。
+     * 79 が新設しなかったのは、<b>変えうる場所が1つも無かったから</b>である
+     * (設計判断54 の「変えないと決めたことに番人を置く」は、
+     * <b>変えうる場所に置く</b>という意味である)。
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数が80で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.css?v=55");
+        assertThat(html).contains("battle.css?v=");
+    }
+
+    /**
+     * ★★★Batch 80(裁定358): <b>演出の時間は手動モードより長い。</b>
+     *
+     * <p>★<b>これは「揃っていないことが要求である」珍しい番人である。</b>
+     * 設計判断54(変えないと決めたことにも番人を置く)の裏返しで、
+     * こちらは<b>違えると決めたこと</b>を見張る。
+     *
+     * <p>★★理由: <b>手動モードは人が1手ずつ動かす</b>ので、動かした本人は
+     * 何をしたか知っている。<b>通常モードはサーバが解決する</b>ので、
+     * 画面を見ている人は「何が起きたか」を演出からしか読めない ——
+     * <b>だから同じ値ではいけない</b>。
+     *
+     * <p>★★★<b>手動モードの値を通常モードへ合わせても、この番人が赤くなる</b> ——
+     * 見張っているのは「通常モードが長いこと」であって「通常モードの値」ではない。
+     * ★verify にも同じ趣旨の項目があるが、あちらは<b>実際に走る画面</b>で読む。
+     * ここは<b>ソースの値そのもの</b>を読む —— 片方だけでは、
+     * 「定数は違うが使われていない」形を捕まえられない。
+     */
+    @Test
+    void 通常モードの演出の時間は手動モードより長い() throws Exception {
+        String auto = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/resources/static/js/battle.js"));
+        String manual = java.nio.file.Files.readString(
+                java.nio.file.Path.of("src/main/resources/static/js/manual-battle.js"));
+        for (String name : new String[] { "FX_MOVE_MS", "FX_DRAW_MS", "FX_FADE_MS" }) {
+            int autoMs = constMs(auto, name);
+            int manualMs = constMs(manual, name);
+            assertThat(autoMs)
+                    .as("★%s は通常モードのほうが長い(通常 %d / 手動 %d)", name, autoMs, manualMs)
+                    .isGreaterThan(manualMs);
+        }
+    }
+
+    /** ★{@code const NAME = 123;} の数を読む。★見つからなければ落とす(黙って 0 にしない) */
+    private int constMs(String source, String name) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("const\\s+" + name + "\\s*=\\s*(\\d+)\\s*;").matcher(source);
+        assertThat(m.find()).as("★%s が在る", name).isTrue();
+        return Integer.parseInt(m.group(1));
+    }
 }
