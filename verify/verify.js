@@ -220,6 +220,33 @@ function check(name, ok, detail) {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? '  -- ' + detail : ''}`);
 }
 
+/**
+ * ★★★Batch 79(候補 U): <b>非同期の向こうで終わる操作を「時間」で待たない。</b>
+ *
+ * <p>76・77・78 が「時々落ちる」と書き続けた2項目の正体は、
+ * {@code setInputFiles} が<b>change を投げたところで返る</b>ことだった ——
+ * デッキメーカーの読み込みハンドラは {@code async} で {@code await f.text()} を挟むので、
+ * 返ってきた直後の画面は<b>まだ組み立てが終わっていない</b>。
+ * ★<b>余裕は実測で 5ms しかなかった</b>(設計解説 1-1)。
+ *
+ * <p>★<b>{@code fn} が真を返すまで待ち、時間切れでも投げずに false を返す。</b>
+ * 投げると検証スクリプトごと死んで<b>以降が1件も走らない</b> ——
+ * <b>死ぬ検証は、番人ではなく無音である</b>(72・75 の教訓)。
+ * ★★<b>返り値は証拠に載せること</b> —— 「待てなかった赤」と「値が違う赤」を、
+ * 読む人が区別できるようにするためである。
+ *
+ * <p>★★★<b>待つ相手は、測る相手と別の事実を選ぶ</b>(設計解説 2-2)——
+ * 待ちの条件が測りたい値そのものだと、<b>待ちが答えを作ってしまう</b>。
+ */
+async function settled(page, fn, arg, timeout = 5000) {
+  try {
+    await page.waitForFunction(fn, arg, { timeout, polling: 25 });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 /** 実マウスでドラッグする。ステップを細かく刻み、着地後に短い待機を挟む。 */
 async function realDrag(page, fromSel, toSel, opts = {}) {
   const from = await page.locator(fromSel).first().boundingBox();
@@ -1097,6 +1124,11 @@ async function clearZoom(page) {
       }) });
     };
     document.getElementById('seat-gate-b').click();
+    // ★★Batch 79(候補 U): <b>ここは固定待ちのままでよい。</b>
+    //   測っているのが<b>否定</b>(入室APIを呼ばない)であり、
+    //   ★<b>「起きないこと」は事実で待てない</b> —— 待つ相手が存在しない。
+    //   ★★しかも名前未入力の枝は {@code await} の<b>手前で return する</b>ので、
+    //     そもそも非同期の側へ到達しない(設計解説 0-3)。
     await new Promise((r) => setTimeout(r, 60));
     return window.__fetched.length;
   });
@@ -1109,15 +1141,26 @@ async function clearZoom(page) {
   const joinCall = await page.evaluate(async () => {
     window.__fetched = [];
     document.getElementById('seat-gate-b').click();
-    await new Promise((r) => setTimeout(r, 80));
+    // ★★Batch 79(候補 U): <b>呼ばれたこと</b>(待つ)と<b>何を送ったか</b>(測る)を分ける。
+    //   78 まで固定 80ms だった —— V5 と同じ形である(設計解説 0-2 の V2)。
+    const deadline = Date.now() + 5000;
+    while (window.__fetched.length === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     return window.__fetched.map((f) => ({ url: f.url, body: JSON.parse(f.opts.body) }));
   });
   check('席を選ぶと seat つきで入室APIを呼ぶ(2-1)',
     joinCall.length === 1 && joinCall[0].url.endsWith('/occupants')
       && joinCall[0].body.seat === 'B' && joinCall[0].body.displayName === 'ばんり',
     JSON.stringify(joinCall));
+  // ★ゲートが閉じるのは fetch が<b>解決したあと</b>である。
+  //   ★★ここだけは待つ相手と測る相手が同じになる —— <b>上限つきの待ちで足りる</b>。
+  //     壊れていれば時間切れになり、<b>時間切れは赤である</b>(無音ではない)。
+  const joinGateClosed = await settled(page,
+    () => document.getElementById('seat-gate').classList.contains('d-none'));
   check('入室に成功するとゲートが閉じる',
-    (await page.locator('#seat-gate').getAttribute('class')).includes('d-none'));
+    (await page.locator('#seat-gate').getAttribute('class')).includes('d-none'),
+    `settled=${joinGateClosed}`);
   await page.evaluate(() => { window.fetch = window.__origFetch; });
 
   // 観戦を許可しない部屋では観戦ボタンを出さない(2-1)
@@ -2887,18 +2930,17 @@ async function clearZoom(page) {
     (await page.locator('[data-instance-id="f1"].manual-fx-hidden').count()) === 1;
   // ★待てなかったこと自体を FAIL として報告する。例外で検証を落とすと、
   //   「壊したら落ちる」を確かめるときにスクリプトごと死んで結果が読めない
-  const settled = async (fn) => {
-    try {
-      await page.waitForFunction(fn, null, { timeout: 1500 });
-      return true;
-    } catch (e) {
-      return false;
-    }
-  };
-  const flipPhase2 = await settled(() => {
+  // ★★★Batch 79: <b>ここに在ったローカルの settled を、上の共通の settled へ寄せた</b>
+  //   (裁定130: 同じ規則を2箇所に書かない)。
+  //   ★<b>候補 U を直すときに「待ちの器を作ろう」として、既に在るのに気づいた</b> ——
+  //     65 の教訓「番人が無いと思ったら、まず在るかどうかを見る」の3例目である
+  //     (66 は const の二重宣言、63 は既にある器、79 は<b>TDZ の ReferenceError</b>が教えた)。
+  //   ★★演出の待ちは 1500ms のままにしてある —— 演出は<b>速いことに意味がある</b>ので、
+  //     ここだけ長く待つと「遅い演出」を見逃す。
+  const flipPhase2 = await settled(page, () => {
     const g = document.querySelector('#manual-fx-layer .manual-fx-ghost[data-fx-kind="flip"]');
     return !!g && g.dataset.fxPhase === '2';
-  });
+  }, null, 1500);
   const flipSecond = (await fxGhosts(page)).filter((g) => g.kind === 'flip');
   check('★めくりは前半が旧い面・後半が新しい面である(32b・2段階)',
     flipPhase2 && flipFirst.length === 1 && flipFirst[0].phase === '1'
@@ -2911,8 +2953,8 @@ async function clearZoom(page) {
   // ★★演出が終われば実タイルは必ず戻る(onStop の後始末が効いていること)。
   //   ここを落とすと「めくったカードが二度と見えない」——演出の失敗ではなく
   //   <b>盤面の欠落</b>になる。27 の「画面のどこからも触れない = 消失」と同じ重さである
-  const flipRestored = await settled(
-    () => document.querySelectorAll('.manual-fx-hidden').length === 0);
+  const flipRestored = await settled(page,
+    () => document.querySelectorAll('.manual-fx-hidden').length === 0, null, 1500);
   check('★★めくりが終わると実タイルの透明化は必ず戻る(32b・onStop の後始末)',
     flipRestored && (await fxGhosts(page)).length === 0);
 
@@ -3263,13 +3305,17 @@ async function clearZoom(page) {
 
   await page.evaluate(() => { document.getElementById('manual-toast').textContent = ''; });
   await page.locator('#btn-copy-link').click();
-  await page.waitForTimeout(120);
+  // ★★Batch 79(候補 U): コピーのハンドラは {@code async}(await copyText)である。
+  //   ★<b>出ること</b>(待つ)と<b>何と書いてあるか</b>(測る)を分けた ——
+  //     78 まで固定 120ms で待っており、V5 とまったく同じ形だった(設計解説 0-2 の V4)。
+  const copySettled = await settled(page,
+    () => document.getElementById('manual-toast').textContent !== '');
   const copyToast = await page.evaluate(
     () => document.getElementById('manual-toast').textContent);
   // ★成否のどちらであっても<b>必ず告げる</b>ことを見る。クリップボードへ実際に
   //   書けたかは環境(権限・安全なコンテキスト)に依存し、機械で確かめるべきものではない。
   check('★コピーは必ず結果を告げる(33・2-2・無言にしない)',
-    copyToast.startsWith('部屋リンクを'), copyToast);
+    copyToast.startsWith('部屋リンクを'), JSON.stringify({ copyToast, settled: copySettled }));
   // ★クリップボードAPIが使えない環境で落ちる先(execCommand)そのものを確かめる
   check('★クリップボードAPIが使えなくても代替経路で書ける(33・2-2)',
     await page.evaluate(() => copyTextFallback('QTE-COPY-TEST')) === true);
@@ -9302,10 +9348,49 @@ async function clearZoom(page) {
     main: fireIds.map((id) => ({ cardId: id, qty: 4 })),
     taboo: otherIds.map((id) => ({ cardId: id })),
   };
+  // =========================================================================
+  // ★★★Batch 79(候補 U): <b>揺れを、揺れないやり方で測る</b>
+  //
+  // 下の2項目は 76・77・78 で「時々落ちた」。原因は
+  // <b>{@code setInputFiles} が change を投げたところで返る</b>ことである ——
+  // 読み込みハンドラは {@code async} で {@code await f.text()} を挟むので、
+  // 返ってきた直後の画面は<b>まだ組み立てが終わっていない</b>(証拠が毎回
+  // {"main":"7/40", ...} だったのは、それが<b>読み込む前の組みかけ</b>だからである)。
+  // ★<b>余裕は実測で 5ms しかなかった</b>(設計解説 1-1)——
+  //   だから箱が忙しいと落ち、静かだと通る。
+  //
+  // ★★★<b>手当ては2つで1組である。</b>
+  //   (1) <b>待ち方を事実にする</b> —— {@code toast(...)} は {@code importJsonDeck} の
+  //       <b>最後の1文</b>であり、「ハンドラが最後まで走った」ことそのものを表す。
+  //       ★下の3項目はどれも toast を読んでいない ——
+  //       <b>待つ相手と測る相手を別にする</b>ためである(設計解説 2-2)。
+  //   (2) <b>わざと遅らせる</b> —— {@code File.prototype.text} の解決を 350ms 遅らせる。
+  //       ★<b>これで「たまに落ちる」が「必ず落ちる」に変わる</b>:
+  //       待ちを時間へ戻す/外すと、この3項目は<b>100% 赤くなる</b>。
+  //       ★★遅らせが黙って効かなくなった日に3項目が「ただ通る」ことを防ぐため、
+  //       <b>効いていること自体を1件で測る</b>(裁定186)。
+  // =========================================================================
+  await deckPage.evaluate(() => {
+    window.__origFileText = File.prototype.text;
+    File.prototype.text = function slowText() {
+      const orig = window.__origFileText;
+      return new Promise((r) => { setTimeout(() => r(orig.call(this)), 350); });
+    };
+    document.getElementById('toast').textContent = '';
+  });
   await tryUi(() => deckPage.locator('#in-deck').setInputFiles({
     name: 'deck.json', mimeType: 'application/json',
     buffer: Buffer.from(JSON.stringify(validDeck), 'utf8'),
   }));
+  const loadImmediate = await deckPage.evaluate(() => ({
+    main: document.getElementById('c-main').textContent,
+    toast: document.getElementById('toast').textContent,
+  }));
+  check('★★★遅い読み込みは、返ってきた直後にはまだ終わっていない(79・候補 U の再現)',
+    loadImmediate.main === '7/40' && loadImmediate.toast === '',
+    JSON.stringify(loadImmediate));
+  const loadSettled = await settled(deckPage,
+    () => document.getElementById('toast').textContent !== '');
   const loaded = await deckPage.evaluate(() => ({
     main: document.getElementById('c-main').textContent,
     taboo: document.getElementById('c-taboo').textContent,
@@ -9314,6 +9399,16 @@ async function clearZoom(page) {
     undo: !document.getElementById('undo-btn').hidden,
     raw: window.__confirmCalls.length,
   }));
+  loaded.settled = loadSettled;   // ★時間切れの赤と、値が違う赤を区別できるようにする
+  // ★★★<b>片付けてから次へ渡す</b>(78 の教訓・3回つまずいた)——
+  //   遅らせたまま渡すと、以降でファイルを読む項目が全部この節のせいで落ちる。
+  await deckPage.evaluate(() => {
+    File.prototype.text = window.__origFileText;
+    delete window.__origFileText;
+  });
+  check('★遅らせた読み込みは自分で元に戻す(79・78 の教訓)',
+    (await deckPage.evaluate(
+      () => File.prototype.text.name !== 'slowText' && !('__origFileText' in window))) === true);
   // ★裁定119: [デッキ読込] に確認は足さない。失われないので問い自体が要らない
   check('★★[デッキ読込] に確認は足さない(40・裁定119)', loaded.raw === 0);
   check('★★★組みかけは黙って捨てられない([元に戻す] が現れる・40・裁定119)',
@@ -9461,9 +9556,18 @@ async function clearZoom(page) {
     dt.items.add(file);
     input.files = dt.files;
     input.dispatchEvent(new Event('change'));
-    await new Promise((r) => setTimeout(r, 200));
+    // ★★★Batch 79(候補 U): <b>器は既に在った。</b>
+    //   {@code battle.js} は読み込みのあいだ {@code input.dataset.busy} を立て、
+    //   {@code finally} で消している(66 から)—— <b>「終わった」と言う旗が最初から在る</b>。
+    //   ★78 まで固定 200ms で待っており、V5 とまったく同じ形だった。
+    //   ★★65 の教訓「番人が無いと思ったら、まず在るかどうかを見る」の<b>待ち方版</b>である。
+    const deadline = Date.now() + 5000;
+    while (input.dataset.busy && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     window.fetch = original;
-    return { sent, status: document.getElementById('deck-gate-status').textContent };
+    return { sent, settled: !input.dataset.busy,
+      status: document.getElementById('deck-gate-status').textContent };
   }, exportedDeck);
   const deckPostCall = deckPostResult.sent.find((c) => c.url.includes('/deck?'));
   check('★★★盤面はデッキファイルを丸ごとサーバへ送る(66)',
@@ -9473,7 +9577,49 @@ async function clearZoom(page) {
   check('★★画面に出る枚数はサーバが答えた値である(66・裁定130)',
     deckPostResult.status.includes('40') && deckPostResult.status.includes('8')
       && deckPostResult.status.includes('サーバが答えた名前'),
-    deckPostResult.status);
+    JSON.stringify({ status: deckPostResult.status, settled: deckPostResult.settled }));
+  // ---- ★★★79-3. 遅い読み込みは、盤面のデッキゲートでも待つ ----
+  //
+  // ★★<b>規則が n 入口ぶんあるなら、番人も n 入口ぶん要る</b>(77 の教訓)。
+  //   デッキファイルを非同期に読む入口は<b>2つ</b>ある ——
+  //   デッキメーカーの {@code #in-deck}(上の 79-1/79-2)と、
+  //   盤面の {@code #deck-gate-file}(こちら)である。
+  // ★<b>こちらは器が最初から在る</b> —— {@code battle.js} が
+  //   {@code input.dataset.busy} を立て、{@code finally} で消す(66 から)。
+  //   ★★78 まで verify は固定 200ms で待っており、<b>旗を1度も読んでいなかった</b>
+  //     (77 の教訓「添えておいたは、読まれているではない」の待ち方版)。
+  const slowGate = await deckPost.evaluate(async (deck) => {
+    const original = window.fetch;
+    window.fetch = async () => {
+      await new Promise((r) => { setTimeout(r, 350); });
+      return { ok: true, json: async () => ({
+        roomId: 'TESTRM', seat: 'A', deckName: 'おそい答え',
+        leaderName: 'おそいリーダー', mainCount: 40, tabooCount: 8,
+      }) };
+    };
+    const input = document.getElementById('deck-gate-file');
+    const dt = new DataTransfer();
+    dt.items.add(new File([JSON.stringify(deck)], 'deck.json', { type: 'application/json' }));
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
+    // ★返ってきた直後は「まだ読んでいる」—— 旗が立ち、状態行は読み込み中のままである
+    const immediate = { busy: input.dataset.busy === '1',
+      status: document.getElementById('deck-gate-status').textContent };
+    const deadline = Date.now() + 5000;
+    while (input.dataset.busy && Date.now() < deadline) {
+      await new Promise((r) => { setTimeout(r, 20); });
+    }
+    window.fetch = original;
+    return { immediate, settled: !input.dataset.busy,
+      status: document.getElementById('deck-gate-status').textContent };
+  }, exportedDeck);
+  check('★★★盤面のデッキゲートも、遅い読み込みの最中は旗を立てている(79・候補 U の再現)',
+    slowGate.immediate.busy === true && slowGate.immediate.status.includes('読み込み中'),
+    JSON.stringify(slowGate.immediate));
+  check('★★★盤面のデッキゲートは、旗が下りてから測る(79・n 入口ぶんの番人)',
+    slowGate.settled === true && slowGate.status.includes('おそい答え')
+      && slowGate.status.includes('40'), JSON.stringify(slowGate));
+
   check('デッキ読み込みでJSエラーが出ない',
     deckPostErrors.length === 0, deckPostErrors.join(' | '));
   await deckPost.close();
