@@ -351,7 +351,11 @@ function autoPlayer(overrides = {}) {
     leaderText: '【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする',
     deckName: 'テストデッキ', weaponName: null, weaponCardId: null, weaponAttack: null,
     leaderCanAttack: false, leaderFrozen: false,
-    leaderAbility: null, revealedCards: [], pendingChoice: null,
+    // ★★Batch 81(裁定359): 一時公開ゾーンと、その束が「公開」かどうか。
+    //   ★<b>非公開の束は、サーバが相手のビューへ空の列として入れる</b> ——
+    //     フィクスチャもそれに合わせて空で始める(80 の教訓: サーバが何を入れるかではなく、
+    //     その欄が何を意味するかで書く)
+    leaderAbility: null, revealedCards: [], revealedPublic: false, pendingChoice: null,
     ...overrides,
   };
 }

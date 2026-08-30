@@ -70,7 +70,18 @@ const ZONE_RESPONSE = { status: 200, body: { seat: 'A', zone: 'DECK', cards: [] 
  * 200 以外にすると `/sounds/` の全要求が失敗し、「失敗した音は鳴らない」
  * 「理由が状態行に出る」を本物の経路で確かめられる。
  */
-const SOUND_RESPONSE = { status: 200 };
+/**
+ * ★★★Batch 81 が {@code delayMs} を足した(設計判断61 の「遅らせ」)。
+ *
+ * 62 は unlock のあと <b>200ms の固定待ち</b>でバッファの decode を待っていた。
+ * ★実測すると、<b>クリックから全部そろうまで 86〜127ms</b>(6回・空いた箱)である ——
+ * <b>余裕は 73〜114ms しかない</b>。箱が忙しいと超える。
+ * ★★<b>実際に1度落ちた</b>(音が1つも鳴っていない = バッファがまだ無かった)。
+ * ★★★<b>「たまに落ちる」は「たまに嘘をつく」と同じである</b>(候補 U と同じ一族)——
+ * 81 は<b>時間ではなく事実で待つ</b>形へ直し、<b>その待ちが効いていることを
+ * わざとの遅れで測る</b>(79 の教訓: 遅らせが無い待ちは、戻されても「揺れ」にしかならない)。
+ */
+const SOUND_RESPONSE = { status: 200, delayMs: 0 };
 
 /**
  * ★★Batch 39: カード定義の口(`/manual/api/card-library`)の応答。
@@ -191,6 +202,15 @@ function startServer() {
       if (SOUND_RESPONSE.status !== 200) {
         res.writeHead(SOUND_RESPONSE.status);
         res.end('nf');
+        return;
+      }
+      // ★★★Batch 81: わざと遅らせる(設計判断61)。★<b>待ちを事実にした場所と同じところに置く</b>
+      if (SOUND_RESPONSE.delayMs > 0) {
+        const body = fs.readFileSync(path.join(RES, 'static', url));
+        setTimeout(() => {
+          res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+          res.end(body);
+        }, SOUND_RESPONSE.delayMs);
         return;
       }
       file = path.join(RES, 'static', url);
@@ -6220,6 +6240,14 @@ async function clearZoom(page) {
   bsnd.on('pageerror', (e) => bsndErrors.push(String(e)));
   bsnd.on('console', (m) => { if (m.type() === 'error') bsndErrors.push(m.text()); });
   await bsnd.addInitScript(audioSpy);
+  // ★★★Batch 81(設計判断61): <b>音のファイルの応答をわざと 600ms 遅らせる。</b>
+  //   ★遅らせるのは<b>ページを開く前</b>である —— {@code sfxPreload} は
+  //     <b>ページを開いた時点で全部取りに行く</b>(裁定283 の (c))ので、
+  //     クリックの直前に遅らせても<b>もう届いている</b>(実際にそれで空振りした)。
+  //   ★★下の 400ms より長くしてあるのが要点である ——
+  //     <b>クリックの時点でバイト列がまだ無い</b>状態を作らないと、
+  //     待ちを固定時間へ戻した人が赤を見ない。
+  SOUND_RESPONSE.delayMs = 600;
   await bsnd.goto(`http://127.0.0.1:${port}/harness-battle.html`);
   await bsnd.waitForTimeout(400);
 
@@ -6243,8 +6271,27 @@ async function clearZoom(page) {
   check('★★通常モードも最初のユーザー操作まで AudioContext を作らない(62・裁定73)',
     (await bsnd.evaluate(() => window.__audio.contexts)) === 0
       && (await bAudio()) === 0);
+  // ★★★Batch 81: ここは 80 まで <b>200ms の固定待ち</b>だった(設計判断61 の違反)。
+  //   ★<b>待つ相手は「バッファが decode され終わったこと」である</b> ——
+  //     {@code sfxReady()} は AudioContext が在るかしか見ておらず、
+  //     <b>バッファの有無は見ていない</b>(だから下の 62-8 が「たまに」音無しで落ちた)。
+  //   ★★<b>遅らせは上(goto の前)で入れてある</b> —— 遅らせが無い待ちは、
+  //     次の人に固定待ちへ戻されても「赤」ではなく「揺れ」にしかならない(79 の教訓)。
+  const bUnlockAt = Date.now();
   await bsnd.locator('#btn-sound').click();   // ★このクリックが unlock を兼ねる
-  await bsnd.waitForTimeout(200);
+  const bBuffers = await settled(bsnd, () => Object.keys(
+    // eslint-disable-next-line no-undef
+    SFX_SPECS).every((nm) => sfxBuffers[nm] && sfxBuffers[nm].length), null);
+  const bWaited = Date.now() - bUnlockAt;
+  // ★★<b>片付けてから次へ渡す</b>(78・79 の教訓)。以降の節は遅れの無い音で回る
+  SOUND_RESPONSE.delayMs = 0;
+  check('★★★音のバッファは時間ではなく事実で待つ(81・設計判断61)',
+    bBuffers === true, `settled=${bBuffers} waited=${bWaited}ms`);
+  // ★★遅れ 600ms − 開いてからの 400ms = <b>クリックの時点で最低 200ms は届いていない</b>。
+  //   ★閾値を 150ms に置いてあるのは、ここで測りたいのが「待ったか」であって
+  //     「何 ms 待ったか」ではないからである(裁定186 と同じ、効いていることだけを見る形)。
+  check('★★遅らせが効いている(81・裁定186)—— すぐ終わったら、それは待っていない',
+    bWaited >= 150, `${bWaited}ms`);
   check('★通常モードの [♪] で音の設定が開く(62・裁定289)',
     !(await bsnd.locator('#sound-modal').getAttribute('class')).includes('d-none'));
   check('★★初期音量は手動モードと同じ 30 である(62・裁定67)',
@@ -10398,7 +10445,12 @@ async function clearZoom(page) {
     fxAnchors.count === 18 && fxAnchors.live === true
       && JSON.stringify(fxAnchors.keys) === JSON.stringify(fxWantKeys.slice().sort()),
     JSON.stringify(fxAnchors));
-  check('★★★一時公開ゾーンにはアンカーが無い(80・画面に1度も描かれていない・積み残し)',
+  // ★★★Batch 81: 80 の「一時公開ゾーンにはアンカーが無い(積み残し)」を<b>撤去して差し替えた</b>。
+  //   ★あれは<b>予約</b>であり、塞いだ日に役目を終える(76 が 74・75 に、78 が 77 にそうした)。
+  //   ★★<b>消さずに文言だけ書き換えるのは番人を殺すことである</b> ——
+  //     いま測っているのは「<b>束が出ていないとき</b>は登録されていない」であって、
+  //     「決して登録されない」ではない。<b>出ているときの番人は 81 の節にある</b>。
+  check('★★束が出ていないときは、一時公開ゾーンのアンカーは登録されていない(81)',
     !fxAnchors.keys.includes('you|REVEALED')
       && !fxAnchors.keys.includes('opponent|REVEALED'),
     JSON.stringify(fxAnchors.keys));
@@ -10487,6 +10539,302 @@ async function clearZoom(page) {
 
   check('通常モードの演出(80)でJSエラーが出ない', fxErrors.length === 0, fxErrors.join(' | '));
   await fxPage.close();
+
+  // ================================================================
+  // ★★★Batch 81: 一時公開ゾーン(候補 W・裁定359〜361)
+  //
+  // 設計解説 notes/batch81-design-notes.md。
+  //
+  // ★80 が「ビューに載っているのに画面に1度も描かれていない」と書き残した穴を塞いだ節である。
+  // ★★<b>掘ったら、描いていないこと以外に2つ出てきた</b>:
+  //   ① 器は1つなのに意味が2つある(《降臨の伝道師》= 公開 / 《愚乱怒土地》= 非公開)
+  //   ② それを配信が絞っていなかった —— <b>描いた瞬間に漏れる穴だった</b>
+  // ★★★<b>①②はサーバで直した</b>ので、ここが測るのは<b>クライアントの側だけ</b>である。
+  //   <b>「見せてよいか」の判定はクライアントに1文字も無い</b>(設計判断9)——
+  //   それを測る番人は JUnit にある(Batch81RevealedZoneTest)。
+  // ================================================================
+  const rvPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const rvErrors = [];
+  rvPage.on('pageerror', (e) => rvErrors.push(String(e)));
+  rvPage.on('console', (m) => { if (m.type() === 'error') rvErrors.push(m.text()); });
+  await rvPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await rvPage.waitForTimeout(300);   // card-library の取得を待つ(#auto-playing が要る)
+
+  const rvDeliver = async (v) => {
+    await rvPage.evaluate((view) => {
+      // eslint-disable-next-line no-undef
+      onMessage({ body: JSON.stringify({ view: view }) });
+    }, v);
+    await rvPage.waitForTimeout(40);
+  };
+  /** ★差分の語彙だけを読む(80 と同じ性質: DOM に触らない純オブジェクトの比較) */
+  const rvKinds = (a, b) => rvPage.evaluate(([prev, next]) =>
+    // eslint-disable-next-line no-undef
+    fxEffects(fxDiff(prev, next)).map((fx) => ({
+      kind: fx.kind,
+      from: fx.from ? fx.from.seat + '/' + fx.from.zone : null,
+      to: fx.to ? fx.to.seat + '/' + fx.to.zone : null,
+      name: fx.face ? fx.face.name : null,
+    })), [a, b]);
+  /** 公開領域の1枚。★ビューが運ぶのは ID・名前・キーワード・【守護】かどうかだけである */
+  const rvCard = (i, id, name, guard) => ({
+    index: i, cardId: id, name: name, keywords: guard ? ['守護'] : [], guard: !!guard,
+  });
+  // ★ここで使う ID は deckMakerLibrary() が実際に持っているものである
+  //   (この節が回る時点の CARD_LIBRARY はデッキメーカー用に差し替わっている)。
+  //   ★<b>差し替えない</b> —— 79 の教訓(ページに当てた差し替えも片付けること)の、
+  //     いちばん安い守り方は「そもそも当てない」ことである。
+  const rvA = rvCard(0, 'QTE-M-LIGHT-2', 'LIGHTのミニオン', true);
+  const rvB = rvCard(1, 'QTE-M-LIGHT-3', 'LIGHTのミニオン2', false);
+  const rvBase = autoView({});
+
+  // ---- 81-1. ★★★山札 → 一時公開。★1枚なら移動、複数なら「出現」である(裁定355・356)----
+  // ★<b>山札は名前を持たない</b>ので①(名前で結ぶ)では結べない。
+  //   1枚のときだけ②(残りが出口1・入口1)で結ばれる —— ドローとまったく同じ理屈である。
+  // ★★<b>4枚まとめて公開する《降臨の伝道師》は、結ばれずに「出現」になる</b>。
+  //   総当たりしないという 80 の判断がそのまま効いている(外すと嘘を描く)。
+  const rvOne = autoView({ you: autoPlayer({ deckCount: 29, revealedCards: [rvA], revealedPublic: true }) });
+  const rvFour = autoView({
+    you: autoPlayer({
+      deckCount: 26,
+      revealedCards: [rvA, rvB, rvCard(2, 'QTE-M-LIGHT-4', 'LIGHTのミニオン3', true),
+        rvCard(3, 'QTE-M-LIGHT-5', 'LIGHTのスペル', false)],
+      revealedPublic: true,
+    }),
+  });
+  const rvKindsOne = await rvKinds(rvBase, rvOne);
+  check('★★★1枚だけ公開したときは「山札 → 一時公開」の移動になる(81・裁定355)',
+    rvKindsOne.length === 1 && rvKindsOne[0].kind === 'move'
+      && rvKindsOne[0].from === 'you/DECK' && rvKindsOne[0].to === 'you/REVEALED',
+    JSON.stringify(rvKindsOne));
+  const rvKindsFour = await rvKinds(rvBase, rvFour);
+  check('★★★4枚まとめて公開したときは結ばず、一時公開に4件の「出現」を出す(81・裁定356)',
+    rvKindsFour.length === 4 && rvKindsFour.every((k) => k.kind === 'appear')
+      && rvKindsFour.every((k) => k.to === 'you/REVEALED'),
+    JSON.stringify(rvKindsFour));
+
+  // ---- 81-2. ★★一時公開 → 手札。★<b>両端が名前を持つので①で結ばれる</b> ----
+  const rvToHand = autoView({
+    you: autoPlayer({ deckCount: 29, handCount: 1, hand: [autoCard('QTE-M-LIGHT-2', 'LIGHTのミニオン')] }),
+  });
+  const rvKindsHand = await rvKinds(rvOne, rvToHand);
+  check('★★一時公開から手札へ入った1枚は移動として結ばれる(81・名前が両端で照らせる)',
+    rvKindsHand.length === 1 && rvKindsHand[0].kind === 'move'
+      && rvKindsHand[0].from === 'you/REVEALED' && rvKindsHand[0].to === 'you/HAND',
+    JSON.stringify(rvKindsHand));
+
+  // ---- 81-3. ★★★相手の非公開の束は、差分を1件も生まない ----
+  // ★★<b>漏らさないことと、語らないことが一致している</b> ——
+  //   サーバが相手のビューへ空の列を入れるので、0枚 → 0枚 の差分は何も作らない。
+  //   ★<b>クライアントは「見せてよいか」を1度も判定していない</b>(設計判断9)。
+  const rvOppHidden = autoView({
+    opponent: autoPlayer({ displayName: 'あいて', revealedCards: [], revealedPublic: false }),
+  });
+  const rvKindsHidden = await rvKinds(rvBase, rvOppHidden);
+  check('★★★相手が非公開で見ている束は、演出の材料を1件も作らない(81・裁定359)',
+    rvKindsHidden.length === 0, JSON.stringify(rvKindsHidden));
+
+  // ---- 81-4. ★★相手の公開の束は、相手席で語られる(席ごとに番人・77・79・80 の教訓)----
+  const rvOppOpen = autoView({
+    opponent: autoPlayer({
+      displayName: 'あいて', deckCount: 29, revealedCards: [rvA], revealedPublic: true,
+    }),
+  });
+  const rvKindsOpp = await rvKinds(rvBase, rvOppOpen);
+  check('★★相手が公開した束も「山札 → 一時公開」として相手席で語られる(81)',
+    rvKindsOpp.length === 1 && rvKindsOpp[0].kind === 'move'
+      && rvKindsOpp[0].from === 'opponent/DECK' && rvKindsOpp[0].to === 'opponent/REVEALED',
+    JSON.stringify(rvKindsOpp));
+
+  // ---- 81-5. ★★★描かれる。★<b>面は cardFace であり、【守護】には印が付く</b> ----
+  await rvDeliver(rvFour);
+  const rvDrawn = await rvPage.evaluate(() => {
+    const box = document.getElementById('auto-revealed');
+    return {
+      hidden: box.classList.contains('d-none'),
+      label: document.getElementById('auto-revealed-label').textContent,
+      groups: [...document.querySelectorAll('.auto-revealed-group')].map((g) => g.dataset.seat),
+      faces: document.querySelectorAll('#auto-revealed .mcard').length,
+      guards: document.querySelectorAll('#auto-revealed .auto-revealed-guard').length,
+      // eslint-disable-next-line no-undef
+      anchors: [...autoAnchors.keys()].filter((k) => k.endsWith('|REVEALED')).sort(),
+      // eslint-disable-next-line no-undef
+      live: [...autoAnchors.values()].every((el) => document.body.contains(el)),
+    };
+  });
+  // ★★<b>2本に分けてある。</b>「描かれること」と「【守護】に印が付くこと」は
+  //   <b>別の性質</b>である —— まとめると、壊れたときにどちらが壊れたか読めない
+  //   (72 の教訓「理由の幅と結論の幅を揃える」の、番人の側の顔)。
+  check('★★★公開中の束は cardFace で描かれる(81・裁定361)',
+    rvDrawn.hidden === false && rvDrawn.faces === 4
+      && JSON.stringify(rvDrawn.groups) === JSON.stringify(['you']),
+    JSON.stringify(rvDrawn));
+  check('★★【守護】の面には印が付く(81・《降臨の伝道師》で選べる札が読める)',
+    rvDrawn.guards === 2, JSON.stringify(rvDrawn));
+  check('★★★束が出ている間はアンカーが登録され、すべて画面上の要素である(81・母集団C の C9)',
+    JSON.stringify(rvDrawn.anchors) === JSON.stringify(['you|REVEALED'])
+      && rvDrawn.live === true,
+    JSON.stringify(rvDrawn));
+
+  // ---- 81-6. ★★★見出しは「誰が見ているか」を書き分ける(裁定359)----
+  // ★<b>《愚乱怒土地》の「相手に見せず」が守られていることを、人が確かめられるようにする</b>。
+  //   ★★クライアントが読むのは {@code revealedPublic} <b>だけ</b>であり、
+  //     それも<b>言葉を選ぶため</b>である —— 見せる・見せないの判定はサーバが済ませている。
+  const rvLabelOf = async (v) => {
+    await rvDeliver(v);
+    return rvPage.evaluate(() => document.getElementById('auto-revealed-label').textContent);
+  };
+  const rvLabels = {
+    open: await rvLabelOf(rvOne),
+    secret: await rvLabelOf(autoView({
+      you: autoPlayer({ revealedCards: [rvA], revealedPublic: false }),
+    })),
+    opponent: await rvLabelOf(rvOppOpen),
+  };
+  check('★★★見出しは「公開」「あなただけ」「相手が公開中」を書き分ける(81・裁定359)',
+    rvLabels.open === '一時公開(相手にも見えている)'
+      && rvLabels.secret === '一時公開(あなただけが見ている)'
+      && rvLabels.opponent === '相手が公開中',
+    JSON.stringify(rvLabels));
+
+  // ---- 81-7. ★★★束が消えたら、アンカーも外れる ----
+  // ★★<b>これは 81 が新しく作った危険である</b>(78 の教訓: 直したあとに
+  //   何が新しく起きるかを1つは考えること)—— <b>出たり消えたりする着地点</b>は
+  //   80 に1つも無かったので、外す段も無かった。
+  //   ★<b>登録したままにすると、表から切り離された DOM がアンカーに残る</b>。
+  await rvDeliver(rvBase);
+  const rvGone = await rvPage.evaluate(() => ({
+    hidden: document.getElementById('auto-revealed').classList.contains('d-none'),
+    // eslint-disable-next-line no-undef
+    anchors: [...autoAnchors.keys()].filter((k) => k.endsWith('|REVEALED')),
+    // eslint-disable-next-line no-undef
+    live: [...autoAnchors.values()].every((el) => document.body.contains(el)),
+    // eslint-disable-next-line no-undef
+    count: autoAnchors.size,
+  }));
+  check('★★★束が消えた配信でアンカーが外れ、死んだ参照が残らない(81・78 の教訓)',
+    rvGone.hidden === true && rvGone.anchors.length === 0
+      && rvGone.live === true && rvGone.count === 18,
+    JSON.stringify(rvGone));
+
+  // ---- 81-8. ★★★帯は #auto-playing と重ならない(実測・設計判断41)----
+  // ★<b>top: 412px は .auto-zoom-card の 232px から生えた値であり、2箇所に書いた定数である。</b>
+  //   ★★だから<b>値ではなく「重なっていないこと」を測る</b> ——
+  //     あちらの寸法を変えた人が、ここで赤を見る。
+  await rvDeliver(autoView({
+    you: autoPlayer({
+      revealedCards: [rvA, rvB], revealedPublic: true,
+      pendingChoice: {
+        kind: 'REVEALED', prompt: '選んでください',
+        candidates: [{ index: 0, label: 'LIGHTのミニオン', keywords: ['守護'], minionInstanceId: null }],
+        min: 1, max: 1, queued: 1, sourceCardId: 'QTE-M-LIGHT-2',
+      },
+    }),
+  }));
+  const rvGeom = await rvPage.evaluate(() => {
+    const r = (id) => { const el = document.getElementById(id);
+      if (!el || el.classList.contains('d-none')) return null;
+      const b = el.getBoundingClientRect();
+      return { l: Math.round(b.left), t: Math.round(b.top),
+        r: Math.round(b.right), b: Math.round(b.bottom) }; };
+    const play = r('auto-playing');
+    const rev = r('auto-revealed');
+    const st = getComputedStyle(document.getElementById('auto-revealed'));
+    const layer = document.getElementById('auto-fx-layer');
+    return {
+      play: play, rev: rev,
+      overlap: !!(play && rev) && play.l < rev.r && rev.l < play.r
+        && play.t < rev.b && rev.t < play.b,
+      pointer: st.pointerEvents,
+      z: Number(st.zIndex),
+      fxZ: layer ? Number(getComputedStyle(layer).zIndex) : null,
+      // ★帯の真ん中の点で当たるのは<b>帯ではない</b>(操作が下へ通っている)
+      through: (() => {
+        const b = document.getElementById('auto-revealed').getBoundingClientRect();
+        const el = document.elementFromPoint((b.left + b.right) / 2, (b.top + b.bottom) / 2);
+        return !!el && !document.getElementById('auto-revealed').contains(el);
+      })(),
+      inViewport: (() => {
+        const b = document.getElementById('auto-revealed').getBoundingClientRect();
+        return b.left >= 0 && b.top >= 0 && b.right <= window.innerWidth
+          && b.bottom <= window.innerHeight;
+      })(),
+    };
+  });
+  check('★★★一時公開の帯はプレイ中のカードと重ならず、画面内に収まる(81・設計判断41)',
+    rvGeom.play !== null && rvGeom.rev !== null
+      && rvGeom.overlap === false && rvGeom.inViewport === true,
+    JSON.stringify(rvGeom));
+  // ★★<b>2本に分けてある。</b>「操作を吸わないこと」と「fx より下にあること」は
+  //   <b>別の理由から来ている</b> —— 前者は 71 の判断(覆いは守りではない)、
+  //   後者は<b>ここが演出の着地点である</b>ことである。
+  check('★★★帯は操作を吸わない(81・71 の判断: 覆いは守りではない)',
+    rvGeom.pointer === 'none' && rvGeom.through === true,
+    JSON.stringify(rvGeom));
+  check('★★★帯は演出の層(fx)より下にある(81・ここは着地点だから隠してはいけない)',
+    rvGeom.fxZ !== null && rvGeom.z < rvGeom.fxZ,
+    JSON.stringify(rvGeom));
+
+  // ---- 81-9. ★★両席が同時に公開しているときは、束を2つ並べる ----
+  await rvDeliver(autoView({
+    you: autoPlayer({ revealedCards: [rvA], revealedPublic: true }),
+    opponent: autoPlayer({ displayName: 'あいて', revealedCards: [rvB], revealedPublic: true }),
+  }));
+  const rvBoth = await rvPage.evaluate(() => ({
+    label: document.getElementById('auto-revealed-label').textContent,
+    groups: [...document.querySelectorAll('.auto-revealed-group')].map((g) => g.dataset.seat),
+    // eslint-disable-next-line no-undef
+    anchors: [...autoAnchors.keys()].filter((k) => k.endsWith('|REVEALED')).sort(),
+    // eslint-disable-next-line no-undef
+    live: [...autoAnchors.values()].every((el) => document.body.contains(el)),
+  }));
+  check('★★両席ぶんの束を並べ、アンカーも席ごとに置く(81・入口の数だけ番人を置く)',
+    JSON.stringify(rvBoth.groups) === JSON.stringify(['you', 'opponent'])
+      && JSON.stringify(rvBoth.anchors) === JSON.stringify(['opponent|REVEALED', 'you|REVEALED'])
+      && rvBoth.live === true && rvBoth.label === '一時公開',
+    JSON.stringify(rvBoth));
+
+  // ---- 81-10. ★★演出を切っていても、帯は出る ----
+  // ★★★<b>帯は演出ではなく情報である</b>。prefers-reduced-motion は
+  //   <b>動きを止めるものであって、盤面の中身を隠すものではない</b>。
+  //   ★これを測っておかないと、次に fx を触る人が「fxAllowed の中へ入れれば1本化できる」と
+  //     考えて<b>盤面から情報を消す</b>(37 の「音が道連れ」とちょうど同じ形である)。
+  //
+  // ★★★<b>前の項目のゴーストが消えるのを「事実」で待つ</b>(設計判断61)——
+  //   ここは<b>ゴーストが0件であること</b>を測る項目なので、
+  //   走り残りが1枚でもあると<b>自分が出したものでない0でない値</b>を読む。
+  //   ★<b>時間で待たない</b>: 81-9 の出現は 260ms だが、その値をここへ書き写すと
+  //     裁定358 の定数を変えた日に<b>この項目だけが黙って揺れる</b>。
+  const rvCalmSettled = await settled(rvPage,
+    () => document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length === 0, null);
+  check('★前の項目のゴーストが消えるのを事実で待てた(81・設計判断61)',
+    rvCalmSettled === true, String(rvCalmSettled));
+  const rvCalmState = await rvPage.evaluate((v) => {
+    // eslint-disable-next-line no-undef
+    fxEnabled = false;
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify({ view: v }) });
+    const out = {
+      // eslint-disable-next-line no-undef
+      allowed: fxAllowed(),
+      hidden: document.getElementById('auto-revealed').classList.contains('d-none'),
+      faces: document.querySelectorAll('#auto-revealed .mcard').length,
+      ghosts: document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length,
+    };
+    // ★★<b>自分で片付けてから次へ渡す</b>(78 の教訓)
+    // eslint-disable-next-line no-undef
+    fxEnabled = true;
+    return out;
+  }, rvFour);
+  check('★★★演出を切っていても一時公開の帯は出る(81・帯は演出ではなく情報である)',
+    rvCalmState.allowed === false && rvCalmState.hidden === false
+      && rvCalmState.faces === 4 && rvCalmState.ghosts === 0,
+    JSON.stringify(rvCalmState));
+
+  // ★★片付けてから次へ渡す(78・79 の教訓)。空の盤面に戻す
+  await rvDeliver(rvBase);
+  check('一時公開ゾーン(81)でJSエラーが出ない', rvErrors.length === 0, rvErrors.join(' | '));
+  await rvPage.close();
 
   // ---- 80-14. ★★★演出を切っている人には出ない。★<b>音は道連れにしない</b> ----
   // ★★{@code prefers-reduced-motion} は CSS と JS の<b>両方</b>で止める ——

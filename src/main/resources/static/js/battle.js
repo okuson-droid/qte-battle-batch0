@@ -1464,6 +1464,17 @@ function fxCountDelta(out, seat, zone, beforeCount, afterCount) {
  * {@code hand: []} を入れており、<b>null で見分ける書き方だと
  * 相手のドローが1件も採れなかった</b>(壊し検証ではなく、番人が先に教えた)。
  */
+/**
+ * ★Batch 81: 一時公開ゾーンの枚数。★<b>ビューに枚数の欄が無い</b>ので、
+ * 届いた列の長さがそのまま枚数である —— {@link fxZoneDelta} の「窓」の判定
+ * (枚数 &gt; 列の長さ)は<b>ここでは必ず偽になる</b>。
+ * ★★<b>それが正しい</b>: このゾーンは「一部だけ届く」ことが無い。
+ *   サーバは公開なら全部を、非公開なら相手へ1枚も入れない(裁定359)。
+ */
+function fxRevealedCount(side) {
+    return (side && side.revealedCards) ? side.revealedCards.length : 0;
+}
+
 function fxZoneDelta(out, seat, zone, beforeList, beforeCount, afterList, afterCount, faceOf) {
     const full = (list, count) => !!list && list.length === (count || 0);
     if (full(beforeList, beforeCount) && full(afterList, afterCount)) {
@@ -1563,6 +1574,14 @@ function fxDiffSeat(out, seat, before, after) {
     // マナ。★裏向きも自席なら名前つきで届く(裁定351)。相手の裏向きは name が null で来る
     fxZoneDelta(out, seat, 'MANA', before.manaZone, before.totalMana,
         after.manaZone, after.totalMana, faceDataFromMana);
+    // ★★★Batch 81: 一時公開ゾーン(裁定359)。
+    //   ★<b>枚数の欄が無いので、届いた配列の長さがそのまま枚数である</b> ——
+    //     つまりこのゾーンは<b>「窓」になりえない</b>。届くか、1枚も届かないかのどちらかである
+    //     (非公開の束は、サーバが相手のビューへ<b>空の列</b>として入れる)。
+    //   ★★<b>だから相手の非公開の束では、出入りが1件も採れない</b> ——
+    //     0枚 → 0枚 の差分は何も生まない。<b>漏らさないことと、語らないことが一致している</b>。
+    fxZoneDelta(out, seat, 'REVEALED', before.revealedCards, fxRevealedCount(before),
+        after.revealedCards, fxRevealedCount(after), faceDataFromRevealed);
     // 墓地・消滅は両席とも公開情報である
     fxZoneDelta(out, seat, 'TRASH', before.trash, before.trashCount,
         after.trash, after.trashCount, faceDataFromCardView);
@@ -3589,6 +3608,26 @@ function faceDataFromCardView(card, costOverride) {
     };
 }
 
+/**
+ * ★Batch 81: RevealedCardView → フェイスのデータ。
+ * ★<b>面はカードIDから card-library で引く</b>(裁定144)——
+ *   ビューが運ぶのは ID・名前・キーワード・【守護】かどうかだけである。
+ * ★★{@link faceDataFromMinion} とまったく同じ形にしてある(補い方の規則を1つにする)。
+ */
+function faceDataFromRevealed(card) {
+    const lib = autoLibrary.get(card.cardId);
+    return {
+        name: card.name,
+        type: lib ? lib.type : 'MINION',
+        civilization: lib ? lib.civilization : null,
+        cost: lib ? lib.cost : null,
+        keywords: card.keywords || [],
+        text: lib ? lib.text : '',
+        attack: lib ? lib.attack : null,
+        hp: lib ? lib.hp : null,
+    };
+}
+
 /** MinionView → フェイスのデータ。文明とテキストはカード定義から補う */
 function faceDataFromMinion(minion) {
     const lib = autoLibrary.get(minion.cardId);
@@ -4082,6 +4121,23 @@ function registerAutoAnchor(el, seat, zone) {
     if (el) autoAnchors.set(autoAnchorKey(seat, zone), el);
 }
 
+/**
+ * ★★★Batch 81: アンカーを外す。<b>出たり消えたりするゾーンだけが要る</b>。
+ *
+ * ★80 のアンカーは<b>18本とも常に画面に在る</b>ので、外す段が要らなかった ——
+ * {@code render} のたびに同じ鍵へ新しい要素を上書きするだけで済んでいた。
+ * ★★<b>一時公開ゾーンは出たり消えたりする</b>(問い合わせの間だけ描かれる)。
+ * 消えたときに登録したままにすると、<b>表に外れた要素(document から切り離された DOM)が残る</b> ——
+ * 番人が測っている {@code live}(すべてのアンカーが画面上の要素であること)が、
+ * <b>束が消えた次の配信で偽になる</b>。
+ *
+ * > ★<b>「直したあとに何が新しく起きるか」を1つ考えること</b>(78 の教訓)——
+ * > <b>出たり消えたりする着地点を足すと、外す段が新しく要る。</b>
+ */
+function clearAutoAnchor(seat, zone) {
+    autoAnchors.delete(autoAnchorKey(seat, zone));
+}
+
 function autoAnchorElement(place) {
     if (!place) return null;
     return autoAnchors.get(autoAnchorKey(place.seat, place.zone)) || null;
@@ -4478,6 +4534,9 @@ function render(view) {
     renderSelf(view.you, view);
     renderPendingChoice(view);
     renderPlayingCard(view);
+    // ★★★Batch 81: 一時公開ゾーン(裁定361)。★<b>プレイ中のカードの直後に描く</b> ——
+    //   画面でも真下に出るので、読む順と描く順を揃えてある
+    renderRevealed(view);
     syncTabooRow();
 
     if (view.status === 'FINISHED') {
@@ -4643,6 +4702,75 @@ function renderPlayingCard(view) {
         cost: lib.cost, attack: lib.attack, hp: lib.hp,
         keywords: [], text: lib.text,
     }, 'large'));
+}
+
+/**
+ * ★★★Batch 81(裁定359・361): 一時公開ゾーン。
+ *
+ * <h2>これは何か</h2>
+ *
+ * 山札の上から表向きにしたカードが、行き先が決まるまでの間だけ置かれる場所である
+ * ({@code PlayerState.revealedZone})。★<b>Batch 44 からビューに載っていたが、
+ * 80 まで画面に1度も描かれていなかった</b> —— {@code battle.js} は
+ * {@code revealedCards} という語を1度も書いていなかった(実測0件)。
+ *
+ * <h2>★★誰の束を出すか</h2>
+ *
+ * <b>両席ぶん見る。</b>公開の束は相手にも届くからである(裁定359)。
+ * ★<b>非公開の束は、サーバがそもそも相手のビューへ入れない</b> ——
+ * <b>クライアントは「見せてよいか」を1度も判定しない</b>(設計判断9)。
+ * ★★ここが読むのは {@code revealedPublic} だけで、それも<b>言葉を選ぶため</b>である。
+ *
+ * <h2>★演出のアンカー</h2>
+ *
+ * <b>席ごとの束の入れ物</b>をアンカーにする(80 と同じく描画関数がその場で登録する)。
+ * ★★<b>出ていないときは登録しない</b> —— 高さ0の要素を着地点にすると、
+ * 演出が画面の左上へ飛ぶ。★★★<b>それでも困らないのは、80 が読む相と書く相を
+ * 分けているからである</b>: 出ていく移動の出発点は<b>描き直す前</b>の DOM で読み、
+ * 入ってくる移動の着地点は<b>描き直した後</b>の DOM で読む —— どちらの瞬間にも束は出ている。
+ */
+function renderRevealed(view) {
+    const box = document.getElementById('auto-revealed');
+    const row = document.getElementById('auto-revealed-cards');
+    const label = document.getElementById('auto-revealed-label');
+    row.innerHTML = '';
+    // ★★★描いた要素をいま捨てたので、アンカーも同時に外す(clearAutoAnchor の章)。
+    //   ★<b>「描く」と「登録する」を対にしたなら、「捨てる」と「外す」も対にする</b>
+    const groups = [];
+    for (const seat of ['you', 'opponent']) clearAutoAnchor(seat, 'REVEALED');
+    for (const seat of ['you', 'opponent']) {
+        const side = view[seat];
+        if (!side || !side.revealedCards || !side.revealedCards.length) continue;
+        groups.push({ seat: seat, cards: side.revealedCards, open: !!side.revealedPublic });
+    }
+    box.classList.toggle('d-none', groups.length === 0);
+    if (!groups.length) return;
+    label.textContent = revealedLabel(groups);
+    for (const g of groups) {
+        const group = document.createElement('div');
+        group.className = 'auto-revealed-group';
+        group.dataset.seat = g.seat;
+        for (const card of g.cards) {
+            const face = cardFace(faceDataFromRevealed(card), 'small');
+            // ★【守護】に印を付けるのは《降臨の伝道師》の表示補助である(ビューが運んでいる)
+            face.classList.toggle('auto-revealed-guard', !!card.guard);
+            group.appendChild(face);
+        }
+        row.appendChild(group);
+        registerAutoAnchor(group, g.seat, 'REVEALED');
+    }
+}
+
+/**
+ * ★Batch 81: 一時公開ゾーンの見出し。
+ * ★★<b>「誰が見ているか」を書く。</b>《愚乱怒土地》は「相手に見せず」見るカードであり、
+ *   <b>それが守られていることを人が確かめられる</b>ようにするためである(裁定359)。
+ */
+function revealedLabel(groups) {
+    if (groups.length > 1) return '一時公開';
+    const g = groups[0];
+    if (g.seat === 'opponent') return '相手が公開中';
+    return g.open ? '一時公開(相手にも見えている)' : '一時公開(あなただけが見ている)';
 }
 
 /**

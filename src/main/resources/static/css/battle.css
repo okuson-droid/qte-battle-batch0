@@ -2106,6 +2106,55 @@ body.manual-drag-active .manual-band {
     border-radius: 4px 4px 0 0; padding: 1px 6px; display: inline-block;
 }
 
+/* ============================================================
+   ★★★Batch 81: 一時公開ゾーン(裁定359・361)。
+   設計解説 notes/batch81-design-notes.md。
+
+   ★★<b>置き場所は実測で決めた</b>(65・69〜72 の教訓)。1280×800 の満杯の盤面で:
+     ・右列中段(.auto-side-mid)は 294px 固定で、最悪ケースの余りが 30px しかない
+       —— 面の列は 65px 要るので<b>溢れる</b>。
+     ・中央列(.auto-main)は満杯の盤面で<b>すでに 2px 溢れている</b>(752 / 750)。
+     ・したがって <b>fixed の層</b>しかない。
+   ★<b>#auto-playing の真下</b>である。★★<b>そこは実測した</b>(推測しなかった)——
+     .auto-zoom-card が 232px 幅・aspect-ratio 5/7 なので面は 325px、ラベル込みで
+     <b>y:64〜408</b> を使う。したがって 412px から始めれば重ならない。
+   ★★★<b>この 412px は .auto-zoom-card の 232px から生えた値であり、2箇所に書いた定数である。</b>
+     <b>だから値ではなく「重なっていないこと」を番人が実測する</b>(設計判断41)——
+     あちらの寸法を変えた人は、この帯が重なった時点で赤を見る。
+
+   ★★★<b>z-index は 1010</b> —— <b>fx層(1020)より下、盤面(最大5)より上</b>である。
+     ★下にする理由は1つで、<b>ここは演出の着地点である</b>から ——
+       上に置くと、飛んできたゴーストの最後の数フレームが<b>この帯の裏へ隠れる</b>。
+     ★★<b>#auto-playing(1390)と揃えていない</b>のは、あちらが着地点ではないからである。
+       <b>揃っていないことが要求である</b>(裁定358 と同じ形の判断)。
+
+   ★<b>pointer-events: none。</b>#auto-playing と同じで、これは読むための面であって
+     操作の道具ではない —— <b>覆いは守りではない</b>(71 の判断)。 */
+.auto-revealed {
+    position: fixed; right: 300px; top: 412px; z-index: 1010;
+    pointer-events: none; text-align: right;
+    filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.6));
+}
+.auto-revealed.d-none { display: none; }
+.auto-revealed-label {
+    font-size: 11px; font-weight: 700; color: #14121d; background: #6ea8fe;
+    border-radius: 4px 4px 0 0; padding: 1px 6px; display: inline-block;
+}
+.auto-revealed-cards {
+    display: flex; flex-direction: column; gap: 4px; align-items: flex-end;
+    background: rgba(10, 12, 16, 0.86); border: 1px solid #6ea8fe;
+    border-radius: 4px 0 4px 4px; padding: 4px;
+}
+/* 席ごとの束。★<b>この要素が演出のアンカーである</b>(battle.js の renderRevealed が登録する) */
+.auto-revealed-group { display: flex; gap: 4px; }
+/* ★面の寸法はここで決める。.mcard は width/height ともに 100% であり、
+   <b>寸法は必ず入れ物が持つ</b>(.auto-card が 104px を持っているのと同じ形である)。
+   ★<b>手札(104px)より小さくしてある</b> —— 読むための面であって、操作する面ではない。
+   ★★4枚並べても 332px で、右列(280px)の外側から左へ伸びて中央列の右端に収まる。 */
+.auto-revealed-group .mcard { width: 78px; height: 56px; flex: 0 0 auto; }
+/* ★【守護】の印。《降臨の伝道師》で「どれが選べるのか」を面の側でも読めるようにする */
+.mcard.auto-revealed-guard { outline: 2px solid #ffc107; outline-offset: -2px; }
+
 /* ---------- ホバーをモーダルの上に出すとき(★Batch 70・指摘1) ----------
    ★z-index は 44 から 1400 で、.info-modal(1000)より上に出る。
      ただし実測で<b>モーダル本体(x:383〜897)と面(x:748〜980)が重なる</b>ので、

@@ -497,6 +497,36 @@ class BattlePageTest {
         }
     }
 
+    /**
+     * ★★★Batch 81 は {@code battle.js} を触った —— 一時公開ゾーンの描画である。
+     *
+     * <p><b>版数を上げないと、既に開いている人の画面には束が1枚も出ない</b> ——
+     * サーバは 81 から公開の別つきでビューを送るが、<b>読む側が 41 のままだと
+     * その欄を1度も見ない</b>。★80 までとまったく同じ症状(何も出ない)になるので、
+     * <b>直したことに誰も気づけない</b>。
+     */
+    @Test
+    void 通常モードの盤面のJSの版数が81で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.js?v=41");
+        assertThat(html).contains("battle.js?v=");
+    }
+
+    /**
+     * ★★★Batch 81 は {@code battle.css} を触った —— {@code .auto-revealed} 一式である。
+     *
+     * <p><b>版数を上げないと、既に開いている人の画面では束が
+     * 「左上に貼りついた素のdiv」として出る</b> —— 80 のゴーストとまったく同じ形である。
+     * <b>位置(fixed / top / z-index)も寸法(78×56)も CSS の側が決めている</b>。
+     * ★<b>JS だけ上げて CSS を据え置くほうが、両方据え置くより悪い</b>。
+     */
+    @Test
+    void 通常モードの盤面のCSSの版数が81で上がっている() throws Exception {
+        String html = battleHtml();
+        assertThat(html).doesNotContain("battle.css?v=56");
+        assertThat(html).contains("battle.css?v=");
+    }
+
     /** ★{@code const NAME = 123;} の数を読む。★見つからなければ落とす(黙って 0 にしない) */
     private int constMs(String source, String name) {
         java.util.regex.Matcher m = java.util.regex.Pattern

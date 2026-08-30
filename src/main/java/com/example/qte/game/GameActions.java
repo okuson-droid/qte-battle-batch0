@@ -1112,11 +1112,27 @@ public class GameActions {
     }
 
     /**
-     * 山札の上からcount枚を表向きに取り出す(降臨の伝道師)。
+     * 山札の上からcount枚を取り出す(降臨の伝道師・光霊ネフラ・愚乱怒土地)。
      * ミルと違い、取り出したカードは呼び出し元が行き先(場に出す/山札の下に戻す)を決める。
      * 山札が尽きればそこまでしか取り出せない。
+     *
+     * <h2>★★★Batch 81(裁定360): ログは「公開」と「見た」を書き分ける</h2>
+     *
+     * 80 まで、この1本は<b>呼び出し元によらず「公開しました」と書いていた</b>。
+     * ★《愚乱怒土地》の本文は「<b>見て</b>」であり「公開」ではない ——
+     * <b>器が1つだったので、ログも1つになっていた</b>(公開領域そのものと同じ形の穴である)。
+     *
+     * ★★★<b>公開のときはカード名を並べる。</b>これは飾りではなく、
+     * <b>片肺を埋めるための唯一の手段</b>である ——
+     * 通常モードは効果の解決中に配信を1度も行わない({@code GameWsController} 355〜359行)ので、
+     * <b>公開領域へ入れてから同じ配信の中で取り出す場面(【守護】が0枚・1枚の《降臨の伝道師》)は、
+     * 誰にも観測できない</b>。ログだけがその配信に載って残る。
+     *
+     * @param publicReveal true なら「公開」(相手も観戦者も読んでよい)。
+     *                     false なら「見た」(名前はログに書かない)
      */
-    public java.util.List<String> revealFromTopOfDeck(GameRoom room, PlayerState player, int count) {
+    public java.util.List<String> revealFromTopOfDeck(GameRoom room, PlayerState player, int count,
+            boolean publicReveal) {
         java.util.List<String> revealed = new java.util.ArrayList<>();
         for (int i = 0; i < count; i++) {
             String cardId = player.getDeck().pollFirst();
@@ -1125,8 +1141,54 @@ public class GameActions {
             }
             revealed.add(cardId);
         }
-        room.addLog("%sが山札の上から%d枚を公開しました".formatted(player.getDisplayName(), revealed.size()));
+        if (!publicReveal) {
+            room.addLog("%sが山札の上から%d枚を見ました".formatted(player.getDisplayName(), revealed.size()));
+            return revealed;
+        }
+        room.addLog("%sが山札の上から%d枚を公開しました%s".formatted(
+                player.getDisplayName(), revealed.size(), revealedNameList(revealed)));
         return revealed;
+    }
+
+    /**
+     * ★Batch 81: 公開した束のカード名を「: 【A】【B】」の形に並べる。空なら何も足さない。
+     * ★★<b>名前の出どころはカードマスタ1本である</b>(裁定144 と同じ流儀)。
+     */
+    private String revealedNameList(java.util.List<String> cardIds) {
+        if (cardIds.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(": ");
+        for (String id : cardIds) {
+            sb.append("【").append(cards.findById(id).name()).append("】");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * ★★★Batch 81(裁定359): 束を一時公開領域へ置く。<b>入口はこの1本だけである</b>。
+     *
+     * ★<b>公開かどうかの旗をここで立てる</b> —— 呼び出し側が
+     * {@code getRevealedZone().addAll(...)} を直接叩くと、
+     * <b>旗を立て忘れた入口だけが非公開のまま漏れる</b>(76・77 の「入口の数だけ書き忘れる」)。
+     */
+    public void placeInRevealedZone(PlayerState player, java.util.List<String> cardIds,
+            boolean publicReveal) {
+        player.getRevealedZone().addAll(cardIds);
+        player.setRevealedPublic(publicReveal);
+    }
+
+    /**
+     * ★★★Batch 81: 一時公開領域の中身を取り出して空にする。<b>出口はこの1本だけである</b>。
+     *
+     * ★80 まで、この「写して消す」は{@code CardEffectRegistry} の2箇所に同じ形で書かれていた
+     * (3986行・4568行)。★★<b>旗を降ろす段が増えたので、1本にまとめた</b>(裁定130)。
+     */
+    public java.util.List<String> takeRevealedZone(PlayerState player) {
+        java.util.List<String> taken = new java.util.ArrayList<>(player.getRevealedZone());
+        player.getRevealedZone().clear();
+        player.setRevealedPublic(false);
+        return taken;
     }
 
     /** 公開した束を山札の下に、公開した順のまま戻す(降臨の伝道師) */

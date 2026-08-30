@@ -255,17 +255,32 @@ public class GameViewBuilder {
                 leaderCanAttack,
                 leaderFrozen,
                 buildLeaderAbility(state, player, isSelf),
-                buildRevealedCards(player),
+                buildRevealedCards(player, isSelf),
+                player.isRevealedPublic(),
                 buildPendingChoice(state, player, isSelf));
     }
 
-    /** 一時公開領域のカード(降臨の伝道師などが公開中の束)。空なら公開なし */
-    private List<PlayerView.RevealedCardView> buildRevealedCards(PlayerState player) {
+    /**
+     * 一時公開領域のカード(降臨の伝道師などが公開中の束)。空なら公開なし。
+     *
+     * <h2>★★★Batch 81(裁定359): 非公開の束は本人にしか出さない</h2>
+     *
+     * 80 まで、ここは {@code isSelf} を1度も通しておらず、
+     * <b>《愚乱怒土地》の「相手に見せず」見た2枚が、相手にも観戦者にも名前つきで届いていた</b>。
+     * ★<b>実害が出ていなかったのは {@code battle.js} がこの欄を読んでいなかったからにすぎない</b>。
+     *
+     * ★★<b>絞るのはここ1箇所である</b>(設計判断9)——
+     * クライアントで絞ると、フィルタの正が2箇所になる。
+     */
+    private List<PlayerView.RevealedCardView> buildRevealedCards(PlayerState player, boolean isSelf) {
+        if (!isSelf && !player.isRevealedPublic()) {
+            return List.of();
+        }
         List<String> revealed = player.getRevealedZone();
         List<PlayerView.RevealedCardView> views = new java.util.ArrayList<>();
         for (int i = 0; i < revealed.size(); i++) {
             CardMaster m = cards.findById(revealed.get(i));
-            views.add(new PlayerView.RevealedCardView(i, m.name(), CardView.keywordNames(m),
+            views.add(new PlayerView.RevealedCardView(i, m.id(), m.name(), CardView.keywordNames(m),
                     m.hasKeyword(Keyword.GUARD)));
         }
         return views;

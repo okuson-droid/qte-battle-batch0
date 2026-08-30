@@ -23,7 +23,15 @@ import java.util.List;
  * @param leaderCanAttack 今リーダーが攻撃宣言できるか(自分のビューでのみ意味を持つ)
  * @param leaderFrozen  リーダーが凍結中か
  * @param leaderAbility リーダー起動能力の状態(能力を持たないリーダーはnull)
- * @param revealedCards 一時公開領域のカード(降臨の伝道師などが公開中の束。空なら公開なし)
+ * @param revealedCards 一時公開領域のカード(降臨の伝道師などが公開中の束。空なら公開なし)。
+ *                      ★★★Batch 81(裁定359): <b>非公開の束は本人のビューにしか入らない</b> ——
+ *                      《愚乱怒土地》は「相手に見せず」見るカードである。
+ * @param revealedPublic ★Batch 81: いま公開中の束が「公開」か。
+ *                      ★<b>画面は「相手にも見えている / あなただけが見ている」を
+ *                      この欄で書き分ける</b> —— 見せてよいかの判定はサーバが済ませており、
+ *                      クライアントは<b>言葉を選ぶためだけ</b>にこれを読む。
+ *                      ★★<b>相手のビューでは、非公開の束のとき false で来る</b>
+ *                      (中身も空なので、そもそも描く材料が無い)。
  * @param manaPayOrder  ★Batch 70(裁定315・316): 通常のコストを<b>自動で払うときの順</b>。
  *                      マナゾーン内の位置を、払われる順に並べたものである。
  *                      ★<b>クライアントは規則を持たない</b> —— コストが n なら先頭 n 件が
@@ -72,6 +80,7 @@ public record PlayerView(
         boolean leaderFrozen,
         LeaderAbilityView leaderAbility,
         List<RevealedCardView> revealedCards,
+        boolean revealedPublic,
         PendingChoiceView pendingChoice) {
 
     /** リーダー起動能力のビュー */
@@ -85,10 +94,14 @@ public record PlayerView(
     /**
      * 一時公開領域のカード1枚のビュー(降臨の伝道師などが公開中の束)。
      *
-     * @param index 公開した束の中での位置
-     * @param guard 【守護】を持つか(降臨の伝道師の表示補助)
+     * @param index  公開した束の中での位置
+     * @param cardId ★Batch 81: カードID。★<b>面(文明・種別・コスト・本文)はクライアントが
+     *               card-library から引く</b>(裁定144)—— ビューにIDを足すのは
+     *               「名前で引かせない」ためである(Batch 44 がウェポンで決めた形と同じ)。
+     * @param guard  【守護】を持つか(降臨の伝道師の表示補助)
      */
-    public record RevealedCardView(int index, String name, List<String> keywords, boolean guard) {
+    public record RevealedCardView(int index, String cardId, String name, List<String> keywords,
+            boolean guard) {
     }
 
     /**

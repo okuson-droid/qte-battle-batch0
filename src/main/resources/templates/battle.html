@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=56)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=57)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -250,6 +250,27 @@
 <div id="auto-playing" class="auto-playing d-none">
     <div class="auto-playing-label">プレイ中</div>
     <div id="auto-playing-card" class="auto-zoom-card"></div>
+</div>
+
+<!-- ★★★Batch 81(裁定361): 一時公開ゾーン(降臨の伝道師・愚乱怒土地が公開中の束)。
+     ★<b>Batch 44 からビューには載っていたが、80 まで画面に1度も描かれていなかった</b>
+       (battle.js は revealedCards という語を1度も書いていなかった・実測0件)。
+       80 が演出の着地点を数えたときに見つけた穴である。
+
+     ★★<b>置き場所は実測で決めた</b>(65・69〜72 の教訓)。1280×800 の満杯の盤面で:
+       ・右列中段(.auto-side-mid)は294px固定で、最悪ケースの余りが<b>30px</b>しかない
+         —— 面の列は65px要るので<b>溢れる</b>。
+       ・中央列(.auto-main)は満杯の盤面で<b>すでに2px溢れている</b>(752/750)。
+       ・したがって <b>fixed の層</b>しかない —— 場所を奪わないのはここだけである。
+     ★★★<b>#auto-playing の真下に置く</b> —— あれは<b>まさにこの問い合わせの間に出ている</b>ので、
+       「このカードが、この束を公開した」と縦に読める。
+
+     ★<b>中身の出し分けは battle.js の renderRevealed が1箇所で決める</b>。
+     ★★<b>公開か非公開かはサーバが決める</b>(裁定359)——
+       ここは view.you.revealedPublic を<b>言葉を選ぶためだけ</b>に読む。 -->
+<div id="auto-revealed" class="auto-revealed d-none">
+    <div id="auto-revealed-label" class="auto-revealed-label">一時公開</div>
+    <div id="auto-revealed-cards" class="auto-revealed-cards"></div>
 </div>
 
 <!--
@@ -490,6 +511,6 @@
        上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5)。
      ★79 が4系統すべて据え置いたのは、静的ファイルを1文字も触っていなかったからである。
      ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
-<script th:src="@{/js/battle.js(v=41)}"></script>
+<script th:src="@{/js/battle.js(v=42)}"></script>
 </body>
 </html>

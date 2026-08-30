@@ -446,6 +446,30 @@ public class PlayerState {
     private final List<String> revealedZone = new ArrayList<>();
 
     /**
+     * ★★★Batch 81(裁定359): いま公開領域に置かれている束が「公開」か「非公開」か。
+     *
+     * <h2>なぜ器が1つで別が要るのか</h2>
+     *
+     * 公開領域を使うカードは2枚あり、<b>本文の意味が正反対</b>である。
+     * <ul>
+     *   <li>《降臨の伝道師》(QTE-M-LIGHT-22): 「山札の上から4枚を<b>公開</b>」——
+     *       相手も観戦者も見てよい。</li>
+     *   <li>《愚乱怒土地》(QTE-M-EARTH-30): 「山札の上から2枚<b>見て</b>…
+     *       <b>相手に見せず</b>加える」—— 相手に見せてはいけない。</li>
+     * </ul>
+     *
+     * ★80 まで {@link com.example.qte.game.view.GameViewBuilder} は
+     * {@code isSelf} を通さずに公開領域を作っており、<b>両席ぶん名前つきで配信していた</b>。
+     * ★★<b>実害が出ていなかったのは、{@code battle.js} がこの欄を1度も読んでいなかったからである</b>
+     * —— 81 が描くようになった時点で漏れる穴だった。
+     *
+     * ★★★<b>この旗を立てるのも降ろすのも {@code GameActions} の2本だけである</b>
+     * (裁定130)—— 束を置く口と、束を取り出す口。
+     */
+    @Setter
+    private boolean revealedPublic = false;
+
+    /**
      * プレイヤーに問い合わせている選択の待ち行列(a9。★Batch 64 で1件からキューへ)。
      *
      * <h2>なぜキューになったのか</h2>

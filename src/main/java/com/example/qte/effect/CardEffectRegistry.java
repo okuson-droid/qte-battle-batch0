@@ -1907,7 +1907,14 @@ public class CardEffectRegistry {
         // (0体なら不発・1体なら自動決定・2体以上ならプレイヤーが選ぶ)、残りは山札の下へ。
         // 出したミニオンはその後3ダメージを受ける
         register("QTE-M-LIGHT-22", TriggerType.ON_SUMMON, ctx -> {
-            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 4);
+            // ★★★Batch 81(裁定359・360): 本文は「公開」である —— 相手も観戦者も見てよい。
+            //   ★<b>公開領域には必ず通す</b>(【守護】の枚数によらない)——
+            //     0枚・1枚のときは同じ配信の中で取り出されるので画面には出ないが、
+            //     <b>置く口と取り出す口を1本に保つ</b>ためである(裁定130)。
+            //   ★★<b>誰にも見えない場面を埋めるのはログである</b>(裁定360)——
+            //     revealFromTopOfDeck が公開のときだけカード名を並べる。
+            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 4, true);
+            ctx.actions().placeInRevealedZone(ctx.owner(), revealed, true);
             List<Integer> guardIndexes = new ArrayList<>();
             for (int i = 0; i < revealed.size(); i++) {
                 CardMaster revealedCard = cards.findById(revealed.get(i));
@@ -1937,18 +1944,20 @@ public class CardEffectRegistry {
                 }
             }
             if (guardIndexes.isEmpty()) {
-                ctx.actions().returnToBottomOfDeck(ctx.owner(), revealed);
+                ctx.actions().returnToBottomOfDeck(ctx.owner(),
+                        ctx.actions().takeRevealedZone(ctx.owner()));
                 ctx.room().addLog("公開した4枚に【守護】ミニオンがいなかったため、山札の下に置かれました");
                 return;
             }
             if (guardIndexes.size() == 1) {
-                resolveMissionaryChoice(ctx, revealed, guardIndexes.get(0));
+                resolveMissionaryChoice(ctx, ctx.actions().takeRevealedZone(ctx.owner()),
+                        guardIndexes.get(0));
                 return;
             }
             // 【守護】が複数: プレイヤーの選択を待つ(a9の割り込み選択に載せている)。
             // 公開されたカードの置き場(revealedZone)と、問い合わせ(pendingChoice)は別物である。
             // 選べるのは【守護】を持つものだけなので、候補には守護の位置だけを入れる
-            ctx.owner().getRevealedZone().addAll(revealed);
+            // ★Batch 81: 束は上で置いてある(この分岐だけが「置いたまま配信を跨ぐ」経路である)
             ctx.actions().requestChoice(ctx.room(), ctx.owner(), PendingChoice.one(
                     PendingChoice.Kind.REVEALED,
                     guardIndexes.stream().map(String::valueOf).toList(),
@@ -3064,7 +3073,10 @@ public class CardEffectRegistry {
         // ★プレイヤーの選択は発生しない(全部加える)ので、割り込みは要らない。
         // ★山札が3枚に満たなければ、あるだけ公開する(revealFromTopOfDeck の既存の挙動)
         register("QTE-M-LIGHT-35", TriggerType.ON_SUMMON, ctx -> {
-            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 3);
+            // ★Batch 81(裁定360): 本文は「表向きにする」である —— 公開なのでログに名前を並べる。
+            //   ★★<b>公開領域は通さない</b>(通しても、同じ配信の中で全部の行き先が決まるので
+            //     誰にも観測できない・設計解説 0-4)
+            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 3, true);
             List<String> rest = new ArrayList<>();
             int taken = 0;
             for (String cardId : revealed) {
@@ -3981,10 +3993,10 @@ public class CardEffectRegistry {
     private void resumeChoice(EffectContext ctx, PendingChoice choice, List<String> chosen) {
         switch (choice.resumeAt()) {
             case MISSIONARY_SUMMON -> {
-                // 公開領域の中身を取り出して確定させる(選択待ちの間だけ置かれていたもの)
-                List<String> revealed = new ArrayList<>(ctx.owner().getRevealedZone());
-                ctx.owner().getRevealedZone().clear();
-                resolveMissionaryChoice(ctx, revealed, Integer.parseInt(chosen.get(0)));
+                // 公開領域の中身を取り出して確定させる(選択待ちの間だけ置かれていたもの)。
+                // ★Batch 81: 取り出す口は GameActions の1本である(公開の旗も同時に降りる)
+                resolveMissionaryChoice(ctx, ctx.actions().takeRevealedZone(ctx.owner()),
+                        Integer.parseInt(chosen.get(0)));
             }
             // 選択の追い風(QTE-M-WIND-25): 「〜してもよい」の任意ディスカード。
             // 選ばなかった(chosenが空)場合は何もしない
@@ -4564,8 +4576,8 @@ public class CardEffectRegistry {
      * ★公開領域は必ず空にする —— 残すと本人のビューに出たままになる。
      */
     private void resolveGurandorandoChoice(EffectContext ctx, List<String> chosen) {
-        List<String> revealed = new ArrayList<>(ctx.owner().getRevealedZone());
-        ctx.owner().getRevealedZone().clear();
+        // ★Batch 81: 取り出す口は GameActions の1本である(公開の旗も同時に降りる)
+        List<String> revealed = ctx.actions().takeRevealedZone(ctx.owner());
         int toMana = chosen.isEmpty() ? -1 : Integer.parseInt(chosen.get(0));
         for (int i = 0; i < revealed.size(); i++) {
             String cardId = revealed.get(i);
@@ -5744,17 +5756,23 @@ public class CardEffectRegistry {
         //   【賢魂：3】自分の山札の上から2枚見て1枚を裏向きでマナに1枚を手札へ相手に見せず加える。」
         //
         // ★ミニオンとしての姿は【威圧】だけで、効果の文を持たない。
-        // ★<b>「見る」だけなので相手には見せない。</b>公開領域(revealedZone)は本人のビューにしか
-        //   出ない(GameViewBuilder が isSelf で絞る)ので、既存の器がそのまま使える。
+        // ★<b>「見る」だけなので相手には見せない。</b>
+        // ★★★<b>Batch 81 の訂正: 80 まで、ここに書いてあった「本人のビューにしか出ない
+        //   (GameViewBuilder が isSelf で絞る)」は<b>事実ではなかった</b></b> ——
+        //   {@code buildRevealedCards} は isSelf を1度も通しておらず、
+        //   <b>見た2枚が相手にも観戦者にも名前つきで届いていた</b>。
+        //   ★実害が出ていなかったのは、battle.js がこの欄を1度も読んでいなかったからにすぎない。
+        //   ★★81 は器に「公開か」の旗を足し(裁定359)、ここでは<b>false を渡す</b>。
+        //   ★★★<b>ログの文言も直した</b> —— 本文は「見て」であり「公開」ではない(裁定360)。
         // ★山札が1枚しかないときは「マナへ置くか、手札に加えるか」を選ばせる(マスター裁定 B7-1)。
         //   そのため min は候補が2枚あるときだけ1になる —— 0枚なら何も起こらない
         soulSpells.put("QTE-M-EARTH-30", SoulSpellSpec.of(ctx -> {
-            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 2);
+            List<String> revealed = ctx.actions().revealFromTopOfDeck(ctx.room(), ctx.owner(), 2, false);
             if (revealed.isEmpty()) {
                 ctx.room().addLog("【愚乱怒土地】: 山札が空のため、何も起こりませんでした");
                 return;
             }
-            ctx.owner().getRevealedZone().addAll(revealed);
+            ctx.actions().placeInRevealedZone(ctx.owner(), revealed, false);
             List<String> positions = new ArrayList<>();
             for (int i = 0; i < revealed.size(); i++) {
                 positions.add(String.valueOf(i));
