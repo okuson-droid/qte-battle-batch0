@@ -19,7 +19,12 @@ python3 tools/check_leader_abilities.py
 python3 tools/report_effects.py --summary                            # 未実装 0 枚が正常値
 python3 tools/check_card_text_numbers.py                             # ★Batch 67
 python3 tools/mark_text_reviewed.py --check                          # ★Batch 67
+python3 tools/break_check_runner.py --self-test                       # ★★★Batch 82
 ```
+
+★★★**最後の1行は「壊し検証を回す道具」自身の番人である**(★Batch 82)。
+ランナーは Python の道具であり、**JUnit にも verify にも照合先が無い** ——
+★<b>だから番人はここにしか置けないし、ここに書かなければ誰も回さない</b>(70 の教訓)。
 
 ### ★★Batch 67: 「未実装0枚」の隣に置いた2本
 
@@ -56,7 +61,8 @@ python3 tools/mark_text_reviewed.py --check                          # ★Batch 
 | `report_effects.py` | 効果の実装状況(`--summary` で枚数だけ)。**未実装0枚が正常値である**。★ただし「本文どおり」は意味しない(裁定303) |
 | `check_card_text_numbers.py` | ★Batch 67。本文の数値と実装の数値の照合 |
 | `mark_text_reviewed.py` | ★Batch 67。本文と実装の突き合わせ台帳の更新・点検 |
-| `batchNN_break_check.py` | そのバッチの「壊し検証」。実装をわざと壊して試験が落ちることを確かめる |
+| `batchNN_break_check.py` | そのバッチの「壊し検証」。実装をわざと壊して試験が落ちることを確かめる。★★★**Batch 82 以降は `CASES` の表だけを持ち、回すのは `break_check_runner.py` である** |
+| ★`break_check_runner.py` | ★★★**Batch 82。壊し検証を「複製の上で・2並列で」回す共通ランナー。**<br>★`--batch NN` で `batchNN_break_check.py` の `CASES` を読み込んで回す(★**過去のスクリプトは1文字も書き換えていない**)。<br>★★<b>本体は1バイトも書き換えない</b> —— 70 の「殺されて壊したまま残る」事故が**構造的に起きない**。<br>★★★<b>`--self-test` がこのランナー自身の番人である(15本)</b> |
 
 ### ★Batch 60 で消したもの
 

@@ -4245,8 +4245,20 @@ async function clearZoom(page) {
   snd.on('pageerror', (e) => sndErrors.push(String(e)));
   snd.on('console', (m) => { if (m.type() === 'error') sndErrors.push(m.text()); });
   await snd.addInitScript(audioSpy);
+  // ★★★Batch 83(設計判断61): <b>手動モードの音の待ちを事実へ移す。</b>
+  //   ★<b>81 が通常モードで直したのと同じ形である</b>(候補 U2)。
+  //   ★★<b>遅らせるのはページを開く前である</b> —— {@code sfxPreload} は
+  //     <b>ページを開いた時点で全部取りに行く</b>(裁定283 の (c))ので、
+  //     unlock の直前に遅らせても<b>もう届いている</b>(81 が実際に空振りした)。
+  //   ★★★<b>82 までここに在った 200ms の固定待ちは撤去した</b> ——
+  //     <b>あれは「取得の完了」を待っていたが、待つべきは「復号の完了」である</b>。
+  //     ★<b>復号には AudioContext が要るので、goto の直後には構造的に揃わない</b>
+  //       (実測: goto から8秒待っても揃わない。unlock まで1枚も復号されない)。
+  //     ★★<b>取得が unlock に間に合わなくても、届いた時点で自分で復号へ回る</b>
+  //       ({@code sfxFetch} の {@code if (sfxCtx) sfxDecode(name)})——
+  //       <b>だから取得の完了を待つ必要そのものが無い</b>。
+  SOUND_RESPONSE.delayMs = 600;
   await snd.goto(`http://127.0.0.1:${port}/harness.html`);
-  await snd.waitForTimeout(200);
 
   const audioNodes = async (target) => target.evaluate(() => window.__audio.nodes.length);
   const clearAudio = async (target) => target.evaluate(() => { window.__audio.nodes = []; });
@@ -4261,7 +4273,6 @@ async function clearZoom(page) {
     b.seatA.zones.TRASH = [card('t1', '墓地1'), card('f1', '場1')];
     syncCounts(b.seatA);
     await deliver(target, b);
-    await target.waitForTimeout(60);
   };
 
   // ★★自動再生ポリシー: ユーザーが何か操作するまで AudioContext を作らない。
@@ -4275,15 +4286,58 @@ async function clearZoom(page) {
   // ★★入口は「最初のユーザー操作」であって特定の操作ではない。
   //   席選択ゲートの決定を入口にすると<b>復帰した人には二度と鳴らない</b>。
   //   ここでキーボードだけで unlock できることを見ているのが、その証明である
+  // ★★★Batch 83: ここは 82 まで <b>60ms の固定待ち</b>だった。
+  //   ★<b>{@code sfxReady()} は AudioContext が在るかしか見ておらず、
+  //     バッファの有無を見ていない</b>(81 が通常モードで見つけたのと同じ性質)。
+  //   ★★<b>待つ相手は「バッファが復号され終わったこと」である</b>。
+  const sndUnlockAt = Date.now();
   await snd.keyboard.press('Shift');
-  await snd.waitForTimeout(60);
+  const sndBuffers = await settled(snd, () => Object.keys(
+    // eslint-disable-next-line no-undef
+    SFX_SPECS).every((nm) => sfxBuffers[nm] && sfxBuffers[nm].length), null);
+  const sndWaited = Date.now() - sndUnlockAt;
+  // ★★<b>片付けてから次へ渡す</b>(78・79・81 の教訓)。以降の節は遅れの無い音で回る
+  SOUND_RESPONSE.delayMs = 0;
   check('★★最初のユーザー操作で音が使えるようになる(操作の種類を問わない・37・4章)',
     (await snd.evaluate(() => window.__audio.contexts)) === 1
       && (await snd.evaluate(() => window.sfxReady && window.sfxReady())) === true);
+  check('★★★手動モードも音のバッファは時間ではなく事実で待つ(83・設計判断61)',
+    sndBuffers === true, `settled=${sndBuffers} waited=${sndWaited}ms`);
+  // ★★遅れ 600ms は unlock より確実に長い。★閾値 400ms の根拠は実測である ——
+  //   <b>遅らせを外すと unlock から 34ms で揃う</b>(壊した側の余裕 366ms)。
+  //   ★<b>正しい側は 1522ms である</b>(余裕 1122ms)。
+  //   ★★<b>「効いていること」だけでなく「効かなくしたときにどれだけ余るか」も
+  //     同じ日に測った</b>(82 の教訓・裁定186 の一歩先)。
+  check('★★遅らせが効いている(83・裁定186)—— すぐ終わったら、それは待っていない',
+    sndWaited >= 400, `${sndWaited}ms`);
 
   await moveDelivery(snd);
   check('★★カードが動く配信で実際に音が鳴る(37・2章)', (await audioNodes(snd)) === 1,
     JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
+
+  // ★★★Batch 83: <b>配信のあとに固定待ちを置かないことの根拠を、ここで測る。</b>
+  //   ★実装は {@code fxSpawn} で<b>rAF を待たずに同期で鳴らす</b>
+  //     (「待ち時間に依存する検証にしない」というコメントがその宣言である)。
+  //   ★★★<b>往復を1回も挟まずに数えるのが唯一の測り方である</b> ——
+  //     <b>{@code deliver} と {@code audioNodes} を別の evaluate に分けると、
+  //     そのあいだにマクロタスクが走ってしまい、
+  //     {@code setTimeout(..., 0)} で鳴らしても捕まらない</b>(壊し検証の軸4 が教えた)。
+  //   ★<b>だから配信と計数を同じ evaluate に閉じる。</b>
+  await fxReset(snd);
+  const sndSyncA = baseView();
+  await deliver(snd, sndSyncA);
+  await clearAudio(snd);
+  const sndSyncB = clone(sndSyncA);
+  sndSyncB.seatA.zones.FIELD = [];
+  sndSyncB.seatA.zones.TRASH = [card('t1', '墓地1'), card('f1', '場1')];
+  syncCounts(sndSyncB.seatA);
+  const sndSyncNodes = await snd.evaluate((v) => {
+    // eslint-disable-next-line no-undef
+    applyView(v);
+    return window.__audio.nodes.length;
+  }, sndSyncB);
+  check('★★★音は配信の中で同期に鳴る(83・だから配信のあとに待たなくてよい)',
+    sndSyncNodes === 1, `nodes=${sndSyncNodes}`);
 
   // ★1配信1音。3枚まとめて動かしても音源は1つしか作られない
   await fxReset(snd);
@@ -4297,7 +4351,6 @@ async function clearZoom(page) {
   sfxMany2.seatA.zones.TRASH = [card('m1', 'ミ1'), card('m2', 'ミ2'), card('m3', 'ミ3')];
   syncCounts(sfxMany2.seatA);
   await deliver(snd, sfxMany2);
-  await snd.waitForTimeout(60);
   check('★★3枚が同時に動いても鳴るのは1音である(37・3-2)', (await audioNodes(snd)) === 1,
     JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
 
@@ -4315,7 +4368,6 @@ async function clearZoom(page) {
   sfxBulk2.seatA.zones.FIELD = [];
   syncCounts(sfxBulk2.seatA);
   await deliver(snd, sfxBulk2);
-  await snd.waitForTimeout(60);
   check('★★差分が上限(8件)を超えると音も鳴らない(裁定8 は音にも効く・37)',
     (await audioNodes(snd)) === 0,
     JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
@@ -4352,10 +4404,8 @@ async function clearZoom(page) {
   await deliver(snd, baseView());
   await clearAudio(snd);
   await snd.locator('#btn-reset').click();
-  await snd.waitForTimeout(60);
   check('★確認を出しただけでは鳴らない(37・2章)', (await audioNodes(snd)) === 0);
   await snd.locator('#confirm-modal-ok').click();
-  await snd.waitForTimeout(60);
   check('★★確認の [実行] で音が鳴る(演出が出ない操作の手応え・37・2章)',
     (await audioNodes(snd)) === 1,
     JSON.stringify(await snd.evaluate(() => window.__audio.nodes)));
@@ -4370,9 +4420,13 @@ async function clearZoom(page) {
     saveSfxSettings();
   });
   await snd.reload();
-  await snd.waitForTimeout(200);
+  // ★★★Batch 83: ここに在った 200ms の固定待ちは<b>撤去した</b>。
+  //   ★<b>いちど「台本が載ったこと」を事実で待つ形にしたが、外しても落ちなかった</b>
+  //     (2並列でも 797/797)—— <b>Playwright の locator が実操作の前に待つからである</b>。
+  //   ★★<b>壊せない待ちを残すのは、偽の番人を1本置くのと同じである</b>(裁定196)。
+  //   ★★★<b>ここの race は下の check が自分で捕まえる</b> ——
+  //     <b>台本が載る前に押していたら localStorage の '55' が当たらない</b>。
   await snd.locator('#btn-sound').click();
-  await snd.waitForTimeout(60);
   check('★音の設定はページを開き直しても残る(37・5章)',
     (await snd.locator('#sound-volume').inputValue()) === '55'
       && (await snd.locator('#sound-mute').isChecked()) === true);
@@ -4382,6 +4436,13 @@ async function clearZoom(page) {
     (await snd.locator('#sound-modal-status').textContent()).includes('ミュート')
       && (await snd.locator('#sound-modal-status').getAttribute('class'))
         .includes('sound-status-warn'));
+
+  // ★★★Batch 83: <b>わざとの遅れは自分で元に戻す</b>(78・79・81 の教訓)。
+  //   ★<b>戻し忘れると、この先の節が全部 600ms ずつ遅い箱で回る</b> ——
+  //     <b>しかも誰も赤くならないので、遅くなったことに気づけない</b>。
+  //   ★★<b>79 が「遅らせた読み込みは自分で元に戻す」を置いたのと同じ形である。</b>
+  check('★★遅らせは自分で元に戻す(83・片付けてから次へ渡す)',
+    SOUND_RESPONSE.delayMs === 0, `delayMs=${SOUND_RESPONSE.delayMs}`);
 
   // =====================================================================
   // ★★★Batch 62: 音響のファイル化(裁定283〜289)
@@ -6240,13 +6301,17 @@ async function clearZoom(page) {
   bsnd.on('pageerror', (e) => bsndErrors.push(String(e)));
   bsnd.on('console', (m) => { if (m.type() === 'error') bsndErrors.push(m.text()); });
   await bsnd.addInitScript(audioSpy);
-  // ★★★Batch 81(設計判断61): <b>音のファイルの応答をわざと 600ms 遅らせる。</b>
+  // ★★★Batch 81(設計判断61): <b>音のファイルの応答をわざと遅らせる。</b>
   //   ★遅らせるのは<b>ページを開く前</b>である —— {@code sfxPreload} は
   //     <b>ページを開いた時点で全部取りに行く</b>(裁定283 の (c))ので、
   //     クリックの直前に遅らせても<b>もう届いている</b>(実際にそれで空振りした)。
   //   ★★下の 400ms より長くしてあるのが要点である ——
   //     <b>クリックの時点でバイト列がまだ無い</b>状態を作らないと、
   //     待ちを固定時間へ戻した人が赤を見ない。
+  // ★★★<b>Batch 82: この 600ms は据え置き、下の閾値だけを 150ms → 400ms へ広げた。</b>
+  //   ★<b>81 の閾値では、壊し検証の軸21 が2並列で当てられなかった</b>(実測)。
+  //   ★★<b>最初は遅れの側(600 → 1200ms)も広げようとしたが、測ったら要らなかった</b> ——
+  //     <b>危なかったのは「正しい側」ではなく「壊した側」だったからである</b>(下を参照)。
   SOUND_RESPONSE.delayMs = 600;
   await bsnd.goto(`http://127.0.0.1:${port}/harness-battle.html`);
   await bsnd.waitForTimeout(400);
@@ -6287,11 +6352,21 @@ async function clearZoom(page) {
   SOUND_RESPONSE.delayMs = 0;
   check('★★★音のバッファは時間ではなく事実で待つ(81・設計判断61)',
     bBuffers === true, `settled=${bBuffers} waited=${bWaited}ms`);
-  // ★★遅れ 600ms − 開いてからの 400ms = <b>クリックの時点で最低 200ms は届いていない</b>。
-  //   ★閾値を 150ms に置いてあるのは、ここで測りたいのが「待ったか」であって
+  // ★★遅れ 1200ms − 開いてからの 400ms = <b>クリックの時点で最低 800ms は届いていない</b>。
+  //   ★閾値を 400ms に置いてあるのは、ここで測りたいのが「待ったか」であって
   //     「何 ms 待ったか」ではないからである(裁定186 と同じ、効いていることだけを見る形)。
+  //   ★★★<b>Batch 82: 150ms から広げた。</b>
+  //     <b>遅らせを外しても、バッファが届くまで 121〜145ms 掛かる</b> ——
+  //     <b>閾値 150ms との余裕は、単独で 29ms・2並列で 5〜16ms しか無かった</b>。
+  //     ★<b>だから箱が混むと「壊しても落ちない」</b>(81 の軸21 が2並列で NG になった)。
+  //   ★★<b>79 の教訓「5ミリ秒しか余裕が無い番人は、番人ではない」の直系である</b> ——
+  //     <b>頻度ではなく余裕を測り、余裕がゼロに近ければ広げる</b>。
+  //   ★★★<b>実測の余裕(閾値 400ms):</b>
+  //     <b>正しい側 1407ms(余裕 1007ms)/ 壊した側 121〜145ms(余裕 255ms)</b>。
+  //     ★<b>遅れを 1200ms へ広げる案は測って外した</b> —— 正しい側は元から 1407ms あり、
+  //       <b>広げても余裕が増えるのは既に足りている側だけだった</b>(設計判断56)。
   check('★★遅らせが効いている(81・裁定186)—— すぐ終わったら、それは待っていない',
-    bWaited >= 150, `${bWaited}ms`);
+    bWaited >= 400, `${bWaited}ms`);
   check('★通常モードの [♪] で音の設定が開く(62・裁定289)',
     !(await bsnd.locator('#sound-modal').getAttribute('class')).includes('d-none'));
   check('★★初期音量は手動モードと同じ 30 である(62・裁定67)',
