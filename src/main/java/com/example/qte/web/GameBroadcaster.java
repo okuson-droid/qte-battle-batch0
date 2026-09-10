@@ -3,6 +3,9 @@ package com.example.qte.web;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import com.example.qte.game.view.GameView;
 import com.example.qte.game.view.GameViewBuilder;
 import com.example.qte.room.GameRoom;
@@ -30,19 +33,36 @@ public class GameBroadcaster {
     private final GameViewBuilder viewBuilder;
 
     /**
+     * 解決の途中の1段(★Batch 84a・裁定362)。
+     *
+     * <p>★<b>段の正はログ行である。</b>{@code logLine} はその段が語る出来事そのものであり、
+     * 右列のログに積まれた行と<b>1対1で対応する</b> ——
+     * 演出で何が起きたか分からなくても、<b>同じ瞬間のログ行が必ず答えを持っている</b>。
+     *
+     * <p>★{@code seq} は1から始まる通し番号である。★★<b>飛び番は作らない</b>
+     * ({@link StepRecorder#stepsFor} は、1段でも欠けたらまるごと空を返す)。
+     *
+     * <p>★★★{@code view} は<b>その閲覧者の視点</b>である ——
+     * 視点フィルタは {@code GameViewBuilder} の1本だけを通る(設計判断9)。
+     */
+    public record GameStep(int seq, String logLine, GameView view) {
+    }
+
+    /**
      * クライアントへ送るメッセージの型。
      * type=VIEW のとき view が入り、type=ERROR のとき message が入る。
      * ★Batch 72: type=LEFT(退室が受理された)が3つ目である。どちらも入らない。
      * ★★Batch 75: type=ROOM_LOST(部屋がもう無い)が4つ目である。これもどちらも入らない。
      */
-    public record WsMessage(String type, GameView view, String message) {
+    public record WsMessage(String type, GameView view, List<GameStep> steps, int foldedSteps,
+            String message) {
 
-        static WsMessage ofView(GameView view) {
-            return new WsMessage("VIEW", view, null);
+        static WsMessage ofView(GameView view, List<GameStep> steps, int foldedSteps) {
+            return new WsMessage("VIEW", view, steps, foldedSteps, null);
         }
 
         static WsMessage ofError(String message) {
-            return new WsMessage("ERROR", null, message);
+            return new WsMessage("ERROR", null, List.of(), 0, message);
         }
 
         /**
@@ -60,7 +80,7 @@ public class GameBroadcaster {
          * ★通常モードは型で運ぶ。手動モードを揃えていないことは設計解説に書き残した。
          */
         static WsMessage ofRoomLost() {
-            return new WsMessage("ROOM_LOST", null, null);
+            return new WsMessage("ROOM_LOST", null, List.of(), 0, null);
         }
 
         /**
@@ -72,7 +92,7 @@ public class GameBroadcaster {
          * 同じ型に2つの意味を載せると<b>どちらの向きか分からない分岐</b>が増える。
          */
         static WsMessage ofLeft() {
-            return new WsMessage("LEFT", null, null);
+            return new WsMessage("LEFT", null, List.of(), 0, null);
         }
     }
 
@@ -84,19 +104,44 @@ public class GameBroadcaster {
      * 判断しはじめると、フィルタが配信層とビルダー層に割れる(設計判断9)。
      * <b>ここの仕事は「誰に送るか」だけであり、「何を見せるか」ではない。</b>
      */
-    public void broadcast(GameRoom room) {
-        for (PlayerSlot slot : room.getSlots()) {
-            sendViewTo(room, slot.getPlayerId());
-        }
-        for (Spectator spectator : room.getSpectators()) {
-            sendViewTo(room, spectator.spectatorId());
+    public void broadcast(GameRoom room, StepRecorder recorder) {
+        for (String viewerId : viewerIdsOf(room)) {
+            sendViewTo(room, viewerId, recorder);
         }
     }
 
-    private void sendViewTo(GameRoom room, String viewerId) {
+    /**
+     * 配信の宛先になる人の一覧(★Batch 84a で1箇所に出した)。
+     *
+     * <p>★<b>段を控えるときと配るときで、同じ一覧を使う。</b>2箇所で数えると、
+     * <b>控えた相手と配る相手がずれても誰も気づかない</b>(裁定130・口は1本)。
+     */
+    private List<String> viewerIdsOf(GameRoom room) {
+        List<String> ids = new ArrayList<>();
+        for (PlayerSlot slot : room.getSlots()) {
+            ids.add(slot.getPlayerId());
+        }
+        for (Spectator spectator : room.getSpectators()) {
+            ids.add(spectator.spectatorId());
+        }
+        return ids;
+    }
+
+    /**
+     * その部屋のいまの宛先ぶんを控える記録係を作る(★Batch 84a)。
+     *
+     * <p>★<b>ビルダーを持っているのはこの層である。</b>記録係を
+     * {@code GameWsController} が自分で組み立てると、
+     * <b>「何を見せるか」の知識が入口の層へ漏れる</b>(設計判断9)。
+     */
+    public StepRecorder newRecorder(GameRoom room) {
+        return StepRecorder.forViewers(viewBuilder, room, viewerIdsOf(room));
+    }
+
+    private void sendViewTo(GameRoom room, String viewerId, StepRecorder recorder) {
         GameView view = viewBuilder.build(room, viewerId);
         messagingTemplate.convertAndSend(destinationOf(room.getRoomId(), viewerId),
-                WsMessage.ofView(view));
+                WsMessage.ofView(view, recorder.stepsFor(viewerId), recorder.folded()));
     }
 
     /** 特定プレイヤーへのエラー通知(ルール違反の操作を拒否したとき) */

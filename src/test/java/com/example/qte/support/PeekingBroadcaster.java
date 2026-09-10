@@ -67,8 +67,18 @@ public final class PeekingBroadcaster extends GameBroadcaster {
      * <b>部屋の状態が変わったこと</b>である。
      */
     @Override
-    public void broadcast(com.example.qte.room.GameRoom room) {
+    public void broadcast(com.example.qte.room.GameRoom room,
+            com.example.qte.web.StepRecorder recorder) {
         broadcastCount++;
+    }
+
+    /**
+     * ★Batch 84a: <b>段は控えない。</b>この器はビューを組み立てないので、
+     * 閲覧者0人の記録係を返す —— {@code broadcast} と同じ理由である。
+     */
+    @Override
+    public com.example.qte.web.StepRecorder newRecorder(com.example.qte.room.GameRoom room) {
+        return com.example.qte.web.StepRecorder.none();
     }
 
     /** 配信が起きた回数(★Batch 75)。操作が受理されたことの目印である */

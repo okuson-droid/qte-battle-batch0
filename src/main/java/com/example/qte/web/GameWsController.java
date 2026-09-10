@@ -352,16 +352,29 @@ public class GameWsController {
             broadcaster.sendRoomLost(roomId, playerId);
             return;
         }
+        // ★★★Batch 84a(裁定362): 解決の途中を段として控える。
+        //   ★記録係を差し込むのはここであり、抜けるときに finally で必ず外す ——
+        //     居残ると、次の操作の段に前の操作が混ざる。
+        //   ★★控えるのはロックの中、配信はロックの外という形は 83 までと変わらない。
+        StepRecorder recorder = broadcaster.newRecorder(room);
         try {
             synchronized (room.getLock()) {
-                action.apply(room);
+                room.setStepRecorder(recorder);
+                try {
+                    action.apply(room);
+                } finally {
+                    room.setStepRecorder(null);
+                }
             }
-            broadcaster.broadcast(room);
+            broadcaster.broadcast(room, recorder);
             if (onSuccess != null) {
                 onSuccess.run();
             }
         } catch (IllegalStateException | IllegalArgumentException e) {
             // ルール違反: 状態は変更されていないので、操作者にだけ理由を返す
+            // ★★ここを通っても記録係は外れている(上の finally)。
+            //   ★ルール違反で落ちた操作にも、落ちるまでに書かれたログ行は在りうるが、
+            //     配信そのものが起きないので段は誰にも届かない。
             broadcaster.sendError(roomId, playerId, e.getMessage());
         }
     }

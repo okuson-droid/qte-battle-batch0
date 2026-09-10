@@ -9,10 +9,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 import com.example.qte.game.GameState;
 import com.example.qte.game.GameStatus;
 
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -450,10 +452,50 @@ public class GameRoom {
 
     // ---- ログ ----
 
+    /**
+     * 解決の途中を記録する係(★Batch 84a・裁定362)。★居なければ何も起きない。
+     *
+     * <p>★★<b>この部屋はビューの作り方を知らない。</b>知っているのは
+     * 「記録係が居れば、ログ行を1本渡す」だけである ——
+     * {@code GameViewBuilder} をここへ注入すると、
+     * <b>{@code GameState} を Spring のビーンにしない</b>という方針が崩れる。
+     *
+     * <p>★★★<b>差し込むのは {@code GameWsController.execute} であり、
+     * 抜けるときに {@code finally} で必ず外す。</b>居残ると
+     * <b>次の操作の段に前の操作が混ざる</b>。
+     */
+    @Getter(AccessLevel.NONE)
+    @Setter
+    private Consumer<String> stepRecorder;
+
+    /**
+     * 記録係が差し込まれているか(★Batch 84a・番人の読み口)。
+     *
+     * <p>★<b>器を用意したら、それを読む番人を同じバッチで置く</b>(77 の教訓)。
+     * ここが操作をまたいで {@code true} のままなら、
+     * <b>次の操作の段に前の操作が混ざる</b> —— それを測れるようにしてある。
+     */
+    public boolean isRecordingSteps() {
+        return stepRecorder != null;
+    }
+
+    /**
+     * ★★★Batch 84a(裁定362): <b>段の境目はこの1箇所だけが決める。</b>
+     *
+     * <p>「ログ行が1つ増えるたびに1段」である ——
+     * ★<b>呼び出し243件は1行も変えていない</b>(裁定68・発火点を増やさない)。
+     * 新しいカードを足しても、そのカードがログを書けば自動的に段になる。
+     *
+     * <p>★★<b>記録は追加の後に行う。</b>記録係はその時点の盤面を写すので、
+     * <b>ログ行と盤面が同じ瞬間のもの</b>でなければならない。
+     */
     public void addLog(String message) {
         log.add(message);
         if (log.size() > 60) {
             log.remove(0);
+        }
+        if (stepRecorder != null) {
+            stepRecorder.accept(message);
         }
     }
 }

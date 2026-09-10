@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>作業台 — TASKS.md</title>
+<style>
+  :root{
+    --paper:#EDEFEA;
+    --paper-2:#E4E8E1;
+    --ink:#21302B;
+    --ink-soft:#5E6B64;
+    --ink-faint:#8B968F;
+    --rule:#C7CEC5;
+    --brass:#8E6B2A;
+    --sage:#6E8B78;
+    --serif:"Hiragino Mincho ProN","Yu Mincho",YuMincho,"Noto Serif JP",Georgia,serif;
+    --sans:"Hiragino Kaku Gothic ProN","Yu Gothic",YuGothic,"Noto Sans JP",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.7;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:34px 28px 90px}
+
+  /* ---- header ---- */
+  header{
+    display:flex;align-items:baseline;gap:20px;flex-wrap:wrap;
+    padding-bottom:14px;
+    border-bottom:1px solid var(--rule);
+  }
+  h1{
+    font-family:var(--serif);
+    font-size:30px;font-weight:500;letter-spacing:.14em;
+    margin:0;
+  }
+  .subtitle{color:var(--ink-soft);font-size:13px;letter-spacing:.05em}
+  .spacer{flex:1}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+  button{
+    font-family:var(--sans);font-size:13px;
+    color:var(--ink);background:transparent;
+    border:1px solid var(--rule);border-radius:2px;
+    padding:5px 12px;cursor:pointer;
+    transition:border-color .12s, background .12s;
+  }
+  button:hover{border-color:var(--brass);background:var(--paper-2)}
+  button:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+  button.primary{border-color:var(--brass);color:var(--brass)}
+
+  .status{font-size:12px;color:var(--ink-faint);min-height:1.4em;padding-top:10px}
+  .status.warn{color:var(--brass)}
+
+  /* ---- layout ---- */
+  .cols{display:grid;grid-template-columns:1fr 320px;gap:52px;margin-top:26px;align-items:start}
+  @media (max-width:900px){ .cols{grid-template-columns:1fr;gap:36px} }
+
+  /* ---- ledger sections ---- */
+  .section{position:relative;padding-left:104px;margin-bottom:34px}
+  .section-name{
+    position:absolute;left:0;top:2px;width:84px;
+    font-family:var(--serif);font-size:16px;letter-spacing:.16em;
+    color:var(--ink);
+  }
+  .section-count{
+    position:absolute;left:0;top:30px;width:84px;
+    font-size:11px;color:var(--ink-faint);letter-spacing:.08em;
+  }
+  /* the ledger spine */
+  .section::before{
+    content:"";position:absolute;left:88px;top:6px;bottom:6px;
+    width:1px;background:var(--rule);
+  }
+  .section.empty::before{bottom:auto;height:22px}
+
+  ul.tasks{list-style:none;margin:0;padding:0}
+  li.task{
+    display:flex;align-items:flex-start;gap:10px;
+    padding:7px 0 7px 2px;
+    border-bottom:1px solid rgba(199,206,197,.55);
+  }
+  li.task:last-child{border-bottom:none}
+
+  .box{
+    flex:none;width:14px;height:14px;margin-top:5px;
+    border:1px solid var(--ink-faint);border-radius:1px;
+    background:transparent;cursor:pointer;padding:0;position:relative;
+  }
+  .box:hover{border-color:var(--brass)}
+  .box[aria-checked="true"]{border-color:var(--sage)}
+  .box[aria-checked="true"]::after{
+    content:"";position:absolute;left:3px;top:0px;
+    width:5px;height:9px;border:solid var(--sage);
+    border-width:0 1.6px 1.6px 0;transform:rotate(42deg);
+  }
+
+  .body{flex:1;min-width:0}
+  .title{font-weight:600}
+  .context{color:var(--ink-soft)}
+  .subs{margin:2px 0 0;padding-left:14px;list-style:none}
+  .subs li{color:var(--ink-soft);font-size:13.5px;position:relative}
+  .subs li::before{content:"";position:absolute;left:-11px;top:11px;width:6px;height:1px;background:var(--rule)}
+  li.done .body{color:var(--ink-faint)}
+  li.done .title{font-weight:500;text-decoration:line-through;text-decoration-color:var(--ink-faint)}
+
+  .kill{
+    flex:none;border:none;background:transparent;color:var(--ink-faint);
+    font-size:15px;line-height:1;padding:4px 3px;cursor:pointer;opacity:0;
+  }
+  li.task:hover .kill,.kill:focus-visible{opacity:1}
+  .kill:hover{color:var(--brass)}
+
+  /* ---- add row ---- */
+  .add{display:flex;gap:10px;align-items:center;margin:6px 0 0 104px}
+  .add input{
+    flex:1;font-family:var(--sans);font-size:14px;color:var(--ink);
+    background:transparent;border:none;border-bottom:1px solid var(--rule);
+    padding:6px 2px;
+  }
+  .add input::placeholder{color:var(--ink-faint)}
+  .add input:focus{outline:none;border-bottom-color:var(--brass)}
+
+  .hint{color:var(--ink-faint);font-size:13px;padding:6px 0}
+
+  /* ---- memory panel ---- */
+  aside{border-left:1px solid var(--rule);padding-left:26px}
+  @media (max-width:900px){ aside{border-left:none;border-top:1px solid var(--rule);padding-left:0;padding-top:22px} }
+  aside h2{
+    font-family:var(--serif);font-size:16px;font-weight:500;
+    letter-spacing:.16em;margin:0 0 4px;
+  }
+  .mem{font-size:13.5px;color:var(--ink-soft)}
+  .mem h3{
+    font-family:var(--serif);font-size:14px;font-weight:500;color:var(--ink);
+    letter-spacing:.1em;margin:20px 0 6px;
+  }
+  .mem ul{margin:0;padding-left:16px}
+  .mem table{border-collapse:collapse;width:100%;font-size:13px}
+  .mem td{padding:3px 8px 3px 0;vertical-align:top;border-bottom:1px solid rgba(199,206,197,.5)}
+  .mem td:first-child{color:var(--ink);white-space:nowrap;width:1%}
+  .mem p{margin:6px 0}
+  .mem .ref{color:var(--ink-faint);font-size:12px}
+
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>作業台</h1>
+    <span class="subtitle">TASKS.md と CLAUDE.md を、そのまま開いて書き戻す</span>
+    <span class="spacer"></span>
+    <div class="toolbar">
+      <button id="openTasks" class="primary">TASKS.md を開く</button>
+      <button id="openMem">CLAUDE.md を開く</button>
+      <button id="save">保存</button>
+    </div>
+  </header>
+  <div class="status" id="status">まだ何も開いていない。「TASKS.md を開く」から始めよう。</div>
+
+  <div class="cols">
+    <main id="board"></main>
+    <aside>
+      <h2>記憶</h2>
+      <div class="mem" id="mem"><p>CLAUDE.md を開くと、人・用語・プロジェクトの控えがここに並ぶ。</p></div>
+    </aside>
+  </div>
+
+  <input type="file" id="filePick" accept=".md,text/markdown,text/plain" hidden>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var SECTIONS = [
+    {key:"Active",     label:"進行中", add:true},
+    {key:"Waiting On", label:"待ち"},
+    {key:"Someday",    label:"いつか"},
+    {key:"Done",       label:"完了"}
+  ];
+
+  var model = null;      // {sectionKey: [{done,text,subs}]}
+  var tasksHandle = null;
+  var pickTarget = "tasks";
+  var saveTimer = null;
+  var hasFS = typeof window.showOpenFilePicker === "function";
+
+  var $ = function(id){ return document.getElementById(id); };
+
+  /* ---------- parse / serialize ---------- */
+
+  function parse(md){
+    var m = {};
+    SECTIONS.forEach(function(s){ m[s.key] = []; });
+    var cur = null;
+    md.split(/\r?\n/).forEach(function(line){
+      var h = line.match(/^##\s+(.+?)\s*$/);
+      if(h){ cur = h[1]; if(!m[cur]) m[cur] = []; return; }
+      var t = line.match(/^\s{0,1}-\s*\[([ xX])\]\s*(.*)$/);
+      if(t && cur){ m[cur].push({done:t[1].toLowerCase()==="x", text:t[2], subs:[]}); return; }
+      var sub = line.match(/^\s{2,}[-*]\s+(.*)$/);
+      if(sub && cur && m[cur].length){ m[cur][m[cur].length-1].subs.push(sub[1]); }
+    });
+    return m;
+  }
+
+  function serialize(){
+    var out = ["# Tasks",""];
+    var keys = SECTIONS.map(function(s){ return s.key; });
+    Object.keys(model).forEach(function(k){ if(keys.indexOf(k)<0) keys.push(k); });
+    keys.forEach(function(k){
+      out.push("## " + k, "");
+      (model[k]||[]).forEach(function(t){
+        out.push("- [" + (t.done?"x":" ") + "] " + t.text);
+        t.subs.forEach(function(s){ out.push("  - " + s); });
+      });
+      out.push("");
+    });
+    return out.join("\n").replace(/\n{3,}$/,"\n");
+  }
+
+  /* ---------- text helpers ---------- */
+
+  function esc(s){
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function inline(s){
+    return esc(s).replace(/`([^`]+)`/g,"<code>$1</code>");
+  }
+  function today(){
+    var d = new Date(), p = function(n){ return (n<10?"0":"")+n; };
+    return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate());
+  }
+  function splitTitle(raw){
+    var text = raw.replace(/~~/g,"").trim();
+    var m = text.match(/^\*\*(.+?)\*\*\s*(.*)$/);
+    if(m) return {title:m[1], rest:m[2]};
+    return {title:text, rest:""};
+  }
+
+  /* ---------- render ---------- */
+
+  function render(){
+    var board = $("board");
+    board.innerHTML = "";
+    if(!model){
+      board.innerHTML = '<p class="hint">TASKS.md を開くと、進行中・待ち・いつか・完了の四段がここに並ぶ。'
+        + (hasFS ? "" : "<br>このブラウザは直接の書き戻しに対応していないので、保存はダウンロードになる。") + "</p>";
+      return;
+    }
+    SECTIONS.forEach(function(sec){
+      var list = model[sec.key] || [];
+      var el = document.createElement("section");
+      el.className = "section" + (list.length ? "" : " empty");
+
+      var name = document.createElement("div");
+      name.className = "section-name";
+      name.textContent = sec.label;
+      el.appendChild(name);
+
+      var count = document.createElement("div");
+      count.className = "section-count";
+      count.textContent = list.length ? list.length + " 件" : "";
+      el.appendChild(count);
+
+      var ul = document.createElement("ul");
+      ul.className = "tasks";
+      list.forEach(function(task, i){ ul.appendChild(taskRow(sec.key, task, i)); });
+      el.appendChild(ul);
+
+      if(!list.length){
+        var p = document.createElement("p");
+        p.className = "hint";
+        p.textContent = sec.key === "Active" ? "空。下に書けば足せる。" : "なし。";
+        el.appendChild(p);
+      }
+      board.appendChild(el);
+
+      if(sec.add){
+        var row = document.createElement("div");
+        row.className = "add";
+        var input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "書いて Enter で進行中に足す";
+        input.addEventListener("keydown", function(e){
+          if(e.key !== "Enter" || !input.value.trim()) return;
+          model["Active"].push({done:false, text:"**"+input.value.trim()+"**", subs:[]});
+          input.value = "";
+          render(); scheduleSave();
+        });
+        row.appendChild(input);
+        board.appendChild(row);
+      }
+    });
+  }
+
+  function taskRow(sectionKey, task, index){
+    var li = document.createElement("li");
+    li.className = "task" + (task.done ? " done" : "");
+
+    var box = document.createElement("button");
+    box.className = "box";
+    box.setAttribute("role","checkbox");
+    box.setAttribute("aria-checked", task.done ? "true" : "false");
+    box.setAttribute("aria-label", task.done ? "未完了に戻す" : "完了にする");
+    box.addEventListener("click", function(){ toggle(sectionKey, index); });
+    li.appendChild(box);
+
+    var body = document.createElement("div");
+    body.className = "body";
+    var parts = splitTitle(task.text);
+    body.innerHTML = '<span class="title">' + inline(parts.title) + "</span>"
+      + (parts.rest ? ' <span class="context">' + inline(parts.rest) + "</span>" : "");
+    if(task.subs.length){
+      var sub = document.createElement("ul");
+      sub.className = "subs";
+      task.subs.forEach(function(s){
+        var li2 = document.createElement("li");
+        li2.innerHTML = inline(s);
+        sub.appendChild(li2);
+      });
+      body.appendChild(sub);
+    }
+    li.appendChild(body);
+
+    var kill = document.createElement("button");
+    kill.className = "kill";
+    kill.textContent = "\u00d7";
+    kill.title = "削除";
+    kill.setAttribute("aria-label","この項目を削除");
+    kill.addEventListener("click", function(){
+      model[sectionKey].splice(index,1);
+      render(); scheduleSave();
+    });
+    li.appendChild(kill);
+
+    return li;
+  }
+
+  /* ---------- actions ---------- */
+
+  function toggle(sectionKey, index){
+    var task = model[sectionKey][index];
+    if(!task) return;
+    if(!task.done){
+      task.done = true;
+      var t = task.text.replace(/~~/g,"").trim();
+      task.text = "~~" + t + "~~ (" + today() + ")";
+      model[sectionKey].splice(index,1);
+      model["Done"].unshift(task);
+    } else {
+      task.done = false;
+      task.text = task.text.replace(/~~/g,"").replace(/\s*\(\d{4}-\d{2}-\d{2}\)\s*$/,"").trim();
+      model[sectionKey].splice(index,1);
+      model["Active"].push(task);
+    }
+    render(); scheduleSave();
+  }
+
+  function say(msg, warn){
+    var s = $("status");
+    s.textContent = msg;
+    s.className = "status" + (warn ? " warn" : "");
+  }
+
+  function scheduleSave(){
+    if(!tasksHandle) { say("変更あり。書き戻し先が未設定なので「保存」でダウンロードして。", true); return; }
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(save, 400);
+  }
+
+  async function save(){
+    if(!model){ say("開いているものがない。", true); return; }
+    var text = serialize();
+    if(tasksHandle){
+      try{
+        var w = await tasksHandle.createWritable();
+        await w.write(text); await w.close();
+        say("保存した " + new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}));
+      }catch(err){ say("書き戻せなかった: " + err.message, true); }
+    } else {
+      var blob = new Blob([text], {type:"text/markdown"});
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "TASKS.md";
+      a.click();
+      URL.revokeObjectURL(a.href);
+      say("TASKS.md をダウンロードした。元のファイルに置き換えて。");
+    }
+  }
+
+  /* ---------- opening files ---------- */
+
+  async function openFile(kind){
+    pickTarget = kind;
+    if(hasFS){
+      try{
+        var res = await window.showOpenFilePicker({
+          multiple:false,
+          types:[{description:"Markdown", accept:{"text/markdown":[".md"],"text/plain":[".md",".txt"]}}]
+        });
+        var handle = res[0];
+        var file = await handle.getFile();
+        var text = await file.text();
+        if(kind === "tasks"){ tasksHandle = handle; loadTasks(text, file.name); }
+        else { loadMemory(text, file.name); }
+        return;
+      }catch(err){
+        if(err && err.name === "AbortError") return;
+        // fall through to the input fallback
+      }
+    }
+    $("filePick").click();
+  }
+
+  $("filePick").addEventListener("change", function(e){
+    var file = e.target.files[0];
+    if(!file) return;
+    var r = new FileReader();
+    r.onload = function(){
+      if(pickTarget === "tasks") loadTasks(String(r.result), file.name);
+      else loadMemory(String(r.result), file.name);
+    };
+    r.readAsText(file);
+    e.target.value = "";
+  });
+
+  function loadTasks(text, name){
+    model = parse(text);
+    render();
+    var n = (model["Active"]||[]).length;
+    say(name + " を読み込んだ。進行中 " + n + " 件。"
+        + (tasksHandle ? "変更は自動で書き戻す。" : "このブラウザでは書き戻せないので、保存はダウンロードになる。"),
+        !tasksHandle);
+  }
+
+  /* ---------- memory panel ---------- */
+
+  function loadMemory(text, name){
+    $("mem").innerHTML = renderMemory(text);
+  }
+
+  function renderMemory(md){
+    var out = [], rows = null, list = null;
+    function closeAll(){
+      if(rows){ out.push("<table>"+rows.join("")+"</table>"); rows = null; }
+      if(list){ out.push("<ul>"+list.join("")+"</ul>"); list = null; }
+    }
+    md.split(/\r?\n/).forEach(function(line){
+      var h2 = line.match(/^##\s+(.+)$/);
+      if(h2){ closeAll(); out.push("<h3>"+esc(h2[1])+"</h3>"); return; }
+      if(/^#\s+/.test(line)) return;
+      if(/^\|/.test(line)){
+        if(/^\|[\s:|-]+\|?$/.test(line)) return;
+        var cells = line.split("|").slice(1,-1).map(function(c){ return c.trim(); });
+        if(!cells.length) return;
+        if(!rows) rows = [];
+        rows.push("<tr>"+cells.map(function(c){ return "<td>"+inline(c)+"</td>"; }).join("")+"</tr>");
+        return;
+      }
+      if(rows){ out.push("<table>"+rows.join("")+"</table>"); rows = null; }
+      var li = line.match(/^[-*]\s+(.+)$/);
+      if(li){ if(!list) list = []; list.push("<li>"+inline(li[1])+"</li>"); return; }
+      if(list){ out.push("<ul>"+list.join("")+"</ul>"); list = null; }
+      if(/^\s*→/.test(line)){ out.push('<p class="ref">'+inline(line.trim())+"</p>"); return; }
+      if(line.trim()) out.push("<p>"+inline(line.trim())+"</p>");
+    });
+    closeAll();
+    return out.join("") || "<p>中身が読み取れなかった。</p>";
+  }
+
+  /* ---------- wire up ---------- */
+
+  $("openTasks").addEventListener("click", function(){ openFile("tasks"); });
+  $("openMem").addEventListener("click", function(){ openFile("memory"); });
+  $("save").addEventListener("click", save);
+  document.addEventListener("keydown", function(e){
+    if((e.metaKey || e.ctrlKey) && e.key === "s"){ e.preventDefault(); save(); }
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>
