@@ -1,0 +1,19 @@
+/* デモページ専用の見た目（盤面の外側のボタン類） */
+html,body{margin:0;height:100%;background:#15130f;overflow:hidden;touch-action:manipulation}
+#game{position:fixed;inset:0}
+#ui{position:absolute;left:8px;top:8px;z-index:70;display:flex;flex-direction:column;gap:6px;
+  font-size:12px;background:rgba(20,16,10,.75);border:1px solid #5a4a32;border-radius:10px;padding:8px;max-width:190px}
+#ui .btns{display:flex;flex-wrap:wrap;gap:5px}
+#ui button{font:inherit;font-size:12px;color:#f3ead6;background:linear-gradient(#6a5436,#3d2f1e);
+  border:1px solid #a88a5a;border-radius:6px;padding:5px 8px;cursor:pointer}
+#ui button,#endTurn{transition:scale 150ms cubic-bezier(.2,0,0,1)}
+#ui button:active,#endTurn:not(:disabled):active{scale:.96}
+#ui label{display:flex;align-items:center;gap:6px;color:#cfc3aa}
+#ui input[type=range]{width:90px}
+#ui .hint{color:#a99e88;line-height:1.45;font-size:11px}
+#endTurn{position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:70;
+  font:inherit;font-weight:800;font-size:13px;color:#1b1406;cursor:pointer;
+  background:linear-gradient(#ffe08a,#d59a2a);border:2px solid #fff0c0;border-radius:999px;padding:9px 12px;
+  box-shadow:0 0 12px rgba(255,200,90,.6)}
+#endTurn:disabled{filter:grayscale(1) brightness(.6);cursor:default;box-shadow:none}
+@media (max-width:600px){#ui{padding:5px;gap:4px;max-width:128px;left:4px;top:4px}#ui .hint{display:none}#ui input[type=range]{width:56px}#ui button{padding:4px 6px}#endTurn{right:4px;font-size:12px;padding:7px 9px}}

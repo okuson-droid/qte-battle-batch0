@@ -1,0 +1,213 @@
+/* QTE 通常モードの盤面(見た目は据え置き)に、card-battle の演出と操作を載せたプロトタイプ。
+   配置: 左 = 相手の手札とマナ / 相手の場 / 自分の場 / 自分のマナ / 手札、右 = リーダー・山・ボタン・ログ・フェイズ表。
+   座標を使う演出層は position:fixed で画面座標に置くため、盤面の祖先に transform / filter を付けないこと。 */
+:root {
+  color-scheme: dark;
+  --bg: #1b1c20;
+  --panel: #2a2c31;
+  --panel-2: #23252a;
+  --line: #3b3e45;
+  --ink: #e9e6df;
+  --muted: #9a9ca3;
+  --gold: #f2b233;
+  --opp: #c8413f;
+  --me: #3a74c9;
+  --ok: #57d36a;
+  --civ-water: #2f6fb5; --civ-fire: #b53a3a; --civ-wind: #3a8f57; --civ-light: #b8952f; --civ-dark: #6b42a8; --civ-earth: #c05a8e;
+  --font: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
+}
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; }
+#game { position: fixed; inset: 0; }
+
+.cb-stage { position: relative; overflow: hidden; container-type: size; --aimc: #ff6a3d; --t: .3s;
+  touch-action: none; -webkit-tap-highlight-color: transparent; color: var(--ink); font-family: var(--font);
+  background: var(--bg); user-select: none; -webkit-user-select: none; }
+.cb-stage * { box-sizing: border-box; }
+.cb-stage > * { --cw: clamp(44px, min(7.4cqw, 11.2cqh), 104px); --ch: calc(var(--cw) * 1.4); }
+.cb-stage[data-aim=help] { --aimc: #5dff9a; }
+
+/* ---------- 骨格 ---------- */
+.cb-field { position: absolute; inset: 0; display: grid; gap: 8px; padding: 8px;
+  grid-template-columns: minmax(0, 1fr) clamp(148px, 21cqw, 290px); grid-template-rows: auto minmax(0, 1fr);
+  transition: opacity 180ms ease; }
+.cb-field.auto-step-sink { opacity: .88; } /* 84b: 再生中は盤面をわずかに沈める(filter は使わない) */
+
+.q-top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.q-room { font-size: 15px; white-space: nowrap; }
+.q-room b { color: var(--gold); letter-spacing: .04em; }
+.q-conn { color: var(--muted); font-size: 12px; margin-left: 10px; }
+.q-demo { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; margin-left: auto; }
+.q-demo label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.q-demo select, .q-demo button, .q-btns button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid #5a5e67;
+  border-radius: 6px; padding: 4px 9px; cursor: pointer; transition: scale 150ms cubic-bezier(.2,0,0,1), background 150ms; }
+.q-demo button:active, .q-btns button:not(:disabled):active { scale: .96; }
+.q-demo button:focus-visible, .q-btns button:focus-visible, .q-demo select:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.q-turn { color: var(--gold); font-size: clamp(13px, 1.9cqw, 20px); white-space: nowrap; }
+.q-turn b { font-weight: 700; }
+.q-turn.opp { color: #ff8e7a; }
+
+.q-left { display: grid; gap: 6px; min-height: 0; min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto auto calc(var(--ch) * 1.06); }
+.q-zone { background: var(--panel); border-radius: 6px; padding: 6px 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.q-zone.opp { border-top: 3px solid var(--opp); }
+.q-zone.me { border-bottom: 3px solid var(--me); transition: box-shadow 160ms; }
+.q-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-block; border: 1px solid #555a63; border-radius: 999px; padding: 1px 8px; font-size: 12px; color: #cfd1d6; background: #25272c; white-space: nowrap; }
+.chip b { color: var(--gold); }
+.chip.plain { border-color: transparent; background: none; color: var(--muted); }
+.backs { display: flex; padding-right: calc(var(--cw) * .22); }
+.hback { width: calc(var(--cw) * .36); height: calc(var(--cw) * .5); margin-right: calc(var(--cw) * -.2); border-radius: 3px;
+  border: 1px solid #6a2530; background: radial-gradient(circle at 50% 50%, #7a2b36 0 18%, transparent 19%),
+  repeating-linear-gradient(45deg, #3a1219 0 4px, #25090e 4px 8px); box-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.mana-row { display: flex; gap: 5px; flex-wrap: wrap; min-height: calc(var(--cw) * .6); align-items: center; }
+.mtile { width: calc(var(--cw) * .44); height: calc(var(--cw) * .6); border-radius: 4px; border: 1px solid #7a2c38;
+  background: radial-gradient(circle at 50% 50%, #8c3441 0 16%, transparent 17%), repeating-linear-gradient(45deg, #3d141c 0 5px, #270b10 5px 10px);
+  box-shadow: 0 2px 4px rgba(0,0,0,.55); transition: transform 260ms cubic-bezier(.2,.8,.2,1), opacity 260ms; }
+.mtile.tapped { transform: rotate(90deg) scale(.82); opacity: .55; }
+.mana-row.chargeable { outline: 1px dashed rgba(242,178,51,.45); outline-offset: 3px; border-radius: 4px; }
+.cb-stage.manazone .q-zone.me { box-shadow: inset 0 0 0 2px var(--gold), 0 0 16px rgba(242,178,51,.45); }
+
+.q-lane { position: relative; border-radius: 6px; display: flex; align-items: center; gap: 8px; padding: 6px 8px; min-height: 0; }
+.q-lane.opp { background: rgba(120,38,42,.22); border-left: 4px solid var(--opp); }
+.q-lane.me { background: rgba(40,70,120,.28); border-left: 4px solid var(--me); transition: box-shadow 200ms; }
+.q-lane.fx-top { z-index: 20; }
+.cb-stage.dropzone .q-lane.me { box-shadow: inset 0 0 0 2px #7fb0ff, inset 0 0 30px rgba(120,170,255,.25); }
+.row { position: relative; flex: 1; display: flex; align-items: center; gap: calc(var(--cw) * .1); min-width: 0; height: 100%; z-index: 1; }
+.castzone { flex: none; width: calc(var(--cw) * 1.25); height: calc(var(--ch) * .95); border: 2px dashed #5f6470; border-radius: 8px;
+  display: grid; place-items: center; text-align: center; color: #8e929b; font-size: 11px; line-height: 1.5; transition: box-shadow 200ms, border-color 200ms, color 200ms; }
+.cb-stage.castzone .castzone { border-color: #b18cff; color: #e6dbff; box-shadow: 0 0 22px rgba(177,140,255,.55), inset 0 0 22px rgba(177,140,255,.3); }
+.q-handlabel { color: var(--muted); font-size: 12px; padding-left: 2px; }
+
+/* ---------- 右の列 ---------- */
+.q-right { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+.hero.leader { position: relative; flex: none; border-radius: 8px; padding: 7px 9px; cursor: pointer;
+  background: linear-gradient(160deg, #4a4d56, #2d2f35 55%, #26282d); border: 1px solid #5b5f69; box-shadow: 0 3px 8px rgba(0,0,0,.45); }
+.hero.leader[data-side=enemy] { border-top: 3px solid var(--opp); }
+.hero.leader[data-side=player] { border-bottom: 3px solid var(--me); }
+.lname { font-weight: 700; font-size: 13px; }
+.hhp { font-size: clamp(22px, 3.2cqw, 34px); font-weight: 800; line-height: 1.05; display: inline-block; transform-origin: 30% 60%; font-variant-numeric: tabular-nums; }
+.hhp.low span { color: #ff6b6b; }
+.lability { font-size: 11px; color: #c9cbd1; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lweapon { font-size: 11px; color: var(--gold); border-top: 1px solid #4a4d56; margin-top: 4px; padding-top: 3px; }
+.piles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; flex: none; }
+.pile { display: grid; justify-items: center; position: relative; }
+.pbox { width: calc(var(--cw) * .48); height: calc(var(--cw) * .64); border-radius: 4px; border: 1px dashed #5b5f69; }
+.pbox.back { border: 1px solid #7a2c38; background: radial-gradient(circle at 50% 50%, #8c3441 0 16%, transparent 17%), repeating-linear-gradient(45deg, #3d141c 0 5px, #270b10 5px 10px); }
+.pile[data-pile=banish] .pbox { border-color: #7d62b8; background: radial-gradient(circle, rgba(150,110,230,.18), transparent 70%); }
+.pile b { position: absolute; top: -6px; right: 4px; min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--gold); color: #1d1606; font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
+.pile i { font-style: normal; font-size: 11px; color: var(--muted); }
+.q-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.q-btns button { flex: 1; padding: 6px 4px; }
+.q-btns button:disabled { opacity: .45; cursor: default; }
+.q-log { flex: 1; min-height: 60px; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.q-logbar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.q-logbar .last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-loglist { flex: 1; margin: 0; padding: 4px 8px 6px 26px; overflow-y: auto; font-size: 11.5px; line-height: 1.55; color: #c3c5cb; }
+.q-loglist li.now { color: #fff; background: rgba(242,178,51,.16); border-radius: 3px; }
+.q-phases { list-style: none; margin: 0; padding: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; flex: none; }
+.q-phases li { padding: 1px 6px; border-radius: 4px; color: #b7b9bf; }
+.q-phases li i { font-style: normal; color: #6f727a; margin-right: 5px; }
+.q-phases li.on { background: var(--gold); color: #1b1404; font-weight: 700; }
+.q-phases li.on i { color: #5a4210; }
+.their-turn .q-phases li.on { background: #d0624f; color: #fff; }
+.q-stepbar { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 30; background: rgba(20,20,24,.92);
+  border: 1px solid var(--gold); color: #f7e6b8; font-size: 12px; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+.q-toast { position: absolute; left: 50%; bottom: calc(var(--ch) * 1.25); transform: translateX(-50%); z-index: 62; max-width: 90%;
+  background: rgba(30,20,20,.95); border: 1px solid #d0624f; color: #ffd9d0; font-size: 13px; padding: 6px 14px; border-radius: 8px; pointer-events: none; }
+
+/* ---------- カード(QTE のカード面を簡略化) ---------- */
+.card { position: relative; flex: none; width: var(--cw); height: var(--ch); border-radius: calc(var(--cw) * .07); cursor: pointer;
+  border: 2px solid hsl(var(--h) 50% 42%); background: linear-gradient(180deg, hsl(var(--h) 30% 20%), #1c1d22 58%);
+  box-shadow: 0 3px 8px rgba(0,0,0,.55); font-size: calc(var(--cw) * .1); color: var(--ink); }
+.card .head { display: flex; align-items: center; gap: 3%; padding: 3% 4% 2%; }
+.card .cost { flex: none; width: 1.7em; height: 1.7em; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 1.05em;
+  background: hsl(var(--h) 55% 42%); border: 1px solid hsl(var(--h) 70% 75%); }
+.card .name { font-weight: 700; font-size: 1.05em; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card .art { margin: 0 5%; height: 36%; border-radius: 4px; overflow: hidden; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 40%, hsl(var(--h) 70% 52%), hsl(var(--h) 55% 22%) 60%, hsl(var(--h) 45% 9%)); box-shadow: inset 0 0 8px rgba(0,0,0,.6); }
+.card .art svg { width: 70%; height: 70%; }
+.card .type { font-size: .78em; color: #a8aab1; padding: 2% 6% 0; }
+.card .text { font-size: .8em; line-height: 1.3; padding: 1% 6%; color: #d9dbe0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.card .stat { position: absolute; bottom: 2%; font-weight: 800; font-size: 1.35em; text-shadow: 0 1px 2px #000; line-height: 1; }
+.card .atk { left: 6%; }
+.card .hp { right: 6%; }
+.card .atk::before { content: "⚔"; font-size: .75em; margin-right: 1px; color: #f2d48a; }
+.card .hp::before { content: "♥"; font-size: .75em; margin-right: 1px; color: #ff8fa0; }
+.card .stat.damaged span { color: #ff6b6b; }
+.card .stat.buffed span { color: #8dff9a; }
+.card .flashov { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 3; }
+.row .card .type, .row .card .text { display: none; }
+.row .card .art { height: 50%; margin-top: 3%; }
+.row .card.ready { box-shadow: 0 0 0 2px var(--ok), 0 0 14px 4px rgba(90,255,120,.45); }
+.row .card.selected { box-shadow: 0 0 0 3px #fff, 0 0 22px 7px rgba(255,220,120,.85); }
+.row .card.exhausted { filter: saturate(.5) brightness(.72); }
+.row .card.sick::after { content: "召喚酔い"; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); font-size: 9px; white-space: nowrap;
+  background: #3a3d45; border: 1px solid #5b5f69; color: #c8cad0; border-radius: 999px; padding: 0 5px; }
+.row .card.charging { box-shadow: 0 0 24px 10px rgba(255,120,40,.9); }
+.cb-hand .card.playable { box-shadow: 0 0 0 2px var(--ok), 0 3px 8px rgba(0,0,0,.55); }
+.row .card, .hero { transition: scale 150ms cubic-bezier(.2,0,0,1); }
+.locked { scale: 1.07; }
+.valid { box-shadow: 0 0 0 3px var(--aimc), 0 0 18px 6px color-mix(in srgb, var(--aimc) 60%, transparent) !important; }
+.aiming .row[data-side=enemy] .card:hover, .aiming .hero[data-side=enemy]:hover { box-shadow: 0 0 0 3px #ff5a4a, 0 0 20px 7px rgba(255,80,60,.75); }
+
+/* ---------- 手札 ---------- */
+.cb-hand { position: relative; z-index: 5; min-width: 0; }
+.cb-hand .card { position: absolute; left: 0; top: 2px;
+  transform: translate(var(--x), calc(var(--y) + var(--lift, 0px))) rotate(var(--r)) scale(var(--s, 1));
+  transform-origin: 50% 100%; transition: transform var(--t) cubic-bezier(.2,.8,.2,1); }
+@media (hover: hover) { .cb-hand .card:hover { --lift: calc(var(--ch) * -.3); --s: 1.16; z-index: 30 !important; } }
+.cb-hand .card.picked { --lift: calc(var(--ch) * -.4); --s: 1.18; z-index: 40 !important; box-shadow: 0 0 0 2px #fff, 0 0 22px 8px hsla(var(--sh),100%,65%,.8); }
+
+/* ---------- ドラッグ・照準 ---------- */
+.cb-drag { position: fixed; inset: 0; z-index: 58; pointer-events: none; }
+.cb-drag .card { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; box-shadow: 0 22px 34px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.15); }
+.cb-drag .card.nope { box-shadow: 0 0 0 3px #ff4a3a, 0 22px 34px rgba(0,0,0,.55); }
+.cb-drag .card.armed { box-shadow: 0 0 0 3px #fff, 0 0 30px 10px hsla(var(--sh),100%,65%,.9); }
+.slot { flex: none; width: var(--cw); height: var(--ch); border-radius: calc(var(--cw) * .07); border: 2px dashed rgba(160,200,255,.8); background: rgba(120,170,255,.1); }
+.cb-reticle { position: fixed; z-index: 54; pointer-events: none; display: none; }
+.cb-reticle .ring { position: absolute; inset: 0; border-radius: 50%; border: 3px dashed var(--aimc); box-shadow: 0 0 14px var(--aimc), inset 0 0 14px var(--aimc); animation: spin 2.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.cb-aim { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 55; overflow: visible; }
+.cb-aim path.line { fill: none; stroke: var(--aimc); stroke-width: 9; stroke-linecap: round; stroke-dasharray: 4 14; animation: dash .5s linear infinite; filter: drop-shadow(0 0 6px var(--aimc)); }
+@keyframes dash { to { stroke-dashoffset: -18; } }
+.cb-inspect { position: absolute; inset: 0; z-index: 66; display: none; place-items: center; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,.45), rgba(0,0,0,.82)); }
+.cb-inspect .card { --cw: min(44cqw, 240px); --ch: calc(var(--cw) * 1.4); cursor: default; box-shadow: 0 24px 50px rgba(0,0,0,.7); }
+.cb-inspect .card .type, .cb-inspect .card .text { display: block; display: -webkit-box; }
+
+/* ---------- 演出層 ---------- */
+.cb-dim { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, rgba(0,0,0,.35), rgba(0,0,0,.85)); opacity: 0; pointer-events: none; z-index: 30; }
+.cb-flash { position: absolute; inset: 0; background: #fff8e8; opacity: 0; pointer-events: none; z-index: 52; mix-blend-mode: screen; }
+.cracks { position: absolute; pointer-events: none; z-index: 4; overflow: visible; }
+.shatter { position: fixed; z-index: 45; pointer-events: none; }
+.shatter > * { position: absolute; left: 0; top: 0; margin: 0; }
+.scorch { position: fixed; z-index: 2; pointer-events: none; border-radius: 50%; background: radial-gradient(closest-side, rgba(10,6,4,.75), rgba(30,15,8,.45) 55%, rgba(0,0,0,0)); }
+.cb-fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }
+.cb-cast { position: fixed; inset: 0; z-index: 42; pointer-events: none; }
+.cb-cast .card { position: absolute; }
+.cb-cast .card .type, .cb-cast .card .text { display: block; display: -webkit-box; }
+.num { position: fixed; z-index: 60; pointer-events: none; font-weight: 900; font-size: clamp(26px, calc(var(--cw) * .42), 44px); color: #fff;
+  -webkit-text-stroke: 3px #7a0b0b; paint-order: stroke; text-shadow: 0 4px 10px rgba(0,0,0,.6); transform: translate(-50%,-50%); }
+.num.heal { -webkit-text-stroke: 3px #0d5a2a; color: #eafff0; }
+.num.buff { -webkit-text-stroke: 3px #6a4a08; color: #fff6d0; font-size: clamp(20px, calc(var(--cw) * .3), 34px); }
+.cb-banner { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); z-index: 65; pointer-events: none; text-align: center;
+  font-family: var(--serif); font-weight: 900; font-size: clamp(28px, 7cqw, 64px); letter-spacing: .12em; color: #fff4d6;
+  text-shadow: 0 0 18px rgba(255,190,90,.9), 0 3px 0 #6a4a16; opacity: 0; padding: .35em 0;
+  background: linear-gradient(90deg, transparent, rgba(0,0,0,.65) 20%, rgba(0,0,0,.65) 80%, transparent); }
+
+@media (prefers-reduced-motion: reduce) { .cb-aim path.line { animation: none; } .cb-hand .card { transition: none; } }
+@media (max-width: 640px) {
+  .cb-stage > * { --cw: clamp(40px, min(12.5cqw, 9.5cqh), 64px); }
+  .cb-field { grid-template-columns: minmax(0, 1fr) 112px; gap: 6px; padding: 6px; }
+  .q-conn, .q-handlabel, .q-zone .chip.plain { display: none; }
+  .q-left { grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto 0 calc(var(--ch) * 1.06); }
+  .castzone { width: calc(var(--cw) * .8); font-size: 8px; }
+  .lability, .lweapon, .q-phases, .q-loglist { display: none; }
+  .q-log { flex: 1; min-height: 0; }
+  .q-logbar { flex-direction: column; align-items: stretch; }
+  .q-logbar .last { white-space: normal; font-size: 11px; }
+  .q-btns { flex-direction: column; }
+  .pile i { font-size: 9px; }
+  .q-demo { font-size: 11px; margin-left: 0; }
+  .q-turn { width: 100%; }
+}

@@ -1,0 +1,2888 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>QTE 演出プロトタイプ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;800&family=Noto+Serif+JP:wght@900&display=swap">
+<style>
+/* QTE 通常モードの盤面(見た目は据え置き)に、card-battle の演出と操作を載せたプロトタイプ。
+   配置: 左 = 相手の手札とマナ / 相手の場 / 自分の場 / 自分のマナ / 手札、右 = リーダー・山・ボタン・ログ・フェイズ表。
+   座標を使う演出層は position:fixed で画面座標に置くため、盤面の祖先に transform / filter を付けないこと。 */
+:root {
+  color-scheme: dark;
+  --bg: #1b1c20;
+  --panel: #2a2c31;
+  --panel-2: #23252a;
+  --line: #3b3e45;
+  --ink: #e9e6df;
+  --muted: #9a9ca3;
+  --gold: #f2b233;
+  --opp: #c8413f;
+  --me: #3a74c9;
+  --ok: #57d36a;
+  --civ-water: #2f6fb5; --civ-fire: #b53a3a; --civ-wind: #3a8f57; --civ-light: #b8952f; --civ-dark: #6b42a8; --civ-earth: #c05a8e;
+  --font: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --serif: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
+}
+html, body { height: 100%; margin: 0; background: var(--bg); color: var(--ink); overflow: hidden; }
+#game { position: fixed; inset: 0; }
+
+.cb-stage { position: relative; overflow: hidden; container-type: size; --aimc: #ff6a3d; --t: .3s;
+  touch-action: none; -webkit-tap-highlight-color: transparent; color: var(--ink); font-family: var(--font);
+  background: var(--bg); user-select: none; -webkit-user-select: none; }
+.cb-stage * { box-sizing: border-box; }
+.cb-stage > * { --cw: clamp(44px, min(7.4cqw, 11.2cqh), 104px); --ch: calc(var(--cw) * 1.4); }
+.cb-stage[data-aim=help] { --aimc: #5dff9a; }
+
+/* ---------- 骨格 ---------- */
+.cb-field { position: absolute; inset: 0; display: grid; gap: 8px; padding: 8px;
+  grid-template-columns: minmax(0, 1fr) clamp(148px, 21cqw, 290px); grid-template-rows: auto minmax(0, 1fr);
+  transition: opacity 180ms ease; }
+.cb-field.auto-step-sink { opacity: .88; } /* 84b: 再生中は盤面をわずかに沈める(filter は使わない) */
+
+.q-top { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.q-room { font-size: 15px; white-space: nowrap; }
+.q-room b { color: var(--gold); letter-spacing: .04em; }
+.q-conn { color: var(--muted); font-size: 12px; margin-left: 10px; }
+.q-demo { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; margin-left: auto; }
+.q-demo label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.q-demo select, .q-demo button, .q-btns button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid #5a5e67;
+  border-radius: 6px; padding: 4px 9px; cursor: pointer; transition: scale 150ms cubic-bezier(.2,0,0,1), background 150ms; }
+.q-demo button:active, .q-btns button:not(:disabled):active { scale: .96; }
+.q-demo button:focus-visible, .q-btns button:focus-visible, .q-demo select:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.q-turn { color: var(--gold); font-size: clamp(13px, 1.9cqw, 20px); white-space: nowrap; }
+.q-turn b { font-weight: 700; }
+.q-turn.opp { color: #ff8e7a; }
+
+.q-left { display: grid; gap: 6px; min-height: 0; min-width: 0;
+  grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto auto calc(var(--ch) * 1.06); }
+.q-zone { background: var(--panel); border-radius: 6px; padding: 6px 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.q-zone.opp { border-top: 3px solid var(--opp); }
+.q-zone.me { border-bottom: 3px solid var(--me); transition: box-shadow 160ms; }
+.q-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-block; border: 1px solid #555a63; border-radius: 999px; padding: 1px 8px; font-size: 12px; color: #cfd1d6; background: #25272c; white-space: nowrap; }
+.chip b { color: var(--gold); }
+.chip.plain { border-color: transparent; background: none; color: var(--muted); }
+.backs { display: flex; padding-right: calc(var(--cw) * .22); }
+.hback { width: calc(var(--cw) * .36); height: calc(var(--cw) * .5); margin-right: calc(var(--cw) * -.2); border-radius: 3px;
+  border: 1px solid #6a2530; background: radial-gradient(circle at 50% 50%, #7a2b36 0 18%, transparent 19%),
+  repeating-linear-gradient(45deg, #3a1219 0 4px, #25090e 4px 8px); box-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.mana-row { display: flex; gap: 5px; flex-wrap: wrap; min-height: calc(var(--cw) * .6); align-items: center; }
+.mtile { width: calc(var(--cw) * .44); height: calc(var(--cw) * .6); border-radius: 4px; border: 1px solid #7a2c38;
+  background: radial-gradient(circle at 50% 50%, #8c3441 0 16%, transparent 17%), repeating-linear-gradient(45deg, #3d141c 0 5px, #270b10 5px 10px);
+  box-shadow: 0 2px 4px rgba(0,0,0,.55); transition: transform 260ms cubic-bezier(.2,.8,.2,1), opacity 260ms; }
+.mtile.tapped { transform: rotate(90deg) scale(.82); opacity: .55; }
+.mana-row.chargeable { outline: 1px dashed rgba(242,178,51,.45); outline-offset: 3px; border-radius: 4px; }
+.cb-stage.manazone .q-zone.me { box-shadow: inset 0 0 0 2px var(--gold), 0 0 16px rgba(242,178,51,.45); }
+
+.q-lane { position: relative; border-radius: 6px; display: flex; align-items: center; gap: 8px; padding: 6px 8px; min-height: 0; }
+.q-lane.opp { background: rgba(120,38,42,.22); border-left: 4px solid var(--opp); }
+.q-lane.me { background: rgba(40,70,120,.28); border-left: 4px solid var(--me); transition: box-shadow 200ms; }
+.q-lane.fx-top { z-index: 20; }
+.cb-stage.dropzone .q-lane.me { box-shadow: inset 0 0 0 2px #7fb0ff, inset 0 0 30px rgba(120,170,255,.25); }
+.row { position: relative; flex: 1; display: flex; align-items: center; gap: calc(var(--cw) * .1); min-width: 0; height: 100%; z-index: 1; }
+.castzone { flex: none; width: calc(var(--cw) * 1.25); height: calc(var(--ch) * .95); border: 2px dashed #5f6470; border-radius: 8px;
+  display: grid; place-items: center; text-align: center; color: #8e929b; font-size: 11px; line-height: 1.5; transition: box-shadow 200ms, border-color 200ms, color 200ms; }
+.cb-stage.castzone .castzone { border-color: #b18cff; color: #e6dbff; box-shadow: 0 0 22px rgba(177,140,255,.55), inset 0 0 22px rgba(177,140,255,.3); }
+.q-handlabel { color: var(--muted); font-size: 12px; padding-left: 2px; }
+
+/* ---------- 右の列 ---------- */
+.q-right { display: flex; flex-direction: column; gap: 6px; min-height: 0; min-width: 0; }
+.hero.leader { position: relative; flex: none; border-radius: 8px; padding: 7px 9px; cursor: pointer;
+  background: linear-gradient(160deg, #4a4d56, #2d2f35 55%, #26282d); border: 1px solid #5b5f69; box-shadow: 0 3px 8px rgba(0,0,0,.45); }
+.hero.leader[data-side=enemy] { border-top: 3px solid var(--opp); }
+.hero.leader[data-side=player] { border-bottom: 3px solid var(--me); }
+.lname { font-weight: 700; font-size: 13px; }
+.hhp { font-size: clamp(22px, 3.2cqw, 34px); font-weight: 800; line-height: 1.05; display: inline-block; transform-origin: 30% 60%; font-variant-numeric: tabular-nums; }
+.hhp.low span { color: #ff6b6b; }
+.lability { font-size: 11px; color: #c9cbd1; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.lweapon { font-size: 11px; color: var(--gold); border-top: 1px solid #4a4d56; margin-top: 4px; padding-top: 3px; }
+.piles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; flex: none; }
+.pile { display: grid; justify-items: center; position: relative; }
+.pbox { width: calc(var(--cw) * .48); height: calc(var(--cw) * .64); border-radius: 4px; border: 1px dashed #5b5f69; }
+.pbox.back { border: 1px solid #7a2c38; background: radial-gradient(circle at 50% 50%, #8c3441 0 16%, transparent 17%), repeating-linear-gradient(45deg, #3d141c 0 5px, #270b10 5px 10px); }
+.pile[data-pile=banish] .pbox { border-color: #7d62b8; background: radial-gradient(circle, rgba(150,110,230,.18), transparent 70%); }
+.pile b { position: absolute; top: -6px; right: 4px; min-width: 20px; padding: 0 5px; border-radius: 999px; background: var(--gold); color: #1d1606; font-size: 11px; text-align: center; font-variant-numeric: tabular-nums; }
+.pile i { font-style: normal; font-size: 11px; color: var(--muted); }
+.q-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.q-btns button { flex: 1; padding: 6px 4px; }
+.q-btns button:disabled { opacity: .45; cursor: default; }
+.q-log { flex: 1; min-height: 60px; display: flex; flex-direction: column; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.q-logbar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.q-logbar .last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q-loglist { flex: 1; margin: 0; padding: 4px 8px 6px 26px; overflow-y: auto; font-size: 11.5px; line-height: 1.55; color: #c3c5cb; }
+.q-loglist li.now { color: #fff; background: rgba(242,178,51,.16); border-radius: 3px; }
+.q-phases { list-style: none; margin: 0; padding: 5px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; font-size: 11.5px; flex: none; }
+.q-phases li { padding: 1px 6px; border-radius: 4px; color: #b7b9bf; }
+.q-phases li i { font-style: normal; color: #6f727a; margin-right: 5px; }
+.q-phases li.on { background: var(--gold); color: #1b1404; font-weight: 700; }
+.q-phases li.on i { color: #5a4210; }
+.their-turn .q-phases li.on { background: #d0624f; color: #fff; }
+.q-stepbar { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); z-index: 30; background: rgba(20,20,24,.92);
+  border: 1px solid var(--gold); color: #f7e6b8; font-size: 12px; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+.q-toast { position: absolute; left: 50%; bottom: calc(var(--ch) * 1.25); transform: translateX(-50%); z-index: 62; max-width: 90%;
+  background: rgba(30,20,20,.95); border: 1px solid #d0624f; color: #ffd9d0; font-size: 13px; padding: 6px 14px; border-radius: 8px; pointer-events: none; }
+
+/* ---------- カード(QTE のカード面を簡略化) ---------- */
+.card { position: relative; flex: none; width: var(--cw); height: var(--ch); border-radius: calc(var(--cw) * .07); cursor: pointer;
+  border: 2px solid hsl(var(--h) 50% 42%); background: linear-gradient(180deg, hsl(var(--h) 30% 20%), #1c1d22 58%);
+  box-shadow: 0 3px 8px rgba(0,0,0,.55); font-size: calc(var(--cw) * .1); color: var(--ink); }
+.card .head { display: flex; align-items: center; gap: 3%; padding: 3% 4% 2%; }
+.card .cost { flex: none; width: 1.7em; height: 1.7em; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 1.05em;
+  background: hsl(var(--h) 55% 42%); border: 1px solid hsl(var(--h) 70% 75%); }
+.card .name { font-weight: 700; font-size: 1.05em; line-height: 1.15; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.card .art { margin: 0 5%; height: 36%; border-radius: 4px; overflow: hidden; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 40%, hsl(var(--h) 70% 52%), hsl(var(--h) 55% 22%) 60%, hsl(var(--h) 45% 9%)); box-shadow: inset 0 0 8px rgba(0,0,0,.6); }
+.card .art svg { width: 70%; height: 70%; }
+.card .type { font-size: .78em; color: #a8aab1; padding: 2% 6% 0; }
+.card .text { font-size: .8em; line-height: 1.3; padding: 1% 6%; color: #d9dbe0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; }
+.card .stat { position: absolute; bottom: 2%; font-weight: 800; font-size: 1.35em; text-shadow: 0 1px 2px #000; line-height: 1; }
+.card .atk { left: 6%; }
+.card .hp { right: 6%; }
+.card .atk::before { content: "⚔"; font-size: .75em; margin-right: 1px; color: #f2d48a; }
+.card .hp::before { content: "♥"; font-size: .75em; margin-right: 1px; color: #ff8fa0; }
+.card .stat.damaged span { color: #ff6b6b; }
+.card .stat.buffed span { color: #8dff9a; }
+.card .flashov { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 3; }
+.row .card .type, .row .card .text { display: none; }
+.row .card .art { height: 50%; margin-top: 3%; }
+.row .card.ready { box-shadow: 0 0 0 2px var(--ok), 0 0 14px 4px rgba(90,255,120,.45); }
+.row .card.selected { box-shadow: 0 0 0 3px #fff, 0 0 22px 7px rgba(255,220,120,.85); }
+.row .card.exhausted { filter: saturate(.5) brightness(.72); }
+.row .card.sick::after { content: "召喚酔い"; position: absolute; left: 50%; top: -9px; transform: translateX(-50%); font-size: 9px; white-space: nowrap;
+  background: #3a3d45; border: 1px solid #5b5f69; color: #c8cad0; border-radius: 999px; padding: 0 5px; }
+.row .card.charging { box-shadow: 0 0 24px 10px rgba(255,120,40,.9); }
+.cb-hand .card.playable { box-shadow: 0 0 0 2px var(--ok), 0 3px 8px rgba(0,0,0,.55); }
+.row .card, .hero { transition: scale 150ms cubic-bezier(.2,0,0,1); }
+.locked { scale: 1.07; }
+.valid { box-shadow: 0 0 0 3px var(--aimc), 0 0 18px 6px color-mix(in srgb, var(--aimc) 60%, transparent) !important; }
+.aiming .row[data-side=enemy] .card:hover, .aiming .hero[data-side=enemy]:hover { box-shadow: 0 0 0 3px #ff5a4a, 0 0 20px 7px rgba(255,80,60,.75); }
+
+/* ---------- 手札 ---------- */
+.cb-hand { position: relative; z-index: 5; min-width: 0; }
+.cb-hand .card { position: absolute; left: 0; top: 2px;
+  transform: translate(var(--x), calc(var(--y) + var(--lift, 0px))) rotate(var(--r)) scale(var(--s, 1));
+  transform-origin: 50% 100%; transition: transform var(--t) cubic-bezier(.2,.8,.2,1); }
+@media (hover: hover) { .cb-hand .card:hover { --lift: calc(var(--ch) * -.3); --s: 1.16; z-index: 30 !important; } }
+.cb-hand .card.picked { --lift: calc(var(--ch) * -.4); --s: 1.18; z-index: 40 !important; box-shadow: 0 0 0 2px #fff, 0 0 22px 8px hsla(var(--sh),100%,65%,.8); }
+
+/* ---------- ドラッグ・照準 ---------- */
+.cb-drag { position: fixed; inset: 0; z-index: 58; pointer-events: none; }
+.cb-drag .card { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; box-shadow: 0 22px 34px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.15); }
+.cb-drag .card.nope { box-shadow: 0 0 0 3px #ff4a3a, 0 22px 34px rgba(0,0,0,.55); }
+.cb-drag .card.armed { box-shadow: 0 0 0 3px #fff, 0 0 30px 10px hsla(var(--sh),100%,65%,.9); }
+.slot { flex: none; width: var(--cw); height: var(--ch); border-radius: calc(var(--cw) * .07); border: 2px dashed rgba(160,200,255,.8); background: rgba(120,170,255,.1); }
+.cb-reticle { position: fixed; z-index: 54; pointer-events: none; display: none; }
+.cb-reticle .ring { position: absolute; inset: 0; border-radius: 50%; border: 3px dashed var(--aimc); box-shadow: 0 0 14px var(--aimc), inset 0 0 14px var(--aimc); animation: spin 2.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.cb-aim { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 55; overflow: visible; }
+.cb-aim path.line { fill: none; stroke: var(--aimc); stroke-width: 9; stroke-linecap: round; stroke-dasharray: 4 14; animation: dash .5s linear infinite; filter: drop-shadow(0 0 6px var(--aimc)); }
+@keyframes dash { to { stroke-dashoffset: -18; } }
+.cb-inspect { position: absolute; inset: 0; z-index: 66; display: none; place-items: center; pointer-events: none; background: radial-gradient(ellipse at center, rgba(0,0,0,.45), rgba(0,0,0,.82)); }
+.cb-inspect .card { --cw: min(44cqw, 240px); --ch: calc(var(--cw) * 1.4); cursor: default; box-shadow: 0 24px 50px rgba(0,0,0,.7); }
+.cb-inspect .card .type, .cb-inspect .card .text { display: block; display: -webkit-box; }
+
+/* ---------- 演出層 ---------- */
+.cb-dim { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 55%, rgba(0,0,0,.35), rgba(0,0,0,.85)); opacity: 0; pointer-events: none; z-index: 30; }
+.cb-flash { position: absolute; inset: 0; background: #fff8e8; opacity: 0; pointer-events: none; z-index: 52; mix-blend-mode: screen; }
+.cracks { position: absolute; pointer-events: none; z-index: 4; overflow: visible; }
+.shatter { position: fixed; z-index: 45; pointer-events: none; }
+.shatter > * { position: absolute; left: 0; top: 0; margin: 0; }
+.scorch { position: fixed; z-index: 2; pointer-events: none; border-radius: 50%; background: radial-gradient(closest-side, rgba(10,6,4,.75), rgba(30,15,8,.45) 55%, rgba(0,0,0,0)); }
+.cb-fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 50; }
+.cb-cast { position: fixed; inset: 0; z-index: 42; pointer-events: none; }
+.cb-cast .card { position: absolute; }
+.cb-cast .card .type, .cb-cast .card .text { display: block; display: -webkit-box; }
+.num { position: fixed; z-index: 60; pointer-events: none; font-weight: 900; font-size: clamp(26px, calc(var(--cw) * .42), 44px); color: #fff;
+  -webkit-text-stroke: 3px #7a0b0b; paint-order: stroke; text-shadow: 0 4px 10px rgba(0,0,0,.6); transform: translate(-50%,-50%); }
+.num.heal { -webkit-text-stroke: 3px #0d5a2a; color: #eafff0; }
+.num.buff { -webkit-text-stroke: 3px #6a4a08; color: #fff6d0; font-size: clamp(20px, calc(var(--cw) * .3), 34px); }
+.cb-banner { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); z-index: 65; pointer-events: none; text-align: center;
+  font-family: var(--serif); font-weight: 900; font-size: clamp(28px, 7cqw, 64px); letter-spacing: .12em; color: #fff4d6;
+  text-shadow: 0 0 18px rgba(255,190,90,.9), 0 3px 0 #6a4a16; opacity: 0; padding: .35em 0;
+  background: linear-gradient(90deg, transparent, rgba(0,0,0,.65) 20%, rgba(0,0,0,.65) 80%, transparent); }
+
+@media (prefers-reduced-motion: reduce) { .cb-aim path.line { animation: none; } .cb-hand .card { transition: none; } }
+@media (max-width: 640px) {
+  .cb-stage > * { --cw: clamp(40px, min(12.5cqw, 9.5cqh), 64px); }
+  .cb-field { grid-template-columns: minmax(0, 1fr) 112px; gap: 6px; padding: 6px; }
+  .q-conn, .q-handlabel, .q-zone .chip.plain { display: none; }
+  .q-left { grid-template-rows: auto minmax(0, 1fr) minmax(0, 1fr) auto 0 calc(var(--ch) * 1.06); }
+  .castzone { width: calc(var(--cw) * .8); font-size: 8px; }
+  .lability, .lweapon, .q-phases, .q-loglist { display: none; }
+  .q-log { flex: 1; min-height: 0; }
+  .q-logbar { flex-direction: column; align-items: stretch; }
+  .q-logbar .last { white-space: normal; font-size: 11px; }
+  .q-btns { flex-direction: column; }
+  .pile i { font-size: 9px; }
+  .q-demo { font-size: 11px; margin-left: 0; }
+  .q-turn { width: 100%; }
+}
+</style>
+<div id="game"></div>
+<script>
+(() => {
+  // src/fx/core.js
+  var timing = {
+    speed: 1,
+    reduced: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches
+  };
+  var dur = (ms) => ms / timing.speed;
+  var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, dur(ms)));
+  var rand = (a, b) => a + Math.random() * (b - a);
+  var pick = (list) => list[Math.floor(Math.random() * list.length)];
+  var clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  var easeOut = (k) => 1 - (1 - k) ** 3;
+  var center = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  function anim(el, frames, ms, easing = "ease", extra = {}) {
+    return el.animate(frames, { duration: dur(ms), easing, fill: "forwards", ...extra }).finished;
+  }
+  function clearAnims(el) {
+    el.getAnimations().forEach((a) => a.cancel());
+  }
+
+  // src/fx/particles.js
+  var Particles = class {
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext("2d");
+      this.list = [];
+      this.width = 0;
+      this.height = 0;
+      this.dirty = false;
+      this.last = 0;
+      this.runeCache = /* @__PURE__ */ new Map();
+      this.glowCache = /* @__PURE__ */ new Map();
+      this.resize();
+      addEventListener("resize", () => this.resize());
+      requestAnimationFrame((t) => this.tick(t));
+    }
+    resize() {
+      const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+      this.width = this.canvas.clientWidth;
+      this.height = this.canvas.clientHeight;
+      this.canvas.width = this.width * dpr;
+      this.canvas.height = this.height * dpr;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    /** パーティクルを 1 つ追加する。type は DRAW のキー */
+    add(p) {
+      this.list.push(Object.assign({ t: 0, delay: 0 }, p));
+    }
+    clear() {
+      this.list.length = 0;
+    }
+    tick(ts) {
+      const dt = Math.min(40, ts - (this.last || ts)) * timing.speed;
+      this.last = ts;
+      const { ctx } = this;
+      if (!this.list.length) {
+        if (this.dirty) {
+          ctx.clearRect(0, 0, this.width, this.height);
+          this.dirty = false;
+        }
+        requestAnimationFrame((t) => this.tick(t));
+        return;
+      }
+      this.dirty = true;
+      ctx.clearRect(0, 0, this.width, this.height);
+      for (let i = this.list.length - 1; i >= 0; i--) {
+        const p = this.list[i];
+        if (p.delay > 0) {
+          p.delay -= dt;
+          continue;
+        }
+        p.t += dt;
+        const k = p.t / p.life;
+        if (k >= 1) {
+          this.list.splice(i, 1);
+          continue;
+        }
+        DRAW[p.type](this, p, k, dt);
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      requestAnimationFrame((t) => this.tick(t));
+    }
+    /** 魔法陣の画像（光彩込みで一度だけ描く） */
+    runeSprite(c, n) {
+      const key = c + "/" + n;
+      if (this.runeCache.has(key)) return this.runeCache.get(key);
+      const R = 128, size = Math.ceil(R * 2 * RUNE_PAD), oc = document.createElement("canvas");
+      oc.width = oc.height = size;
+      const g = oc.getContext("2d");
+      g.translate(size / 2, size / 2);
+      g.strokeStyle = `hsla(${c},1)`;
+      g.shadowColor = `hsla(${c},1)`;
+      g.shadowBlur = 18;
+      g.lineWidth = 6;
+      g.beginPath();
+      g.arc(0, 0, R, 0, 7);
+      g.stroke();
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(0, 0, R * 0.8, 0, 7);
+      g.stroke();
+      g.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const t = i * 4 * Math.PI / n;
+        g[i ? "lineTo" : "moveTo"](Math.cos(t) * R * 0.8, Math.sin(t) * R * 0.8);
+      }
+      g.stroke();
+      g.beginPath();
+      for (let i = 0; i < 24; i++) {
+        const t = i / 24 * 6.283, e = i % 3 ? 1.06 : 1.12;
+        g.moveTo(Math.cos(t) * R, Math.sin(t) * R);
+        g.lineTo(Math.cos(t) * R * e, Math.sin(t) * R * e);
+      }
+      g.stroke();
+      this.runeCache.set(key, oc);
+      return oc;
+    }
+    /** 光球の画像 */
+    glowSprite(c) {
+      if (this.glowCache.has(c)) return this.glowCache.get(c);
+      const oc = document.createElement("canvas");
+      oc.width = oc.height = 64;
+      const g = oc.getContext("2d"), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, "rgba(255,255,255,1)");
+      gr.addColorStop(0.25, `hsla(${c},.9)`);
+      gr.addColorStop(1, `hsla(${c},0)`);
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 64, 64);
+      this.glowCache.set(c, oc);
+      return oc;
+    }
+  };
+  var RUNE_PAD = 1.35;
+  function jag(pts) {
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+      const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(4, L / 22 | 0);
+      const nx = -(y1 - y0) / L, ny = (x1 - x0) / L;
+      for (let j = 1; j < n; j++) {
+        const t = j / n, off = rand(-1, 1) * L * 0.07 * Math.sin(Math.PI * t);
+        out.push([x0 + (x1 - x0) * t + nx * off, y0 + (y1 - y0) * t + ny * off]);
+      }
+      out.push(pts[i]);
+    }
+    return out;
+  }
+  var DRAW = {
+    dot(P, p, k, dt) {
+      const { ctx } = P, f = dt / 16;
+      p.vx *= p.drag ?? 1;
+      p.vy = p.vy * (p.drag ?? 1) + (p.g || 0) * f;
+      p.x += p.vx * f;
+      p.y += p.vy * f;
+      const s = p.size * (p.grow ? 1 + k * p.grow : 1 - k * 0.6);
+      ctx.globalCompositeOperation = p.add ? "lighter" : "source-over";
+      ctx.fillStyle = `hsla(${p.c},${(1 - k) * (p.a ?? 1)})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, s, 0, 7);
+      ctx.fill();
+    },
+    spark(P, p, k, dt) {
+      const { ctx } = P, f = dt / 16;
+      p.vx *= 0.96;
+      p.vy = p.vy * 0.96 + (p.g || 0) * f;
+      p.x += p.vx * f;
+      p.y += p.vy * f;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `hsla(${p.c},${1 - k})`;
+      ctx.lineWidth = p.size * (1 - k) + 0.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * p.len, p.y - p.vy * p.len);
+      ctx.stroke();
+    },
+    ring(P, p, k) {
+      const { ctx } = P, r = p.r0 + (p.r1 - p.r0) * easeOut(k);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `hsla(${p.c},${1 - k})`;
+      ctx.lineWidth = p.w * (1 - k) + 0.5;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, r, r * (p.flat || 1), 0, 0, 7);
+      ctx.stroke();
+    },
+    rune(P, p, k) {
+      const { ctx } = P;
+      const a = k < 0.2 ? k / 0.2 : k > 0.75 ? (1 - k) / 0.25 : 1;
+      const r = p.r * (0.6 + 0.4 * easeOut(Math.min(1, k * 2.5)));
+      const img = P.runeSprite(p.c, p.n || 6), sz = r * 2 * RUNE_PAD;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = a;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(1, p.flat);
+      ctx.rotate(p.t * 25e-4);
+      ctx.drawImage(img, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    },
+    gather(P, p, k) {
+      const { ctx } = P, e = k * k;
+      const x = p.sx + (p.tx - p.sx) * e, y = p.sy + (p.ty - p.sy) * e;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `hsla(${p.c},${0.25 + 0.75 * k})`;
+      ctx.beginPath();
+      ctx.arc(x, y, p.size * (1 - 0.5 * k), 0, 7);
+      ctx.fill();
+    },
+    wisp(P, p, k) {
+      const { ctx } = P;
+      const x = p.x0 + Math.sin(k * 9) * p.sway * k, y = p.y0 - p.rise * easeOut(k);
+      const a = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85, s = p.size * (1 - 0.45 * k);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = a;
+      ctx.drawImage(P.glowSprite(p.c), x - s, y - s, s * 2, s * 2);
+      ctx.globalAlpha = 1;
+      if (Math.random() < 0.7) P.list.push({
+        type: "dot",
+        add: true,
+        x: x + rand(-4, 4),
+        y: y + rand(-4, 4),
+        vx: rand(-0.3, 0.3),
+        vy: rand(0.2, 0.7),
+        size: rand(1.2, 2.8),
+        c: p.c,
+        a,
+        life: rand(300, 550),
+        t: 0,
+        delay: 0
+      });
+    },
+    proj(P, p, k) {
+      const { ctx } = P;
+      const e = k * k * (1.6 - 0.6 * k), u = 1 - e;
+      const x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx;
+      const y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.drawImage(P.glowSprite(p.c), x - p.size, y - p.size, p.size * 2, p.size * 2);
+      ctx.drawImage(P.glowSprite("50,100%,92%"), x - p.size * 0.45, y - p.size * 0.45, p.size * 0.9, p.size * 0.9);
+      for (let i = 0; i < 3; i++) P.list.push({
+        type: "dot",
+        add: true,
+        x: x + rand(-5, 5),
+        y: y + rand(-5, 5),
+        vx: rand(-0.6, 0.6),
+        vy: rand(-1.2, 0),
+        drag: 0.95,
+        size: rand(3, 7),
+        c: pick([p.c, "8,100%,55%", "42,100%,65%"]),
+        life: rand(220, 420),
+        t: 0,
+        delay: 0
+      });
+    },
+    bolt(P, p, k) {
+      const { ctx } = P;
+      if (!p.path || p.t - p.last > 45) {
+        p.last = p.t;
+        p.path = jag(p.pts);
+      }
+      const a = k < 0.1 ? 1 : (1 - k) ** 1.5;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      for (const [w, col] of [[10, `hsla(${p.c},${0.25 * a})`], [4, `hsla(${p.c},${0.85 * a})`], [1.6, `rgba(255,255,255,${a})`]]) {
+        ctx.lineWidth = w;
+        ctx.strokeStyle = col;
+        ctx.beginPath();
+        p.path.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+        ctx.stroke();
+      }
+    },
+    orbit(P, p, k) {
+      const { ctx } = P;
+      const ang = p.a0 + p.w * p.t, r = p.r0 + (p.r1 - p.r0) * k;
+      const x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r * p.flat - p.rise * k;
+      const a = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = a;
+      ctx.drawImage(P.glowSprite(p.c), x - p.size, y - p.size, p.size * 2, p.size * 2);
+      ctx.globalAlpha = 1;
+    },
+    beam(P, p, k) {
+      const { ctx } = P, w = p.w * Math.sin(Math.PI * k);
+      ctx.globalCompositeOperation = "lighter";
+      const g = ctx.createLinearGradient(p.x - w, 0, p.x + w, 0);
+      g.addColorStop(0, `hsla(${p.c},0)`);
+      g.addColorStop(0.5, `hsla(${p.c},.9)`);
+      g.addColorStop(1, `hsla(${p.c},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(p.x - w, 0, w * 2, p.y);
+      ctx.fillStyle = `rgba(255,255,255,${0.8 * Math.sin(Math.PI * k)})`;
+      ctx.fillRect(p.x - w * 0.12, 0, w * 0.24, p.y);
+    },
+    burst(P, p, k) {
+      const { ctx } = P;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `hsla(${p.c},${1 - k})`;
+      ctx.lineCap = "round";
+      p.rays.forEach(([ang, len]) => {
+        const L = len * easeOut(k), s = L * 0.45;
+        ctx.lineWidth = 5 * (1 - k) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(ang) * s, p.y + Math.sin(ang) * s);
+        ctx.lineTo(p.x + Math.cos(ang) * L, p.y + Math.sin(ang) * L);
+        ctx.stroke();
+      });
+      const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.glow);
+      gr.addColorStop(0, `rgba(255,255,240,${0.9 * (1 - k)})`);
+      gr.addColorStop(1, "rgba(255,200,120,0)");
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.glow, 0, 7);
+      ctx.fill();
+    },
+    streak(P, p, k) {
+      const { ctx } = P;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `rgba(255,240,220,${0.7 * (1 - k)})`;
+      ctx.lineWidth = p.w * (1 - k) + 0.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(p.x1, p.y1);
+      ctx.lineTo(p.x2, p.y2);
+      ctx.stroke();
+    }
+  };
+  var rays = (n, min, max) => Array.from({ length: n }, () => [rand(0, 6.283), rand(min, max)]);
+
+  // src/fx/stage.js
+  var PHASES = ["ドロー", "アンタップ", "マナチャージ", "メイン", "バトル", "サブ", "ターンエンド"];
+  var leaderHtml = (side) => `
+  <div class="hero leader" data-side="${side}">
+    <div class="lname"></div>
+    <div class="hhp"><span></span></div>
+    <div class="lability"></div>
+    <div class="lweapon">⚔ なし</div>
+  </div>`;
+  var pilesHtml = (side) => `
+  <div class="piles" data-side="${side}">
+    <div class="pile" data-pile="deck"><div class="pbox back"></div><b>0</b><i>山札</i></div>
+    <div class="pile" data-pile="grave"><div class="pbox"></div><b>0</b><i>墓地</i></div>
+    <div class="pile" data-pile="banish"><div class="pbox"></div><b>0</b><i>消滅</i></div>
+    <div class="pile" data-pile="taboo"><div class="pbox back"></div><b>0</b><i>禁忌</i></div>
+  </div>`;
+  var SKELETON = `
+  <div class="cb-field">
+    <header class="q-top">
+      <div class="q-room">部屋 <b>DEMO01</b><span class="q-conn">演出プロトタイプ</span></div>
+      <div class="q-demo"></div>
+      <div class="q-turn"></div>
+    </header>
+    <section class="q-left">
+      <div class="q-zone opp">
+        <div class="q-chips"><span class="chip">手札</span><div class="backs"></div>
+          <span class="chip">MP <b class="mp" data-side="enemy">0</b> / マナ <b class="mc" data-side="enemy">0</b></span></div>
+        <div class="mana-row" data-side="enemy"></div>
+      </div>
+      <div class="q-lane opp"><div class="row" data-side="enemy"></div></div>
+      <div class="q-lane me"><div class="row" data-side="player"></div><div class="castzone"><span>スペル<br>【賢魂】<br>をここへ</span></div></div>
+      <div class="q-zone me">
+        <div class="q-chips"><span class="chip">MP <b class="mp" data-side="player">0</b> / マナ <b class="mc" data-side="player">0</b></span>
+          <span class="chip plain">手札をここへドラッグ → マナチャージ(1ターン1回)</span></div>
+        <div class="mana-row" data-side="player"></div>
+      </div>
+      <div class="q-handlabel">手札(ドラッグで使用 / クリックでも可 / 長押し・右クリックで拡大)</div>
+      <div class="cb-hand"></div>
+    </section>
+    <aside class="q-right">
+      ${leaderHtml("enemy")}
+      ${pilesHtml("enemy")}
+      <div class="q-btns"><button type="button" class="btn-next">次のフェイズへ</button><button type="button" class="btn-end">ターン終了</button></div>
+      <div class="q-log"><div class="q-logbar"><span class="last">(ログなし)</span><span class="chip cnt">0件</span></div><ol class="q-loglist"></ol></div>
+      <ol class="q-phases">${PHASES.map((p, i) => `<li data-phase="${p}"><i>${i + 1}</i>${p}</li>`).join("")}</ol>
+      ${pilesHtml("player")}
+      ${leaderHtml("player")}
+    </aside>
+    <div class="q-stepbar" hidden></div>
+    <div class="q-toast" hidden></div>
+  </div>
+  <div class="cb-dim"></div>
+  <div class="cb-cast"></div>
+  <canvas class="cb-fx"></canvas>
+  <div class="cb-flash"></div>
+  <svg class="cb-aim"><defs>
+    <marker id="cb-ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 L3,5 z" style="fill:var(--aimc)"/></marker></defs>
+    <path class="line" d="" marker-end="url(#cb-ah)" style="display:none"/>
+  </svg>
+  <div class="cb-banner"></div>
+  <div class="cb-drag"></div>
+  <div class="cb-reticle"><div class="ring"></div></div>
+  <div class="cb-inspect"></div>`;
+  function createStage(root) {
+    root.classList.add("cb-stage");
+    root.insertAdjacentHTML("afterbegin", SKELETON);
+    const q = (sel) => root.querySelector(sel);
+    const bySide = (sel) => ({ player: q(`${sel}[data-side=player]`), enemy: q(`${sel}[data-side=enemy]`) });
+    const stage2 = {
+      root,
+      field: q(".cb-field"),
+      board: q(".q-left"),
+      rows: bySide(".row"),
+      heroes: bySide(".hero"),
+      mana: bySide(".mana-row"),
+      piles: bySide(".piles"),
+      mp: bySide(".mp"),
+      mc: bySide(".mc"),
+      backs: q(".backs"),
+      hand: q(".cb-hand"),
+      castzone: q(".castzone"),
+      turn: q(".q-turn"),
+      demo: q(".q-demo"),
+      phases: q(".q-phases"),
+      log: q(".q-loglist"),
+      logLast: q(".q-logbar .last"),
+      logCount: q(".q-logbar .cnt"),
+      btnNext: q(".btn-next"),
+      btnEnd: q(".btn-end"),
+      stepbar: q(".q-stepbar"),
+      toast: q(".q-toast"),
+      dim: q(".cb-dim"),
+      cast: q(".cb-cast"),
+      flash: q(".cb-flash"),
+      aimPath: q(".cb-aim path.line"),
+      banner: q(".cb-banner"),
+      drag: q(".cb-drag"),
+      reticle: q(".cb-reticle"),
+      inspect: q(".cb-inspect"),
+      particles: null
+    };
+    stage2.particles = new Particles(q(".cb-fx"));
+    return stage2;
+  }
+  var fxAdd = (stage2, p) => stage2.particles.add(p);
+  var viewW = (stage2) => stage2.particles.width;
+  function shake(stage2, mag, ms = 320) {
+    if (timing.reduced) return;
+    const frames = [];
+    for (let i = 0; i < 8; i++) {
+      const m = mag * (1 - i / 8);
+      frames.push({ transform: `translate(${rand(-m, m)}px,${rand(-m, m)}px)` });
+    }
+    frames.push({ transform: "none" });
+    stage2.field.animate(frames, { duration: dur(ms), easing: "linear" });
+  }
+  function screenFlash(stage2, a, ms) {
+    if (timing.reduced) return;
+    stage2.flash.animate([{ opacity: a }, { opacity: 0 }], { duration: dur(ms), easing: "ease-out" });
+  }
+  function flashOn(el, color, ms = 300, a = 0.9) {
+    const o = document.createElement("div");
+    o.className = "flashov";
+    o.style.background = color;
+    el.appendChild(o);
+    o.animate([{ opacity: a }, { opacity: 0 }], { duration: dur(ms), easing: "ease-out" }).finished.then(() => o.remove());
+  }
+  function popNumber(stage2, el, text, cls = "") {
+    const c = center(el.getBoundingClientRect());
+    const n = document.createElement("div");
+    n.className = "num " + cls;
+    n.textContent = text;
+    n.style.left = c.x + "px";
+    n.style.top = c.y + "px";
+    stage2.root.appendChild(n);
+    n.animate([
+      { transform: "translate(-50%,-50%) scale(.2)", opacity: 1 },
+      { transform: "translate(-50%,-50%) scale(1.5)", opacity: 1, offset: 0.18 },
+      { transform: "translate(-50%,-60%) scale(1)", opacity: 1, offset: 0.35 },
+      { transform: "translate(-50%,-140%) scale(.9)", opacity: 0 }
+    ], { duration: dur(1e3), easing: "ease-out" }).finished.then(() => n.remove());
+  }
+  function banner(stage2, text, { hold = 650, persist = false } = {}) {
+    const b = stage2.banner;
+    b.textContent = text;
+    b.getAnimations().forEach((a) => a.cancel());
+    return b.animate([
+      { opacity: 0, transform: "translateY(-50%) scaleY(.2)", letterSpacing: ".6em" },
+      { opacity: 1, transform: "translateY(-50%) scaleY(1)", letterSpacing: ".12em", offset: 0.25 },
+      { opacity: 1, transform: "translateY(-50%) scaleY(1)", letterSpacing: ".16em", offset: persist ? 1 : 0.75 },
+      ...persist ? [] : [{ opacity: 0, transform: "translateY(-50%) scaleY(.6)", letterSpacing: ".3em" }]
+    ], { duration: dur(persist ? 500 : hold + 500), easing: "ease-out", fill: "forwards" }).finished;
+  }
+  function clearBanner(stage2) {
+    stage2.banner.getAnimations().forEach((a) => a.cancel());
+  }
+  var snapshot = (row) => new Map([...row.children].map((c) => [c, c.getBoundingClientRect()]));
+  function flip(row, before, skip) {
+    for (const c of row.children) {
+      if (c === skip || !before.has(c)) continue;
+      const dx = before.get(c).left - c.getBoundingClientRect().left;
+      if (Math.abs(dx) > 0.5) c.animate(
+        [{ transform: `translateX(${dx}px)` }, { transform: "none" }],
+        { duration: dur(320), easing: "cubic-bezier(.2,.8,.2,1)" }
+      );
+    }
+  }
+
+  // src/fx/cardView.js
+  var CIV = {
+    FIRE: { name: "火", hue: 0 },
+    WATER: { name: "水", hue: 212 },
+    WIND: { name: "風", hue: 140 },
+    LIGHT: { name: "光", hue: 44 },
+    DARK: { name: "闇", hue: 268 },
+    EARTH: { name: "土", hue: 326 }
+  };
+  var TYPE_LABEL = { minion: "ミニオン", spell: "スペル" };
+  function sigil(n, h) {
+    const pts = [], R = 40, r = n <= 4 ? 18 : 17;
+    for (let i = 0; i < n * 2; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / n, rr = i % 2 ? r : R;
+      pts.push((50 + Math.cos(a) * rr).toFixed(1) + "," + (50 + Math.sin(a) * rr).toFixed(1));
+    }
+    const c1 = `hsl(${h} 90% 80%)`, c2 = `hsl(${h} 90% 65% / .5)`;
+    return `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="${c2}" stroke-width="2"/>
+    <circle cx="50" cy="50" r="30" fill="none" stroke="${c2}" stroke-width="1.2" stroke-dasharray="3 4"/>
+    <polygon points="${pts.join(" ")}" fill="hsl(${h} 80% 60% / .35)" stroke="${c1}" stroke-width="2.4" stroke-linejoin="round"/>
+    <circle cx="50" cy="50" r="6" fill="${c1}"/></svg>`;
+  }
+  function createCardEl(def, o = {}) {
+    const el = document.createElement("div");
+    if (o.uid) el.dataset.uid = o.uid;
+    el._def = def;
+    el.className = `card ${def.kind}`;
+    el.style.setProperty("--h", def.hue);
+    el.style.setProperty("--sh", def.hue);
+    const stats = def.kind === "minion" ? `<div class="stat atk"><span></span></div><div class="stat hp"><span></span></div>` : "";
+    el.innerHTML = `<div class="head"><div class="cost">${def.cost}</div><div class="name">${def.name}</div></div>
+    <div class="art">${sigil(def.sig, def.hue)}</div>
+    <div class="type">${TYPE_LABEL[def.kind]}・${CIV[def.civ].name}</div>
+    <div class="text">${def.text || ""}</div>${stats}`;
+    if (def.kind === "minion") {
+      setStats(el, { atk: o.atk ?? def.atk, hp: o.hp ?? def.hp, maxHp: o.maxHp ?? def.hp, baseAtk: def.atk, baseHp: def.hp }, false);
+    }
+    return el;
+  }
+  function createBackEl(cls = "back") {
+    const el = document.createElement("div");
+    el.className = cls;
+    return el;
+  }
+  function renderHero(el, { uid: uid2, name, hp, ability }) {
+    el.dataset.uid = uid2;
+    el.querySelector(".lname").textContent = name;
+    el.querySelector(".hhp span").textContent = hp;
+    el.querySelector(".lability").textContent = ability;
+    el.style.opacity = "";
+    el._hero = true;
+  }
+  var pop = (el) => el.animate(
+    [{ transform: "scale(1.8)" }, { transform: "scale(1)" }],
+    { duration: dur(350), easing: "cubic-bezier(.3,1.6,.5,1)" }
+  );
+  function setHp(el, hp, maxHp, animate = true) {
+    if (el._hero) {
+      const box2 = el.querySelector(".hhp");
+      box2.querySelector("span").textContent = Math.max(0, hp);
+      box2.classList.toggle("low", hp <= 5);
+      if (animate) pop(box2);
+      return;
+    }
+    const box = el.querySelector(".hp");
+    box.querySelector("span").textContent = Math.max(0, hp);
+    box.classList.toggle("damaged", hp < maxHp);
+    if (animate) pop(box);
+  }
+  function setStats(el, { atk, hp, maxHp, baseAtk = el._def.atk, baseHp = el._def.hp }, animate = true) {
+    const a = el.querySelector(".atk"), h = el.querySelector(".hp");
+    a.querySelector("span").textContent = atk;
+    h.querySelector("span").textContent = Math.max(0, hp);
+    a.classList.toggle("buffed", atk > baseAtk);
+    h.classList.toggle("buffed", maxHp > baseHp && hp >= maxHp);
+    h.classList.toggle("damaged", hp < maxHp);
+    if (animate) {
+      pop(a);
+      pop(h);
+    }
+  }
+
+  // src/fx/hand.js
+  function layoutHand(stage2) {
+    const hand = stage2.hand, cards = [...hand.children], n = cards.length;
+    if (!n) return;
+    const cw = cards[0].offsetWidth, width = hand.clientWidth;
+    const sp = n > 1 ? Math.min(cw * 1.06, (width - cw - 8) / (n - 1)) : 0;
+    cards.forEach((c, i) => {
+      c.style.setProperty("--x", 4 + i * sp + "px");
+      c.style.setProperty("--y", "0px");
+      c.style.setProperty("--r", "0deg");
+      c.style.zIndex = i + 1;
+    });
+  }
+  function drawToHand(stage2, el) {
+    el.style.setProperty("--x", stage2.hand.clientWidth + 60 + "px");
+    el.style.setProperty("--y", "-40px");
+    el.style.setProperty("--r", "20deg");
+    stage2.hand.appendChild(el);
+    void el.offsetWidth;
+    layoutHand(stage2);
+  }
+  function returnToHand(stage2, el, index, { tilt = 0, scale = 1 } = {}) {
+    const r = el.getBoundingClientRect(), hr = stage2.hand.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    el.style.transform = "";
+    stage2.hand.insertBefore(el, stage2.hand.children[index] || null);
+    el.style.transition = "none";
+    el.style.setProperty("--x", cx - hr.left - el.offsetWidth / 2 + "px");
+    el.style.setProperty("--y", cy - hr.top - el.offsetTop - el.offsetHeight / 2 + "px");
+    el.style.setProperty("--r", tilt + "deg");
+    el.style.setProperty("--s", scale);
+    void el.offsetWidth;
+    el.style.transition = "";
+    el.style.removeProperty("--s");
+    layoutHand(stage2);
+  }
+
+  // src/fx/feedback.js
+  function showDamage(stage2, el, amount, hp, maxHp) {
+    if (amount <= 0) return;
+    setHp(el, hp, maxHp);
+    flashOn(el, "#ff2a1a", 450, 0.55);
+    popNumber(stage2, el, "-" + amount);
+  }
+  function showHeal(stage2, el, amount, hp, maxHp) {
+    setHp(el, hp, maxHp);
+    flashOn(el, "hsl(100 90% 80%)", 500, 0.7);
+    popNumber(stage2, el, "+" + amount, "heal");
+  }
+  function showBuff(stage2, el, { atk, hp, maxHp, value }) {
+    setStats(el, { atk, hp, maxHp });
+    flashOn(el, "#ffe9a0", 420, 0.85);
+    popNumber(stage2, el, `+${value}/+${value}`, "buff");
+  }
+  function knockback(el, ux, uy) {
+    el.animate([
+      { transform: "none" },
+      { transform: `translate(${ux * 14}px,${uy * 14}px) rotate(${ux * 4}deg)` },
+      { transform: `translate(${-ux * 5}px,${-uy * 5}px)` },
+      { transform: "none" }
+    ], { duration: dur(320), easing: "ease-out" });
+  }
+
+  // src/fx/summon.js
+  async function playSummon(stage2, { el, side, index = null, src = null, slot = null }) {
+    const row = stage2.rows[side];
+    const rarity = el._def.rarity, legend = rarity === "legendary", rare = rarity === "rare";
+    let from = null, rot = 0, sc0 = 1;
+    if (src) {
+      from = src.getBoundingClientRect();
+      rot = src._drag ? src._tilt : parseFloat(src.style.getPropertyValue("--r")) || 0;
+      sc0 = src._drag ? src._scale : 1;
+      src.remove();
+    }
+    const before = snapshot(row);
+    if (slot && slot.parentElement === row) slot.replaceWith(el);
+    else if (index != null && index < row.children.length) row.insertBefore(el, row.children[index]);
+    else row.appendChild(el);
+    flip(row, before, el);
+    const to = el.getBoundingClientRect(), c = center(to);
+    if (!from) from = { left: viewW(stage2) / 2 - to.width / 2, top: -to.height * 1.6, width: to.width, height: to.height };
+    const f = center(from), dx = f.x - c.x, dy = f.y - c.y;
+    const hy = (side === "player" ? -1 : 1) * to.height * 0.7;
+    el.style.zIndex = 40;
+    const lift = anim(el, [
+      { transform: `translate(${dx}px,${dy}px) rotate(${rot}deg) scale(${sc0})` },
+      { transform: `translate(0px,${hy}px) rotate(0deg) scale(1.35)` }
+    ], 460, "cubic-bezier(.2,.9,.25,1)");
+    const col = legend ? "45,100%,65%" : rare ? "210,100%,70%" : "160,70%,70%";
+    fxAdd(stage2, { type: "rune", x: c.x, y: c.y + to.height * 0.1, r: to.width * 0.95, flat: 0.42, n: legend ? 8 : 6, c: col, life: legend ? 2200 : 1250 });
+    await lift;
+    if (legend) {
+      stage2.dim.animate([{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], { duration: dur(1500) });
+      fxAdd(stage2, { type: "beam", x: c.x, y: c.y + to.height * 0.1, w: to.width * 0.75, c: "45,100%,70%", life: 900 });
+      for (let i = 0; i < 26; i++) fxAdd(stage2, {
+        type: "dot",
+        add: true,
+        x: c.x + rand(-1, 1) * to.width * 0.9,
+        y: c.y + rand(0, 0.5) * to.height,
+        vx: 0,
+        vy: rand(-3, -1),
+        size: rand(1.5, 3.5),
+        c: "45,100%,75%",
+        life: rand(600, 1e3),
+        delay: rand(0, 400)
+      });
+    }
+    await anim(el, [
+      { transform: `translate(0px,${hy}px) scale(1.35)` },
+      { transform: `translate(0px,${hy * 1.15}px) scale(1.45)` }
+    ], legend ? 620 : 200, "ease-out");
+    await anim(el, [
+      { transform: `translate(0px,${hy * 1.15}px) scale(1.45)` },
+      { transform: "translate(0px,0px) scale(1)" }
+    ], legend ? 150 : 170, "cubic-bezier(.55,0,1,.45)");
+    clearAnims(el);
+    landImpact(stage2, to, legend ? 2 : rare ? 1.35 : 1, legend ? "45,100%,70%" : rare ? "210,100%,75%" : "40,40%,85%");
+    flashOn(el, "#fff", 380);
+    await anim(el, [{ transform: "scale(1.1,.88)" }, { transform: "scale(.97,1.04)" }, { transform: "scale(1)" }], 260, "ease-out");
+    clearAnims(el);
+    el.style.zIndex = "";
+  }
+  function landImpact(stage2, r, power, col) {
+    const c = center(r), by = r.bottom - r.height * 0.05;
+    fxAdd(stage2, { type: "ring", x: c.x, y: by, r0: r.width * 0.3, r1: r.width * 1.3 * power, flat: 0.35, w: 7, c: col, life: 520 });
+    if (power > 1.2) fxAdd(stage2, { type: "ring", x: c.x, y: by, r0: r.width * 0.2, r1: r.width * 2.2 * power, flat: 0.35, w: 4, c: col, life: 800, delay: 60 });
+    for (let i = 0; i < 16 * power; i++) {
+      const x = c.x + rand(-0.5, 0.5) * r.width, s = Math.sign(x - c.x) || 1;
+      fxAdd(stage2, {
+        type: "dot",
+        x,
+        y: by + rand(-4, 4),
+        vx: s * rand(1.5, 5) * power,
+        vy: rand(-2, -0.3),
+        drag: 0.93,
+        size: rand(3, 7),
+        grow: 2.2,
+        a: 0.5,
+        c: "35,15%,72%",
+        life: rand(500, 900)
+      });
+    }
+    for (let i = 0; i < 10 * power; i++) {
+      const a = rand(Math.PI * 1.05, Math.PI * 1.95);
+      fxAdd(stage2, {
+        type: "spark",
+        x: c.x + rand(-0.4, 0.4) * r.width,
+        y: by,
+        vx: Math.cos(a) * rand(3, 9),
+        vy: Math.sin(a) * rand(3, 9),
+        g: 0.25,
+        len: 2.2,
+        size: 2.5,
+        c: col,
+        life: rand(350, 650)
+      });
+    }
+    if (power > 1.5) screenFlash(stage2, 0.55, 350);
+    shake(stage2, 5 * power);
+  }
+
+  // src/fx/attack.js
+  async function playAttack(stage2, att, tgt, { power, counter = false, onImpact }) {
+    const a = att.getBoundingClientRect(), t = tgt.getBoundingClientRect();
+    const ac = center(a), tc = center(t);
+    const dx = tc.x - ac.x, dy = tc.y - ac.y, dist = Math.hypot(dx, dy), ux = dx / dist, uy = dy / dist;
+    const travel = Math.max(0, dist - (a.height * 0.5 + t.height * 0.45));
+    const tx = ux * travel, ty = uy * travel, tilt = ux * 12;
+    att.style.zIndex = 40;
+    att.classList.add("charging");
+    await anim(att, [
+      { transform: "translate(0,0) scale(1)" },
+      { transform: `translate(${-ux * 22}px,${-uy * 22}px) scale(1.14) rotate(${-tilt * 0.6}deg)` }
+    ], 300, "cubic-bezier(.2,.8,.3,1)");
+    for (let i = 0; i < 9; i++) {
+      const s = i / 9, ox = rand(-0.35, 0.35) * a.width;
+      const x = ac.x + ux * travel * s - uy * ox, y = ac.y + uy * travel * s + ux * ox;
+      fxAdd(stage2, { type: "streak", x1: x, y1: y, x2: x - ux * a.height * 0.6, y2: y - uy * a.height * 0.6, w: 3, life: 260, delay: s * 120 });
+    }
+    await anim(att, [
+      { transform: `translate(${-ux * 22}px,${-uy * 22}px) scale(1.14) rotate(${-tilt * 0.6}deg)` },
+      { transform: `translate(${tx}px,${ty}px) scale(1.14) rotate(${tilt}deg)` }
+    ], 150, "cubic-bezier(.7,0,1,.6)");
+    const hit = { x: ac.x + tx + ux * a.height * 0.55, y: ac.y + ty + uy * a.height * 0.55 };
+    hitFx(stage2, hit, ux, uy, power);
+    flashOn(tgt, "#fff", 200, 0.95);
+    if (counter) flashOn(att, "#fff", 200, 0.7);
+    await sleep(80);
+    knockback(tgt, ux, uy);
+    onImpact?.(hit);
+    att.classList.remove("charging");
+    await anim(att, [
+      { transform: `translate(${tx}px,${ty}px) scale(1.14) rotate(${tilt}deg)` },
+      { transform: `translate(${tx * 0.85}px,${ty * 0.85}px) scale(1.08) rotate(${tilt * 0.3}deg)`, offset: 0.2 },
+      { transform: "translate(0,0) scale(1) rotate(0deg)" }
+    ], 420, "cubic-bezier(.2,.8,.2,1)");
+    clearAnims(att);
+    att.style.zIndex = "";
+  }
+  function hitFx(stage2, { x, y }, ux, uy, power) {
+    const p = Math.min(2, 0.8 + power * 0.15), base = Math.atan2(uy, ux);
+    fxAdd(stage2, { type: "burst", x, y, glow: 60 * p, c: "40,100%,75%", life: 320, rays: rays(12, 40 * p, 95 * p) });
+    fxAdd(stage2, { type: "ring", x, y, r0: 8, r1: 70 * p, w: 6, c: "30,100%,70%", life: 380 });
+    for (let i = 0; i < 22 * p; i++) {
+      const a = base + rand(-1.3, 1.3), v = rand(4, 12) * p;
+      fxAdd(stage2, {
+        type: "spark",
+        x,
+        y,
+        vx: Math.cos(a) * v,
+        vy: Math.sin(a) * v,
+        g: 0.3,
+        len: 2.4,
+        size: 3,
+        c: pick(["35,100%,70%", "15,100%,65%", "50,100%,85%"]),
+        life: rand(300, 600)
+      });
+    }
+    if (power >= 5) screenFlash(stage2, 0.45, 260);
+    shake(stage2, 3 + power * 1.4, 300);
+  }
+
+  // src/fx/death.js
+  function crackGeometry(w, h, P, n) {
+    const step = 2 * Math.PI / n, a0 = rand(0, step);
+    const angs = Array.from({ length: n }, (_, i) => a0 + i * step + rand(-0.25, 0.25) * step);
+    const ref = angs[0], rel = (a) => ((a - ref) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    const rays_ = angs.map((a) => {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      const t = Math.min(
+        dx > 0 ? (w - P.x) / dx : dx < 0 ? -P.x / dx : Infinity,
+        dy > 0 ? (h - P.y) / dy : dy < 0 ? -P.y / dy : Infinity
+      );
+      const at = (f, j) => [P.x + dx * t * f - dy * j, P.y + dy * t * f + dx * j];
+      return [[P.x, P.y], at(rand(0.28, 0.42), rand(-0.04, 0.04) * w), at(rand(0.6, 0.78), rand(-0.05, 0.05) * w), [P.x + dx * t, P.y + dy * t]];
+    });
+    const corners = [[0, 0], [w, 0], [w, h], [0, h]].map((c) => ({ c, r: rel(Math.atan2(c[1] - P.y, c[0] - P.x)) }));
+    const polys = [];
+    for (let i = 0; i < n; i++) {
+      const A = rays_[i], B = rays_[(i + 1) % n], lo = angs[i] - ref, hi = i === n - 1 ? 2 * Math.PI : angs[i + 1] - ref;
+      const cs = corners.filter((o) => o.r > lo && o.r < hi).sort((x, y) => x.r - y.r).map((o) => o.c);
+      polys.push([A[0], A[1], B[1]]);
+      polys.push([A[1], A[2], A[3], ...cs, B[3], B[2], B[1]]);
+    }
+    const lines = [...rays_, ...rays_.map((r, i) => [r[1], rays_[(i + 1) % n][1]])];
+    return { polys, lines, rayCount: n };
+  }
+  function crackSvg(geo, w, h, hue, bw) {
+    const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "cracks");
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    Object.assign(svg.style, { left: -bw + "px", top: -bw + "px", width: w + "px", height: h + "px" });
+    geo.lines.forEach((pts, i) => {
+      for (const [stroke, width] of [[`hsla(${hue},100%,62%,.6)`, 4.5], [`hsl(${hue},100%,94%)`, 1.4]]) {
+        const pl = document.createElementNS(NS, "polyline");
+        pl.setAttribute("points", pts.map((p) => p.join(",")).join(" "));
+        Object.assign(pl.style, { fill: "none", stroke, strokeWidth: width, strokeLinecap: "round", strokeLinejoin: "round" });
+        pl.dataset.i = i;
+        svg.appendChild(pl);
+      }
+    });
+    return svg;
+  }
+  async function playDeath(stage2, el, { hit = null, remove = !el._hero } = {}) {
+    const hero = !!el._hero;
+    const hue = el._def?.hue ?? (el.dataset.side === "enemy" ? 355 : 210), col = `${hue},100%,70%`;
+    el.classList.remove("ready", "selected", "exhausted", "charging", "valid", "locked");
+    el.style.zIndex = 35;
+    const r = el.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, bw = el.clientLeft;
+    const P = hit ? { x: clamp(hit.x - r.left, w * 0.22, w * 0.78), y: clamp(hit.y - r.top, h * 0.2, h * 0.8) } : { x: w * rand(0.4, 0.6), y: h * rand(0.35, 0.55) };
+    const px = r.left + P.x, py = r.top + P.y;
+    if (timing.reduced) {
+      await anim(el, [{ opacity: 1 }, { opacity: 0 }], 300);
+      el.style.opacity = "0";
+      if (remove) removeFromRow(el);
+      return;
+    }
+    const geo = crackGeometry(w, h, P, hero ? 10 : 8);
+    el.appendChild(crackSvg(geo, w, h, hue, bw));
+    el.querySelectorAll(".cracks polyline").forEach((pl) => {
+      const L = pl.getTotalLength(), ring = +pl.dataset.i >= geo.rayCount;
+      pl.style.strokeDasharray = L;
+      pl.animate(
+        [{ strokeDashoffset: L }, { strokeDashoffset: 0 }],
+        { duration: dur(ring ? 140 : 240), delay: dur(ring ? 200 + rand(0, 80) : rand(0, 70)), easing: "cubic-bezier(.3,.7,.4,1)", fill: "both" }
+      );
+    });
+    const glow = document.createElement("div");
+    glow.className = "flashov dglow";
+    glow.style.background = `radial-gradient(circle at ${P.x - bw}px ${P.y - bw}px, hsla(${hue},100%,80%,.95), hsla(${hue},100%,55%,.35) 45%, hsla(${hue},100%,50%,0) 80%)`;
+    glow.style.mixBlendMode = "screen";
+    el.appendChild(glow);
+    glow.animate([{ opacity: 0 }, { opacity: 0.25, offset: 0.3 }, { opacity: 1 }], { duration: dur(520), easing: "ease-in", fill: "forwards" });
+    fxAdd(stage2, { type: "burst", x: px, y: py, glow: w * 0.35, c: col, life: 260, rays: rays(8, 0.3 * w, 0.6 * w) });
+    for (let i = 0; i < 18; i++) {
+      const a = rand(0, 6.283), d = rand(0.7, 1.3) * w;
+      fxAdd(stage2, { type: "gather", sx: px + Math.cos(a) * d, sy: py + Math.sin(a) * d, tx: px, ty: py, size: rand(1.5, 3), c: col, life: rand(300, 420), delay: rand(80, 200) });
+    }
+    if (hero) stage2.dim.animate([{ opacity: 0 }, { opacity: 0.8, offset: 0.5 }, { opacity: 0 }], { duration: dur(1300) });
+    const tremble = [];
+    for (let i = 0; i <= 10; i++) {
+      const m = i / 10 * 4;
+      tremble.push({ transform: `translate(${rand(-m, m)}px,${rand(-m, m)}px) scale(${1 + 0.06 * i / 10})` });
+    }
+    await anim(el, tremble, 520, "linear");
+    const layer = document.createElement("div");
+    layer.className = "shatter";
+    Object.assign(layer.style, { left: r.left + "px", top: r.top + "px", width: w + "px", height: h + "px" });
+    const base = el.cloneNode(true);
+    base.style.cssText = `width:${w}px;height:${h}px;box-shadow:none`;
+    base.querySelector(".dglow").style.opacity = 0.7;
+    const cs = getComputedStyle(el);
+    for (const v of ["--hc1", "--hc2", "--cw", "--ch"]) base.style.setProperty(v, cs.getPropertyValue(v));
+    let longest = 0;
+    for (const poly of geo.polys) {
+      const sh = base.cloneNode(true);
+      const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+      sh.style.clipPath = `polygon(${poly.map((p) => `${p[0].toFixed(1)}px ${p[1].toFixed(1)}px`).join(",")})`;
+      sh.style.transformOrigin = `${cx}px ${cy}px`;
+      layer.appendChild(sh);
+      let dx = cx - P.x, dy = cy - P.y;
+      const d = Math.hypot(dx, dy) || 1;
+      dx /= d;
+      dy /= d;
+      const near = 1.35 - Math.min(1, d / w);
+      const spd = w * (hero ? 1.5 : 1.05) * rand(0.7, 1.25) * near, up = -h * rand(0.15, 0.45), G = h * rand(1.3, 1.9);
+      const rx = rand(-420, 420), rz = rand(-260, 260), T = rand(950, 1300);
+      const kf = [];
+      for (let i = 0; i <= 10; i++) {
+        const k = i / 10, e = 1 - (1 - k) ** 2;
+        const sc = 1.06 - 0.3 * k, flipX = Math.cos(rx * e * Math.PI / 180);
+        kf.push({
+          transform: `translate(${dx * spd * e}px,${dy * spd * e + up * e + G * k * k}px) rotate(${rz * e}deg) scale(${(flipX * sc).toFixed(3)},${sc.toFixed(3)})`,
+          opacity: k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45
+        });
+      }
+      sh.animate(kf, { duration: dur(T), easing: "linear", fill: "forwards" });
+      longest = Math.max(longest, T);
+    }
+    stage2.root.appendChild(layer);
+    el.style.opacity = "0";
+    clearAnims(el);
+    setTimeout(() => layer.remove(), dur(longest) + 50);
+    const P2 = hero ? 1.8 : 1;
+    screenFlash(stage2, hero ? 0.6 : 0.3, hero ? 500 : 220);
+    fxAdd(stage2, { type: "burst", x: px, y: py, glow: w * 0.9 * P2, c: col, life: 380, rays: rays(16, 0.8 * w * P2, 1.5 * w * P2) });
+    fxAdd(stage2, { type: "ring", x: px, y: py, r0: 6, r1: w * 1.4 * P2, w: 7, c: "0,0%,95%", life: 420 });
+    fxAdd(stage2, { type: "ring", x: px, y: py, r0: 6, r1: w * 2 * P2, w: 4, c: col, life: 650, delay: 70 });
+    for (let i = 0; i < 26 * P2; i++) {
+      const a = rand(0, 6.283), v = rand(3, 10) * P2;
+      fxAdd(stage2, { type: "spark", x: px, y: py, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0.22, len: 2.2, size: 2.5, c: pick([col, "45,100%,80%", "0,0%,100%"]), life: rand(350, 700) });
+    }
+    for (let i = 0; i < 22 * P2; i++) fxAdd(stage2, {
+      type: "dot",
+      add: true,
+      x: r.left + rand(0.1, 0.9) * w,
+      y: r.top + rand(0.2, 0.9) * h,
+      vx: rand(-0.6, 0.6),
+      vy: rand(-2.6, -0.8),
+      drag: 0.985,
+      size: rand(1.2, 2.6),
+      c: pick([col, "38,100%,70%"]),
+      life: rand(900, 1500),
+      delay: rand(0, 250)
+    });
+    for (let i = 0; i < 9; i++) fxAdd(stage2, {
+      type: "dot",
+      x: px + rand(-0.4, 0.4) * w,
+      y: py + rand(-0.3, 0.3) * h,
+      vx: rand(-0.8, 0.8),
+      vy: rand(-1.4, -0.4),
+      drag: 0.97,
+      size: rand(6, 11),
+      grow: 1.6,
+      a: 0.35,
+      c: "260,8%,35%",
+      life: rand(800, 1200)
+    });
+    fxAdd(stage2, { type: "wisp", x0: r.left + w / 2, y0: r.top + h / 2, rise: h * 1.2, sway: w * 0.18, size: w * 0.32, c: col, life: 1400, delay: 160 });
+    const scorch = document.createElement("div");
+    scorch.className = "scorch";
+    Object.assign(scorch.style, { left: r.left - w * 0.25 + "px", top: r.top + h * 0.2 + "px", width: w * 1.5 + "px", height: h * 0.75 + "px" });
+    stage2.root.appendChild(scorch);
+    scorch.animate(
+      [{ opacity: 0, transform: "scale(.5)" }, { opacity: 1, transform: "scale(1)", offset: 0.12 }, { opacity: 0, transform: "scale(1.1)" }],
+      { duration: dur(1800), easing: "ease-out" }
+    ).finished.then(() => scorch.remove());
+    shake(stage2, hero ? 14 : 8, hero ? 500 : 340);
+    await sleep(hero ? 300 : 420);
+    if (remove) removeFromRow(el);
+  }
+  function removeFromRow(el) {
+    const row = el.parentElement;
+    if (!row) return;
+    const before = snapshot(row);
+    el.remove();
+    flip(row, before);
+  }
+
+  // src/fx/banish.js
+  async function playBanish(stage2, el, pile = null) {
+    const r = el.getBoundingClientRect(), c = center(r), w = r.width, h = r.height;
+    el.classList.remove("ready", "selected", "exhausted", "charging", "valid", "locked");
+    el.style.zIndex = 35;
+    if (timing.reduced) {
+      await anim(el, [{ opacity: 1 }, { opacity: 0 }], 300);
+      removeFromRow2(el);
+      return;
+    }
+    const col = "275,90%,72%", pale = "220,60%,92%";
+    fxAdd(stage2, { type: "rune", x: c.x, y: r.bottom - h * 0.08, r: w * 0.85, flat: 0.32, n: 5, c: col, life: 1500 });
+    fxAdd(stage2, { type: "ring", x: c.x, y: r.bottom - h * 0.08, r0: w * 1.2, r1: w * 0.3, flat: 0.32, w: 5, c: col, life: 500 });
+    for (let i = 0; i < 16; i++) {
+      const a = rand(0, 6.283), d = rand(0.8, 1.4) * w;
+      fxAdd(stage2, {
+        type: "gather",
+        sx: c.x + Math.cos(a) * d,
+        sy: c.y + Math.sin(a) * d * 0.7,
+        tx: c.x,
+        ty: c.y,
+        size: rand(1.5, 3),
+        c: pick([col, pale]),
+        life: rand(320, 460),
+        delay: rand(0, 160)
+      });
+    }
+    const veil = document.createElement("div");
+    veil.className = "flashov";
+    veil.style.background = "linear-gradient(0deg, hsla(275,100%,85%,.95), hsla(220,100%,96%,.9))";
+    veil.style.mixBlendMode = "screen";
+    el.appendChild(veil);
+    veil.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: dur(480), easing: "ease-in", fill: "forwards" });
+    await anim(el, [{ transform: "none" }, { transform: "translateY(-6px) scale(1.04)" }], 480, "ease-out");
+    const T = 900, t0 = performance.now();
+    el.animate([
+      { clipPath: "inset(0 0 0% 0)", transform: "translateY(-6px) scale(1.04)", opacity: 1 },
+      { clipPath: "inset(0 0 100% 0)", transform: "translateY(-18px) scale(1.06)", opacity: 0.6 }
+    ], { duration: dur(T), easing: "cubic-bezier(.45,0,.7,1)", fill: "forwards" });
+    let longest = 0;
+    for (let i = 0; i < 46; i++) {
+      const k = i / 46, delay = k * T * 0.95;
+      const y = r.bottom - 6 - h * k, x = r.left + rand(0.05, 0.95) * w;
+      fxAdd(stage2, {
+        type: "dot",
+        add: true,
+        x,
+        y,
+        vx: rand(-0.4, 0.4),
+        vy: rand(-2.4, -0.9),
+        drag: 0.985,
+        size: rand(1.4, 3.2),
+        c: pick([col, pale, "0,0%,100%"]),
+        life: rand(700, 1100),
+        delay: dur(delay)
+      });
+      longest = Math.max(longest, delay);
+    }
+    fxAdd(stage2, { type: "beam", x: c.x, y: r.bottom, w: w * 0.55, c: col, life: T + 200 });
+    await sleep(T);
+    el.style.opacity = "0";
+    if (pile) {
+      const p = center(pile.getBoundingClientRect()), F = 460;
+      fxAdd(stage2, {
+        type: "proj",
+        sx: c.x,
+        sy: r.top,
+        tx: p.x,
+        ty: p.y,
+        cx: (c.x + p.x) / 2,
+        cy: Math.min(r.top, p.y) - 60,
+        size: 14,
+        c: col,
+        life: F
+      });
+      await sleep(F);
+      fxAdd(stage2, { type: "ring", x: p.x, y: p.y, r0: 4, r1: 46, w: 4, c: col, life: 380 });
+      pile.animate([{ transform: "scale(1.25)" }, { transform: "scale(1)" }], { duration: dur(300), easing: "cubic-bezier(.3,1.6,.5,1)" });
+    }
+    screenFlash(stage2, 0.12, 200);
+    clearAnims(el);
+    removeFromRow2(el);
+  }
+  function removeFromRow2(el) {
+    const row = el.parentElement;
+    if (!row) return;
+    const before = snapshot(row);
+    el.remove();
+    flip(row, before);
+  }
+  function bumpPile(pile) {
+    if (!pile) return;
+    pile.animate([{ transform: "scale(1.2)" }, { transform: "scale(1)" }], { duration: dur(260), easing: "cubic-bezier(.3,1.6,.5,1)" });
+  }
+  async function flyTo(stage2, from, toEl, ghostEl, ms = 380) {
+    const to = toEl.getBoundingClientRect();
+    Object.assign(ghostEl.style, { transformOrigin: "0 0", position: "fixed", left: from.left + "px", top: from.top + "px", width: from.width + "px", height: from.height + "px", margin: 0, zIndex: 44 });
+    stage2.root.appendChild(ghostEl);
+    toEl.style.visibility = "hidden";
+    const sx = to.width / from.width, sy = to.height / from.height;
+    await anim(ghostEl, [
+      { transform: "none" },
+      { transform: `translate(${(to.left - from.left) * 0.5}px,${(to.top - from.top) * 0.5 - 40}px) scale(${(1 + sx) / 2},${(1 + sy) / 2}) rotate(-8deg)`, offset: 0.5 },
+      { transform: `translate(${to.left - from.left}px,${to.top - from.top}px) scale(${sx},${sy})` }
+    ], ms, "cubic-bezier(.3,.7,.3,1)");
+    toEl.style.visibility = "";
+    ghostEl.remove();
+    toEl.animate([{ transform: "scale(1.15)" }, { transform: "none" }], { duration: dur(200), easing: "ease-out" });
+  }
+
+  // src/fx/spells.js
+  async function playCastIntro(stage2, def, side, src = null) {
+    const col = `${def.hue},100%,68%`;
+    const probe = createCardEl(def);
+    stage2.cast.appendChild(probe);
+    const w = probe.offsetWidth, h = probe.offsetHeight;
+    const bb = stage2.board.getBoundingClientRect();
+    const cx = bb.left + bb.width / 2, cy = bb.top + bb.height * (side === "player" ? 0.52 : 0.34);
+    Object.assign(probe.style, { left: cx - w / 2 + "px", top: cy - h / 2 + "px" });
+    let from, rot = 0, sc0 = 1;
+    if (src) {
+      from = src.getBoundingClientRect();
+      sc0 = src._drag ? src._scale : 1;
+      rot = src._drag ? src._tilt : parseFloat(src.style.getPropertyValue("--r")) || 0;
+      src.remove();
+    } else from = { left: cx - w / 2, top: -h * 1.6, width: w, height: h };
+    const f = center(from);
+    await anim(probe, [
+      { transform: `translate(${f.x - cx}px,${f.y - cy}px) rotate(${rot}deg) scale(${sc0})` },
+      { transform: "translate(0,0) rotate(0deg) scale(1.5)" }
+    ], 420, "cubic-bezier(.2,.9,.25,1)");
+    fxAdd(stage2, { type: "rune", x: cx, y: cy, r: w * 1.25, flat: 1, n: def.sig > 4 ? def.sig : 6, c: col, life: 1300 });
+    fxAdd(stage2, { type: "rune", x: cx, y: cy, r: w * 0.8, flat: 1, n: 3, c: "0,0%,90%", life: 1100, delay: 120 });
+    for (let i = 0; i < 26; i++) fxAdd(stage2, {
+      type: "orbit",
+      x: cx,
+      y: cy,
+      a0: rand(0, 6.283),
+      w: rand(6e-3, 0.012) * (i % 2 ? 1 : -1),
+      r0: w * rand(1.2, 1.7),
+      r1: w * 0.1,
+      flat: 1,
+      rise: 0,
+      size: rand(5, 9),
+      c: col,
+      life: rand(550, 800),
+      delay: rand(0, 250)
+    });
+    const hold = probe.animate(
+      [{ transform: "scale(1.5)" }, { transform: "translateY(-6px) scale(1.54)" }, { transform: "scale(1.5)" }],
+      { duration: dur(620), easing: "ease-in-out", fill: "forwards" }
+    );
+    const veil = document.createElement("div");
+    veil.className = "flashov";
+    veil.style.background = `radial-gradient(circle, #fff, hsl(${def.hue} 100% 70%))`;
+    probe.appendChild(veil);
+    veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur(620), easing: "ease-in", fill: "forwards" });
+    await hold.finished;
+    probe.animate(
+      [{ transform: "scale(1.5)", opacity: 1 }, { transform: "scale(.2)", opacity: 0 }],
+      { duration: dur(220), easing: "cubic-bezier(.6,0,1,1)", fill: "forwards" }
+    ).finished.then(() => probe.remove());
+    fxAdd(stage2, { type: "burst", x: cx, y: cy, glow: w * 0.9, c: col, life: 300, rays: rays(12, 0.6 * w, 1.1 * w) });
+    fxAdd(stage2, { type: "ring", x: cx, y: cy, r0: 10, r1: w * 1.6, w: 5, c: col, life: 420 });
+    await sleep(160);
+    return { x: cx, y: cy };
+  }
+  var spellEffects = {
+    /** 放物線を描く火球 → 爆発 */
+    async fireball(stage2, { from, targets: [tgt], onHit }) {
+      const t = center(tgt.getBoundingClientRect()), T = 520;
+      fxAdd(stage2, {
+        type: "proj",
+        sx: from.x,
+        sy: from.y,
+        tx: t.x,
+        ty: t.y,
+        cx: (from.x + t.x) / 2 + rand(-80, 80),
+        cy: Math.min(from.y, t.y) - 120,
+        size: 26,
+        c: "28,100%,60%",
+        life: T
+      });
+      await sleep(T);
+      fxAdd(stage2, { type: "burst", x: t.x, y: t.y, glow: 110, c: "30,100%,65%", life: 380, rays: rays(16, 70, 140) });
+      fxAdd(stage2, { type: "ring", x: t.x, y: t.y, r0: 10, r1: 150, w: 8, c: "20,100%,60%", life: 480 });
+      for (let i = 0; i < 40; i++) {
+        const a = rand(0, 6.283), v = rand(3, 11);
+        fxAdd(stage2, {
+          type: "dot",
+          add: true,
+          x: t.x,
+          y: t.y,
+          vx: Math.cos(a) * v,
+          vy: Math.sin(a) * v,
+          drag: 0.9,
+          size: rand(4, 10),
+          c: pick(["28,100%,60%", "8,100%,55%", "45,100%,70%"]),
+          life: rand(300, 600)
+        });
+      }
+      for (let i = 0; i < 10; i++) fxAdd(stage2, {
+        type: "dot",
+        x: t.x + rand(-30, 30),
+        y: t.y + rand(-20, 20),
+        vx: rand(-0.8, 0.8),
+        vy: rand(-1.6, -0.4),
+        drag: 0.97,
+        size: rand(7, 12),
+        grow: 1.5,
+        a: 0.35,
+        c: "20,10%,30%",
+        life: rand(800, 1200),
+        delay: 120
+      });
+      screenFlash(stage2, 0.35, 260);
+      shake(stage2, 11, 380);
+      flashOn(tgt, "#fff", 250, 0.95);
+      onHit(0, t);
+      await sleep(350);
+    },
+    /** 詠唱位置 → 1 体目 → 2 体目 … と飛び移る稲妻 */
+    async chain(stage2, { from, targets, def, onHit }) {
+      const col = `${def.hue},100%,68%`;
+      let prev = [from.x, from.y];
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i], c = center(t.getBoundingClientRect()), pt = [c.x, c.y];
+        fxAdd(stage2, { type: "bolt", pts: [prev, pt], c: col, life: 420 });
+        fxAdd(stage2, { type: "burst", x: c.x, y: c.y, glow: 70, c: col, life: 260, rays: rays(10, 40, 80) });
+        for (let j = 0; j < 14; j++) {
+          const a = rand(0, 6.283), v = rand(3, 9);
+          fxAdd(stage2, { type: "spark", x: c.x, y: c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0.2, len: 2, size: 2.2, c: pick([col, "0,0%,100%"]), life: rand(250, 450) });
+        }
+        flashOn(t, "#dff4ff", 220, 0.9);
+        shake(stage2, 6, 220);
+        onHit(i, c);
+        prev = pt;
+        await sleep(130);
+      }
+      screenFlash(stage2, 0.25, 200);
+      await sleep(300);
+    },
+    /** 降り注ぐ光の柱と昇る光の粒 */
+    async heal(stage2, { targets: [tgt], onHit }) {
+      const r = tgt.getBoundingClientRect(), c = center(r);
+      fxAdd(stage2, { type: "beam", x: c.x, y: r.bottom, w: r.width * 0.8, c: "100,90%,70%", life: 900 });
+      fxAdd(stage2, { type: "rune", x: c.x, y: r.bottom - r.height * 0.05, r: r.width * 0.9, flat: 0.35, n: 8, c: "100,90%,70%", life: 1100 });
+      for (let i = 0; i < 30; i++) fxAdd(stage2, {
+        type: "dot",
+        add: true,
+        x: c.x + rand(-0.6, 0.6) * r.width,
+        y: r.bottom - rand(0, 0.5) * r.height,
+        vx: rand(-0.2, 0.2),
+        vy: rand(-3, -1.2),
+        drag: 0.99,
+        size: rand(1.5, 3.5),
+        c: pick(["100,90%,75%", "55,100%,80%"]),
+        life: rand(700, 1100),
+        delay: rand(100, 600)
+      });
+      await sleep(380);
+      fxAdd(stage2, { type: "ring", x: c.x, y: c.y, r0: 10, r1: r.width * 1.1, w: 5, c: "100,90%,75%", life: 500 });
+      onHit(0, c);
+      await sleep(450);
+    },
+    /** らせんに昇る金色の光 → 弾けて強化 */
+    async buff(stage2, { targets: [tgt], onHit }) {
+      const r = tgt.getBoundingClientRect(), c = center(r);
+      for (let i = 0; i < 22; i++) fxAdd(stage2, {
+        type: "orbit",
+        x: c.x,
+        y: r.bottom - r.height * 0.1,
+        a0: i / 22 * 6.283,
+        w: 9e-3,
+        r0: r.width * 0.85,
+        r1: r.width * 0.55,
+        flat: 0.38,
+        rise: r.height * 1.05,
+        size: rand(6, 10),
+        c: "45,100%,65%",
+        life: 900,
+        delay: i * 12
+      });
+      fxAdd(stage2, { type: "rune", x: c.x, y: r.bottom - r.height * 0.05, r: r.width * 0.9, flat: 0.35, n: 4, c: "45,100%,65%", life: 1100 });
+      await anim(tgt, [{ transform: "none" }, { transform: "translateY(-8px) scale(1.05)", offset: 0.75 }, { transform: "translateY(0) scale(1.14)" }], 800, "ease-in");
+      fxAdd(stage2, { type: "burst", x: c.x, y: c.y, glow: r.width * 0.9, c: "45,100%,70%", life: 320, rays: rays(14, 0.6 * r.width, r.width) });
+      fxAdd(stage2, { type: "ring", x: c.x, y: c.y, r0: 10, r1: r.width * 1.3, w: 6, c: "45,100%,70%", life: 450 });
+      shake(stage2, 4, 200);
+      onHit(0, c);
+      await anim(tgt, [{ transform: "scale(1.14)" }, { transform: "scale(1)" }], 300, "cubic-bezier(.3,1.5,.5,1)");
+      tgt.getAnimations().forEach((a) => a.cancel());
+    }
+  };
+  spellEffects.curse = async function curse(stage2, { from, targets, def, onHit }) {
+    const col = `${def.hue},90%,66%`;
+    for (let i = 0; i < targets.length; i++) {
+      const t = center(targets[i].getBoundingClientRect()), T = 420;
+      fxAdd(stage2, {
+        type: "proj",
+        sx: from.x,
+        sy: from.y,
+        tx: t.x,
+        ty: t.y,
+        cx: (from.x + t.x) / 2 + rand(-60, 60),
+        cy: Math.min(from.y, t.y) - 90,
+        size: 18,
+        c: col,
+        life: T
+      });
+      await sleep(T);
+      fxAdd(stage2, { type: "rune", x: t.x, y: t.y, r: 60, flat: 1, n: 5, c: col, life: 700 });
+      fxAdd(stage2, { type: "burst", x: t.x, y: t.y, glow: 70, c: col, life: 300, rays: rays(10, 40, 90) });
+      flashOn(targets[i], `hsl(${def.hue} 90% 70%)`, 300, 0.8);
+      shake(stage2, 5, 220);
+      onHit(i, t);
+    }
+    await sleep(250);
+  };
+
+  // src/app/cards.js
+  var civHue = { FIRE: 0, WATER: 212, WIND: 140, LIGHT: 44, DARK: 268, EARTH: 326 };
+  var rarityOf = (cost) => cost >= 7 ? "legendary" : cost >= 4 ? "rare" : "common";
+  var M = (id, name, civ, cost, atk, hp, text = "", extra = {}) => ({ kind: "minion", id, name, civ, cost, atk, hp, text, hue: civHue[civ], sig: 3 + cost % 6, rarity: rarityOf(cost), ...extra });
+  var S = (id, name, civ, cost, effect, target, value, text) => ({ kind: "spell", id, name, civ, cost, effect, target, value, text, hue: civHue[civ], sig: 5 + cost % 4, rarity: rarityOf(cost) });
+  var MINIONS = [
+    M("m-fire-1", "炎の従者", "FIRE", 2, 2, 3, "【速攻】", { haste: true }),
+    M("m-earth-1", "守りの岩兵", "EARTH", 3, 1, 5, ""),
+    M("m-wind-1", "雷翼の射手", "WIND", 3, 2, 2, "【召喚時】ランダムな敵ミニオン1体に2ダメージ", { onSummon: "zap2" }),
+    M("m-water-1", "蒼海の番人", "WATER", 4, 3, 4, ""),
+    M("m-light-1", "白銀の聖騎士", "LIGHT", 5, 4, 5, "【速攻】", { haste: true }),
+    M("m-dark-1", "深淵の刈り手", "DARK", 5, 5, 3, ""),
+    M("m-fire-2", "紅蓮の古竜", "FIRE", 7, 7, 6, "【速攻】", { haste: true }),
+    M("m-earth-2", "創世神 ガイア", "EARTH", 8, 8, 8, "【召喚時】このミニオン以外の、お互いの場のミニオンをすべて破壊", { onSummon: "genesis" })
+  ];
+  var SPELLS = [
+    S("s-fire-1", "マグマ・ストレート", "FIRE", 1, "fireball", "enemyMinion", 3, "ミニオン1体に3ダメージ"),
+    S("s-wind-1", "天雷の連鎖", "WIND", 4, "chain", "none", 2, "敵ミニオン全体に2ダメージ"),
+    S("s-water-1", "蒼流の一撃", "WATER", 3, "chain", "none", 3, "相手リーダーに3ダメージ"),
+    S("s-light-1", "聖光の癒し", "LIGHT", 2, "heal", "none", 5, "自分のリーダーのLPを5回復"),
+    S("s-earth-1", "大地の加護", "EARTH", 2, "buff", "allyMinion", 2, "自分のミニオン1体に+2/+2"),
+    S("s-dark-1", "冥府の断罪", "DARK", 3, "curse", "enemyMinion", 0, "敵ミニオン1体を破壊"),
+    S("s-dark-2", "虚無への追放", "DARK", 4, "curse", "enemyMinion", 0, "敵ミニオン1体を消滅させる")
+  ];
+  SPELLS.find((s) => s.id === "s-water-1").hitsLeader = true;
+  SPELLS.find((s) => s.id === "s-dark-2").banish = true;
+  var ALL = new Map([...MINIONS, ...SPELLS].map((d) => [d.id, d]));
+  var cardById = (id) => ALL.get(id);
+  function randomCard(rng = Math.random) {
+    const pool = rng() < 0.35 ? SPELLS : MINIONS;
+    return pool[Math.floor(rng() * pool.length)];
+  }
+
+  // src/app/rules.js
+  var PHASES2 = ["ドロー", "アンタップ", "マナチャージ", "メイン", "バトル", "サブ", "ターンエンド"];
+  var MAX_BOARD = 6;
+  var MAX_HAND = 9;
+  var LP = 20;
+  var other = (s) => s === "player" ? "enemy" : "player";
+  var heroUid = (s) => `hero:${s}`;
+  var tag = (name) => `【${name}】`;
+  var RuleError = class extends Error {
+  };
+  function createGame({ rng = Math.random } = {}) {
+    const side = (s, name, ability) => ({
+      leader: { uid: heroUid(s), name, hp: LP, maxHp: LP, ability },
+      board: [],
+      hand: [],
+      mana: 0,
+      tapped: 0,
+      deck: 30,
+      grave: 0,
+      banish: 0,
+      taboo: 1,
+      charged: false
+    });
+    return {
+      rng,
+      nextId: 1,
+      turn: "player",
+      turnNo: 3,
+      phase: "メイン",
+      over: false,
+      winner: null,
+      sides: {
+        player: side("player", "傷痕の闘帝", "【起動：1】自分のリーダーに1ダメージ。そうしたら1枚ドローする"),
+        enemy: side("enemy", "蒼海の賢者", "【起動：1】カードを1枚見て、山札の上か下に置く")
+      }
+    };
+  }
+  var uid = (state2) => `c${state2.nextId++}`;
+  var mp = (sd) => sd.mana - sd.tapped;
+  function counts(state2) {
+    const c = {};
+    for (const s of ["player", "enemy"]) {
+      const sd = state2.sides[s];
+      c[s] = { deck: sd.deck, grave: sd.grave, banish: sd.banish, taboo: sd.taboo, hand: sd.hand.length, mana: sd.mana, mp: mp(sd), hp: sd.leader.hp };
+    }
+    return c;
+  }
+  var Steps = class {
+    constructor(state2) {
+      this.state = state2;
+      this.list = [];
+    }
+    step(log, ...events) {
+      this.list.push({ log, events: events.map((e) => ({ ...e, counts: counts(this.state) })) });
+      return this;
+    }
+  };
+  function find(state2, id) {
+    for (const s of ["player", "enemy"]) {
+      const sd = state2.sides[s];
+      if (sd.leader.uid === id) return { entity: sd.leader, side: s, hero: true };
+      const u = sd.board.find((x) => x.uid === id);
+      if (u) return { entity: u, side: s, hero: false };
+    }
+    return null;
+  }
+  var handIndex = (sd, id) => {
+    const i = sd.hand.findIndex((c) => c.uid === id);
+    if (i < 0) throw new RuleError("手札にないカードです");
+    return i;
+  };
+  function attackReason(state2, id) {
+    const f = find(state2, id);
+    if (!f || f.hero) return "攻撃できません";
+    if (state2.over) return "対戦は終わっています";
+    if (f.side !== state2.turn) return "相手のターンです";
+    if (state2.phase !== "バトル") return "バトルフェイズで攻撃できます(「次のフェイズへ」)";
+    if (f.entity.sick) return "出たターンは攻撃できません(【速攻】を除く)";
+    if (f.entity.attacked) return "このターンはもう攻撃しました";
+    return null;
+  }
+  var canAttack = (state2, id) => attackReason(state2, id) === null;
+  function attackTargets(state2, id) {
+    const f = find(state2, id);
+    if (!f || f.hero) return [];
+    const foe = state2.sides[other(f.side)];
+    return [...foe.board.map((u) => u.uid), foe.leader.uid];
+  }
+  function playReason(state2, side, id) {
+    const sd = state2.sides[side], c = sd.hand.find((x) => x.uid === id);
+    if (!c) return "手札にないカードです";
+    if (state2.over) return "対戦は終わっています";
+    if (state2.turn !== side) return "相手のターンです";
+    if (state2.phase !== "メイン" && state2.phase !== "サブ") return "メインフェイズかサブフェイズで使えます";
+    if (c.def.cost > mp(sd)) return `MP が足りません(コスト${c.def.cost} / MP ${mp(sd)})`;
+    if (c.def.kind === "minion" && sd.board.length >= MAX_BOARD) return "場がいっぱいです";
+    if (c.def.kind === "spell" && c.def.target !== "none" && !spellTargets(state2, side, c.def).length) return "対象がいません";
+    return null;
+  }
+  function chargeReason(state2, side) {
+    if (state2.over) return "対戦は終わっています";
+    if (state2.turn !== side) return "相手のターンです";
+    if (state2.phase !== "マナチャージ" && state2.phase !== "メイン") return "マナチャージフェイズかメインフェイズでチャージできます";
+    if (state2.sides[side].charged) return "マナチャージは1ターンに1回です";
+    return null;
+  }
+  function spellTargets(state2, side, def) {
+    const me = state2.sides[side], foe = state2.sides[other(side)];
+    if (def.target === "enemyMinion") return foe.board.map((u) => u.uid);
+    if (def.target === "allyMinion") return me.board.map((u) => u.uid);
+    if (def.target === "anyMinion") return [...me.board, ...foe.board].map((u) => u.uid);
+    return [];
+  }
+  function charge(state2, side, id) {
+    const r = chargeReason(state2, side);
+    if (r) throw new RuleError(r);
+    const sd = state2.sides[side], i = handIndex(sd, id), card = sd.hand[i];
+    sd.hand.splice(i, 1);
+    sd.mana++;
+    sd.charged = true;
+    const out = new Steps(state2);
+    out.step(side === "player" ? `${tag(card.def.name)}をマナにチャージ` : "相手がマナにチャージ", { type: "charge", side, uid: id });
+    return out.list;
+  }
+  function play(state2, side, id, targetId = null, index = null) {
+    const r = playReason(state2, side, id);
+    if (r) throw new RuleError(r);
+    const sd = state2.sides[side], i = handIndex(sd, id), card = sd.hand[i], def = card.def;
+    if (def.kind === "spell" && def.target !== "none" && !spellTargets(state2, side, def).includes(targetId)) throw new RuleError("その対象は選べません");
+    sd.hand.splice(i, 1);
+    sd.tapped += def.cost;
+    const out = new Steps(state2);
+    if (def.kind === "minion") {
+      const unit = { uid: uid(state2), def, atk: def.atk, hp: def.hp, maxHp: def.hp, sick: !def.haste, attacked: false };
+      const at = index == null ? sd.board.length : Math.min(index, sd.board.length);
+      sd.board.splice(at, 0, unit);
+      out.step(`${tag(def.name)}を召喚`, { type: "pay", side }, { type: "summon", side, unit: { ...unit }, index: at, fromHand: id });
+      onSummon(state2, side, unit, out);
+    } else {
+      castSpell(state2, side, def, id, targetId, out);
+    }
+    checkEnd(state2, out);
+    return out.list;
+  }
+  function onSummon(state2, side, unit, out) {
+    const foe = state2.sides[other(side)], me = state2.sides[side];
+    if (unit.def.onSummon === "zap2" && foe.board.length) {
+      const t = foe.board[Math.floor(state2.rng() * foe.board.length)];
+      t.hp -= 2;
+      out.step(
+        `${tag(unit.def.name)}の召喚時効果:${tag(t.def.name)}に2ダメージ`,
+        { type: "zap", from: unit.uid, target: t.uid, amount: 2, hp: t.hp, maxHp: t.maxHp }
+      );
+      reap(state2, out);
+    }
+    if (unit.def.onSummon === "genesis") {
+      const victims = [...me.board, ...foe.board].filter((u) => u.uid !== unit.uid);
+      if (!victims.length) return;
+      out.step(`${tag(unit.def.name)}の召喚時効果:ほかのミニオンをすべて破壊`, { type: "quake", from: unit.uid });
+      for (const v of victims) v.hp = Math.min(v.hp, 0), v.doomed = true;
+      reap(state2, out);
+    }
+  }
+  function castSpell(state2, side, def, cardUid, targetId, out) {
+    const me = state2.sides[side], foe = state2.sides[other(side)];
+    let targets = [], results = [];
+    if (def.effect === "fireball") {
+      const t = find(state2, targetId).entity;
+      t.hp -= def.value;
+      targets = [t.uid];
+      results = [{ kind: "damage", uid: t.uid, amount: def.value, hp: t.hp, maxHp: t.maxHp }];
+    } else if (def.effect === "chain" && def.hitsLeader) {
+      foe.leader.hp -= def.value;
+      targets = [foe.leader.uid];
+      results = [{ kind: "damage", uid: foe.leader.uid, amount: def.value, hp: foe.leader.hp, maxHp: LP }];
+    } else if (def.effect === "chain") {
+      for (const u of foe.board) {
+        u.hp -= def.value;
+        targets.push(u.uid);
+        results.push({ kind: "damage", uid: u.uid, amount: def.value, hp: u.hp, maxHp: u.maxHp });
+      }
+    } else if (def.effect === "heal") {
+      const before = me.leader.hp;
+      me.leader.hp = Math.min(LP, me.leader.hp + def.value);
+      targets = [me.leader.uid];
+      results = [{ kind: "heal", uid: me.leader.uid, amount: me.leader.hp - before || def.value, hp: me.leader.hp, maxHp: LP }];
+    } else if (def.effect === "buff") {
+      const t = find(state2, targetId).entity;
+      t.atk += def.value;
+      t.hp += def.value;
+      t.maxHp += def.value;
+      targets = [t.uid];
+      results = [{ kind: "buff", uid: t.uid, atk: t.atk, hp: t.hp, maxHp: t.maxHp, value: def.value }];
+    } else if (def.effect === "curse") {
+      const t = find(state2, targetId).entity;
+      targets = [t.uid];
+      results = [{ kind: "mark", uid: t.uid }];
+      if (def.banish) t.banished = true;
+      else t.doomed = true;
+    }
+    me.grave++;
+    out.step(`${tag(def.name)}を使用`, { type: "pay", side }, { type: "cast", side, def, fromHand: cardUid, targets, results });
+    reap(state2, out);
+  }
+  function reap(state2, out) {
+    const dead = [], gone = [];
+    for (const s of ["player", "enemy"]) {
+      const sd = state2.sides[s];
+      sd.board = sd.board.filter((u) => {
+        if (u.banished) {
+          sd.banish++;
+          gone.push({ u, s });
+          return false;
+        }
+        if (u.hp <= 0 || u.doomed) {
+          sd.grave++;
+          dead.push({ u, s });
+          return false;
+        }
+        return true;
+      });
+    }
+    if (gone.length) out.step(
+      gone.map(({ u }) => `${tag(u.def.name)}は消滅した`).join(" / "),
+      ...gone.map(({ u, s }) => ({ type: "banish", uid: u.uid, side: s }))
+    );
+    if (dead.length) out.step(
+      dead.map(({ u }) => `${tag(u.def.name)}は破壊された`).join(" / "),
+      ...dead.map(({ u, s }) => ({ type: "death", uid: u.uid, side: s }))
+    );
+  }
+  function checkEnd(state2, out) {
+    const dead = ["player", "enemy"].filter((s) => state2.sides[s].leader.hp <= 0);
+    if (!dead.length || state2.over) return;
+    state2.over = true;
+    state2.winner = dead.length === 2 ? "draw" : other(dead[0]);
+    out.step(
+      `${dead.map((s) => tag(state2.sides[s].leader.name)).join("と")}の LP が 0 になった`,
+      ...dead.map((s) => ({ type: "death", uid: heroUid(s), side: s, hero: true }))
+    );
+    out.step(
+      state2.winner === "player" ? "あなたの勝利" : state2.winner === "enemy" ? "あなたの敗北" : "引き分け",
+      { type: "gameOver", winner: state2.winner }
+    );
+  }
+  function attack(state2, attId, tgtId) {
+    const r = attackReason(state2, attId);
+    if (r) throw new RuleError(r);
+    if (!attackTargets(state2, attId).includes(tgtId)) throw new RuleError("その対象は攻撃できません");
+    const a = find(state2, attId).entity, t = find(state2, tgtId);
+    a.attacked = true;
+    const hits = [];
+    t.entity.hp -= a.atk;
+    hits.push({ uid: t.entity.uid, amount: a.atk, hp: t.entity.hp, maxHp: t.entity.maxHp });
+    if (!t.hero && t.entity.atk > 0) {
+      a.hp -= t.entity.atk;
+      hits.push({ uid: a.uid, amount: t.entity.atk, hp: a.hp, maxHp: a.maxHp });
+    }
+    const out = new Steps(state2);
+    out.step(
+      `${tag(a.def.name)}が${tag(t.hero ? t.entity.name : t.entity.def.name)}を攻撃`,
+      { type: "attack", attacker: a.uid, target: t.entity.uid, power: a.atk, hits }
+    );
+    reap(state2, out);
+    checkEnd(state2, out);
+    return out.list;
+  }
+  function nextPhase(state2, side) {
+    if (state2.over) throw new RuleError("対戦は終わっています");
+    if (state2.turn !== side) throw new RuleError("相手のターンです");
+    const i = PHASES2.indexOf(state2.phase);
+    if (state2.phase === "サブ" || state2.phase === "ターンエンド") return endTurn(state2, side);
+    state2.phase = PHASES2[i + 1];
+    const out = new Steps(state2);
+    out.step(null, { type: "phase", side, phase: state2.phase, turnNo: state2.turnNo });
+    return out.list;
+  }
+  function endTurn(state2, side) {
+    if (state2.over) throw new RuleError("対戦は終わっています");
+    if (state2.turn !== side) throw new RuleError("相手のターンです");
+    const out = new Steps(state2);
+    state2.phase = "ターンエンド";
+    out.step(null, { type: "phase", side, phase: state2.phase, turnNo: state2.turnNo });
+    const next = other(side), sd = state2.sides[next];
+    state2.turn = next;
+    state2.turnNo++;
+    state2.phase = "ドロー";
+    out.step(
+      `ターン${state2.turnNo} 開始(${next === "player" ? "あなた" : "相手"}の番)`,
+      { type: "turn", side: next, turnNo: state2.turnNo },
+      { type: "phase", side: next, phase: "ドロー", turnNo: state2.turnNo }
+    );
+    drawCard(state2, next, out);
+    state2.phase = "アンタップ";
+    sd.tapped = 0;
+    sd.charged = false;
+    for (const u of sd.board) {
+      u.sick = false;
+      u.attacked = false;
+    }
+    out.step(null, { type: "phase", side: next, phase: "アンタップ", turnNo: state2.turnNo }, { type: "untap", side: next });
+    state2.phase = "マナチャージ";
+    out.step(null, { type: "phase", side: next, phase: "マナチャージ", turnNo: state2.turnNo });
+    return out.list;
+  }
+  function drawCard(state2, side, out = null, def = null) {
+    const own = !out;
+    out ||= new Steps(state2);
+    const sd = state2.sides[side];
+    if (sd.hand.length >= MAX_HAND || sd.deck <= 0) return own ? out.list : void 0;
+    const card = { uid: uid(state2), def: def || randomCard(state2.rng) };
+    sd.hand.push(card);
+    sd.deck--;
+    out.step(
+      side === "player" ? `${tag(card.def.name)}を引いた` : "相手がカードを1枚引いた",
+      { type: "draw", side, card: side === "player" ? { ...card } : null }
+    );
+    return own ? out.list : void 0;
+  }
+  function seed(state2) {
+    const put = (s, id, extra = {}) => {
+      const def = cardById(id);
+      state2.sides[s].board.push({ uid: uid(state2), def, atk: def.atk, hp: def.hp, maxHp: def.hp, sick: false, attacked: false, ...extra });
+    };
+    put("enemy", "m-water-1");
+    put("enemy", "m-dark-1");
+    put("enemy", "m-earth-1");
+    put("player", "m-fire-1");
+    put("player", "m-light-1");
+    const p = state2.sides.player, e = state2.sides.enemy;
+    p.mana = 8;
+    e.mana = 6;
+    for (const id of ["m-fire-2", "m-wind-1", "s-fire-1", "m-water-1", "s-dark-1"]) e.hand.push({ uid: uid(state2), def: cardById(id) });
+    p.deck = 24;
+    e.deck = 25;
+    p.grave = 3;
+    e.grave = 4;
+    p.leader.hp = 20;
+    e.leader.hp = 18;
+  }
+
+  // src/app/director.js
+  var STEP_MIN_MS = 200;
+  var Director = class {
+    constructor(stage2, { fxOn: fxOn2, budget: budget2 }) {
+      this.stage = stage2;
+      this.fxOn = fxOn2;
+      this.budget = budget2;
+      this.els = /* @__PURE__ */ new Map();
+      this.lastHit = /* @__PURE__ */ new Map();
+      this.pendingSlot = null;
+      this.logN = 0;
+    }
+    el(uid2) {
+      return this.els.get(uid2) || null;
+    }
+    uidOf(el) {
+      return el?.dataset.uid || null;
+    }
+    pile(side, name) {
+      return this.stage.piles[side].querySelector(`[data-pile=${name}]`);
+    }
+    lastBack() {
+      return this.stage.backs.lastElementChild;
+    }
+    /* ---------------- 最終状態を演出なしで描く ---------------- */
+    mount(state2) {
+      const { stage: stage2 } = this;
+      this.els.clear();
+      this.lastHit.clear();
+      stage2.particles.clear();
+      clearBanner(stage2);
+      for (const side of ["player", "enemy"]) {
+        const sd = state2.sides[side];
+        renderHero(stage2.heroes[side], sd.leader);
+        stage2.heroes[side].querySelector(".hhp").classList.toggle("low", sd.leader.hp <= 5);
+        this.els.set(sd.leader.uid, stage2.heroes[side]);
+        const row = stage2.rows[side];
+        row.replaceChildren();
+        for (const u of sd.board) {
+          const el = createCardEl(u.def, { uid: u.uid, atk: u.atk, hp: u.hp, maxHp: u.maxHp });
+          row.appendChild(el);
+          this.els.set(u.uid, el);
+        }
+      }
+      stage2.hand.replaceChildren();
+      for (const c2 of state2.sides.player.hand) {
+        const el = createCardEl(c2.def, { uid: c2.uid });
+        stage2.hand.appendChild(el);
+        this.els.set(c2.uid, el);
+      }
+      layoutHand(stage2);
+      const c = {};
+      for (const s of ["player", "enemy"]) {
+        const sd = state2.sides[s];
+        c[s] = { deck: sd.deck, grave: sd.grave, banish: sd.banish, taboo: sd.taboo, hand: sd.hand.length, mana: sd.mana, mp: sd.mana - sd.tapped };
+      }
+      this.applyCounts(c, false);
+      this.showPhase(state2.turn, state2.phase, state2.turnNo);
+    }
+    /** 攻撃できる・使えるなどの印を付け直す */
+    sync(state2, q) {
+      const myTurn = state2.turn === "player" && !state2.over;
+      for (const u of state2.sides.player.board) {
+        const el = this.el(u.uid);
+        if (!el) continue;
+        el.classList.toggle("ready", q.canAttack(u.uid));
+        el.classList.toggle("exhausted", myTurn && u.attacked);
+        el.classList.toggle("sick", u.sick);
+      }
+      for (const u of state2.sides.enemy.board) this.el(u.uid)?.classList.remove("ready", "exhausted", "sick");
+      for (const c of state2.sides.player.hand) this.el(c.uid)?.classList.toggle("playable", q.canPlay(c.uid));
+      this.stage.mana.player.classList.toggle("chargeable", q.canCharge());
+      this.stage.root.classList.toggle("their-turn", !myTurn);
+    }
+    /* ---------------- 数字の反映 ---------------- */
+    applyCounts(c, animate = true) {
+      if (!c) return;
+      for (const s of ["player", "enemy"]) {
+        const k = c[s];
+        for (const name of ["deck", "grave", "banish", "taboo"]) {
+          const b = this.pile(s, name).querySelector("b");
+          if (b.textContent !== String(k[name])) {
+            b.textContent = k[name];
+            if (animate && name !== "deck") bumpPile(this.pile(s, name));
+          }
+        }
+        this.stage.mp[s].textContent = k.mp;
+        this.stage.mc[s].textContent = k.mana;
+        this.syncMana(s, k.mana, k.mp);
+      }
+      this.syncBacks(c.enemy.hand, animate);
+    }
+    syncMana(side, mana, mp2) {
+      const row = this.stage.mana[side];
+      while (row.children.length < mana) row.appendChild(createBackEl("mtile"));
+      while (row.children.length > mana) row.lastElementChild.remove();
+      [...row.children].forEach((t, i) => t.classList.toggle("tapped", i < mana - mp2));
+    }
+    syncBacks(n, animate) {
+      const box = this.stage.backs;
+      while (box.children.length > n) box.lastElementChild.remove();
+      while (box.children.length < n) {
+        const b = createBackEl("hback");
+        box.appendChild(b);
+        if (animate) b.animate(
+          [{ transform: "translate(160px,-20px) rotate(25deg)", opacity: 0 }, { transform: "none", opacity: 1 }],
+          { duration: dur(360), easing: "cubic-bezier(.2,.8,.2,1)" }
+        );
+      }
+    }
+    showPhase(side, phase, turnNo) {
+      const who = side === "player" ? "あなたの番" : "相手の番";
+      this.stage.turn.innerHTML = `ターン${turnNo} / <b>${phase}フェイズ</b>(${who})`;
+      this.stage.turn.classList.toggle("opp", side !== "player");
+      this.stage.phases.querySelectorAll("li").forEach((li) => li.classList.toggle("on", li.dataset.phase === phase));
+    }
+    /* ---------------- ログ ---------------- */
+    log(text, now = false) {
+      const li = document.createElement("li");
+      li.textContent = text;
+      this.stage.log.querySelectorAll("li.now").forEach((x) => x.classList.remove("now"));
+      if (now) li.classList.add("now");
+      this.stage.log.appendChild(li);
+      this.stage.log.scrollTop = this.stage.log.scrollHeight;
+      this.stage.logLast.textContent = text;
+      this.stage.logCount.textContent = ++this.logN + "件";
+    }
+    clearLog() {
+      this.stage.log.replaceChildren();
+      this.logN = 0;
+      this.stage.logLast.textContent = "(ログなし)";
+      this.stage.logCount.textContent = "0件";
+    }
+    /* ---------------- 再生器 ---------------- */
+    /**
+     * 1操作ぶんの段を再生する。演出オフなら再生せず最終状態を描く(84b 3章)。
+     * 累計が上限を超えたら残りを畳み、畳んだことを帯で示す(裁定364・368)。
+     */
+    async run(steps, state2) {
+      const { stage: stage2 } = this;
+      stage2.field.classList.add("auto-step-sink");
+      stage2.stepbar.hidden = true;
+      const animate = this.fxOn() && !timing.reduced;
+      const t0 = performance.now(), budget2 = this.budget();
+      let i = 0;
+      try {
+        for (; i < steps.length; i++) {
+          if (!animate) break;
+          if (budget2 && performance.now() - t0 > budget2) break;
+          const s = steps[i], ts = performance.now();
+          if (s.log) this.log(s.log, true);
+          await this.playEvents(s.events);
+          const left = s.log ? STEP_MIN_MS - (performance.now() - ts) : 0;
+          if (left > 0) await sleep(left);
+        }
+        if (i < steps.length) {
+          const rest = steps.slice(i).filter((s) => s.log);
+          rest.forEach((s) => this.log(s.log));
+          this.mount(state2);
+          const last = [...steps].reverse().flatMap((s) => s.events).find((e) => e.type === "gameOver");
+          if (last) this.onGameOver(last);
+          if (animate && rest.length) {
+            stage2.stepbar.textContent = `残り${rest.length}段は演出を省いた(ログに全部残っている)`;
+            stage2.stepbar.hidden = false;
+          }
+        }
+      } finally {
+        stage2.field.classList.remove("auto-step-sink");
+        stage2.log.querySelectorAll("li.now").forEach((x) => x.classList.remove("now"));
+      }
+    }
+    async playEvents(events) {
+      for (let i = 0; i < events.length; i++) {
+        const e = events[i];
+        if (e.type === "death" || e.type === "banish") {
+          const batch = [];
+          while (i < events.length && (events[i].type === "death" || events[i].type === "banish")) batch.push(events[i++]);
+          i--;
+          await Promise.all(batch.map((b) => b.type === "death" ? this.onDeath(b) : this.onBanish(b)));
+          this.applyCounts(batch[batch.length - 1].counts);
+          continue;
+        }
+        const h = this["on" + e.type[0].toUpperCase() + e.type.slice(1)];
+        if (!h) throw new Error("再生できない出来事: " + e.type);
+        await h.call(this, e);
+        if (e.type === "pay") for (const s of ["player", "enemy"]) this.syncMana(s, e.counts[s].mana, e.counts[s].mp);
+        else this.applyCounts(e.counts);
+      }
+    }
+    /* ---------------- 出来事ごとの再生 ---------------- */
+    async onPhase({ side, phase, turnNo }) {
+      this.showPhase(side, phase, turnNo);
+    }
+    async onTurn({ side }) {
+      await banner(this.stage, side === "player" ? "あなたのターン" : "相手のターン");
+    }
+    async onUntap({ side }) {
+      this.stage.rows[side].querySelectorAll(".card").forEach((c) => c.classList.remove("exhausted", "sick"));
+    }
+    async onPay() {
+    }
+    async onDraw({ side, card }) {
+      if (side !== "player" || !card) return;
+      const el = createCardEl(card.def, { uid: card.uid });
+      this.els.set(card.uid, el);
+      drawToHand(this.stage, el);
+      await sleep(160);
+    }
+    async onCharge({ side, uid: uid2, counts: counts2 }) {
+      const k = counts2[side];
+      let from, ghost = createBackEl("mtile ghost");
+      if (side === "player") {
+        const el = this.el(uid2);
+        from = el.getBoundingClientRect();
+        await el.animate(
+          [{ transform: el.style.transform || "none" }, { transform: `${el.style.transform || ""} scaleX(0)` }],
+          { duration: dur(140), fill: "forwards" }
+        ).finished;
+        el.remove();
+        this.els.delete(uid2);
+        layoutHand(this.stage);
+      } else {
+        const b = this.lastBack();
+        from = b.getBoundingClientRect();
+        b.remove();
+      }
+      this.syncMana(side, k.mana, k.mp);
+      await flyTo(this.stage, from, this.stage.mana[side].lastElementChild, ghost, 420);
+    }
+    async onSummon({ side, unit, index, fromHand }) {
+      const el = createCardEl(unit.def, { uid: unit.uid, atk: unit.atk, hp: unit.hp, maxHp: unit.maxHp });
+      const src = side === "player" ? this.el(fromHand) : this.lastBack();
+      const slot = side === "player" ? this.pendingSlot : null;
+      this.pendingSlot = null;
+      if (side === "player") this.els.delete(fromHand);
+      const done = playSummon(this.stage, { el, side, index, src, slot });
+      layoutHand(this.stage);
+      this.els.set(unit.uid, el);
+      await done;
+    }
+    async onZap({ from, target, amount, hp, maxHp }) {
+      const a = this.el(from), t = this.el(target);
+      const ac = center(a.getBoundingClientRect()), tc = center(t.getBoundingClientRect());
+      this.stage.particles.add({ type: "bolt", pts: [[ac.x, ac.y], [tc.x, tc.y]], c: "140,90%,70%", life: 420 });
+      this.stage.particles.add({ type: "ring", x: tc.x, y: tc.y, r0: 6, r1: 70, w: 5, c: "140,90%,75%", life: 380 });
+      shake(this.stage, 5, 220);
+      showDamage(this.stage, t, amount, hp, maxHp);
+      this.lastHit.set(target, tc);
+      await sleep(520);
+    }
+    async onQuake({ from }) {
+      const a = this.el(from), r = a.getBoundingClientRect(), c = center(r);
+      this.stage.dim.animate([{ opacity: 0 }, { opacity: 0.8, offset: 0.3 }, { opacity: 0 }], { duration: dur(1100) });
+      this.stage.particles.add({ type: "rune", x: c.x, y: c.y, r: r.width * 1.6, flat: 0.5, n: 8, c: "326,90%,70%", life: 1100 });
+      for (let i = 0; i < 3; i++) this.stage.particles.add({ type: "ring", x: c.x, y: c.y, r0: 20, r1: 900, flat: 0.45, w: 10, c: "326,90%,72%", life: 800, delay: i * 140 });
+      await sleep(380);
+      screenFlash(this.stage, 0.5, 380);
+      shake(this.stage, 16, 520);
+      this.stage.rows.player.querySelectorAll(".card").forEach((x) => x !== a && flashOn(x, "#ffd0f0", 380));
+      this.stage.rows.enemy.querySelectorAll(".card").forEach((x) => x !== a && flashOn(x, "#ffd0f0", 380));
+      await sleep(420);
+    }
+    async onCast({ side, def, fromHand, targets, results }) {
+      const src = side === "player" ? this.el(fromHand) : this.lastBack();
+      const intro = playCastIntro(this.stage, def, side, src);
+      layoutHand(this.stage);
+      if (side === "player") this.els.delete(fromHand);
+      const from = await intro;
+      const effect = spellEffects[def.effect];
+      await effect(this.stage, {
+        from,
+        def,
+        targets: targets.map((u) => this.el(u)),
+        onHit: (i, point) => {
+          const r = results[i], el = this.el(r.uid);
+          if (r.kind === "damage") showDamage(this.stage, el, r.amount, r.hp, r.maxHp);
+          else if (r.kind === "heal") showHeal(this.stage, el, r.amount, r.hp, r.maxHp);
+          else if (r.kind === "buff") showBuff(this.stage, el, r);
+          if (point) this.lastHit.set(r.uid, point);
+        }
+      });
+    }
+    async onAttack({ attacker, target, power, hits }) {
+      const att = this.el(attacker), tgt = this.el(target);
+      const lane = att.closest(".q-lane");
+      lane?.classList.add("fx-top");
+      await playAttack(this.stage, att, tgt, {
+        power,
+        counter: hits.some((h) => h.uid === attacker),
+        onImpact: (point) => {
+          for (const h of hits) {
+            showDamage(this.stage, this.el(h.uid), h.amount, h.hp, h.maxHp);
+            this.lastHit.set(h.uid, point);
+          }
+        }
+      });
+      lane?.classList.remove("fx-top");
+    }
+    async onDeath({ uid: uid2, hero }) {
+      const el = this.el(uid2);
+      if (!el) return;
+      await playDeath(this.stage, el, { hit: this.lastHit.get(uid2), remove: !hero });
+      if (!hero) this.els.delete(uid2);
+      this.lastHit.delete(uid2);
+    }
+    async onBanish({ uid: uid2, side }) {
+      const el = this.el(uid2);
+      if (!el) return;
+      await playBanish(this.stage, el, this.pile(side, "banish"));
+      this.els.delete(uid2);
+    }
+    async onGameOver({ winner }) {
+      banner(this.stage, winner === "player" ? "VICTORY" : winner === "enemy" ? "DEFEAT" : "DRAW", { persist: true });
+    }
+  };
+
+  // src/app/input.js
+  var inRect = (el, x, y, pad = 0) => {
+    const r = el.getBoundingClientRect();
+    return x > r.left - pad && x < r.right + pad && y > r.top - pad && y < r.bottom + pad;
+  };
+  var DRAG_START = 8;
+  var LONG_PRESS = 450;
+  var HIT_PAD = 16;
+  var Input = class {
+    /**
+     * @param {object} stage
+     * @param {import('./director.js').Director} director
+     * @param {InputQuery} query
+     * @param {InputCallbacks} callbacks
+     */
+    constructor(stage2, director2, query2, callbacks) {
+      Object.assign(this, { stage: stage2, director: director2, query: query2, cb: callbacks });
+      this.aim = null;
+      this.selected = null;
+      this.picked = null;
+      this.ptr = null;
+      this.drag = null;
+      this.slot = null;
+      this.lifted = null;
+      this.suppressUntil = 0;
+      const root = stage2.root;
+      root.addEventListener("pointerdown", (e) => this.onDown(e));
+      root.addEventListener("pointermove", (e) => this.onMove(e));
+      root.addEventListener("pointerup", (e) => this.onUp(e, false));
+      root.addEventListener("pointercancel", (e) => this.onUp(e, true));
+      root.addEventListener("click", (e) => this.onClick(e));
+      root.addEventListener("contextmenu", (e) => {
+        const el = e.target.closest(".card");
+        e.preventDefault();
+        if (this.inspecting) {
+          this.hideInspect();
+          return;
+        }
+        if (el) this.showInspect(el);
+      });
+    }
+    /* ---------------- 共通 ---------------- */
+    uid(el) {
+      return this.director.uidOf(el);
+    }
+    els(uids) {
+      return uids.map((u) => this.director.el(u)).filter(Boolean);
+    }
+    isHand(el) {
+      return el?.parentElement === this.stage.hand;
+    }
+    isMine(el) {
+      return el?.parentElement === this.stage.rows.player;
+    }
+    handTop() {
+      return this.stage.hand.getBoundingClientRect().top;
+    }
+    /** 操作の途中状態をすべて取り消す（リセット時など） */
+    reset() {
+      this.select(null);
+      this.pickSpell(null);
+      if (this.drag) {
+        cancelAnimationFrame(this.drag.raf);
+        this.drag = null;
+      }
+      this.stage.drag.replaceChildren();
+      this.closeSlot();
+      this.ptr = null;
+      this.lifted = null;
+    }
+    /** ルールが操作を受け付けたら呼ぶ（持ち上げたカードの記録を捨てる） */
+    settle() {
+      this.lifted = null;
+    }
+    /** ルールに操作を断られたとき、持ち上げていたカードを手札に戻す */
+    restore() {
+      const l = this.lifted;
+      this.lifted = null;
+      this.closeSlot();
+      this.director.pendingSlot = null;
+      if (l && l.el.isConnected && !this.isHand(l.el)) {
+        l.el._drag = false;
+        returnToHand(this.stage, l.el, l.index, l);
+      }
+    }
+    /* ---------------- 照準（矢印・吸い付き・レティクル） ---------------- */
+    startAim(fromEl, validEls, kind) {
+      this.endAim();
+      this.aim = { fromEl, valid: validEls, locked: null };
+      this.stage.root.dataset.aim = kind;
+      this.stage.root.classList.add("aiming");
+      validEls.forEach((v) => v.classList.add("valid"));
+    }
+    endAim() {
+      if (!this.aim) return;
+      this.aim.valid.forEach((v) => v.classList.remove("valid"));
+      this.lockOn(null);
+      this.aim = null;
+      delete this.stage.root.dataset.aim;
+      this.stage.root.classList.remove("aiming");
+      this.stage.aimPath.style.display = "none";
+    }
+    targetAt(x, y) {
+      return this.aim.valid.find((t) => {
+        if (!t.isConnected) return false;
+        const r = t.getBoundingClientRect();
+        return x > r.left - HIT_PAD && x < r.right + HIT_PAD && y > r.top - HIT_PAD && y < r.bottom + HIT_PAD;
+      }) || null;
+    }
+    lockOn(t) {
+      const aim = this.aim, ret = this.stage.reticle;
+      if (!aim || aim.locked === t) return;
+      aim.locked?.classList.remove("locked");
+      aim.locked = t;
+      if (!t) {
+        ret.style.display = "none";
+        return;
+      }
+      t.classList.add("locked");
+      const r = t.getBoundingClientRect(), sz = Math.min(Math.max(r.width, r.height) * 1.2, 150);
+      Object.assign(ret.style, { display: "block", left: r.left + r.width / 2 - sz / 2 + "px", top: r.top + r.height / 2 - sz / 2 + "px", width: sz + "px", height: sz + "px" });
+      ret.animate([{ transform: "scale(1.7)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: dur(200), easing: "cubic-bezier(.2,.9,.3,1.25)" });
+    }
+    updateAim(x, y) {
+      if (!this.aim) return;
+      const t = this.targetAt(x, y);
+      this.lockOn(t);
+      let ex = x, ey = y;
+      if (t) ({ x: ex, y: ey } = center(t.getBoundingClientRect()));
+      const c = center(this.aim.fromEl.getBoundingClientRect());
+      const bend = Math.min(120, Math.hypot(ex - c.x, ey - c.y) * 0.35);
+      const path = this.stage.aimPath;
+      path.setAttribute("d", `M${c.x},${c.y} Q${(c.x + ex) / 2},${Math.min(c.y, ey) - bend} ${ex},${ey}`);
+      path.style.display = "";
+    }
+    spellAim(el) {
+      const targets = this.els(this.query.spellTargets(this.uid(el)));
+      return { targets, kind: el._def.target === "allyMinion" ? "help" : "attack" };
+    }
+    /* ---------------- タップ操作 ---------------- */
+    select(el) {
+      if (this.picked) this.pickSpell(null);
+      this.selected?.classList.remove("selected");
+      this.selected = el;
+      this.endAim();
+      if (el) {
+        el.classList.add("selected");
+        this.startAim(el, this.els(this.query.attackTargets(this.uid(el))), "attack");
+      }
+    }
+    pickSpell(el) {
+      this.picked?.classList.remove("picked");
+      this.picked = el;
+      this.endAim();
+      if (el) {
+        el.classList.add("picked");
+        const { targets, kind } = this.spellAim(el);
+        this.startAim(el, targets, kind);
+      }
+    }
+    onClick(e) {
+      if (this.inspecting) {
+        this.hideInspect();
+        return;
+      }
+      if (e.target.closest("button,select,label,input")) return;
+      if (performance.now() < this.suppressUntil || !this.query.canAct()) return;
+      const el = e.target.closest(".card,.hero");
+      if (!el) {
+        this.select(null);
+        return;
+      }
+      if (this.picked) {
+        const card = this.picked, ok = el.classList.contains("valid");
+        this.pickSpell(null);
+        if (ok) {
+          this.lift(card);
+          this.cb.onCast(this.uid(card), this.uid(el));
+          return;
+        }
+        if (el === card || !this.isHand(el)) return;
+      }
+      if (this.isHand(el)) {
+        this.select(null);
+        const def = el._def, uid2 = this.uid(el), why = this.query.playReason(uid2);
+        if (why) {
+          nope(el);
+          this.cb.onReject(why);
+          return;
+        }
+        if (def.kind !== "spell") {
+          this.lift(el);
+          this.cb.onPlayMinion(uid2, null);
+          return;
+        }
+        if (def.target === "none") {
+          this.lift(el);
+          this.cb.onCast(uid2, null);
+          return;
+        }
+        this.pickSpell(el);
+        return;
+      }
+      if (this.isMine(el)) {
+        const why = this.query.attackReason(this.uid(el));
+        if (el === this.selected) this.select(null);
+        else if (why) {
+          this.select(null);
+          nope(el);
+          this.cb.onReject(why);
+        } else this.select(el);
+        return;
+      }
+      if (this.selected && el.classList.contains("valid")) {
+        const att = this.selected;
+        this.select(null);
+        this.cb.onAttack(this.uid(att), this.uid(el));
+        return;
+      }
+      this.select(null);
+    }
+    /** 手札から出ていくカードの元の位置を覚えておく */
+    lift(el, extra = {}) {
+      this.lifted = { el, index: [...this.stage.hand.children].indexOf(el), ...extra };
+    }
+    /* ---------------- ドラッグ操作 ---------------- */
+    onDown(e) {
+      if (e.button > 0 || this.ptr || this.inspecting) return;
+      if (e.target.closest("button,select,label,input")) return;
+      const el = e.target.closest(".card,.hero");
+      this.ptr = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, el, mode: null };
+      if (el?.classList.contains("card")) {
+        this.ptr.lp = setTimeout(() => {
+          if (this.ptr && !this.ptr.mode) {
+            this.ptr.mode = "inspect";
+            this.showInspect(el);
+          }
+        }, LONG_PRESS);
+      }
+    }
+    onMove(e) {
+      const p = this.ptr;
+      if (!p || e.pointerId !== p.id) {
+        this.updateAim(e.clientX, e.clientY);
+        return;
+      }
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (!p.mode && Math.hypot(p.x - p.x0, p.y - p.y0) > DRAG_START) {
+        clearTimeout(p.lp);
+        const el = p.el;
+        if (this.query.canAct() && this.isHand(el)) {
+          this.beginCardDrag(el, p.x, p.y);
+          p.mode = "card";
+        } else if (this.query.canAct() && this.isMine(el) && this.query.canAttack(this.uid(el))) {
+          this.select(el);
+          p.mode = "attack";
+        } else {
+          p.mode = "none";
+          if (this.query.canAct() && this.isMine(el)) {
+            nope(el);
+            this.cb.onReject(this.query.attackReason(this.uid(el)));
+          }
+        }
+        try {
+          this.stage.root.setPointerCapture(e.pointerId);
+        } catch (_) {
+        }
+      }
+      if (p.mode === "card") this.moveCardDrag(p.x, p.y);
+      else if (p.mode !== "inspect") this.updateAim(p.x, p.y);
+    }
+    onUp(e, cancelled) {
+      const p = this.ptr;
+      if (!p || e.pointerId !== p.id) return;
+      this.ptr = null;
+      clearTimeout(p.lp);
+      if (p.mode) this.suppressUntil = performance.now() + 350;
+      if (p.mode === "inspect") this.hideInspect();
+      else if (p.mode === "card") this.endCardDrag(p.x, p.y, cancelled);
+      else if (p.mode === "attack") {
+        const t = !cancelled && this.aim?.locked, att = this.selected;
+        this.select(null);
+        if (t) this.cb.onAttack(this.uid(att), this.uid(t));
+      }
+    }
+    beginCardDrag(el, px, py) {
+      this.select(null);
+      const r = el.getBoundingClientRect(), c = center(r), index = [...this.stage.hand.children].indexOf(el);
+      const rot = parseFloat(el.style.getPropertyValue("--r")) || 0;
+      el.remove();
+      layoutHand(this.stage);
+      el.style.zIndex = "";
+      el._drag = true;
+      this.stage.drag.appendChild(el);
+      const def = el._def;
+      this.drag = {
+        el,
+        index,
+        w: el.offsetWidth,
+        h: el.offsetHeight,
+        x: c.x,
+        y: c.y,
+        tx: px,
+        ty: py,
+        lastX: c.x,
+        tilt: rot,
+        scale: 1.15,
+        ts: 1.15,
+        holding: false,
+        slotIdx: -1,
+        targeted: def.kind === "spell" && def.target !== "none"
+      };
+      this.placeDrag();
+      this.drag.raf = requestAnimationFrame(() => this.dragLoop());
+    }
+    placeDrag() {
+      const g = this.drag;
+      g.el.style.transform = `translate(${g.x - g.w / 2}px,${g.y - g.h / 2}px) rotate(${g.tilt}deg) scale(${g.scale})`;
+    }
+    /** 指に少し遅れて追従し、横方向の速さに応じて傾く（慣性のある持ち心地） */
+    dragLoop() {
+      const g = this.drag;
+      if (!g) return;
+      const tx = g.holding ? g.hx : g.tx, ty = g.holding ? g.hy : g.ty;
+      g.x += (tx - g.x) * 0.42;
+      g.y += (ty - g.y) * 0.42;
+      const vx = g.x - g.lastX;
+      g.lastX = g.x;
+      g.tilt += ((g.holding ? 0 : clamp(vx * 1.5, -24, 24)) - g.tilt) * 0.22;
+      g.scale += (g.ts - g.scale) * 0.25;
+      this.placeDrag();
+      g.raf = requestAnimationFrame(() => this.dragLoop());
+    }
+    overMana(x, y) {
+      return inRect(this.stage.mana.player.parentElement, x, y, 6);
+    }
+    moveCardDrag(x, y) {
+      const g = this.drag, def = g.el._def, root = this.stage.root;
+      const mana = this.overMana(x, y), inBoard = !mana && y < this.handTop() - 8;
+      g.tx = x;
+      g.ty = y - g.h * 0.18;
+      root.classList.toggle("manazone", mana);
+      if (mana) {
+        const why2 = this.query.chargeReason();
+        g.el.classList.toggle("nope", !!why2);
+        g.el.classList.toggle("armed", !why2);
+        g.ts = 0.7;
+        root.classList.remove("dropzone", "castzone");
+        this.closeSlot();
+        if (g.holding) {
+          g.holding = false;
+          this.endAim();
+        }
+        return;
+      }
+      g.el.classList.remove("armed");
+      const why = this.query.playReason(this.uid(g.el));
+      if (why && inBoard) {
+        g.el.classList.add("nope");
+        root.classList.remove("dropzone", "castzone");
+        this.closeSlot();
+        g.ts = 1.05;
+        return;
+      }
+      if (def.kind !== "spell") {
+        const full = this.query.boardFull();
+        root.classList.toggle("dropzone", inBoard && !full);
+        g.el.classList.toggle("nope", inBoard && full);
+        g.ts = inBoard ? 1 : 1.15;
+        if (inBoard && !full) this.openSlot(this.slotIndexAt(x));
+        else this.closeSlot();
+      } else if (!g.targeted) {
+        root.classList.toggle("castzone", inBoard);
+        g.el.classList.remove("nope");
+        g.el.classList.toggle("armed", inBoard);
+        g.ts = inBoard ? 1.25 : 1.15;
+      } else {
+        if (inBoard && !g.holding) {
+          const { targets, kind } = this.spellAim(g.el);
+          if (!targets.length) {
+            g.el.classList.add("nope");
+            return;
+          }
+          g.el.classList.remove("nope");
+          const cz = this.stage.castzone.getBoundingClientRect();
+          g.holding = true;
+          g.hx = cz.left + cz.width / 2;
+          g.hy = cz.top + cz.height / 2;
+          g.ts = 0.9;
+          this.startAim(g.el, targets, kind);
+        } else if (g.holding && y > this.handTop() + 12) {
+          g.holding = false;
+          g.ts = 1.15;
+          this.endAim();
+        }
+        if (!inBoard) g.el.classList.remove("nope");
+        if (g.holding) this.updateAim(x, y);
+      }
+    }
+    endCardDrag(x, y, cancelled) {
+      const g = this.drag;
+      this.drag = null;
+      cancelAnimationFrame(g.raf);
+      const el = g.el, def = el._def, uid2 = this.uid(el);
+      const mana = !cancelled && this.overMana(x, y), inBoard = !cancelled && !mana && y < this.handTop() - 8;
+      this.stage.root.classList.remove("castzone", "dropzone", "manazone");
+      el.classList.remove("nope", "armed");
+      el._tilt = g.tilt;
+      el._scale = g.scale;
+      const lifted = { el, index: g.index, tilt: g.tilt, scale: g.scale };
+      if (mana) {
+        const why2 = this.query.chargeReason();
+        this.endAim();
+        this.closeSlot();
+        if (!why2) {
+          el._drag = false;
+          returnToHand(this.stage, el, g.index, lifted);
+          this.cb.onCharge(uid2);
+          return;
+        }
+        this.cb.onReject(why2);
+      }
+      const why = inBoard ? this.query.playReason(uid2) : null;
+      if (why) {
+        this.endAim();
+        this.closeSlot();
+        this.cb.onReject(why);
+        el._drag = false;
+        returnToHand(this.stage, el, g.index, lifted);
+        return;
+      }
+      if (def.kind !== "spell") {
+        if (inBoard && this.slot) {
+          this.lifted = lifted;
+          this.director.pendingSlot = this.slot;
+          this.slot = null;
+          this.cb.onPlayMinion(uid2, g.slotIdx);
+          return;
+        }
+        this.closeSlot();
+      } else if (!g.targeted) {
+        if (inBoard) {
+          this.lifted = lifted;
+          this.cb.onCast(uid2, null);
+          return;
+        }
+      } else {
+        const t = !cancelled && g.holding && this.aim?.locked;
+        this.endAim();
+        if (t) {
+          this.lifted = lifted;
+          this.cb.onCast(uid2, this.uid(t));
+          return;
+        }
+      }
+      el._drag = false;
+      returnToHand(this.stage, el, g.index, lifted);
+    }
+    /* ---------------- 盤面の置き場所 ---------------- */
+    cardsInRow() {
+      return [...this.stage.rows.player.querySelectorAll(".card")];
+    }
+    slotIndexAt(x) {
+      return this.cardsInRow().filter((c) => {
+        const r = c.getBoundingClientRect();
+        return x > r.left + r.width / 2;
+      }).length;
+    }
+    openSlot(i) {
+      if (this.slot && this.drag.slotIdx === i) return;
+      const row = this.stage.rows.player, before = snapshot(row), fresh = !this.slot;
+      if (fresh) {
+        this.slot = document.createElement("div");
+        this.slot.className = "slot";
+      }
+      row.insertBefore(this.slot, this.cardsInRow()[i] || null);
+      this.drag.slotIdx = i;
+      flip(row, before, this.slot);
+      if (fresh) this.slot.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "none" }], { duration: dur(180), easing: "ease-out" });
+    }
+    closeSlot() {
+      if (!this.slot) return;
+      const row = this.stage.rows.player, before = snapshot(row);
+      this.slot.remove();
+      this.slot = null;
+      if (this.drag) this.drag.slotIdx = -1;
+      flip(row, before);
+    }
+    /* ---------------- 長押しの拡大表示 ---------------- */
+    showInspect(el) {
+      this.inspecting = true;
+      const box = this.stage.inspect, c = el.cloneNode(true);
+      c.className = c.className.replace(/\b(ready|selected|exhausted|picked|valid|locked|charging|nope|armed|playable|sick)\b/g, "");
+      c.style.cssText = `--h:${el._def.hue};--sh:${el._def.hue}`;
+      c.querySelectorAll(".flashov,.cracks").forEach((n) => n.remove());
+      box.replaceChildren(c);
+      box.style.display = "grid";
+      box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur(160) });
+      c.animate([{ transform: "scale(.6) translateY(30px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: dur(220), easing: "cubic-bezier(.2,.9,.3,1.1)" });
+    }
+    hideInspect() {
+      this.inspecting = false;
+      const box = this.stage.inspect;
+      box.animate([{ opacity: 1 }, { opacity: 0 }], { duration: dur(120) }).finished.then(() => {
+        box.style.display = "none";
+        box.replaceChildren();
+      });
+    }
+  };
+  function nope(el) {
+    el.animate([{ translate: "0 0" }, { translate: "-6px 0" }, { translate: "6px 0" }, { translate: "0 0" }], { duration: 250 });
+  }
+
+  // src/app/ai.js
+  var byAtk = (state2, ids) => ids.map((id) => find(state2, id).entity).sort((a, b) => b.atk - a.atk);
+  function chooseSpellTarget(state2, def) {
+    if (def.kind === "minion") return { ok: true, target: null };
+    const ids = spellTargets(state2, "enemy", def);
+    if (def.target === "none") return { ok: true, target: null };
+    if (!ids.length) return { ok: false };
+    const units = byAtk(state2, ids);
+    if (def.effect === "fireball") {
+      const kill = units.find((u) => u.hp <= def.value);
+      return { ok: true, target: (kill || units[0]).uid };
+    }
+    return { ok: true, target: units[0].uid };
+  }
+  function worth(state2, def) {
+    const me = state2.sides.enemy, foe = state2.sides.player;
+    if (def.kind === "minion") return 10 + def.cost;
+    if (def.effect === "heal") return me.leader.hp <= 14 ? 12 : -1;
+    if (def.effect === "chain" && !def.hitsLeader) return foe.board.length >= 2 ? 14 : -1;
+    if (def.effect === "buff") return me.board.length ? 6 : -1;
+    return 8;
+  }
+  function* enemyTurn(state2) {
+    const sd = state2.sides.enemy;
+    if (sd.hand.length > 2) {
+      const cheap = [...sd.hand].sort((a, b) => a.def.cost - b.def.cost)[0];
+      yield charge(state2, "enemy", cheap.uid);
+    }
+    yield nextPhase(state2, "enemy");
+    for (let guard = 0; guard < 6 && !state2.over; guard++) {
+      const cands = sd.hand.filter((c2) => !playReason(state2, "enemy", c2.uid)).map((c2) => ({ c: c2, w: worth(state2, c2.def), t: chooseSpellTarget(state2, c2.def) })).filter((x) => x.w > 0 && x.t.ok).sort((a, b) => b.w - a.w);
+      if (!cands.length) break;
+      const { c, t } = cands[0];
+      yield play(state2, "enemy", c.uid, t.target);
+    }
+    if (state2.over) return;
+    yield nextPhase(state2, "enemy");
+    for (const u of [...sd.board]) {
+      if (state2.over) return;
+      if (!sd.board.includes(u) || !canAttack(state2, u.uid)) continue;
+      const foe = state2.sides.player.board;
+      const kill = foe.filter((f) => f.hp <= u.atk && f.atk < u.hp).sort((a, b) => b.atk - a.atk)[0];
+      yield attack(state2, u.uid, kill ? kill.uid : state2.sides.player.leader.uid);
+    }
+    if (state2.over) return;
+    yield endTurn(state2, "enemy");
+  }
+
+  // src/main.js
+  var stage = createStage(document.querySelector("#game"));
+  stage.demo.innerHTML = `
+  <label title="オフにすると段を再生せず、最終状態だけを描く(84b 3章)"><input type="checkbox" id="optFx" checked> 演出</label>
+  <label title="1操作あたりの総再生時間の上限(裁定364)。超えた残りは畳む">上限
+    <select id="optBudget"><option value="4000">4秒(84b の現行値)</option><option value="8000" selected>8秒</option><option value="0">なし</option></select></label>
+  <button type="button" id="optDraw">1枚引く</button>
+  <button type="button" id="optReset">最初から</button>`;
+  var $ = (id) => document.getElementById(id);
+  var fxOn = true;
+  var budget = 8e3;
+  var director = new Director(stage, { fxOn: () => fxOn, budget: () => budget });
+  var state = null;
+  var busy = false;
+  var toastTimer = 0;
+  var handDef = (uid2) => state.sides.player.hand.find((c) => c.uid === uid2)?.def;
+  var query = {
+    canAct: () => !busy && !state.over && state.turn === "player",
+    canAttack: (uid2) => !busy && canAttack(state, uid2),
+    attackReason: (uid2) => attackReason(state, uid2),
+    attackTargets: (uid2) => attackTargets(state, uid2),
+    playReason: (uid2) => playReason(state, "player", uid2),
+    canPlay: (uid2) => !playReason(state, "player", uid2),
+    spellTargets: (uid2) => spellTargets(state, "player", handDef(uid2)),
+    chargeReason: () => chargeReason(state, "player"),
+    canCharge: () => !chargeReason(state, "player"),
+    boardFull: () => state.sides.player.board.length >= MAX_BOARD
+  };
+  function toast(msg) {
+    stage.toast.textContent = msg;
+    stage.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      stage.toast.hidden = true;
+    }, 1800);
+  }
+  var input = new Input(stage, director, query, {
+    onPlayMinion: (uid2, index) => act(() => play(state, "player", uid2, null, index)),
+    onCast: (uid2, target) => act(() => play(state, "player", uid2, target)),
+    onAttack: (a, t) => act(() => attack(state, a, t)),
+    onCharge: (uid2) => act(() => charge(state, "player", uid2)),
+    onReject: (why) => why && toast(why)
+  });
+  function refresh() {
+    director.sync(state, query);
+    const mine = query.canAct();
+    stage.btnNext.disabled = !mine;
+    stage.btnEnd.disabled = !mine;
+  }
+  async function act(rule) {
+    if (busy || state.over) return;
+    let steps;
+    try {
+      steps = rule();
+    } catch (err) {
+      if (!(err instanceof RuleError)) throw err;
+      input.restore();
+      toast(err.message);
+      return;
+    }
+    input.settle();
+    await replay(steps);
+    if (state.turn === "enemy" && !state.over) await runEnemy();
+  }
+  async function replay(steps) {
+    busy = true;
+    refresh();
+    try {
+      await director.run(steps, state);
+    } finally {
+      busy = false;
+      refresh();
+    }
+  }
+  async function runEnemy() {
+    for (const steps of enemyTurn(state)) {
+      await replay(steps);
+      await sleep(fxOn ? 380 : 60);
+    }
+  }
+  function newGame() {
+    input.reset();
+    state = createGame();
+    seed(state);
+    director.clearLog();
+    director.mount(state);
+    busy = false;
+    stage.stepbar.hidden = true;
+    const opening = ["s-fire-1", "m-wind-1", "s-wind-1", "s-dark-2", "s-dark-1", "m-earth-2", "s-water-1", "s-earth-1"];
+    act(() => opening.flatMap((id) => drawCard(state, "player", null, cardById(id))));
+  }
+  stage.btnNext.addEventListener("click", () => {
+    input.reset();
+    act(() => nextPhase(state, "player"));
+  });
+  stage.btnEnd.addEventListener("click", () => {
+    input.reset();
+    act(() => endTurn(state, "player"));
+  });
+  $("optFx").addEventListener("change", (e) => {
+    fxOn = e.target.checked;
+  });
+  $("optBudget").addEventListener("change", (e) => {
+    budget = +e.target.value;
+  });
+  $("optDraw").addEventListener("click", () => {
+    if (query.canAct()) act(() => drawCard(state, "player"));
+  });
+  $("optReset").addEventListener("click", () => {
+    if (!busy) newGame();
+  });
+  newGame();
+})();
+</script>
+</head></html>

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>カードバトル演出デモ</title>
+<link rel="stylesheet" href="src/style.css">
+<link rel="stylesheet" href="demo.css">
+</head>
+<body>
+<div id="game"></div>
+
+<div id="ui">
+  <div class="btns">
+    <button id="bDraw">ドロー</button>
+    <button id="bReset">リセット</button>
+  </div>
+  <label>速度 <input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"><span id="spv">1x</span></label>
+  <div class="hint">手札を盤面へドラッグ → 召喚<br>緑に光るミニオンから相手へドラッグ → 攻撃<br>呪文は上へドラッグして対象で離す<br>長押し → カードを拡大<br>（タップ操作でも動きます）</div>
+</div>
+<button id="endTurn">ターン終了</button>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,2157 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>カードバトル演出デモ</title>
+<style>
+/* ===== 盤面（cb-stage）=====
+   大きさは親が決める。カードの大きさは盤面の幅から決まる（コンテナクエリ単位 cqw）。
+   座標を使う演出レイヤーは position:fixed で画面座標に置くため、
+   cb-stage の祖先に transform / filter を付けないこと。 */
+.cb-stage{position:relative;overflow:hidden;container-type:size;--aimc:#ff6a3d;--t:.3s;
+  touch-action:none;-webkit-tap-highlight-color:transparent;color:#eee;
+  font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif;
+  background:radial-gradient(ellipse 70% 55% at 50% 50%, #4a4a36 0%, #2e2c21 55%, #16140f 100%)}
+.cb-stage *{box-sizing:border-box}
+.cb-stage > *{--cw:clamp(56px,12.5cqw,112px);--ch:calc(var(--cw)*1.4)}
+/* 揺れ（shake）はこの層だけにかける */
+.cb-field{position:absolute;inset:0;display:grid;
+  grid-template-rows: calc(var(--cw)*1.05 + 18px) 1fr 1fr calc(var(--cw)*.95) calc(var(--ch)*.78)}
+/* 盤面の石床 */
+.cb-board{position:absolute;left:4%;right:4%;top:calc(var(--cw)*1.05 + 18px);bottom:calc(var(--cw)*.95 + var(--ch)*.78);
+  border-radius:28px;background:
+    linear-gradient(180deg, rgba(0,0,0,.18), rgba(255,255,255,.03) 50%, rgba(0,0,0,.18)),
+    repeating-linear-gradient(45deg, rgba(255,255,255,.015) 0 14px, rgba(0,0,0,.02) 14px 28px),
+    #3c3a2c;
+  box-shadow: inset 0 0 40px rgba(0,0,0,.6), 0 0 0 3px #5a4a32, 0 0 0 6px #2a2218;}
+.cb-board::after{content:"";position:absolute;left:6%;right:6%;top:50%;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(255,210,140,.35),transparent)}
+.row{position:relative;display:flex;justify-content:center;align-items:center;
+  gap:calc(var(--cw)*.12);z-index:1}
+.heroArea{position:relative;display:flex;justify-content:center;align-items:center;z-index:1}
+.heroArea.top{align-items:flex-end;padding-bottom:4px}
+
+/* ---- カード ---- */
+.card{position:relative;flex:none;width:var(--cw);height:var(--ch);
+  border-radius:calc(var(--cw)*.09);
+  border:calc(var(--cw)*.035) solid transparent;
+  background:linear-gradient(#2c2636,#15121c) padding-box, var(--frame) border-box;
+  box-shadow:0 4px 10px rgba(0,0,0,.55);user-select:none;-webkit-user-select:none;cursor:pointer}
+.r-common{--frame:linear-gradient(135deg,#aeb6bf,#5b636c 50%,#c8d0d8)}
+.r-rare{--frame:linear-gradient(135deg,#8cc6ff,#2553a8 50%,#b5dcff)}
+.r-legendary{--frame:linear-gradient(135deg,#ffe28a,#a8721a 40%,#fff3c4 58%,#c8901f)}
+.card .art{position:absolute;left:5%;right:5%;top:5%;height:55%;
+  border-radius:8% 8% 45% 45% / 8% 8% 22% 22%;overflow:hidden;display:grid;place-items:center;
+  background:radial-gradient(circle at 50% 38%, hsl(var(--h) 75% 58%), hsl(var(--h) 60% 24%) 58%, hsl(var(--h) 50% 9%));
+  box-shadow:inset 0 0 10px rgba(0,0,0,.6)}
+.card .art svg{width:72%;height:72%}
+.r-legendary .art{outline:2px solid rgba(255,215,120,.6);outline-offset:-2px}
+.card .cost{position:absolute;left:-12%;top:-8%;width:32%;aspect-ratio:1;border-radius:50%;
+  display:grid;place-items:center;font-weight:900;font-size:calc(var(--cw)*.17);
+  background:radial-gradient(circle at 35% 30%,#a8d6ff,#1f5fbf 70%);border:2px solid #d8ecff;
+  text-shadow:0 1px 2px #000;z-index:2}
+.card .name{position:absolute;left:0;right:0;top:57%;padding:3% 2%;text-align:center;
+  font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;font-weight:700;
+  font-size:calc(var(--cw)*.1);color:#f3ead6;white-space:nowrap;overflow:hidden;
+  background:linear-gradient(#56432e,#2b2118);border-top:1px solid #9b7d52;border-bottom:1px solid #9b7d52}
+.card .tribe{position:absolute;left:0;right:0;top:77%;text-align:center;font-size:calc(var(--cw)*.075);color:#b9ad98}
+.card .stat{position:absolute;bottom:-7%;width:31%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;
+  font-weight:900;font-size:calc(var(--cw)*.18);color:#fff;
+  text-shadow:0 0 2px #000,0 0 2px #000,0 1px 2px #000;z-index:2}
+.card .atk{left:-9%;background:radial-gradient(circle at 35% 30%,#ffe7a0,#c7821b 70%);border:2px solid #fff0c8}
+.card .hp{right:-9%;background:radial-gradient(circle at 35% 30%,#ffa698,#b3202a 70%);border:2px solid #ffd2cc}
+.card .hp.damaged span{color:#ff6b6b}
+.spell{--frame:linear-gradient(135deg,#d9b8ff,#5b2f9c 45%,#f0dcff 60%,#6a3bb0)}
+.spell .art{border-radius:50%/42%;left:12%;right:12%;top:6%;height:50%}
+.spell .name{top:56%;background:linear-gradient(#3e2a5c,#1f1530);border-color:#9c7cc9}
+.spell .desc{position:absolute;left:6%;right:6%;top:74%;text-align:center;line-height:1.3;
+  font-size:calc(var(--cw)*.078);color:#e2d6f5}
+.cb-hand .card.picked{--lift:calc(var(--ch)*-.5);--s:1.22;z-index:40 !important;
+  box-shadow:0 0 0 2px #fff,0 0 22px 8px hsla(var(--sh),100%,65%,.8)}
+.valid{box-shadow:0 0 0 3px var(--aimc),0 0 18px 6px color-mix(in srgb,var(--aimc) 60%,transparent) !important}
+.valid.hero{box-shadow:0 0 0 3px #3a2c16,0 0 0 6px var(--aimc),0 0 20px 8px color-mix(in srgb,var(--aimc) 60%,transparent) !important}
+.cb-stage[data-aim=help]{--aimc:#5dff9a}
+.row .card,.hero{transition:scale 150ms cubic-bezier(.2,0,0,1)}
+.locked{scale:1.07}
+/* ドラッグ */
+.cb-drag{position:fixed;inset:0;z-index:58;pointer-events:none}
+.cb-drag .card{position:absolute;left:0;top:0;transform-origin:50% 50%;
+  box-shadow:0 22px 34px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.15)}
+.cb-drag .card.nope{box-shadow:0 0 0 3px #ff4a3a,0 22px 34px rgba(0,0,0,.55)}
+.cb-drag .card.armed{box-shadow:0 0 0 3px #fff,0 0 30px 10px hsla(var(--sh),100%,65%,.9)}
+.slot{flex:none;width:var(--cw);height:var(--ch);border-radius:calc(var(--cw)*.09);
+  border:2px dashed rgba(255,230,160,.75);background:rgba(255,220,140,.08);box-shadow:inset 0 0 18px rgba(255,210,120,.25)}
+.cb-board{transition:box-shadow 200ms ease}
+.cb-stage.castzone .cb-board{box-shadow:inset 0 0 70px rgba(190,140,255,.45),0 0 0 3px #8a6ad0,0 0 0 6px #2a2218}
+.cb-stage.dropzone .cb-board{box-shadow:inset 0 0 50px rgba(255,220,140,.25),0 0 0 3px #b8955a,0 0 0 6px #2a2218}
+.cb-reticle{position:fixed;z-index:54;pointer-events:none;display:none}
+.cb-reticle .ring{position:absolute;inset:0;border-radius:50%;border:3px dashed var(--aimc);
+  box-shadow:0 0 14px var(--aimc),inset 0 0 14px var(--aimc);animation:spin 2.4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.cb-inspect{position:absolute;inset:0;z-index:66;display:none;place-items:center;pointer-events:none;
+  background:radial-gradient(ellipse at center,rgba(0,0,0,.45),rgba(0,0,0,.8))}
+.cb-inspect .card{--cw:min(44vw,230px);--ch:calc(var(--cw)*1.4);cursor:default;box-shadow:0 24px 50px rgba(0,0,0,.7)}
+.num.heal{-webkit-text-stroke:3px #0d5a2a;color:#eafff0}
+.num.buff{-webkit-text-stroke:3px #6a4a08;color:#fff6d0;font-size:calc(var(--cw)*.3)}
+.card .stat.buffed span{color:#8dff9a}
+.card .flashov{position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:3}
+
+/* 盤面上の状態 */
+.row .card.ready{box-shadow:0 0 0 2px #7dff8a,0 0 14px 4px rgba(90,255,120,.5)}
+.row .card.selected{box-shadow:0 0 0 3px #fff,0 0 22px 7px rgba(255,220,120,.85)}
+.row .card.exhausted{filter:saturate(.55) brightness(.75)}
+.row .card.charging{box-shadow:0 0 24px 10px rgba(255,120,40,.9)}
+.aiming .row[data-side=enemy] .card:hover,.aiming .hero[data-side=enemy]:hover{box-shadow:0 0 0 3px #ff5a4a,0 0 20px 7px rgba(255,80,60,.75)}
+
+/* ---- 手札 ---- */
+.cb-hand{position:relative;z-index:5}
+.cb-hand .card{position:absolute;left:0;top:calc(var(--ch)*.12);
+  transform:translate(var(--x),calc(var(--y) + var(--lift,0px))) rotate(var(--r)) scale(var(--s,1));
+  transform-origin:50% 120%;transition:transform var(--t) cubic-bezier(.2,.8,.2,1)}
+@media (hover:hover){.cb-hand .card:hover{--lift:calc(var(--ch)*-.32);--s:1.18;z-index:30 !important}}
+
+/* ---- リーダー ---- */
+.hero{position:relative;width:calc(var(--cw)*.9);height:calc(var(--cw)*.9);border-radius:50%;cursor:pointer;
+  background:radial-gradient(circle at 50% 35%, var(--hc1), var(--hc2) 70%);
+  border:3px solid #c9a55a;box-shadow:0 0 0 3px #3a2c16,0 6px 14px rgba(0,0,0,.6)}
+.hero[data-side=enemy]{--hc1:#b64b4b;--hc2:#3a0f16}
+.hero[data-side=player]{--hc1:#4b8ab6;--hc2:#0f213a}
+.hero svg{position:absolute;inset:18%;width:64%;height:64%;opacity:.85}
+.hero .hhp{position:absolute;right:-14%;bottom:-8%;min-width:44%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;
+  font-weight:900;font-size:calc(var(--cw)*.2);background:radial-gradient(circle at 35% 30%,#ffa698,#b3202a 70%);
+  border:2px solid #ffd2cc;text-shadow:0 0 2px #000,0 1px 2px #000}
+.hero .hname{position:absolute;left:50%;top:100%;transform:translateX(-50%);white-space:nowrap;
+  font-size:calc(var(--cw)*.11);color:#d8cdb6;margin-top:2px}
+.hero[data-side=enemy] .hname{top:auto;bottom:100%;margin:0 0 2px}
+
+/* ---- オーバーレイ ---- */
+.cb-dim{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 55%,rgba(0,0,0,.35),rgba(0,0,0,.85));
+  opacity:0;pointer-events:none;z-index:30;will-change:opacity}
+.cb-flash{position:absolute;inset:0;background:#fff8e8;opacity:0;pointer-events:none;z-index:52;will-change:opacity;mix-blend-mode:screen}
+.cracks{position:absolute;pointer-events:none;z-index:4;overflow:visible}
+.shatter{position:fixed;z-index:45;pointer-events:none}
+.shatter>*{position:absolute;left:0;top:0;margin:0}
+.scorch{position:fixed;z-index:2;pointer-events:none;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(10,6,4,.75),rgba(30,15,8,.45) 55%,rgba(0,0,0,0))}
+.cb-fx{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:50}
+.cb-aim{position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:55;overflow:visible}
+.cb-aim path.line{fill:none;stroke:var(--aimc);stroke-width:9;stroke-linecap:round;stroke-dasharray:4 14;
+  animation:dash .5s linear infinite;filter:drop-shadow(0 0 6px var(--aimc))}
+@keyframes dash{to{stroke-dashoffset:-18}}
+.num{position:fixed;z-index:60;pointer-events:none;font-weight:900;font-size:calc(var(--cw)*.42);
+  color:#fff;-webkit-text-stroke:3px #7a0b0b;paint-order:stroke;text-shadow:0 4px 10px rgba(0,0,0,.6);
+  transform:translate(-50%,-50%)}
+.cb-banner{position:absolute;left:0;right:0;top:50%;transform:translateY(-50%);z-index:65;pointer-events:none;
+  text-align:center;font-family:"Hiragino Mincho ProN","Yu Mincho","Noto Serif JP",serif;font-weight:900;
+  font-size:clamp(28px,7vw,64px);letter-spacing:.12em;color:#fff4d6;
+  text-shadow:0 0 18px rgba(255,190,90,.9),0 3px 0 #6a4a16;opacity:0;
+  background:linear-gradient(90deg,transparent,rgba(0,0,0,.65) 20%,rgba(0,0,0,.65) 80%,transparent);padding:.35em 0}
+
+
+.cb-cast{position:fixed;inset:0;z-index:42;pointer-events:none}
+.cb-cast .card{position:absolute}
+@media (prefers-reduced-motion:reduce){.cb-aim path.line{animation:none}.cb-hand .card{transition:none}}
+
+/* デモページ専用の見た目（盤面の外側のボタン類） */
+html,body{margin:0;height:100%;background:#15130f;overflow:hidden;touch-action:manipulation}
+#game{position:fixed;inset:0}
+#ui{position:absolute;left:8px;top:8px;z-index:70;display:flex;flex-direction:column;gap:6px;
+  font-size:12px;background:rgba(20,16,10,.75);border:1px solid #5a4a32;border-radius:10px;padding:8px;max-width:190px}
+#ui .btns{display:flex;flex-wrap:wrap;gap:5px}
+#ui button{font:inherit;font-size:12px;color:#f3ead6;background:linear-gradient(#6a5436,#3d2f1e);
+  border:1px solid #a88a5a;border-radius:6px;padding:5px 8px;cursor:pointer}
+#ui button,#endTurn{transition:scale 150ms cubic-bezier(.2,0,0,1)}
+#ui button:active,#endTurn:not(:disabled):active{scale:.96}
+#ui label{display:flex;align-items:center;gap:6px;color:#cfc3aa}
+#ui input[type=range]{width:90px}
+#ui .hint{color:#a99e88;line-height:1.45;font-size:11px}
+#endTurn{position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:70;
+  font:inherit;font-weight:800;font-size:13px;color:#1b1406;cursor:pointer;
+  background:linear-gradient(#ffe08a,#d59a2a);border:2px solid #fff0c0;border-radius:999px;padding:9px 12px;
+  box-shadow:0 0 12px rgba(255,200,90,.6)}
+#endTurn:disabled{filter:grayscale(1) brightness(.6);cursor:default;box-shadow:none}
+@media (max-width:600px){#ui{padding:5px;gap:4px;max-width:128px;left:4px;top:4px}#ui .hint{display:none}#ui input[type=range]{width:56px}#ui button{padding:4px 6px}#endTurn{right:4px;font-size:12px;padding:7px 9px}}
+</style>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="ui">
+  <div class="btns">
+    <button id="bDraw">ドロー</button>
+    <button id="bReset">リセット</button>
+  </div>
+  <label>速度 <input id="speed" type="range" min="0.25" max="2" step="0.25" value="1"><span id="spv">1x</span></label>
+  <div class="hint">手札を盤面へドラッグ → 召喚<br>緑に光るミニオンから相手へドラッグ → 攻撃<br>呪文は上へドラッグして対象で離す<br>長押し → カードを拡大<br>（タップ操作でも動きます）</div>
+</div>
+<button id="endTurn">ターン終了</button>
+
+<script>
+(() => {
+  // src/fx/core.js
+  var timing = {
+    speed: 1,
+    reduced: typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches
+  };
+  function setSpeed(speed) {
+    timing.speed = speed;
+    document.documentElement.style.setProperty("--t", 0.3 / speed + "s");
+  }
+  var dur = (ms) => ms / timing.speed;
+  var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, dur(ms)));
+  var rand = (a, b) => a + Math.random() * (b - a);
+  var pick = (list) => list[Math.floor(Math.random() * list.length)];
+  var clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  var easeOut = (k) => 1 - (1 - k) ** 3;
+  var center = (r) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+  function anim(el, frames, ms, easing = "ease", extra = {}) {
+    return el.animate(frames, { duration: dur(ms), easing, fill: "forwards", ...extra }).finished;
+  }
+  function clearAnims(el) {
+    el.getAnimations().forEach((a) => a.cancel());
+  }
+
+  // src/fx/particles.js
+  var Particles = class {
+    constructor(canvas) {
+      this.canvas = canvas;
+      this.ctx = canvas.getContext("2d");
+      this.list = [];
+      this.width = 0;
+      this.height = 0;
+      this.dirty = false;
+      this.last = 0;
+      this.runeCache = /* @__PURE__ */ new Map();
+      this.glowCache = /* @__PURE__ */ new Map();
+      this.resize();
+      addEventListener("resize", () => this.resize());
+      requestAnimationFrame((t) => this.tick(t));
+    }
+    resize() {
+      const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+      this.width = this.canvas.clientWidth;
+      this.height = this.canvas.clientHeight;
+      this.canvas.width = this.width * dpr;
+      this.canvas.height = this.height * dpr;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    /** パーティクルを 1 つ追加する。type は DRAW のキー */
+    add(p) {
+      this.list.push(Object.assign({ t: 0, delay: 0 }, p));
+    }
+    clear() {
+      this.list.length = 0;
+    }
+    tick(ts) {
+      const dt = Math.min(40, ts - (this.last || ts)) * timing.speed;
+      this.last = ts;
+      const { ctx } = this;
+      if (!this.list.length) {
+        if (this.dirty) {
+          ctx.clearRect(0, 0, this.width, this.height);
+          this.dirty = false;
+        }
+        requestAnimationFrame((t) => this.tick(t));
+        return;
+      }
+      this.dirty = true;
+      ctx.clearRect(0, 0, this.width, this.height);
+      for (let i = this.list.length - 1; i >= 0; i--) {
+        const p = this.list[i];
+        if (p.delay > 0) {
+          p.delay -= dt;
+          continue;
+        }
+        p.t += dt;
+        const k = p.t / p.life;
+        if (k >= 1) {
+          this.list.splice(i, 1);
+          continue;
+        }
+        DRAW[p.type](this, p, k, dt);
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+      requestAnimationFrame((t) => this.tick(t));
+    }
+    /** 魔法陣の画像（光彩込みで一度だけ描く） */
+    runeSprite(c, n) {
+      const key = c + "/" + n;
+      if (this.runeCache.has(key)) return this.runeCache.get(key);
+      const R = 128, size = Math.ceil(R * 2 * RUNE_PAD), oc = document.createElement("canvas");
+      oc.width = oc.height = size;
+      const g = oc.getContext("2d");
+      g.translate(size / 2, size / 2);
+      g.strokeStyle = `hsla(${c},1)`;
+      g.shadowColor = `hsla(${c},1)`;
+      g.shadowBlur = 18;
+      g.lineWidth = 6;
+      g.beginPath();
+      g.arc(0, 0, R, 0, 7);
+      g.stroke();
+      g.lineWidth = 3;
+      g.beginPath();
+      g.arc(0, 0, R * 0.8, 0, 7);
+      g.stroke();
+      g.beginPath();
+      for (let i = 0; i <= n; i++) {
+        const t = i * 4 * Math.PI / n;
+        g[i ? "lineTo" : "moveTo"](Math.cos(t) * R * 0.8, Math.sin(t) * R * 0.8);
+      }
+      g.stroke();
+      g.beginPath();
+      for (let i = 0; i < 24; i++) {
+        const t = i / 24 * 6.283, e = i % 3 ? 1.06 : 1.12;
+        g.moveTo(Math.cos(t) * R, Math.sin(t) * R);
+        g.lineTo(Math.cos(t) * R * e, Math.sin(t) * R * e);
+      }
+      g.stroke();
+      this.runeCache.set(key, oc);
+      return oc;
+    }
+    /** 光球の画像 */
+    glowSprite(c) {
+      if (this.glowCache.has(c)) return this.glowCache.get(c);
+      const oc = document.createElement("canvas");
+      oc.width = oc.height = 64;
+      const g = oc.getContext("2d"), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, "rgba(255,255,255,1)");
+      gr.addColorStop(0.25, `hsla(${c},.9)`);
+      gr.addColorStop(1, `hsla(${c},0)`);
+      g.fillStyle = gr;
+      g.fillRect(0, 0, 64, 64);
+      this.glowCache.set(c, oc);
+      return oc;
+    }
+  };
+  var RUNE_PAD = 1.35;
+  function jag(pts) {
+    const out = [pts[0]];
+    for (let i = 1; i < pts.length; i++) {
+      const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+      const L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(4, L / 22 | 0);
+      const nx = -(y1 - y0) / L, ny = (x1 - x0) / L;
+      for (let j = 1; j < n; j++) {
+        const t = j / n, off = rand(-1, 1) * L * 0.07 * Math.sin(Math.PI * t);
+        out.push([x0 + (x1 - x0) * t + nx * off, y0 + (y1 - y0) * t + ny * off]);
+      }
+      out.push(pts[i]);
+    }
+    return out;
+  }
+  var DRAW = {
+    dot(P, p, k, dt) {
+      const { ctx } = P, f = dt / 16;
+      p.vx *= p.drag ?? 1;
+      p.vy = p.vy * (p.drag ?? 1) + (p.g || 0) * f;
+      p.x += p.vx * f;
+      p.y += p.vy * f;
+      const s = p.size * (p.grow ? 1 + k * p.grow : 1 - k * 0.6);
+      ctx.globalCompositeOperation = p.add ? "lighter" : "source-over";
+      ctx.fillStyle = `hsla(${p.c},${(1 - k) * (p.a ?? 1)})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, s, 0, 7);
+      ctx.fill();
+    },
+    spark(P, p, k, dt) {
+      const { ctx } = P, f = dt / 16;
+      p.vx *= 0.96;
+      p.vy = p.vy * 0.96 + (p.g || 0) * f;
+      p.x += p.vx * f;
+      p.y += p.vy * f;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `hsla(${p.c},${1 - k})`;
+      ctx.lineWidth = p.size * (1 - k) + 0.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x - p.vx * p.len, p.y - p.vy * p.len);
+      ctx.stroke();
+    },
+    ring(P, p, k) {
+      const { ctx } = P, r = p.r0 + (p.r1 - p.r0) * easeOut(k);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `hsla(${p.c},${1 - k})`;
+      ctx.lineWidth = p.w * (1 - k) + 0.5;
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y, r, r * (p.flat || 1), 0, 0, 7);
+      ctx.stroke();
+    },
+    rune(P, p, k) {
+      const { ctx } = P;
+      const a = k < 0.2 ? k / 0.2 : k > 0.75 ? (1 - k) / 0.25 : 1;
+      const r = p.r * (0.6 + 0.4 * easeOut(Math.min(1, k * 2.5)));
+      const img = P.runeSprite(p.c, p.n || 6), sz = r * 2 * RUNE_PAD;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = a;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(1, p.flat);
+      ctx.rotate(p.t * 25e-4);
+      ctx.drawImage(img, -sz / 2, -sz / 2, sz, sz);
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    },
+    gather(P, p, k) {
+      const { ctx } = P, e = k * k;
+      const x = p.sx + (p.tx - p.sx) * e, y = p.sy + (p.ty - p.sy) * e;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.fillStyle = `hsla(${p.c},${0.25 + 0.75 * k})`;
+      ctx.beginPath();
+      ctx.arc(x, y, p.size * (1 - 0.5 * k), 0, 7);
+      ctx.fill();
+    },
+    wisp(P, p, k) {
+      const { ctx } = P;
+      const x = p.x0 + Math.sin(k * 9) * p.sway * k, y = p.y0 - p.rise * easeOut(k);
+      const a = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85, s = p.size * (1 - 0.45 * k);
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = a;
+      ctx.drawImage(P.glowSprite(p.c), x - s, y - s, s * 2, s * 2);
+      ctx.globalAlpha = 1;
+      if (Math.random() < 0.7) P.list.push({
+        type: "dot",
+        add: true,
+        x: x + rand(-4, 4),
+        y: y + rand(-4, 4),
+        vx: rand(-0.3, 0.3),
+        vy: rand(0.2, 0.7),
+        size: rand(1.2, 2.8),
+        c: p.c,
+        a,
+        life: rand(300, 550),
+        t: 0,
+        delay: 0
+      });
+    },
+    proj(P, p, k) {
+      const { ctx } = P;
+      const e = k * k * (1.6 - 0.6 * k), u = 1 - e;
+      const x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx;
+      const y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.drawImage(P.glowSprite(p.c), x - p.size, y - p.size, p.size * 2, p.size * 2);
+      ctx.drawImage(P.glowSprite("50,100%,92%"), x - p.size * 0.45, y - p.size * 0.45, p.size * 0.9, p.size * 0.9);
+      for (let i = 0; i < 3; i++) P.list.push({
+        type: "dot",
+        add: true,
+        x: x + rand(-5, 5),
+        y: y + rand(-5, 5),
+        vx: rand(-0.6, 0.6),
+        vy: rand(-1.2, 0),
+        drag: 0.95,
+        size: rand(3, 7),
+        c: pick([p.c, "8,100%,55%", "42,100%,65%"]),
+        life: rand(220, 420),
+        t: 0,
+        delay: 0
+      });
+    },
+    bolt(P, p, k) {
+      const { ctx } = P;
+      if (!p.path || p.t - p.last > 45) {
+        p.last = p.t;
+        p.path = jag(p.pts);
+      }
+      const a = k < 0.1 ? 1 : (1 - k) ** 1.5;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      for (const [w, col] of [[10, `hsla(${p.c},${0.25 * a})`], [4, `hsla(${p.c},${0.85 * a})`], [1.6, `rgba(255,255,255,${a})`]]) {
+        ctx.lineWidth = w;
+        ctx.strokeStyle = col;
+        ctx.beginPath();
+        p.path.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+        ctx.stroke();
+      }
+    },
+    orbit(P, p, k) {
+      const { ctx } = P;
+      const ang = p.a0 + p.w * p.t, r = p.r0 + (p.r1 - p.r0) * k;
+      const x = p.x + Math.cos(ang) * r, y = p.y + Math.sin(ang) * r * p.flat - p.rise * k;
+      const a = k < 0.15 ? k / 0.15 : 1 - (k - 0.15) / 0.85;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = a;
+      ctx.drawImage(P.glowSprite(p.c), x - p.size, y - p.size, p.size * 2, p.size * 2);
+      ctx.globalAlpha = 1;
+    },
+    beam(P, p, k) {
+      const { ctx } = P, w = p.w * Math.sin(Math.PI * k);
+      ctx.globalCompositeOperation = "lighter";
+      const g = ctx.createLinearGradient(p.x - w, 0, p.x + w, 0);
+      g.addColorStop(0, `hsla(${p.c},0)`);
+      g.addColorStop(0.5, `hsla(${p.c},.9)`);
+      g.addColorStop(1, `hsla(${p.c},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(p.x - w, 0, w * 2, p.y);
+      ctx.fillStyle = `rgba(255,255,255,${0.8 * Math.sin(Math.PI * k)})`;
+      ctx.fillRect(p.x - w * 0.12, 0, w * 0.24, p.y);
+    },
+    burst(P, p, k) {
+      const { ctx } = P;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `hsla(${p.c},${1 - k})`;
+      ctx.lineCap = "round";
+      p.rays.forEach(([ang, len]) => {
+        const L = len * easeOut(k), s = L * 0.45;
+        ctx.lineWidth = 5 * (1 - k) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(p.x + Math.cos(ang) * s, p.y + Math.sin(ang) * s);
+        ctx.lineTo(p.x + Math.cos(ang) * L, p.y + Math.sin(ang) * L);
+        ctx.stroke();
+      });
+      const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.glow);
+      gr.addColorStop(0, `rgba(255,255,240,${0.9 * (1 - k)})`);
+      gr.addColorStop(1, "rgba(255,200,120,0)");
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.glow, 0, 7);
+      ctx.fill();
+    },
+    streak(P, p, k) {
+      const { ctx } = P;
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = `rgba(255,240,220,${0.7 * (1 - k)})`;
+      ctx.lineWidth = p.w * (1 - k) + 0.5;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(p.x1, p.y1);
+      ctx.lineTo(p.x2, p.y2);
+      ctx.stroke();
+    }
+  };
+  var rays = (n, min, max) => Array.from({ length: n }, () => [rand(0, 6.283), rand(min, max)]);
+
+  // src/fx/stage.js
+  var SKELETON = `
+  <div class="cb-field">
+    <div class="cb-board"></div>
+    <div class="heroArea top"><div class="hero" data-side="enemy"></div></div>
+    <div class="row" data-side="enemy"></div>
+    <div class="row" data-side="player"></div>
+    <div class="heroArea"><div class="hero" data-side="player"></div></div>
+    <div class="cb-hand"></div>
+  </div>
+  <div class="cb-dim"></div>
+  <div class="cb-cast"></div>
+  <canvas class="cb-fx"></canvas>
+  <div class="cb-flash"></div>
+  <svg class="cb-aim"><defs>
+    <marker id="cb-ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 L3,5 z" style="fill:var(--aimc)"/></marker></defs>
+    <path class="line" d="" marker-end="url(#cb-ah)" style="display:none"/>
+  </svg>
+  <div class="cb-banner"></div>
+  <div class="cb-drag"></div>
+  <div class="cb-reticle"><div class="ring"></div></div>
+  <div class="cb-inspect"></div>`;
+  function createStage(root) {
+    root.classList.add("cb-stage");
+    root.insertAdjacentHTML("afterbegin", SKELETON);
+    const q = (sel) => root.querySelector(sel);
+    const stage2 = {
+      root,
+      field: q(".cb-field"),
+      rows: { player: q(".row[data-side=player]"), enemy: q(".row[data-side=enemy]") },
+      heroes: { player: q(".hero[data-side=player]"), enemy: q(".hero[data-side=enemy]") },
+      hand: q(".cb-hand"),
+      dim: q(".cb-dim"),
+      cast: q(".cb-cast"),
+      flash: q(".cb-flash"),
+      aimPath: q(".cb-aim path.line"),
+      banner: q(".cb-banner"),
+      drag: q(".cb-drag"),
+      reticle: q(".cb-reticle"),
+      inspect: q(".cb-inspect"),
+      particles: null
+    };
+    stage2.particles = new Particles(q(".cb-fx"));
+    return stage2;
+  }
+  var fxAdd = (stage2, p) => stage2.particles.add(p);
+  var viewW = (stage2) => stage2.particles.width;
+  var viewH = (stage2) => stage2.particles.height;
+  function shake(stage2, mag, ms = 320) {
+    if (timing.reduced) return;
+    const frames = [];
+    for (let i = 0; i < 8; i++) {
+      const m = mag * (1 - i / 8);
+      frames.push({ transform: `translate(${rand(-m, m)}px,${rand(-m, m)}px)` });
+    }
+    frames.push({ transform: "none" });
+    stage2.field.animate(frames, { duration: dur(ms), easing: "linear" });
+  }
+  function screenFlash(stage2, a, ms) {
+    if (timing.reduced) return;
+    stage2.flash.animate([{ opacity: a }, { opacity: 0 }], { duration: dur(ms), easing: "ease-out" });
+  }
+  function flashOn(el, color, ms = 300, a = 0.9) {
+    const o = document.createElement("div");
+    o.className = "flashov";
+    o.style.background = color;
+    el.appendChild(o);
+    o.animate([{ opacity: a }, { opacity: 0 }], { duration: dur(ms), easing: "ease-out" }).finished.then(() => o.remove());
+  }
+  function popNumber(stage2, el, text, cls = "") {
+    const c = center(el.getBoundingClientRect());
+    const n = document.createElement("div");
+    n.className = "num " + cls;
+    n.textContent = text;
+    n.style.left = c.x + "px";
+    n.style.top = c.y + "px";
+    stage2.root.appendChild(n);
+    n.animate([
+      { transform: "translate(-50%,-50%) scale(.2)", opacity: 1 },
+      { transform: "translate(-50%,-50%) scale(1.5)", opacity: 1, offset: 0.18 },
+      { transform: "translate(-50%,-60%) scale(1)", opacity: 1, offset: 0.35 },
+      { transform: "translate(-50%,-140%) scale(.9)", opacity: 0 }
+    ], { duration: dur(1e3), easing: "ease-out" }).finished.then(() => n.remove());
+  }
+  function banner(stage2, text, { hold = 650, persist = false } = {}) {
+    const b = stage2.banner;
+    b.textContent = text;
+    b.getAnimations().forEach((a) => a.cancel());
+    return b.animate([
+      { opacity: 0, transform: "translateY(-50%) scaleY(.2)", letterSpacing: ".6em" },
+      { opacity: 1, transform: "translateY(-50%) scaleY(1)", letterSpacing: ".12em", offset: 0.25 },
+      { opacity: 1, transform: "translateY(-50%) scaleY(1)", letterSpacing: ".16em", offset: persist ? 1 : 0.75 },
+      ...persist ? [] : [{ opacity: 0, transform: "translateY(-50%) scaleY(.6)", letterSpacing: ".3em" }]
+    ], { duration: dur(persist ? 500 : hold + 500), easing: "ease-out", fill: "forwards" }).finished;
+  }
+  function clearBanner(stage2) {
+    stage2.banner.getAnimations().forEach((a) => a.cancel());
+  }
+  var snapshot = (row) => new Map([...row.children].map((c) => [c, c.getBoundingClientRect()]));
+  function flip(row, before, skip) {
+    for (const c of row.children) {
+      if (c === skip || !before.has(c)) continue;
+      const dx = before.get(c).left - c.getBoundingClientRect().left;
+      if (Math.abs(dx) > 0.5) c.animate(
+        [{ transform: `translateX(${dx}px)` }, { transform: "none" }],
+        { duration: dur(320), easing: "cubic-bezier(.2,.8,.2,1)" }
+      );
+    }
+  }
+
+  // src/fx/cardView.js
+  function sigil(n, h) {
+    const pts = [], R = 40, r = n <= 4 ? 18 : 17;
+    for (let i = 0; i < n * 2; i++) {
+      const a = -Math.PI / 2 + i * Math.PI / n, rr = i % 2 ? r : R;
+      pts.push((50 + Math.cos(a) * rr).toFixed(1) + "," + (50 + Math.sin(a) * rr).toFixed(1));
+    }
+    const c1 = `hsl(${h} 90% 80%)`, c2 = `hsl(${h} 90% 65% / .5)`;
+    return `<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="none" stroke="${c2}" stroke-width="2"/>
+    <circle cx="50" cy="50" r="30" fill="none" stroke="${c2}" stroke-width="1.2" stroke-dasharray="3 4"/>
+    <polygon points="${pts.join(" ")}" fill="hsl(${h} 80% 60% / .35)" stroke="${c1}" stroke-width="2.4" stroke-linejoin="round"/>
+    <circle cx="50" cy="50" r="6" fill="${c1}"/></svg>`;
+  }
+  function createCardEl(def, o = {}) {
+    const el = document.createElement("div");
+    if (o.uid) el.dataset.uid = o.uid;
+    el._def = def;
+    if (def.kind === "spell") {
+      el.className = "card spell";
+      el.style.setProperty("--sh", def.hue);
+      el.innerHTML = `<div class="art" style="--h:${def.hue}">${sigil(def.sig, def.hue)}</div>
+      <div class="cost">${def.cost}</div><div class="name">${def.name}</div><div class="desc">${def.desc}</div>`;
+      return el;
+    }
+    el.className = `card r-${def.rarity}`;
+    el.innerHTML = `<div class="art" style="--h:${def.hue}">${sigil(def.sig, def.hue)}</div>
+    <div class="cost">${def.cost}</div><div class="name">${def.name}</div><div class="tribe">${def.tribe}</div>
+    <div class="stat atk"><span></span></div><div class="stat hp"><span></span></div>`;
+    setStats(el, { atk: o.atk ?? def.atk, hp: o.hp ?? def.hp, maxHp: o.maxHp ?? def.hp, baseAtk: def.atk, baseHp: def.hp }, false);
+    return el;
+  }
+  var HERO_SVG = `<svg viewBox="0 0 100 100"><path d="M50 8 L62 36 L92 38 L68 58 L76 90 L50 72 L24 90 L32 58 L8 38 L38 36 Z"
+  fill="rgba(255,255,255,.12)" stroke="rgba(255,240,210,.7)" stroke-width="3" stroke-linejoin="round"/></svg>`;
+  function renderHero(el, { uid, name, hp }) {
+    el.dataset.uid = uid;
+    el.innerHTML = `${HERO_SVG}<div class="hhp"><span>${hp}</span></div><div class="hname">${name}</div>`;
+    el.style.opacity = "";
+    el._hero = true;
+  }
+  var pop = (el) => el.animate(
+    [{ transform: "scale(1.8)" }, { transform: "scale(1)" }],
+    { duration: dur(350), easing: "cubic-bezier(.3,1.6,.5,1)" }
+  );
+  function setHp(el, hp, maxHp, animate = true) {
+    if (el._hero) {
+      const span = el.querySelector(".hhp span");
+      span.textContent = Math.max(0, hp);
+      if (animate) pop(span.parentElement);
+      return;
+    }
+    const box = el.querySelector(".hp");
+    box.querySelector("span").textContent = Math.max(0, hp);
+    box.classList.toggle("damaged", hp < maxHp);
+    if (animate) pop(box);
+  }
+  function setStats(el, { atk, hp, maxHp, baseAtk = el._def.atk, baseHp = el._def.hp }, animate = true) {
+    const a = el.querySelector(".atk"), h = el.querySelector(".hp");
+    a.querySelector("span").textContent = atk;
+    h.querySelector("span").textContent = Math.max(0, hp);
+    a.classList.toggle("buffed", atk > baseAtk);
+    h.classList.toggle("buffed", maxHp > baseHp && hp >= maxHp);
+    h.classList.toggle("damaged", hp < maxHp);
+    if (animate) {
+      pop(a);
+      pop(h);
+    }
+  }
+
+  // src/fx/hand.js
+  function layoutHand(stage2) {
+    const hand = stage2.hand, cards = [...hand.children], n = cards.length;
+    if (!n) return;
+    const cw = cards[0].offsetWidth, width = hand.clientWidth;
+    const sp = n > 1 ? Math.min(cw * 0.88, (width - cw - 24) / (n - 1)) : 0;
+    const start = width / 2 - sp * (n - 1) / 2 - cw / 2;
+    cards.forEach((c, i) => {
+      const off = i - (n - 1) / 2;
+      c.style.setProperty("--x", start + i * sp + "px");
+      c.style.setProperty("--y", off * off * 2.2 + "px");
+      c.style.setProperty("--r", off * 4.5 + "deg");
+      c.style.zIndex = i + 1;
+    });
+  }
+  function drawToHand(stage2, el) {
+    el.style.setProperty("--x", stage2.hand.clientWidth + 40 + "px");
+    el.style.setProperty("--y", "-120px");
+    el.style.setProperty("--r", "35deg");
+    stage2.hand.appendChild(el);
+    void el.offsetWidth;
+    layoutHand(stage2);
+  }
+  function returnToHand(stage2, el, index, { tilt = 0, scale = 1 } = {}) {
+    const r = el.getBoundingClientRect(), hr = stage2.hand.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    el.style.transform = "";
+    stage2.hand.insertBefore(el, stage2.hand.children[index] || null);
+    el.style.transition = "none";
+    el.style.setProperty("--x", cx - hr.left - el.offsetWidth / 2 + "px");
+    el.style.setProperty("--y", cy - hr.top - el.offsetTop - el.offsetHeight / 2 + "px");
+    el.style.setProperty("--r", tilt + "deg");
+    el.style.setProperty("--s", scale);
+    void el.offsetWidth;
+    el.style.transition = "";
+    el.style.removeProperty("--s");
+    layoutHand(stage2);
+  }
+
+  // src/fx/feedback.js
+  function showDamage(stage2, el, amount, hp, maxHp) {
+    if (amount <= 0) return;
+    setHp(el, hp, maxHp);
+    flashOn(el, "#ff2a1a", 450, 0.55);
+    popNumber(stage2, el, "-" + amount);
+  }
+  function showHeal(stage2, el, amount, hp, maxHp) {
+    setHp(el, hp, maxHp);
+    flashOn(el, "hsl(100 90% 80%)", 500, 0.7);
+    popNumber(stage2, el, "+" + amount, "heal");
+  }
+  function showBuff(stage2, el, { atk, hp, maxHp, value }) {
+    setStats(el, { atk, hp, maxHp });
+    flashOn(el, "#ffe9a0", 420, 0.85);
+    popNumber(stage2, el, `+${value}/+${value}`, "buff");
+  }
+  function knockback(el, ux, uy) {
+    el.animate([
+      { transform: "none" },
+      { transform: `translate(${ux * 14}px,${uy * 14}px) rotate(${ux * 4}deg)` },
+      { transform: `translate(${-ux * 5}px,${-uy * 5}px)` },
+      { transform: "none" }
+    ], { duration: dur(320), easing: "ease-out" });
+  }
+
+  // src/fx/summon.js
+  async function playSummon(stage2, { el, side, index = null, src = null, slot = null }) {
+    const row = stage2.rows[side];
+    const rarity = el._def.rarity, legend = rarity === "legendary", rare = rarity === "rare";
+    let from = null, rot = 0, sc0 = 1;
+    if (src) {
+      from = src.getBoundingClientRect();
+      rot = src._drag ? src._tilt : parseFloat(src.style.getPropertyValue("--r")) || 0;
+      sc0 = src._drag ? src._scale : 1;
+      src.remove();
+    }
+    const before = snapshot(row);
+    if (slot && slot.parentElement === row) slot.replaceWith(el);
+    else if (index != null && index < row.children.length) row.insertBefore(el, row.children[index]);
+    else row.appendChild(el);
+    flip(row, before, el);
+    const to = el.getBoundingClientRect(), c = center(to);
+    if (!from) from = { left: viewW(stage2) / 2 - to.width / 2, top: -to.height * 1.6, width: to.width, height: to.height };
+    const f = center(from), dx = f.x - c.x, dy = f.y - c.y;
+    const hy = (side === "player" ? -1 : 1) * to.height * 0.7;
+    el.style.zIndex = 40;
+    const lift = anim(el, [
+      { transform: `translate(${dx}px,${dy}px) rotate(${rot}deg) scale(${sc0})` },
+      { transform: `translate(0px,${hy}px) rotate(0deg) scale(1.35)` }
+    ], 460, "cubic-bezier(.2,.9,.25,1)");
+    const col = legend ? "45,100%,65%" : rare ? "210,100%,70%" : "160,70%,70%";
+    fxAdd(stage2, { type: "rune", x: c.x, y: c.y + to.height * 0.1, r: to.width * 0.95, flat: 0.42, n: legend ? 8 : 6, c: col, life: legend ? 2200 : 1250 });
+    await lift;
+    if (legend) {
+      stage2.dim.animate([{ opacity: 0 }, { opacity: 1, offset: 0.2 }, { opacity: 1, offset: 0.75 }, { opacity: 0 }], { duration: dur(1500) });
+      fxAdd(stage2, { type: "beam", x: c.x, y: c.y + to.height * 0.1, w: to.width * 0.75, c: "45,100%,70%", life: 900 });
+      for (let i = 0; i < 26; i++) fxAdd(stage2, {
+        type: "dot",
+        add: true,
+        x: c.x + rand(-1, 1) * to.width * 0.9,
+        y: c.y + rand(0, 0.5) * to.height,
+        vx: 0,
+        vy: rand(-3, -1),
+        size: rand(1.5, 3.5),
+        c: "45,100%,75%",
+        life: rand(600, 1e3),
+        delay: rand(0, 400)
+      });
+    }
+    await anim(el, [
+      { transform: `translate(0px,${hy}px) scale(1.35)` },
+      { transform: `translate(0px,${hy * 1.15}px) scale(1.45)` }
+    ], legend ? 620 : 200, "ease-out");
+    await anim(el, [
+      { transform: `translate(0px,${hy * 1.15}px) scale(1.45)` },
+      { transform: "translate(0px,0px) scale(1)" }
+    ], legend ? 150 : 170, "cubic-bezier(.55,0,1,.45)");
+    clearAnims(el);
+    landImpact(stage2, to, legend ? 2 : rare ? 1.35 : 1, legend ? "45,100%,70%" : rare ? "210,100%,75%" : "40,40%,85%");
+    flashOn(el, "#fff", 380);
+    await anim(el, [{ transform: "scale(1.1,.88)" }, { transform: "scale(.97,1.04)" }, { transform: "scale(1)" }], 260, "ease-out");
+    clearAnims(el);
+    el.style.zIndex = "";
+  }
+  function landImpact(stage2, r, power, col) {
+    const c = center(r), by = r.bottom - r.height * 0.05;
+    fxAdd(stage2, { type: "ring", x: c.x, y: by, r0: r.width * 0.3, r1: r.width * 1.3 * power, flat: 0.35, w: 7, c: col, life: 520 });
+    if (power > 1.2) fxAdd(stage2, { type: "ring", x: c.x, y: by, r0: r.width * 0.2, r1: r.width * 2.2 * power, flat: 0.35, w: 4, c: col, life: 800, delay: 60 });
+    for (let i = 0; i < 16 * power; i++) {
+      const x = c.x + rand(-0.5, 0.5) * r.width, s = Math.sign(x - c.x) || 1;
+      fxAdd(stage2, {
+        type: "dot",
+        x,
+        y: by + rand(-4, 4),
+        vx: s * rand(1.5, 5) * power,
+        vy: rand(-2, -0.3),
+        drag: 0.93,
+        size: rand(3, 7),
+        grow: 2.2,
+        a: 0.5,
+        c: "35,15%,72%",
+        life: rand(500, 900)
+      });
+    }
+    for (let i = 0; i < 10 * power; i++) {
+      const a = rand(Math.PI * 1.05, Math.PI * 1.95);
+      fxAdd(stage2, {
+        type: "spark",
+        x: c.x + rand(-0.4, 0.4) * r.width,
+        y: by,
+        vx: Math.cos(a) * rand(3, 9),
+        vy: Math.sin(a) * rand(3, 9),
+        g: 0.25,
+        len: 2.2,
+        size: 2.5,
+        c: col,
+        life: rand(350, 650)
+      });
+    }
+    if (power > 1.5) screenFlash(stage2, 0.55, 350);
+    shake(stage2, 5 * power);
+  }
+
+  // src/fx/attack.js
+  async function playAttack(stage2, att, tgt, { power, counter = false, onImpact }) {
+    const a = att.getBoundingClientRect(), t = tgt.getBoundingClientRect();
+    const ac = center(a), tc = center(t);
+    const dx = tc.x - ac.x, dy = tc.y - ac.y, dist = Math.hypot(dx, dy), ux = dx / dist, uy = dy / dist;
+    const travel = Math.max(0, dist - (a.height * 0.5 + t.height * 0.45));
+    const tx = ux * travel, ty = uy * travel, tilt = ux * 12;
+    att.style.zIndex = 40;
+    att.classList.add("charging");
+    await anim(att, [
+      { transform: "translate(0,0) scale(1)" },
+      { transform: `translate(${-ux * 22}px,${-uy * 22}px) scale(1.14) rotate(${-tilt * 0.6}deg)` }
+    ], 300, "cubic-bezier(.2,.8,.3,1)");
+    for (let i = 0; i < 9; i++) {
+      const s = i / 9, ox = rand(-0.35, 0.35) * a.width;
+      const x = ac.x + ux * travel * s - uy * ox, y = ac.y + uy * travel * s + ux * ox;
+      fxAdd(stage2, { type: "streak", x1: x, y1: y, x2: x - ux * a.height * 0.6, y2: y - uy * a.height * 0.6, w: 3, life: 260, delay: s * 120 });
+    }
+    await anim(att, [
+      { transform: `translate(${-ux * 22}px,${-uy * 22}px) scale(1.14) rotate(${-tilt * 0.6}deg)` },
+      { transform: `translate(${tx}px,${ty}px) scale(1.14) rotate(${tilt}deg)` }
+    ], 150, "cubic-bezier(.7,0,1,.6)");
+    const hit = { x: ac.x + tx + ux * a.height * 0.55, y: ac.y + ty + uy * a.height * 0.55 };
+    hitFx(stage2, hit, ux, uy, power);
+    flashOn(tgt, "#fff", 200, 0.95);
+    if (counter) flashOn(att, "#fff", 200, 0.7);
+    await sleep(80);
+    knockback(tgt, ux, uy);
+    onImpact?.(hit);
+    att.classList.remove("charging");
+    await anim(att, [
+      { transform: `translate(${tx}px,${ty}px) scale(1.14) rotate(${tilt}deg)` },
+      { transform: `translate(${tx * 0.85}px,${ty * 0.85}px) scale(1.08) rotate(${tilt * 0.3}deg)`, offset: 0.2 },
+      { transform: "translate(0,0) scale(1) rotate(0deg)" }
+    ], 420, "cubic-bezier(.2,.8,.2,1)");
+    clearAnims(att);
+    att.style.zIndex = "";
+  }
+  function hitFx(stage2, { x, y }, ux, uy, power) {
+    const p = Math.min(2, 0.8 + power * 0.15), base = Math.atan2(uy, ux);
+    fxAdd(stage2, { type: "burst", x, y, glow: 60 * p, c: "40,100%,75%", life: 320, rays: rays(12, 40 * p, 95 * p) });
+    fxAdd(stage2, { type: "ring", x, y, r0: 8, r1: 70 * p, w: 6, c: "30,100%,70%", life: 380 });
+    for (let i = 0; i < 22 * p; i++) {
+      const a = base + rand(-1.3, 1.3), v = rand(4, 12) * p;
+      fxAdd(stage2, {
+        type: "spark",
+        x,
+        y,
+        vx: Math.cos(a) * v,
+        vy: Math.sin(a) * v,
+        g: 0.3,
+        len: 2.4,
+        size: 3,
+        c: pick(["35,100%,70%", "15,100%,65%", "50,100%,85%"]),
+        life: rand(300, 600)
+      });
+    }
+    if (power >= 5) screenFlash(stage2, 0.45, 260);
+    shake(stage2, 3 + power * 1.4, 300);
+  }
+
+  // src/fx/death.js
+  function crackGeometry(w, h, P, n) {
+    const step = 2 * Math.PI / n, a0 = rand(0, step);
+    const angs = Array.from({ length: n }, (_, i) => a0 + i * step + rand(-0.25, 0.25) * step);
+    const ref = angs[0], rel = (a) => ((a - ref) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    const rays_ = angs.map((a) => {
+      const dx = Math.cos(a), dy = Math.sin(a);
+      const t = Math.min(
+        dx > 0 ? (w - P.x) / dx : dx < 0 ? -P.x / dx : Infinity,
+        dy > 0 ? (h - P.y) / dy : dy < 0 ? -P.y / dy : Infinity
+      );
+      const at = (f, j) => [P.x + dx * t * f - dy * j, P.y + dy * t * f + dx * j];
+      return [[P.x, P.y], at(rand(0.28, 0.42), rand(-0.04, 0.04) * w), at(rand(0.6, 0.78), rand(-0.05, 0.05) * w), [P.x + dx * t, P.y + dy * t]];
+    });
+    const corners = [[0, 0], [w, 0], [w, h], [0, h]].map((c) => ({ c, r: rel(Math.atan2(c[1] - P.y, c[0] - P.x)) }));
+    const polys = [];
+    for (let i = 0; i < n; i++) {
+      const A = rays_[i], B = rays_[(i + 1) % n], lo = angs[i] - ref, hi = i === n - 1 ? 2 * Math.PI : angs[i + 1] - ref;
+      const cs = corners.filter((o) => o.r > lo && o.r < hi).sort((x, y) => x.r - y.r).map((o) => o.c);
+      polys.push([A[0], A[1], B[1]]);
+      polys.push([A[1], A[2], A[3], ...cs, B[3], B[2], B[1]]);
+    }
+    const lines = [...rays_, ...rays_.map((r, i) => [r[1], rays_[(i + 1) % n][1]])];
+    return { polys, lines, rayCount: n };
+  }
+  function crackSvg(geo, w, h, hue, bw) {
+    const NS = "http://www.w3.org/2000/svg", svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("class", "cracks");
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+    Object.assign(svg.style, { left: -bw + "px", top: -bw + "px", width: w + "px", height: h + "px" });
+    geo.lines.forEach((pts, i) => {
+      for (const [stroke, width] of [[`hsla(${hue},100%,62%,.6)`, 4.5], [`hsl(${hue},100%,94%)`, 1.4]]) {
+        const pl = document.createElementNS(NS, "polyline");
+        pl.setAttribute("points", pts.map((p) => p.join(",")).join(" "));
+        Object.assign(pl.style, { fill: "none", stroke, strokeWidth: width, strokeLinecap: "round", strokeLinejoin: "round" });
+        pl.dataset.i = i;
+        svg.appendChild(pl);
+      }
+    });
+    return svg;
+  }
+  async function playDeath(stage2, el, { hit = null, remove = !el._hero } = {}) {
+    const hero = !!el._hero;
+    const hue = el._def?.hue ?? (el.dataset.side === "enemy" ? 355 : 210), col = `${hue},100%,70%`;
+    el.classList.remove("ready", "selected", "exhausted", "charging", "valid", "locked");
+    el.style.zIndex = 35;
+    const r = el.getBoundingClientRect(), w = el.offsetWidth, h = el.offsetHeight, bw = el.clientLeft;
+    const P = hit ? { x: clamp(hit.x - r.left, w * 0.22, w * 0.78), y: clamp(hit.y - r.top, h * 0.2, h * 0.8) } : { x: w * rand(0.4, 0.6), y: h * rand(0.35, 0.55) };
+    const px = r.left + P.x, py = r.top + P.y;
+    if (timing.reduced) {
+      await anim(el, [{ opacity: 1 }, { opacity: 0 }], 300);
+      el.style.opacity = "0";
+      if (remove) removeFromRow(el);
+      return;
+    }
+    const geo = crackGeometry(w, h, P, hero ? 10 : 8);
+    el.appendChild(crackSvg(geo, w, h, hue, bw));
+    el.querySelectorAll(".cracks polyline").forEach((pl) => {
+      const L = pl.getTotalLength(), ring = +pl.dataset.i >= geo.rayCount;
+      pl.style.strokeDasharray = L;
+      pl.animate(
+        [{ strokeDashoffset: L }, { strokeDashoffset: 0 }],
+        { duration: dur(ring ? 140 : 240), delay: dur(ring ? 200 + rand(0, 80) : rand(0, 70)), easing: "cubic-bezier(.3,.7,.4,1)", fill: "both" }
+      );
+    });
+    const glow = document.createElement("div");
+    glow.className = "flashov dglow";
+    glow.style.background = `radial-gradient(circle at ${P.x - bw}px ${P.y - bw}px, hsla(${hue},100%,80%,.95), hsla(${hue},100%,55%,.35) 45%, hsla(${hue},100%,50%,0) 80%)`;
+    glow.style.mixBlendMode = "screen";
+    el.appendChild(glow);
+    glow.animate([{ opacity: 0 }, { opacity: 0.25, offset: 0.3 }, { opacity: 1 }], { duration: dur(520), easing: "ease-in", fill: "forwards" });
+    fxAdd(stage2, { type: "burst", x: px, y: py, glow: w * 0.35, c: col, life: 260, rays: rays(8, 0.3 * w, 0.6 * w) });
+    for (let i = 0; i < 18; i++) {
+      const a = rand(0, 6.283), d = rand(0.7, 1.3) * w;
+      fxAdd(stage2, { type: "gather", sx: px + Math.cos(a) * d, sy: py + Math.sin(a) * d, tx: px, ty: py, size: rand(1.5, 3), c: col, life: rand(300, 420), delay: rand(80, 200) });
+    }
+    if (hero) stage2.dim.animate([{ opacity: 0 }, { opacity: 0.8, offset: 0.5 }, { opacity: 0 }], { duration: dur(1300) });
+    const tremble = [];
+    for (let i = 0; i <= 10; i++) {
+      const m = i / 10 * 4;
+      tremble.push({ transform: `translate(${rand(-m, m)}px,${rand(-m, m)}px) scale(${1 + 0.06 * i / 10})` });
+    }
+    await anim(el, tremble, 520, "linear");
+    const layer = document.createElement("div");
+    layer.className = "shatter";
+    Object.assign(layer.style, { left: r.left + "px", top: r.top + "px", width: w + "px", height: h + "px" });
+    const base = el.cloneNode(true);
+    base.style.cssText = `width:${w}px;height:${h}px;box-shadow:none`;
+    base.querySelector(".dglow").style.opacity = 0.7;
+    const cs = getComputedStyle(el);
+    for (const v of ["--hc1", "--hc2", "--cw", "--ch"]) base.style.setProperty(v, cs.getPropertyValue(v));
+    let longest = 0;
+    for (const poly of geo.polys) {
+      const sh = base.cloneNode(true);
+      const cx = poly.reduce((s, p) => s + p[0], 0) / poly.length, cy = poly.reduce((s, p) => s + p[1], 0) / poly.length;
+      sh.style.clipPath = `polygon(${poly.map((p) => `${p[0].toFixed(1)}px ${p[1].toFixed(1)}px`).join(",")})`;
+      sh.style.transformOrigin = `${cx}px ${cy}px`;
+      layer.appendChild(sh);
+      let dx = cx - P.x, dy = cy - P.y;
+      const d = Math.hypot(dx, dy) || 1;
+      dx /= d;
+      dy /= d;
+      const near = 1.35 - Math.min(1, d / w);
+      const spd = w * (hero ? 1.5 : 1.05) * rand(0.7, 1.25) * near, up = -h * rand(0.15, 0.45), G = h * rand(1.3, 1.9);
+      const rx = rand(-420, 420), rz = rand(-260, 260), T = rand(950, 1300);
+      const kf = [];
+      for (let i = 0; i <= 10; i++) {
+        const k = i / 10, e = 1 - (1 - k) ** 2;
+        const sc = 1.06 - 0.3 * k, flipX = Math.cos(rx * e * Math.PI / 180);
+        kf.push({
+          transform: `translate(${dx * spd * e}px,${dy * spd * e + up * e + G * k * k}px) rotate(${rz * e}deg) scale(${(flipX * sc).toFixed(3)},${sc.toFixed(3)})`,
+          opacity: k < 0.55 ? 1 : 1 - (k - 0.55) / 0.45
+        });
+      }
+      sh.animate(kf, { duration: dur(T), easing: "linear", fill: "forwards" });
+      longest = Math.max(longest, T);
+    }
+    stage2.root.appendChild(layer);
+    el.style.opacity = "0";
+    clearAnims(el);
+    setTimeout(() => layer.remove(), dur(longest) + 50);
+    const P2 = hero ? 1.8 : 1;
+    screenFlash(stage2, hero ? 0.6 : 0.3, hero ? 500 : 220);
+    fxAdd(stage2, { type: "burst", x: px, y: py, glow: w * 0.9 * P2, c: col, life: 380, rays: rays(16, 0.8 * w * P2, 1.5 * w * P2) });
+    fxAdd(stage2, { type: "ring", x: px, y: py, r0: 6, r1: w * 1.4 * P2, w: 7, c: "0,0%,95%", life: 420 });
+    fxAdd(stage2, { type: "ring", x: px, y: py, r0: 6, r1: w * 2 * P2, w: 4, c: col, life: 650, delay: 70 });
+    for (let i = 0; i < 26 * P2; i++) {
+      const a = rand(0, 6.283), v = rand(3, 10) * P2;
+      fxAdd(stage2, { type: "spark", x: px, y: py, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0.22, len: 2.2, size: 2.5, c: pick([col, "45,100%,80%", "0,0%,100%"]), life: rand(350, 700) });
+    }
+    for (let i = 0; i < 22 * P2; i++) fxAdd(stage2, {
+      type: "dot",
+      add: true,
+      x: r.left + rand(0.1, 0.9) * w,
+      y: r.top + rand(0.2, 0.9) * h,
+      vx: rand(-0.6, 0.6),
+      vy: rand(-2.6, -0.8),
+      drag: 0.985,
+      size: rand(1.2, 2.6),
+      c: pick([col, "38,100%,70%"]),
+      life: rand(900, 1500),
+      delay: rand(0, 250)
+    });
+    for (let i = 0; i < 9; i++) fxAdd(stage2, {
+      type: "dot",
+      x: px + rand(-0.4, 0.4) * w,
+      y: py + rand(-0.3, 0.3) * h,
+      vx: rand(-0.8, 0.8),
+      vy: rand(-1.4, -0.4),
+      drag: 0.97,
+      size: rand(6, 11),
+      grow: 1.6,
+      a: 0.35,
+      c: "260,8%,35%",
+      life: rand(800, 1200)
+    });
+    fxAdd(stage2, { type: "wisp", x0: r.left + w / 2, y0: r.top + h / 2, rise: h * 1.2, sway: w * 0.18, size: w * 0.32, c: col, life: 1400, delay: 160 });
+    const scorch = document.createElement("div");
+    scorch.className = "scorch";
+    Object.assign(scorch.style, { left: r.left - w * 0.25 + "px", top: r.top + h * 0.2 + "px", width: w * 1.5 + "px", height: h * 0.75 + "px" });
+    stage2.root.appendChild(scorch);
+    scorch.animate(
+      [{ opacity: 0, transform: "scale(.5)" }, { opacity: 1, transform: "scale(1)", offset: 0.12 }, { opacity: 0, transform: "scale(1.1)" }],
+      { duration: dur(1800), easing: "ease-out" }
+    ).finished.then(() => scorch.remove());
+    shake(stage2, hero ? 14 : 8, hero ? 500 : 340);
+    await sleep(hero ? 300 : 420);
+    if (remove) removeFromRow(el);
+  }
+  function removeFromRow(el) {
+    const row = el.parentElement;
+    if (!row) return;
+    const before = snapshot(row);
+    el.remove();
+    flip(row, before);
+  }
+
+  // src/fx/spells.js
+  async function playCastIntro(stage2, def, side, src = null) {
+    const col = `${def.hue},100%,68%`;
+    const probe = createCardEl(def);
+    stage2.cast.appendChild(probe);
+    const w = probe.offsetWidth, h = probe.offsetHeight;
+    const cx = viewW(stage2) / 2, cy = viewH(stage2) * (side === "player" ? 0.56 : 0.36);
+    Object.assign(probe.style, { left: cx - w / 2 + "px", top: cy - h / 2 + "px" });
+    let from, rot = 0, sc0 = 1;
+    if (src) {
+      from = src.getBoundingClientRect();
+      sc0 = src._drag ? src._scale : 1;
+      rot = src._drag ? src._tilt : parseFloat(src.style.getPropertyValue("--r")) || 0;
+      src.remove();
+    } else from = { left: cx - w / 2, top: -h * 1.6, width: w, height: h };
+    const f = center(from);
+    await anim(probe, [
+      { transform: `translate(${f.x - cx}px,${f.y - cy}px) rotate(${rot}deg) scale(${sc0})` },
+      { transform: "translate(0,0) rotate(0deg) scale(1.5)" }
+    ], 420, "cubic-bezier(.2,.9,.25,1)");
+    fxAdd(stage2, { type: "rune", x: cx, y: cy, r: w * 1.25, flat: 1, n: def.sig > 4 ? def.sig : 6, c: col, life: 1300 });
+    fxAdd(stage2, { type: "rune", x: cx, y: cy, r: w * 0.8, flat: 1, n: 3, c: "0,0%,90%", life: 1100, delay: 120 });
+    for (let i = 0; i < 26; i++) fxAdd(stage2, {
+      type: "orbit",
+      x: cx,
+      y: cy,
+      a0: rand(0, 6.283),
+      w: rand(6e-3, 0.012) * (i % 2 ? 1 : -1),
+      r0: w * rand(1.2, 1.7),
+      r1: w * 0.1,
+      flat: 1,
+      rise: 0,
+      size: rand(5, 9),
+      c: col,
+      life: rand(550, 800),
+      delay: rand(0, 250)
+    });
+    const hold = probe.animate(
+      [{ transform: "scale(1.5)" }, { transform: "translateY(-6px) scale(1.54)" }, { transform: "scale(1.5)" }],
+      { duration: dur(620), easing: "ease-in-out", fill: "forwards" }
+    );
+    const veil = document.createElement("div");
+    veil.className = "flashov";
+    veil.style.background = `radial-gradient(circle, #fff, hsl(${def.hue} 100% 70%))`;
+    probe.appendChild(veil);
+    veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur(620), easing: "ease-in", fill: "forwards" });
+    await hold.finished;
+    probe.animate(
+      [{ transform: "scale(1.5)", opacity: 1 }, { transform: "scale(.2)", opacity: 0 }],
+      { duration: dur(220), easing: "cubic-bezier(.6,0,1,1)", fill: "forwards" }
+    ).finished.then(() => probe.remove());
+    fxAdd(stage2, { type: "burst", x: cx, y: cy, glow: w * 0.9, c: col, life: 300, rays: rays(12, 0.6 * w, 1.1 * w) });
+    fxAdd(stage2, { type: "ring", x: cx, y: cy, r0: 10, r1: w * 1.6, w: 5, c: col, life: 420 });
+    await sleep(160);
+    return { x: cx, y: cy };
+  }
+  var spellEffects = {
+    /** 放物線を描く火球 → 爆発 */
+    async fireball(stage2, { from, targets: [tgt], onHit }) {
+      const t = center(tgt.getBoundingClientRect()), T = 520;
+      fxAdd(stage2, {
+        type: "proj",
+        sx: from.x,
+        sy: from.y,
+        tx: t.x,
+        ty: t.y,
+        cx: (from.x + t.x) / 2 + rand(-80, 80),
+        cy: Math.min(from.y, t.y) - 120,
+        size: 26,
+        c: "28,100%,60%",
+        life: T
+      });
+      await sleep(T);
+      fxAdd(stage2, { type: "burst", x: t.x, y: t.y, glow: 110, c: "30,100%,65%", life: 380, rays: rays(16, 70, 140) });
+      fxAdd(stage2, { type: "ring", x: t.x, y: t.y, r0: 10, r1: 150, w: 8, c: "20,100%,60%", life: 480 });
+      for (let i = 0; i < 40; i++) {
+        const a = rand(0, 6.283), v = rand(3, 11);
+        fxAdd(stage2, {
+          type: "dot",
+          add: true,
+          x: t.x,
+          y: t.y,
+          vx: Math.cos(a) * v,
+          vy: Math.sin(a) * v,
+          drag: 0.9,
+          size: rand(4, 10),
+          c: pick(["28,100%,60%", "8,100%,55%", "45,100%,70%"]),
+          life: rand(300, 600)
+        });
+      }
+      for (let i = 0; i < 10; i++) fxAdd(stage2, {
+        type: "dot",
+        x: t.x + rand(-30, 30),
+        y: t.y + rand(-20, 20),
+        vx: rand(-0.8, 0.8),
+        vy: rand(-1.6, -0.4),
+        drag: 0.97,
+        size: rand(7, 12),
+        grow: 1.5,
+        a: 0.35,
+        c: "20,10%,30%",
+        life: rand(800, 1200),
+        delay: 120
+      });
+      screenFlash(stage2, 0.35, 260);
+      shake(stage2, 11, 380);
+      flashOn(tgt, "#fff", 250, 0.95);
+      onHit(0, t);
+      await sleep(350);
+    },
+    /** 詠唱位置 → 1 体目 → 2 体目 … と飛び移る稲妻 */
+    async chain(stage2, { from, targets, def, onHit }) {
+      const col = `${def.hue},100%,68%`;
+      let prev = [from.x, from.y];
+      for (let i = 0; i < targets.length; i++) {
+        const t = targets[i], c = center(t.getBoundingClientRect()), pt = [c.x, c.y];
+        fxAdd(stage2, { type: "bolt", pts: [prev, pt], c: col, life: 420 });
+        fxAdd(stage2, { type: "burst", x: c.x, y: c.y, glow: 70, c: col, life: 260, rays: rays(10, 40, 80) });
+        for (let j = 0; j < 14; j++) {
+          const a = rand(0, 6.283), v = rand(3, 9);
+          fxAdd(stage2, { type: "spark", x: c.x, y: c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, g: 0.2, len: 2, size: 2.2, c: pick([col, "0,0%,100%"]), life: rand(250, 450) });
+        }
+        flashOn(t, "#dff4ff", 220, 0.9);
+        shake(stage2, 6, 220);
+        onHit(i, c);
+        prev = pt;
+        await sleep(130);
+      }
+      screenFlash(stage2, 0.25, 200);
+      await sleep(300);
+    },
+    /** 降り注ぐ光の柱と昇る光の粒 */
+    async heal(stage2, { targets: [tgt], onHit }) {
+      const r = tgt.getBoundingClientRect(), c = center(r);
+      fxAdd(stage2, { type: "beam", x: c.x, y: r.bottom, w: r.width * 0.8, c: "100,90%,70%", life: 900 });
+      fxAdd(stage2, { type: "rune", x: c.x, y: r.bottom - r.height * 0.05, r: r.width * 0.9, flat: 0.35, n: 8, c: "100,90%,70%", life: 1100 });
+      for (let i = 0; i < 30; i++) fxAdd(stage2, {
+        type: "dot",
+        add: true,
+        x: c.x + rand(-0.6, 0.6) * r.width,
+        y: r.bottom - rand(0, 0.5) * r.height,
+        vx: rand(-0.2, 0.2),
+        vy: rand(-3, -1.2),
+        drag: 0.99,
+        size: rand(1.5, 3.5),
+        c: pick(["100,90%,75%", "55,100%,80%"]),
+        life: rand(700, 1100),
+        delay: rand(100, 600)
+      });
+      await sleep(380);
+      fxAdd(stage2, { type: "ring", x: c.x, y: c.y, r0: 10, r1: r.width * 1.1, w: 5, c: "100,90%,75%", life: 500 });
+      onHit(0, c);
+      await sleep(450);
+    },
+    /** らせんに昇る金色の光 → 弾けて強化 */
+    async buff(stage2, { targets: [tgt], onHit }) {
+      const r = tgt.getBoundingClientRect(), c = center(r);
+      for (let i = 0; i < 22; i++) fxAdd(stage2, {
+        type: "orbit",
+        x: c.x,
+        y: r.bottom - r.height * 0.1,
+        a0: i / 22 * 6.283,
+        w: 9e-3,
+        r0: r.width * 0.85,
+        r1: r.width * 0.55,
+        flat: 0.38,
+        rise: r.height * 1.05,
+        size: rand(6, 10),
+        c: "45,100%,65%",
+        life: 900,
+        delay: i * 12
+      });
+      fxAdd(stage2, { type: "rune", x: c.x, y: r.bottom - r.height * 0.05, r: r.width * 0.9, flat: 0.35, n: 4, c: "45,100%,65%", life: 1100 });
+      await anim(tgt, [{ transform: "none" }, { transform: "translateY(-8px) scale(1.05)", offset: 0.75 }, { transform: "translateY(0) scale(1.14)" }], 800, "ease-in");
+      fxAdd(stage2, { type: "burst", x: c.x, y: c.y, glow: r.width * 0.9, c: "45,100%,70%", life: 320, rays: rays(14, 0.6 * r.width, r.width) });
+      fxAdd(stage2, { type: "ring", x: c.x, y: c.y, r0: 10, r1: r.width * 1.3, w: 6, c: "45,100%,70%", life: 450 });
+      shake(stage2, 4, 200);
+      onHit(0, c);
+      await anim(tgt, [{ transform: "scale(1.14)" }, { transform: "scale(1)" }], 300, "cubic-bezier(.3,1.5,.5,1)");
+      tgt.getAnimations().forEach((a) => a.cancel());
+    }
+  };
+
+  // src/view/director.js
+  var Director = class {
+    /** @param {object} stage  createStage() の戻り値 */
+    constructor(stage2) {
+      this.stage = stage2;
+      this.els = /* @__PURE__ */ new Map();
+      this.lastHit = /* @__PURE__ */ new Map();
+      this.pendingSlot = null;
+    }
+    el(uid) {
+      return this.els.get(uid) || null;
+    }
+    uidOf(el) {
+      return el?.dataset.uid || null;
+    }
+    /** 現在の state をアニメーションなしで描き直す（開始時・リセット時） */
+    mount(state2) {
+      const { stage: stage2 } = this;
+      this.els.clear();
+      this.lastHit.clear();
+      stage2.particles.clear();
+      clearBanner(stage2);
+      for (const side of ["player", "enemy"]) {
+        const sd = state2.sides[side];
+        renderHero(stage2.heroes[side], sd.hero);
+        this.els.set(sd.hero.uid, stage2.heroes[side]);
+        const row = stage2.rows[side];
+        row.replaceChildren();
+        for (const u of sd.board) {
+          const el = createCardEl(u.def, { uid: u.uid, atk: u.atk, hp: u.hp, maxHp: u.maxHp });
+          row.appendChild(el);
+          this.els.set(u.uid, el);
+        }
+      }
+      stage2.hand.replaceChildren();
+      for (const c of state2.sides.player.hand) {
+        const el = createCardEl(c.def, { uid: c.uid });
+        stage2.hand.appendChild(el);
+        this.els.set(c.uid, el);
+      }
+      layoutHand(stage2);
+      this.sync(state2);
+    }
+    /** 攻撃可能かどうかなど、状態に応じた見た目のクラスを付け直す */
+    sync(state2) {
+      for (const u of state2.sides.player.board) {
+        const el = this.el(u.uid);
+        if (!el) continue;
+        const myTurn = state2.turn === "player" && !state2.over;
+        el.classList.toggle("ready", myTurn && !u.exhausted);
+        el.classList.toggle("exhausted", myTurn && u.exhausted);
+      }
+      for (const u of state2.sides.enemy.board) this.el(u.uid)?.classList.remove("ready", "exhausted");
+    }
+    /** イベント列を順に再生する。連続する破壊イベントは同時に再生する */
+    async play(events) {
+      for (let i = 0; i < events.length; i++) {
+        if (events[i].type === "death") {
+          const batch = [];
+          while (i < events.length && events[i].type === "death") batch.push(events[i++]);
+          i--;
+          await Promise.all(batch.map((e) => this.onDeath(e)));
+          continue;
+        }
+        const handler = this["on" + events[i].type[0].toUpperCase() + events[i].type.slice(1)];
+        if (!handler) throw new Error(`\u518D\u751F\u3067\u304D\u306A\u3044\u30A4\u30D9\u30F3\u30C8: ${events[i].type}`);
+        await handler.call(this, events[i]);
+      }
+    }
+    /* ---------------- 各イベントの再生 ---------------- */
+    async onDraw({ side, card }) {
+      if (side !== "player") return;
+      const el = createCardEl(card.def, { uid: card.uid });
+      this.els.set(card.uid, el);
+      drawToHand(this.stage, el);
+      await sleep(120);
+    }
+    async onSummon({ side, unit, index, fromHand }) {
+      const el = createCardEl(unit.def, { uid: unit.uid, atk: unit.atk, hp: unit.hp, maxHp: unit.maxHp });
+      const src = fromHand ? this.el(fromHand) : null;
+      const slot = side === "player" ? this.pendingSlot : null;
+      this.pendingSlot = null;
+      const done = playSummon(this.stage, { el, side, index, src, slot });
+      layoutHand(this.stage);
+      this.els.set(unit.uid, el);
+      await done;
+    }
+    async onAttack({ attacker, target, power, hits }) {
+      const att = this.el(attacker), tgt = this.el(target);
+      await playAttack(this.stage, att, tgt, {
+        power,
+        counter: hits.some((h) => h.uid === attacker),
+        onImpact: (point) => {
+          for (const h of hits) {
+            showDamage(this.stage, this.el(h.uid), h.amount, h.hp, h.maxHp);
+            this.lastHit.set(h.uid, point);
+          }
+        }
+      });
+    }
+    async onSpell({ side, def, fromHand, targets, results }) {
+      const src = fromHand ? this.el(fromHand) : null;
+      const intro = playCastIntro(this.stage, def, side, src);
+      layoutHand(this.stage);
+      if (fromHand) this.els.delete(fromHand);
+      const from = await intro;
+      const effect = spellEffects[def.effect];
+      if (!effect) throw new Error(`\u6F14\u51FA\u304C\u672A\u5B9A\u7FA9\u306E\u546A\u6587: ${def.effect}`);
+      await effect(this.stage, {
+        from,
+        def,
+        targets: targets.map((uid) => this.el(uid)),
+        onHit: (i, point) => {
+          const r = results[i], el = this.el(r.uid);
+          if (r.kind === "damage") showDamage(this.stage, el, r.amount, r.hp, r.maxHp);
+          else if (r.kind === "heal") showHeal(this.stage, el, r.amount, r.hp, r.maxHp);
+          else if (r.kind === "buff") showBuff(this.stage, el, r);
+          if (point) this.lastHit.set(r.uid, point);
+        }
+      });
+    }
+    async onDeath({ uid }) {
+      const el = this.el(uid);
+      if (!el) return;
+      await playDeath(this.stage, el, { hit: this.lastHit.get(uid) });
+      if (!el._hero) this.els.delete(uid);
+      this.lastHit.delete(uid);
+    }
+    async onTurn({ side }) {
+      await banner(this.stage, side === "player" ? "\u3042\u306A\u305F\u306E\u30BF\u30FC\u30F3" : "\u76F8\u624B\u306E\u30BF\u30FC\u30F3");
+    }
+    async onGameOver({ winner }) {
+      banner(this.stage, winner === "player" ? "VICTORY" : winner === "enemy" ? "DEFEAT" : "DRAW", { persist: true });
+    }
+  };
+
+  // src/view/input.js
+  var DRAG_START = 8;
+  var LONG_PRESS = 450;
+  var HIT_PAD = 16;
+  var Input = class {
+    /**
+     * @param {object} stage
+     * @param {import('./director.js').Director} director
+     * @param {InputQuery} query
+     * @param {InputCallbacks} callbacks
+     */
+    constructor(stage2, director2, query, callbacks) {
+      Object.assign(this, { stage: stage2, director: director2, query, cb: callbacks });
+      this.aim = null;
+      this.selected = null;
+      this.picked = null;
+      this.ptr = null;
+      this.drag = null;
+      this.slot = null;
+      this.lifted = null;
+      this.suppressUntil = 0;
+      const root = stage2.root;
+      root.addEventListener("pointerdown", (e) => this.onDown(e));
+      root.addEventListener("pointermove", (e) => this.onMove(e));
+      root.addEventListener("pointerup", (e) => this.onUp(e, false));
+      root.addEventListener("pointercancel", (e) => this.onUp(e, true));
+      root.addEventListener("click", (e) => this.onClick(e));
+    }
+    /* ---------------- 共通 ---------------- */
+    uid(el) {
+      return this.director.uidOf(el);
+    }
+    els(uids) {
+      return uids.map((u) => this.director.el(u)).filter(Boolean);
+    }
+    isHand(el) {
+      return el?.parentElement === this.stage.hand;
+    }
+    isMine(el) {
+      return el?.parentElement === this.stage.rows.player;
+    }
+    handTop() {
+      return this.stage.hand.getBoundingClientRect().top;
+    }
+    /** 操作の途中状態をすべて取り消す（リセット時など） */
+    reset() {
+      this.select(null);
+      this.pickSpell(null);
+      if (this.drag) {
+        cancelAnimationFrame(this.drag.raf);
+        this.drag = null;
+      }
+      this.stage.drag.replaceChildren();
+      this.closeSlot();
+      this.ptr = null;
+      this.lifted = null;
+    }
+    /** ルールが操作を受け付けたら呼ぶ（持ち上げたカードの記録を捨てる） */
+    settle() {
+      this.lifted = null;
+    }
+    /** ルールに操作を断られたとき、持ち上げていたカードを手札に戻す */
+    restore() {
+      const l = this.lifted;
+      this.lifted = null;
+      this.closeSlot();
+      this.director.pendingSlot = null;
+      if (l && l.el.isConnected && !this.isHand(l.el)) {
+        l.el._drag = false;
+        returnToHand(this.stage, l.el, l.index, l);
+      }
+    }
+    /* ---------------- 照準（矢印・吸い付き・レティクル） ---------------- */
+    startAim(fromEl, validEls, kind) {
+      this.endAim();
+      this.aim = { fromEl, valid: validEls, locked: null };
+      this.stage.root.dataset.aim = kind;
+      this.stage.root.classList.add("aiming");
+      validEls.forEach((v) => v.classList.add("valid"));
+    }
+    endAim() {
+      if (!this.aim) return;
+      this.aim.valid.forEach((v) => v.classList.remove("valid"));
+      this.lockOn(null);
+      this.aim = null;
+      delete this.stage.root.dataset.aim;
+      this.stage.root.classList.remove("aiming");
+      this.stage.aimPath.style.display = "none";
+    }
+    targetAt(x, y) {
+      return this.aim.valid.find((t) => {
+        if (!t.isConnected) return false;
+        const r = t.getBoundingClientRect();
+        return x > r.left - HIT_PAD && x < r.right + HIT_PAD && y > r.top - HIT_PAD && y < r.bottom + HIT_PAD;
+      }) || null;
+    }
+    lockOn(t) {
+      const aim = this.aim, ret = this.stage.reticle;
+      if (!aim || aim.locked === t) return;
+      aim.locked?.classList.remove("locked");
+      aim.locked = t;
+      if (!t) {
+        ret.style.display = "none";
+        return;
+      }
+      t.classList.add("locked");
+      const r = t.getBoundingClientRect(), sz = Math.max(r.width, r.height) * 1.2;
+      Object.assign(ret.style, { display: "block", left: r.left + r.width / 2 - sz / 2 + "px", top: r.top + r.height / 2 - sz / 2 + "px", width: sz + "px", height: sz + "px" });
+      ret.animate([{ transform: "scale(1.7)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: dur(200), easing: "cubic-bezier(.2,.9,.3,1.25)" });
+    }
+    updateAim(x, y) {
+      if (!this.aim) return;
+      const t = this.targetAt(x, y);
+      this.lockOn(t);
+      let ex = x, ey = y;
+      if (t) ({ x: ex, y: ey } = center(t.getBoundingClientRect()));
+      const c = center(this.aim.fromEl.getBoundingClientRect());
+      const bend = Math.min(120, Math.hypot(ex - c.x, ey - c.y) * 0.35);
+      const path = this.stage.aimPath;
+      path.setAttribute("d", `M${c.x},${c.y} Q${(c.x + ex) / 2},${Math.min(c.y, ey) - bend} ${ex},${ey}`);
+      path.style.display = "";
+    }
+    spellAim(el) {
+      const targets = this.els(this.query.spellTargets(this.uid(el)));
+      return { targets, kind: el._def.target === "enemy" ? "attack" : "help" };
+    }
+    /* ---------------- タップ操作 ---------------- */
+    select(el) {
+      if (this.picked) this.pickSpell(null);
+      this.selected?.classList.remove("selected");
+      this.selected = el;
+      this.endAim();
+      if (el) {
+        el.classList.add("selected");
+        this.startAim(el, this.els(this.query.attackTargets(this.uid(el))), "attack");
+      }
+    }
+    pickSpell(el) {
+      this.picked?.classList.remove("picked");
+      this.picked = el;
+      this.endAim();
+      if (el) {
+        el.classList.add("picked");
+        const { targets, kind } = this.spellAim(el);
+        this.startAim(el, targets, kind);
+      }
+    }
+    onClick(e) {
+      if (performance.now() < this.suppressUntil || !this.query.canAct()) return;
+      const el = e.target.closest(".card,.hero");
+      if (!el) {
+        this.select(null);
+        return;
+      }
+      if (this.picked) {
+        const card = this.picked, ok = el.classList.contains("valid");
+        this.pickSpell(null);
+        if (ok) {
+          this.lift(card);
+          this.cb.onCast(this.uid(card), this.uid(el));
+          return;
+        }
+        if (el === card || !this.isHand(el)) return;
+      }
+      if (this.isHand(el)) {
+        this.select(null);
+        const def = el._def, uid = this.uid(el);
+        if (def.kind !== "spell") {
+          if (this.query.boardFull()) {
+            nope(el);
+            return;
+          }
+          this.lift(el);
+          this.cb.onPlayMinion(uid, null);
+          return;
+        }
+        if (def.target === "none") {
+          this.lift(el);
+          this.cb.onCast(uid, null);
+          return;
+        }
+        if (!this.query.spellTargets(uid).length) {
+          nope(el);
+          return;
+        }
+        this.pickSpell(el);
+        return;
+      }
+      if (this.isMine(el)) {
+        if (el === this.selected || !this.query.canAttack(this.uid(el))) this.select(null);
+        else this.select(el);
+        return;
+      }
+      if (this.selected && el.classList.contains("valid")) {
+        const att = this.selected;
+        this.select(null);
+        this.cb.onAttack(this.uid(att), this.uid(el));
+        return;
+      }
+      this.select(null);
+    }
+    /** 手札から出ていくカードの元の位置を覚えておく */
+    lift(el, extra = {}) {
+      this.lifted = { el, index: [...this.stage.hand.children].indexOf(el), ...extra };
+    }
+    /* ---------------- ドラッグ操作 ---------------- */
+    onDown(e) {
+      if (!this.query.canAct() || e.button > 0 || this.ptr) return;
+      const el = e.target.closest(".card,.hero");
+      this.ptr = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, el, mode: null };
+      if (el?.classList.contains("card")) {
+        this.ptr.lp = setTimeout(() => {
+          if (this.ptr && !this.ptr.mode) {
+            this.ptr.mode = "inspect";
+            this.showInspect(el);
+          }
+        }, LONG_PRESS);
+      }
+    }
+    onMove(e) {
+      const p = this.ptr;
+      if (!p || e.pointerId !== p.id) {
+        this.updateAim(e.clientX, e.clientY);
+        return;
+      }
+      p.x = e.clientX;
+      p.y = e.clientY;
+      if (!p.mode && Math.hypot(p.x - p.x0, p.y - p.y0) > DRAG_START) {
+        clearTimeout(p.lp);
+        const el = p.el;
+        if (this.query.canAct() && this.isHand(el)) {
+          this.beginCardDrag(el, p.x, p.y);
+          p.mode = "card";
+        } else if (this.query.canAct() && this.isMine(el) && this.query.canAttack(this.uid(el))) {
+          this.select(el);
+          p.mode = "attack";
+        } else p.mode = "none";
+        try {
+          this.stage.root.setPointerCapture(e.pointerId);
+        } catch (_) {
+        }
+      }
+      if (p.mode === "card") this.moveCardDrag(p.x, p.y);
+      else if (p.mode !== "inspect") this.updateAim(p.x, p.y);
+    }
+    onUp(e, cancelled) {
+      const p = this.ptr;
+      if (!p || e.pointerId !== p.id) return;
+      this.ptr = null;
+      clearTimeout(p.lp);
+      if (p.mode) this.suppressUntil = performance.now() + 350;
+      if (p.mode === "inspect") this.hideInspect();
+      else if (p.mode === "card") this.endCardDrag(p.x, p.y, cancelled);
+      else if (p.mode === "attack") {
+        const t = !cancelled && this.aim?.locked, att = this.selected;
+        this.select(null);
+        if (t) this.cb.onAttack(this.uid(att), this.uid(t));
+      }
+    }
+    beginCardDrag(el, px, py) {
+      this.select(null);
+      const r = el.getBoundingClientRect(), c = center(r), index = [...this.stage.hand.children].indexOf(el);
+      const rot = parseFloat(el.style.getPropertyValue("--r")) || 0;
+      el.remove();
+      layoutHand(this.stage);
+      el.style.zIndex = "";
+      el._drag = true;
+      this.stage.drag.appendChild(el);
+      const def = el._def;
+      this.drag = {
+        el,
+        index,
+        w: el.offsetWidth,
+        h: el.offsetHeight,
+        x: c.x,
+        y: c.y,
+        tx: px,
+        ty: py,
+        lastX: c.x,
+        tilt: rot,
+        scale: 1.15,
+        ts: 1.15,
+        holding: false,
+        slotIdx: -1,
+        targeted: def.kind === "spell" && def.target !== "none"
+      };
+      this.placeDrag();
+      this.drag.raf = requestAnimationFrame(() => this.dragLoop());
+    }
+    placeDrag() {
+      const g = this.drag;
+      g.el.style.transform = `translate(${g.x - g.w / 2}px,${g.y - g.h / 2}px) rotate(${g.tilt}deg) scale(${g.scale})`;
+    }
+    /** 指に少し遅れて追従し、横方向の速さに応じて傾く（慣性のある持ち心地） */
+    dragLoop() {
+      const g = this.drag;
+      if (!g) return;
+      const tx = g.holding ? g.hx : g.tx, ty = g.holding ? g.hy : g.ty;
+      g.x += (tx - g.x) * 0.42;
+      g.y += (ty - g.y) * 0.42;
+      const vx = g.x - g.lastX;
+      g.lastX = g.x;
+      g.tilt += ((g.holding ? 0 : clamp(vx * 1.5, -24, 24)) - g.tilt) * 0.22;
+      g.scale += (g.ts - g.scale) * 0.25;
+      this.placeDrag();
+      g.raf = requestAnimationFrame(() => this.dragLoop());
+    }
+    moveCardDrag(x, y) {
+      const g = this.drag, def = g.el._def, root = this.stage.root, inBoard = y < this.handTop() - 8;
+      g.tx = x;
+      g.ty = y - g.h * 0.18;
+      if (def.kind !== "spell") {
+        const full = this.query.boardFull();
+        root.classList.toggle("dropzone", inBoard && !full);
+        g.el.classList.toggle("nope", inBoard && full);
+        g.ts = inBoard ? 1 : 1.15;
+        if (inBoard && !full) this.openSlot(this.slotIndexAt(x));
+        else this.closeSlot();
+      } else if (!g.targeted) {
+        root.classList.toggle("castzone", inBoard);
+        g.el.classList.toggle("armed", inBoard);
+        g.ts = inBoard ? 1.25 : 1.15;
+      } else {
+        if (inBoard && !g.holding) {
+          const { targets, kind } = this.spellAim(g.el);
+          if (!targets.length) {
+            g.el.classList.add("nope");
+            return;
+          }
+          g.holding = true;
+          g.hx = this.stage.particles.width / 2 + g.w * 1.25;
+          g.hy = this.handTop() - g.h * 0.45;
+          g.ts = 0.9;
+          this.startAim(g.el, targets, kind);
+        } else if (g.holding && y > this.handTop() + 12) {
+          g.holding = false;
+          g.ts = 1.15;
+          this.endAim();
+        }
+        if (!inBoard) g.el.classList.remove("nope");
+        if (g.holding) this.updateAim(x, y);
+      }
+    }
+    endCardDrag(x, y, cancelled) {
+      const g = this.drag;
+      this.drag = null;
+      cancelAnimationFrame(g.raf);
+      const el = g.el, def = el._def, uid = this.uid(el), inBoard = !cancelled && y < this.handTop() - 8;
+      this.stage.root.classList.remove("castzone", "dropzone");
+      el.classList.remove("nope", "armed");
+      el._tilt = g.tilt;
+      el._scale = g.scale;
+      const lifted = { el, index: g.index, tilt: g.tilt, scale: g.scale };
+      if (def.kind !== "spell") {
+        if (inBoard && this.slot) {
+          this.lifted = lifted;
+          this.director.pendingSlot = this.slot;
+          this.slot = null;
+          this.cb.onPlayMinion(uid, g.slotIdx);
+          return;
+        }
+        this.closeSlot();
+      } else if (!g.targeted) {
+        if (inBoard) {
+          this.lifted = lifted;
+          this.cb.onCast(uid, null);
+          return;
+        }
+      } else {
+        const t = !cancelled && g.holding && this.aim?.locked;
+        this.endAim();
+        if (t) {
+          this.lifted = lifted;
+          this.cb.onCast(uid, this.uid(t));
+          return;
+        }
+      }
+      el._drag = false;
+      returnToHand(this.stage, el, g.index, lifted);
+    }
+    /* ---------------- 盤面の置き場所 ---------------- */
+    cardsInRow() {
+      return [...this.stage.rows.player.querySelectorAll(".card")];
+    }
+    slotIndexAt(x) {
+      return this.cardsInRow().filter((c) => {
+        const r = c.getBoundingClientRect();
+        return x > r.left + r.width / 2;
+      }).length;
+    }
+    openSlot(i) {
+      if (this.slot && this.drag.slotIdx === i) return;
+      const row = this.stage.rows.player, before = snapshot(row), fresh = !this.slot;
+      if (fresh) {
+        this.slot = document.createElement("div");
+        this.slot.className = "slot";
+      }
+      row.insertBefore(this.slot, this.cardsInRow()[i] || null);
+      this.drag.slotIdx = i;
+      flip(row, before, this.slot);
+      if (fresh) this.slot.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "none" }], { duration: dur(180), easing: "ease-out" });
+    }
+    closeSlot() {
+      if (!this.slot) return;
+      const row = this.stage.rows.player, before = snapshot(row);
+      this.slot.remove();
+      this.slot = null;
+      if (this.drag) this.drag.slotIdx = -1;
+      flip(row, before);
+    }
+    /* ---------------- 長押しの拡大表示 ---------------- */
+    showInspect(el) {
+      const box = this.stage.inspect, c = el.cloneNode(true);
+      c.className = c.className.replace(/\b(ready|selected|exhausted|picked|valid|locked|charging|nope|armed)\b/g, "");
+      c.style.cssText = el.style.getPropertyValue("--sh") ? `--sh:${el.style.getPropertyValue("--sh")}` : "";
+      c.querySelectorAll(".flashov,.cracks").forEach((n) => n.remove());
+      box.replaceChildren(c);
+      box.style.display = "grid";
+      box.animate([{ opacity: 0 }, { opacity: 1 }], { duration: dur(160) });
+      c.animate([{ transform: "scale(.6) translateY(30px)", opacity: 0 }, { transform: "none", opacity: 1 }], { duration: dur(220), easing: "cubic-bezier(.2,.9,.3,1.1)" });
+    }
+    hideInspect() {
+      const box = this.stage.inspect;
+      box.animate([{ opacity: 1 }, { opacity: 0 }], { duration: dur(120) }).finished.then(() => {
+        box.style.display = "none";
+        box.replaceChildren();
+      });
+    }
+  };
+  function nope(el) {
+    el.animate([{ translate: "0 0" }, { translate: "-6px 0" }, { translate: "6px 0" }, { translate: "0 0" }], { duration: 250 });
+  }
+
+  // src/game/cards.js
+  var MINIONS = [
+    { id: "beetle", name: "\u9EC4\u91D1\u306E\u7532\u866B", cost: 1, atk: 2, hp: 1, rarity: "common", hue: 45, tribe: "\u7363", sig: 4 },
+    { id: "wolf", name: "\u7070\u71FC\u306E\u72FC", cost: 2, atk: 3, hp: 2, rarity: "common", hue: 18, tribe: "\u7363", sig: 3 },
+    { id: "archer", name: "\u68EE\u306E\u5C04\u624B", cost: 2, atk: 2, hp: 3, rarity: "common", hue: 120, tribe: "\u30A8\u30EB\u30D5", sig: 6 },
+    { id: "sentinel", name: "\u77F3\u58C1\u306E\u756A\u5175", cost: 3, atk: 1, hp: 6, rarity: "common", hue: 200, tribe: "\u30B4\u30FC\u30EC\u30E0", sig: 4 },
+    { id: "swordsman", name: "\u84BC\u96F7\u306E\u5263\u58EB", cost: 4, atk: 4, hp: 3, rarity: "rare", hue: 215, tribe: "\u4EBA\u9593", sig: 5 },
+    { id: "oracle", name: "\u661F\u8A60\u307F\u306E\u5DEB\u5973", cost: 5, atk: 3, hp: 5, rarity: "rare", hue: 285, tribe: "\u4EBA\u9593", sig: 8 },
+    { id: "abyssKnight", name: "\u6DF1\u6DF5\u306E\u9A0E\u58EB", cost: 7, atk: 6, hp: 5, rarity: "legendary", hue: 265, tribe: "\u4E0D\u6B7B", sig: 7 },
+    { id: "crimsonDragon", name: "\u7D05\u84EE\u306E\u53E4\u7ADC", cost: 8, atk: 7, hp: 7, rarity: "legendary", hue: 2, tribe: "\u30C9\u30E9\u30B4\u30F3", sig: 6 }
+  ].map((d) => ({ kind: "minion", ...d }));
+  var SPELLS = [
+    { id: "fireball", effect: "fireball", name: "\u706B\u7403", cost: 4, hue: 18, sig: 3, rarity: "common", target: "enemy", value: 4, desc: "\u65751\u4F53\u306B4\u30C0\u30E1\u30FC\u30B8" },
+    { id: "chain", effect: "chain", name: "\u96F7\u9CF4\u306E\u9023\u9396", cost: 5, hue: 205, sig: 5, rarity: "rare", target: "none", value: 2, desc: "\u6575\u30DF\u30CB\u30AA\u30F3\u5168\u4F53\u306B2\u30C0\u30E1\u30FC\u30B8" },
+    { id: "heal", effect: "heal", name: "\u7652\u3057\u306E\u5149", cost: 2, hue: 110, sig: 8, rarity: "common", target: "ally", value: 5, desc: "\u5473\u65B91\u4F53\u306E\u4F53\u529B\u30925\u56DE\u5FA9" },
+    { id: "buff", effect: "buff", name: "\u529B\u306E\u52A0\u8B77", cost: 3, hue: 45, sig: 4, rarity: "rare", target: "allyMinion", value: 2, desc: "\u5473\u65B9\u30DF\u30CB\u30AA\u30F31\u4F53\u306B+2/+2" }
+  ].map((d) => ({ kind: "spell", ...d }));
+  var ALL = new Map([...MINIONS, ...SPELLS].map((d) => [d.id, d]));
+  var pickWith = (rng, list) => list[Math.floor(rng() * list.length)];
+  function randomMinion(rng) {
+    const x = rng(), rarity = x < 0.15 ? "legendary" : x < 0.45 ? "rare" : "common";
+    return pickWith(rng, MINIONS.filter((d) => d.rarity === rarity));
+  }
+  function randomCard(rng) {
+    return rng() < 0.3 ? pickWith(rng, SPELLS) : randomMinion(rng);
+  }
+
+  // src/game/rules.js
+  var MAX_BOARD = 5;
+  var MAX_HAND = 7;
+  var HERO_HP = 20;
+  var SIDES = ["player", "enemy"];
+  var other = (side) => side === "player" ? "enemy" : "player";
+  var heroUid = (side) => `hero:${side}`;
+  var RuleError = class extends Error {
+  };
+  function createGame({ rng = Math.random, heroHp = HERO_HP } = {}) {
+    const side = (name, s) => ({ hero: { uid: heroUid(s), name, hp: heroHp, maxHp: heroHp }, board: [], hand: [] });
+    return {
+      rng,
+      nextId: 1,
+      turn: "player",
+      over: false,
+      winner: null,
+      sides: { player: side("\u3042\u306A\u305F", "player"), enemy: side("\u6575\u30EA\u30FC\u30C0\u30FC", "enemy") }
+    };
+  }
+  var newUid = (state2) => `c${state2.nextId++}`;
+  function findEntity(state2, uid) {
+    for (const s of SIDES) {
+      const sd = state2.sides[s];
+      if (sd.hero.uid === uid) return { entity: sd.hero, side: s, hero: true };
+      const unit = sd.board.find((u) => u.uid === uid);
+      if (unit) return { entity: unit, side: s, hero: false };
+    }
+    return null;
+  }
+  var boardFull = (state2, side) => state2.sides[side].board.length >= MAX_BOARD;
+  function canAttack(state2, uid) {
+    const f = findEntity(state2, uid);
+    return !!f && !f.hero && !state2.over && f.side === state2.turn && !f.entity.exhausted && f.entity.atk > 0;
+  }
+  function attackTargets(state2, uid) {
+    const f = findEntity(state2, uid);
+    if (!f || f.hero) return [];
+    const foe = state2.sides[other(f.side)];
+    return [...foe.board.map((u) => u.uid), foe.hero.uid];
+  }
+  function spellTargets(state2, side, def) {
+    const me = state2.sides[side], foe = state2.sides[other(side)];
+    const units = (sd) => sd.board.map((u) => u.uid);
+    if (def.target === "enemy") return [...units(foe), foe.hero.uid];
+    if (def.target === "ally") return [...units(me), me.hero.uid];
+    if (def.target === "allyMinion") return units(me);
+    return [];
+  }
+  function canCast(state2, side, def) {
+    return def.target === "none" || spellTargets(state2, side, def).length > 0;
+  }
+  var handCard = (state2, side, uid) => {
+    const i = state2.sides[side].hand.findIndex((c) => c.uid === uid);
+    if (i < 0) throw new RuleError("\u624B\u672D\u306B\u306A\u3044\u30AB\u30FC\u30C9\u3067\u3059");
+    return i;
+  };
+  var assertTurn = (state2, side) => {
+    if (state2.over) throw new RuleError("\u30B2\u30FC\u30E0\u306F\u7D42\u4E86\u3057\u3066\u3044\u307E\u3059");
+    if (state2.turn !== side) throw new RuleError("\u76F8\u624B\u306E\u30BF\u30FC\u30F3\u3067\u3059");
+  };
+  function drawCard(state2, side, def = randomCard(state2.rng)) {
+    const hand = state2.sides[side].hand;
+    if (hand.length >= MAX_HAND) return [];
+    const card = { uid: newUid(state2), def };
+    hand.push(card);
+    return [{ type: "draw", side, card: { ...card } }];
+  }
+  function playMinion(state2, side, source, index = null) {
+    assertTurn(state2, side);
+    if (boardFull(state2, side)) throw new RuleError("\u76E4\u9762\u304C\u3044\u3063\u3071\u3044\u3067\u3059");
+    let def, uid, fromHand = null;
+    if (source.uid) {
+      const hand = state2.sides[side].hand, i = handCard(state2, side, source.uid);
+      ({ def, uid } = hand[i]);
+      if (def.kind !== "minion") throw new RuleError("\u30DF\u30CB\u30AA\u30F3\u3067\u306F\u3042\u308A\u307E\u305B\u3093");
+      hand.splice(i, 1);
+      fromHand = uid;
+    } else {
+      def = source.def;
+      uid = newUid(state2);
+    }
+    const board = state2.sides[side].board;
+    const at = index == null ? board.length : Math.max(0, Math.min(index, board.length));
+    const unit = { uid, def, side, atk: def.atk, hp: def.hp, maxHp: def.hp, exhausted: false };
+    board.splice(at, 0, unit);
+    return [{ type: "summon", side, unit: { ...unit }, index: at, fromHand }];
+  }
+  function attack(state2, attackerUid, targetUid) {
+    const a = findEntity(state2, attackerUid);
+    if (!a) throw new RuleError("\u653B\u6483\u3059\u308B\u30DF\u30CB\u30AA\u30F3\u304C\u3044\u307E\u305B\u3093");
+    assertTurn(state2, a.side);
+    if (!canAttack(state2, attackerUid)) throw new RuleError("\u3053\u306E\u30DF\u30CB\u30AA\u30F3\u306F\u653B\u6483\u3067\u304D\u307E\u305B\u3093");
+    if (!attackTargets(state2, attackerUid).includes(targetUid)) throw new RuleError("\u305D\u306E\u5BFE\u8C61\u306F\u653B\u6483\u3067\u304D\u307E\u305B\u3093");
+    const t = findEntity(state2, targetUid), att = a.entity, tgt = t.entity;
+    att.exhausted = true;
+    const hits = [damage(tgt, att.atk)];
+    if (!t.hero && tgt.atk > 0) hits.push(damage(att, tgt.atk));
+    return [{ type: "attack", attacker: att.uid, target: tgt.uid, power: att.atk, hits }, ...resolveDeaths(state2)];
+  }
+  function damage(entity, amount) {
+    entity.hp -= amount;
+    return { uid: entity.uid, amount, hp: entity.hp, maxHp: entity.maxHp };
+  }
+  function castSpell(state2, side, source, targetUid = null) {
+    assertTurn(state2, side);
+    let def, fromHand = null;
+    if (source.uid) {
+      const hand = state2.sides[side].hand, i = handCard(state2, side, source.uid);
+      def = hand[i].def;
+      if (def.kind !== "spell") throw new RuleError("\u546A\u6587\u3067\u306F\u3042\u308A\u307E\u305B\u3093");
+      if (def.target !== "none" && !spellTargets(state2, side, def).includes(targetUid)) throw new RuleError("\u305D\u306E\u5BFE\u8C61\u306F\u9078\u3079\u307E\u305B\u3093");
+      hand.splice(i, 1);
+      fromHand = source.uid;
+    } else {
+      def = source.def;
+    }
+    const foe = state2.sides[other(side)];
+    let results;
+    switch (def.effect) {
+      case "fireball":
+        results = [{ kind: "damage", ...damage(findEntity(state2, targetUid).entity, def.value) }];
+        break;
+      case "chain": {
+        const victims = foe.board.length ? [...foe.board] : [foe.hero];
+        results = victims.map((v) => ({ kind: "damage", ...damage(v, def.value) }));
+        break;
+      }
+      case "heal": {
+        const e = findEntity(state2, targetUid).entity, before = e.hp;
+        e.hp = Math.min(e.maxHp, e.hp + def.value);
+        results = [{ kind: "heal", uid: e.uid, amount: e.hp - before, hp: e.hp, maxHp: e.maxHp }];
+        break;
+      }
+      case "buff": {
+        const e = findEntity(state2, targetUid).entity;
+        e.atk += def.value;
+        e.hp += def.value;
+        e.maxHp += def.value;
+        results = [{ kind: "buff", uid: e.uid, value: def.value, atk: e.atk, hp: e.hp, maxHp: e.maxHp }];
+        break;
+      }
+      default:
+        throw new RuleError(`\u672A\u5B9F\u88C5\u306E\u546A\u6587: ${def.effect}`);
+    }
+    return [{ type: "spell", side, def, fromHand, targets: results.map((r) => r.uid), results }, ...resolveDeaths(state2)];
+  }
+  function resolveDeaths(state2) {
+    const events = [];
+    for (const s of SIDES) {
+      const sd = state2.sides[s];
+      for (const u of sd.board.filter((x) => x.hp <= 0)) events.push({ type: "death", uid: u.uid, side: s });
+      sd.board = sd.board.filter((x) => x.hp > 0);
+    }
+    const fallen = SIDES.filter((s) => state2.sides[s].hero.hp <= 0);
+    if (fallen.length && !state2.over) {
+      fallen.forEach((s) => events.push({ type: "death", uid: heroUid(s), side: s, hero: true }));
+      state2.over = true;
+      state2.winner = fallen.length === 2 ? null : other(fallen[0]);
+      events.push({ type: "gameOver", winner: state2.winner });
+    }
+    return events;
+  }
+  function endTurn(state2) {
+    if (state2.over) throw new RuleError("\u30B2\u30FC\u30E0\u306F\u7D42\u4E86\u3057\u3066\u3044\u307E\u3059");
+    state2.turn = other(state2.turn);
+    state2.sides[state2.turn].board.forEach((u) => {
+      u.exhausted = false;
+    });
+    const events = [{ type: "turn", side: state2.turn }];
+    if (state2.turn === "player") events.push(...drawCard(state2, "player"));
+    return events;
+  }
+
+  // src/game/ai.js
+  var pickWith2 = (rng, list) => list[Math.floor(rng() * list.length)];
+  var spell = (id) => SPELLS.find((s) => s.id === id);
+  function runEnemyTurn(state2) {
+    const { rng } = state2, me = state2.sides.enemy, foe = state2.sides.player;
+    const events = [];
+    if (me.board.length < 4) events.push(...playMinion(state2, "enemy", { def: randomMinion(rng) }));
+    if (!state2.over && rng() < 0.6) {
+      const def = foe.board.length >= 2 && rng() < 0.5 ? spell("chain") : spell("fireball");
+      if (canCast(state2, "enemy", def)) {
+        const target = def.target === "none" ? null : pickWith2(rng, spellTargets(state2, "enemy", def));
+        events.push(...castSpell(state2, "enemy", { def }, target));
+      }
+    }
+    for (const unit of [...me.board]) {
+      if (state2.over) break;
+      if (!canAttack(state2, unit.uid)) continue;
+      const target = rng() < 0.35 || !foe.board.length ? foe.hero.uid : pickWith2(rng, foe.board).uid;
+      events.push(...attack(state2, unit.uid, target));
+    }
+    return events;
+  }
+
+  // src/main.js
+  var $ = (sel) => document.querySelector(sel);
+  var stage = createStage($("#game"));
+  var director = new Director(stage);
+  var endTurnBtn = $("#endTurn");
+  var state = null;
+  var busy = false;
+  var handDef = (uid) => state.sides.player.hand.find((c) => c.uid === uid)?.def;
+  var input = new Input(stage, director, {
+    canAct: () => !busy && !state.over && state.turn === "player",
+    canAttack: (uid) => canAttack(state, uid),
+    attackTargets: (uid) => attackTargets(state, uid),
+    spellTargets: (uid) => spellTargets(state, "player", handDef(uid)),
+    boardFull: () => boardFull(state, "player")
+  }, {
+    onPlayMinion: (uid, index) => act(() => playMinion(state, "player", { uid }, index)),
+    onAttack: (att, tgt) => act(() => attack(state, att, tgt)),
+    onCast: (uid, target) => act(() => castSpell(state, "player", { uid }, target))
+  });
+  async function act(rule) {
+    if (busy || state.over) return;
+    let events;
+    try {
+      events = rule();
+    } catch (err) {
+      if (!(err instanceof RuleError)) throw err;
+      input.restore();
+      console.info(err.message);
+      return;
+    }
+    input.settle();
+    busy = true;
+    endTurnBtn.disabled = true;
+    try {
+      await director.play(events);
+    } finally {
+      director.sync(state);
+      busy = false;
+      endTurnBtn.disabled = state.over;
+    }
+  }
+  function newGame() {
+    input.reset();
+    state = createGame();
+    const pick2 = (list) => list[Math.floor(Math.random() * list.length)];
+    const commons = MINIONS.filter((d) => d.rarity !== "legendary");
+    for (let i = 0; i < 3; i++) {
+      const def = pick2(commons);
+      state.sides.enemy.board.push({ uid: `e${i}`, def, side: "enemy", atk: def.atk, hp: def.hp, maxHp: def.hp, exhausted: false });
+    }
+    director.mount(state);
+    busy = false;
+    endTurnBtn.disabled = false;
+    const byId = (id) => [...MINIONS, ...SPELLS].find((d) => d.id === id);
+    const opening = [pick2(commons), byId("swordsman"), pick2(MINIONS.filter((d) => d.rarity === "legendary")), byId("fireball"), byId("chain"), byId("buff")];
+    act(() => opening.flatMap((def) => drawCard(state, "player", def)));
+  }
+  endTurnBtn.addEventListener("click", () => {
+    input.reset();
+    act(() => {
+      const events = [...endTurn(state), ...runEnemyTurn(state)];
+      if (!state.over) events.push(...endTurn(state));
+      return events;
+    });
+  });
+  $("#bDraw").addEventListener("click", () => act(() => drawCard(state, "player")));
+  $("#bReset").addEventListener("click", newGame);
+  $("#speed").addEventListener("input", (e) => {
+    setSpeed(+e.target.value);
+    $("#spv").textContent = e.target.value + "x";
+  });
+  newGame();
+})();
+</script>
+</body>
+</html>
