@@ -11,6 +11,7 @@ import com.example.qte.effect.RuleGuards;
 import com.example.qte.effect.SpecialSummonSpec;
 import com.example.qte.effect.StatCalculator;
 import com.example.qte.effect.TargetSpec;
+import com.example.qte.game.GameEvent;
 import com.example.qte.game.GameState;
 import com.example.qte.game.GameStatus;
 import com.example.qte.game.ManaCard;
@@ -105,6 +106,59 @@ public class GameViewBuilder {
                 buildPlayerView(state, you, true, myTurn),
                 buildPlayerView(state, opponent, false, myTurn),
                 List.copyOf(room.getLog()));
+    }
+
+    /**
+     * 出来事を閲覧者向けに変換する(★★★Batch 85a・裁定373)。
+     *
+     * <h2>★★絞る場所はここ1箇所である(設計判断9)</h2>
+     *
+     * 生の {@link GameEvent} はプレイヤーIDを持つ。プレイヤーIDは配信の宛先なので、
+     * <b>相手のIDを渡すと相手の宛先を購読できてしまう</b>(設計判断42)。
+     * ★ここで席を YOU / OPPONENT に書き換え、{@code DRAW} の面を本人以外から落とす。
+     *
+     * <p>★<b>出来事の種類と並びは閲覧者で分岐しない</b>(裁定373)——
+     * 自席・相手席・観戦者に、同じ数の出来事が同じ順で届く。
+     * 違うのは<b>中身が届くか</b>だけである(相手の {@code DRAW} は枚数だけ)。
+     *
+     * <p>★観戦者は {@link #build} と同じく A 席を {@code you} として見る
+     * ({@link #buildSpectatorView})。<b>向きの決め方を2つ持たない</b>。
+     */
+    public List<EventView> buildEvents(GameRoom room, String viewerId, List<GameEvent> events) {
+        GameState state = room.getGameState();
+        if (state == null || events.isEmpty()) {
+            return List.of();
+        }
+        String youId = state.hasPlayer(viewerId) ? viewerId : state.getPlayer1().getPlayerId();
+        List<EventView> views = new java.util.ArrayList<>(events.size());
+        for (GameEvent e : events) {
+            boolean ownedByViewer = e.ownerId().equals(viewerId);
+            // ★★★DRAW の面は<b>引いた本人にだけ</b>届く。観戦者は誰の手札も見ない(isSelf = false)
+            List<String> cardsForViewer = e.kind() == GameEvent.Kind.DRAW && !ownedByViewer
+                    ? List.of()
+                    : e.cardIds();
+            views.add(new EventView(
+                    e.kind().name(),
+                    sideOf(e.ownerId(), youId),
+                    refOf(e.src(), youId),
+                    refOf(e.dst(), youId),
+                    e.amount(),
+                    e.after(),
+                    cardsForViewer));
+        }
+        return views;
+    }
+
+    private static String sideOf(String playerId, String youId) {
+        return playerId.equals(youId) ? "YOU" : "OPPONENT";
+    }
+
+    /** ミニオンは instanceId(両席に公開済みの値)、リーダーは {@code leader:YOU} / {@code leader:OPPONENT} */
+    private static String refOf(GameEvent.Ref ref, String youId) {
+        if (ref == null) {
+            return null;
+        }
+        return ref.isLeader() ? "leader:" + sideOf(ref.playerId(), youId) : ref.instanceId();
     }
 
     /**

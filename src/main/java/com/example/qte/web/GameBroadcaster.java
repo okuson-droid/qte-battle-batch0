@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.example.qte.game.view.EventView;
 import com.example.qte.game.view.GameView;
 import com.example.qte.game.view.GameViewBuilder;
 import com.example.qte.room.GameRoom;
@@ -44,8 +45,12 @@ public class GameBroadcaster {
      *
      * <p>★★★{@code view} は<b>その閲覧者の視点</b>である ——
      * 視点フィルタは {@code GameViewBuilder} の1本だけを通る(設計判断9)。
+     *
+     * <p>★★★Batch 85a: {@code events} は<b>この段に属する出来事</b>である
+     * (このログ行の前に起きたもの。裁定371〜376)。★<b>閲覧者向けに切り落とし済み</b>
+     * ({@code GameViewBuilder#buildEvents})。★出来事が無い段は空の列である。
      */
-    public record GameStep(int seq, String logLine, GameView view) {
+    public record GameStep(int seq, String logLine, GameView view, List<EventView> events) {
     }
 
     /**
@@ -53,16 +58,20 @@ public class GameBroadcaster {
      * type=VIEW のとき view が入り、type=ERROR のとき message が入る。
      * ★Batch 72: type=LEFT(退室が受理された)が3つ目である。どちらも入らない。
      * ★★Batch 75: type=ROOM_LOST(部屋がもう無い)が4つ目である。これもどちらも入らない。
+     * ★★★Batch 85a: {@code events} は<b>最終状態({@code view})に付く出来事</b>である ——
+     * 最後のログ行の後に起きたもの(裁定374)。★<b>型は増やしていない</b>(VIEW の欄が1つ増えただけ)。
+     * ★VIEW 以外では常に空である。
      */
     public record WsMessage(String type, GameView view, List<GameStep> steps, int foldedSteps,
-            String message) {
+            List<EventView> events, String message) {
 
-        static WsMessage ofView(GameView view, List<GameStep> steps, int foldedSteps) {
-            return new WsMessage("VIEW", view, steps, foldedSteps, null);
+        static WsMessage ofView(GameView view, List<GameStep> steps, int foldedSteps,
+                List<EventView> events) {
+            return new WsMessage("VIEW", view, steps, foldedSteps, events, null);
         }
 
         static WsMessage ofError(String message) {
-            return new WsMessage("ERROR", null, List.of(), 0, message);
+            return new WsMessage("ERROR", null, List.of(), 0, List.of(), message);
         }
 
         /**
@@ -80,7 +89,7 @@ public class GameBroadcaster {
          * ★通常モードは型で運ぶ。手動モードを揃えていないことは設計解説に書き残した。
          */
         static WsMessage ofRoomLost() {
-            return new WsMessage("ROOM_LOST", null, List.of(), 0, null);
+            return new WsMessage("ROOM_LOST", null, List.of(), 0, List.of(), null);
         }
 
         /**
@@ -92,7 +101,7 @@ public class GameBroadcaster {
          * 同じ型に2つの意味を載せると<b>どちらの向きか分からない分岐</b>が増える。
          */
         static WsMessage ofLeft() {
-            return new WsMessage("LEFT", null, List.of(), 0, null);
+            return new WsMessage("LEFT", null, List.of(), 0, List.of(), null);
         }
     }
 
@@ -141,7 +150,8 @@ public class GameBroadcaster {
     private void sendViewTo(GameRoom room, String viewerId, StepRecorder recorder) {
         GameView view = viewBuilder.build(room, viewerId);
         messagingTemplate.convertAndSend(destinationOf(room.getRoomId(), viewerId),
-                WsMessage.ofView(view, recorder.stepsFor(viewerId), recorder.folded()));
+                WsMessage.ofView(view, recorder.stepsFor(viewerId), recorder.folded(),
+                        recorder.eventsFor(viewerId)));
     }
 
     /** 特定プレイヤーへのエラー通知(ルール違反の操作を拒否したとき) */

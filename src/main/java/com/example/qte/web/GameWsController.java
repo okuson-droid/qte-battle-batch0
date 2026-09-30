@@ -363,6 +363,9 @@ public class GameWsController {
                 try {
                     action.apply(room);
                 } finally {
+                    // ★★Batch 85a: 最後のログ行の後に起きた出来事を締める(裁定374)。
+                    //   ★外すと部屋が出来事の溜めを空にするので、<b>外す前</b>でなければならない
+                    recorder.closeTail();
                     room.setStepRecorder(null);
                 }
             }

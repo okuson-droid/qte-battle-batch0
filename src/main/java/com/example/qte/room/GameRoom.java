@@ -11,6 +11,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
 
+import com.example.qte.game.GameEvent;
 import com.example.qte.game.GameState;
 import com.example.qte.game.GameStatus;
 
@@ -465,8 +466,58 @@ public class GameRoom {
      * <b>次の操作の段に前の操作が混ざる</b>。
      */
     @Getter(AccessLevel.NONE)
-    @Setter
     private Consumer<String> stepRecorder;
+
+    /**
+     * 出来事の溜め(★★Batch 85a・裁定374)。<b>段を切るたびに記録係が汲み出して空にする。</b>
+     *
+     * <p>★<b>記録係が居ないときは溜めない</b>({@link #recordEvent})。
+     * 居ないのに溜めると、試験や配信を伴わない経路で<b>いつまでも減らない</b>。
+     */
+    @Getter(AccessLevel.NONE)
+    private final List<GameEvent> pendingEvents = new ArrayList<>();
+
+    /**
+     * 記録係を差し込む / 外す(★Batch 84a。★85a で手書きにした)。
+     *
+     * <p>★★<b>差し込むときも外すときも、出来事の溜めを空にする。</b>
+     * 前の操作の出来事が次の操作の段に混ざらないため
+     * (84a の「記録係が居残ると、次の操作の段に前の操作が混ざる」と同じ筋)。
+     */
+    public void setStepRecorder(Consumer<String> stepRecorder) {
+        this.stepRecorder = stepRecorder;
+        pendingEvents.clear();
+    }
+
+    /**
+     * 出来事を1つ記録する(★★★Batch 85a)。★記録係が居なければ何もしない。
+     *
+     * <p>★<b>その出来事を語るログ行を積む「直前」に呼ぶこと</b> ——
+     * 次の {@link #addLog} がそれを段へ渡す(「ログ行 X の前に起きた出来事は段 X に属する」)。
+     * ★★<b>呼ぶのは {@code GameActions} / {@code GameService} の入口だけである</b>。
+     * {@code CardEffectRegistry} と呼び出し元(約170件)は1行も変えていない。
+     */
+    public void recordEvent(GameEvent event) {
+        if (stepRecorder == null) {
+            return;
+        }
+        pendingEvents.add(event);
+    }
+
+    /**
+     * 溜まった出来事を取り出して空にする(★Batch 85a)。★記録係だけが呼ぶ。
+     *
+     * <p>★{@code addLog} が記録係へログ行を渡した瞬間に、記録係がここを呼ぶ ——
+     * <b>段の境目を決めるのは {@link #addLog} の1箇所のまま</b>である(裁定362)。
+     */
+    public List<GameEvent> drainEvents() {
+        if (pendingEvents.isEmpty()) {
+            return List.of();
+        }
+        List<GameEvent> drained = List.copyOf(pendingEvents);
+        pendingEvents.clear();
+        return drained;
+    }
 
     /**
      * 記録係が差し込まれているか(★Batch 84a・番人の読み口)。

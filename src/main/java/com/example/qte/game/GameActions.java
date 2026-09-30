@@ -141,6 +141,9 @@ public class GameActions {
                 continue;
             }
             player.getHand().add(cardId);
+            // ★★Batch 85a: ドローはログを書かないので、この出来事は<b>次の段</b>に属する。
+            //   ★面は本人にだけ届く(GameViewBuilder.buildEvents が切り落とす)
+            room.recordEvent(GameEvent.draw(player, cardId));
             drawnIntoHand++;
         }
         if (fireOpponentWatchers) {
@@ -198,6 +201,8 @@ public class GameActions {
         if (sourceCardId != null) {
             player.recordHealedAmount(healed, cards.findById(sourceCardId).civilization());
         }
+        // ★Batch 85a(裁定376): 量は<b>実際に増えた量</b>で運ぶ(画面の数字が LP の動きと食い違わないため)
+        room.recordEvent(GameEvent.heal(GameEvent.Ref.leader(player), healed, player.getLp()));
         room.addLog("%sのリーダーが%d回復(LP %d → %d)"
                 .formatted(player.getDisplayName(), amount, before, player.getLp()));
     }
@@ -213,6 +218,7 @@ public class GameActions {
         dispatchUnderCards(room, owner, minion, UnderDestination.HAND);
         if (minion.isFromTaboo()) {
             owner.getLostZone().add(minion.getMaster().id());
+            room.recordEvent(GameEvent.banish(owner, minion)); // ★Batch 85a(裁定372)
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(minion.getMaster().name()));
             return;
         }
@@ -332,6 +338,8 @@ public class GameActions {
         amount = reduced;
         player.setLp(player.getLp() - amount);
         player.setLeaderDamagedCountThisTurn(player.getLeaderDamagedCountThisTurn() + 1);
+        // ★Batch 85a(裁定376): 軽減で0になった・肩代わりされた経路は、上で戻っているので記録しない
+        room.recordEvent(GameEvent.damage(GameEvent.Ref.leader(player), amount, player.getLp()));
         room.addLog("%sのリーダーに%dダメージ(残りLP %d)"
                 .formatted(player.getDisplayName(), amount, player.getLp()));
 
@@ -444,6 +452,9 @@ public class GameActions {
             return;
         }
         minion.takeDamage(amount);
+        // ★Batch 85a: ミニオンの HP が減る地点はここ1箇所である(takeDamage の呼び出しは全体で1つ)
+        room.recordEvent(GameEvent.damage(GameEvent.Ref.minion(owner, minion), amount,
+                minion.getCurrentHp()));
         room.addLog("【%s】に%dダメージ".formatted(minion.getMaster().name(), amount));
         effects.fire(TriggerType.ON_MINION_DAMAGED, minion, contextOf(room, owner, minion));
     }
@@ -493,6 +504,8 @@ public class GameActions {
     private void leaveFieldByDestruction(GameRoom room, PlayerState owner, MinionInstance minion,
             DestructionCause cause) {
         owner.getMinionZone().remove(minion);
+        // ★Batch 85a: すべての破壊がここに合流する。★行き先が消滅でも出来事は破壊である(裁定372)
+        room.recordEvent(GameEvent.destroy(owner, minion));
         room.addLog("【%s】が破壊されました".formatted(minion.getMaster().name()));
         // ★Batch 52: 進化の素材は一緒に墓地へ行く(裁定154)。★素材は破壊されていないので
         // 【破壊時】は発動せず、下の破壊数のカウンタ2種にも数えない(マスター裁定 C1)
@@ -777,6 +790,8 @@ public class GameActions {
         minion.markEnteredByEffect();
         attachEvolutionMaterials(room, owner, minion, materials);
         owner.getMinionZone().add(minion);
+        // ★Batch 85a: 場に出る地点は2つしか無い(ここと GameService.summonToField)
+        room.recordEvent(GameEvent.summon(owner, minion));
         EffectContext ctx = contextOf(room, owner, minion);
         if (origin == FieldEntryOrigin.HAND) {
             // ★★Batch 68(裁定311): 手札から出たなら【召喚時】も発動する
@@ -1543,6 +1558,7 @@ public class GameActions {
         dispatchUnderCards(room, owner, minion, UnderDestination.MANA_FACE_DOWN);
         if (minion.isFromTaboo()) {
             owner.getLostZone().add(minion.getMaster().id());
+            room.recordEvent(GameEvent.banish(owner, minion)); // ★Batch 85a(裁定372)
             room.addLog("【%s】は禁忌カードのため消滅しました".formatted(minion.getMaster().name()));
             return true;
         }
@@ -1731,6 +1747,7 @@ public class GameActions {
         state.setTurnHandoffPending(false);
         state.setPendingNextPlayerId(null);
         state.setResolvingCardId(null);
+        room.recordEvent(GameEvent.gameOver(winner)); // ★Batch 85a: 決着の口は1本(裁定130)
         room.addLog("★ %s の勝利です ★".formatted(winner.getDisplayName()));
     }
 }

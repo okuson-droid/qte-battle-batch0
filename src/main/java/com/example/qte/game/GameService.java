@@ -396,6 +396,7 @@ public class GameService {
         state.setTurnPlayerId(playerId);
         PlayerState player = state.playerOf(playerId);
 
+        room.recordEvent(GameEvent.turn(player, state.getTurnNumber())); // ★Batch 85a
         room.addLog("―― ターン%d: %s ――".formatted(state.getTurnNumber(), player.getDisplayName()));
 
         state.setPhase(TurnPhase.DRAW);
@@ -735,6 +736,7 @@ public class GameService {
      */
     private void resolveSoulSpell(GameRoom room, GameState state, PlayerState player,
             CardMaster master, SoulSpellSpec soul, ResolvedTargets resolved, boolean fromTaboo) {
+        room.recordEvent(GameEvent.cast(player, master.id())); // ★Batch 85a: 賢魂はスペルの使用である(裁定247)
         room.addLog("%sが【%s】を【賢魂：%d】として唱えました"
                 .formatted(player.getDisplayName(), master.name(), soulCostOf(master)));
         player.setPendingSpellDisposition(null);
@@ -909,6 +911,7 @@ public class GameService {
         // Ver1.1 の本文は「次の自分のターンに唱える光のスペル<b>すべて</b>」であり、
         // 1枚で消える形は Ver0.4 の姿だった(ver0.4-transcription-notes 4章 #9)。
         // 期限はターン番号で持ち、落とすのはターン終了処理1箇所である。
+        room.recordEvent(GameEvent.cast(player, master.id())); // ★Batch 85a: 使った瞬間に公開情報
         room.addLog("%sが【%s】を唱えました".formatted(player.getDisplayName(), master.name()));
 
         player.setPendingSpellDisposition(null);
@@ -1162,6 +1165,11 @@ public class GameService {
         ResolvedTargets resolved = removePlayedAndTargets(player, -1, validated);
         player.getTabooDeck().remove(tabooIndex);
         player.setPlayedCardThisTurn(true);
+        // ★Batch 85a: 禁忌のスペルもスペルの使用である。★ミニオンは場に出た地点(SUMMON)が語り、
+        //   ★禁忌の【賢魂】は上の分岐から resolveSoulSpell が語る(ここを通らない)
+        if (master.type() == CardType.SPELL) {
+            room.recordEvent(GameEvent.cast(player, master.id()));
+        }
         room.addLog("%sが禁忌カード【%s】を使用".formatted(player.getDisplayName(), master.name()));
 
         switch (master.type()) {
@@ -1581,6 +1589,8 @@ public class GameService {
         //   2箇所に書くと必ずどちらかが引き継ぎ(裁定224)を忘れる
         actions.attachEvolutionMaterials(room, player, minion, materials);
         player.getMinionZone().add(minion);
+        // ★Batch 85a: 場に出る地点は2つしか無い(ここと GameActions.putIntoFieldByEffect)
+        room.recordEvent(GameEvent.summon(player, minion));
         room.addLog("%sが【%s】を召喚しました".formatted(player.getDisplayName(), master.name()));
 
         EffectContext ctx = contextOf(room, state, player, minion, resolved);
@@ -1648,6 +1658,7 @@ public class GameService {
         ManaCard mana = new ManaCard(PURE_ELEMENT_ID, true);
         mana.turnFaceDown();
         player.getManaZone().add(mana);
+        room.recordEvent(GameEvent.cast(player, PURE_ELEMENT_ID)); // ★Batch 85a: これもスペルの使用である
         room.addLog("%sが【ピュア・エレメント】を使用: このターンの間マナが1枚増えます"
                 .formatted(player.getDisplayName()));
         actions.manaPlaced(room, player);
@@ -1690,6 +1701,9 @@ public class GameService {
         // 記録するのはリーダーの攻撃だけであり、ミニオンの攻撃では立てない(発注者確認済み)
         player.setWeaponAttackedThisTurn(true);
         int damage = stats.effectiveWeaponAttack(state, player);
+        // ★★Batch 85a(裁定371): リーダーの攻撃も、宣言の時点で記録する
+        room.recordEvent(GameEvent.attack(player, GameEvent.Ref.leader(player),
+                targetIsLeader ? GameEvent.Ref.leader(opponent) : GameEvent.Ref.minion(opponent, target)));
         room.addLog("リーダーが【%s】で攻撃(%dダメージ)".formatted(weapon.name(), damage));
 
         if (targetIsLeader) {
@@ -1700,6 +1714,9 @@ public class GameService {
             if (!actions.tryInterceptLeaderAttackWithShield(room, opponent)
                     && !actions.tryReplaceLeaderDamageWithGuardian(room, opponent)) {
                 opponent.setLp(opponent.getLp() - damage);
+                // ★★★Batch 85a(裁定376): 戦闘によるリーダーへのダメージは damageLeader を通らない
+                //   (リファレンス 6章の2)。★設計書 3-2 の表が数えていなかった地点である
+                room.recordEvent(GameEvent.damage(GameEvent.Ref.leader(opponent), damage, opponent.getLp()));
                 room.addLog("相手リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
                 if (opponent.getLp() <= 0) {
                     actions.finish(room, player);
@@ -1746,9 +1763,18 @@ public class GameService {
             // ダメージを減らす形なので、最大体力ぶん渡せば damage は必ず 0 になる
             // (0 未満にはならない)—— 「全快」に専用の器を増やす必要はない(裁定178)。
             case EXCALIBUR -> {
+                // ★Batch 85a: ミニオンの HP が増える地点は全体でここ1箇所である(heal の呼び出しは1つ)。
+                //   ★量は<b>実際に増えた量</b>で運ぶ。満タンのミニオンは記録しない
                 player.getMinionZone().stream()
                         .filter(m -> m.hasKeyword(Keyword.GUARD))
-                        .forEach(m -> m.heal(m.getMaxHp()));
+                        .forEach(m -> {
+                            int before = m.getCurrentHp();
+                            m.heal(m.getMaxHp());
+                            if (m.getCurrentHp() > before) {
+                                room.recordEvent(GameEvent.heal(GameEvent.Ref.minion(player, m),
+                                        m.getCurrentHp() - before, m.getCurrentHp()));
+                            }
+                        });
                 room.addLog("【聖剣エクスカリバー】: 自分の【守護】ミニオンの体力が全回復しました");
             }
             case QUAKE_HAMMER -> resolveQuakeHammerAttack(room, player, opponent);
@@ -1975,6 +2001,9 @@ public class GameService {
         // 場全体の攻撃宣言の回数(★Batch 50。英術・バンユーの「合計1回まで」が読む)。
         // 個体の攻撃回数(countAttack)とは数えている量が違うため、別に数える
         player.setMinionAttacksUsedThisTurn(player.getMinionAttacksUsedThisTurn() + 1);
+        // ★★Batch 85a(裁定371): 「誰が誰を」は差分には無い。宣言の時点で記録する
+        room.recordEvent(GameEvent.attack(player, GameEvent.Ref.minion(player, attacker),
+                targetIsLeader ? GameEvent.Ref.leader(opponent) : GameEvent.Ref.minion(opponent, target)));
         room.addLog("【%s】が攻撃を宣言".formatted(attacker.getMaster().name()));
         EffectContext attackCtx = contextOf(room, state, player, attacker, null);
         effects.fire(TriggerType.ON_ATTACK, attacker, attackCtx);
@@ -2039,6 +2068,8 @@ public class GameService {
                     && !actions.tryReplaceLeaderDamageWithGuardian(room, opponent)) {
                 int damage = stats.effectiveAttack(state, player, attacker);
                 opponent.setLp(opponent.getLp() - damage);
+                // ★★★Batch 85a(裁定376): leaderAttack と同じく、damageLeader を通らない地点である
+                room.recordEvent(GameEvent.damage(GameEvent.Ref.leader(opponent), damage, opponent.getLp()));
                 room.addLog("リーダーに%dダメージ(残りLP %d)".formatted(damage, opponent.getLp()));
                 if (opponent.getLp() <= 0) {
                     actions.finish(room, player);

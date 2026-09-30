@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+import com.example.qte.game.GameEvent;
+import com.example.qte.game.view.EventView;
 import com.example.qte.game.view.GameView;
 import com.example.qte.game.view.GameViewBuilder;
 import com.example.qte.room.GameRoom;
@@ -53,8 +55,14 @@ public final class StepRecorder implements Consumer<String> {
     /** ★段の上限。{@code FX_LIMIT} と同じ根拠の 8(裁定370) */
     public static final int LIMIT = 8;
 
-    /** 1段ぶんの控え。★閲覧者ごとにビューを作ってある */
-    private record StepFrame(String logLine, Map<String, GameView> byViewer) {
+    /**
+     * 1段ぶんの控え。★閲覧者ごとにビューと出来事を作ってある。
+     *
+     * <p>★★Batch 85a: <b>出来事もここで閲覧者ごとに切り落とす</b>(設計書 3-1)——
+     * ビューと同じ場所・同じ閲覧者一覧で作るので、<b>段のビューと段の出来事の視点がずれない</b>。
+     */
+    private record StepFrame(String logLine, Map<String, GameView> byViewer,
+            Map<String, List<EventView>> eventsByViewer) {
     }
 
     private final GameViewBuilder viewBuilder;
@@ -62,6 +70,8 @@ public final class StepRecorder implements Consumer<String> {
     private final List<String> viewerIds;
     private final List<StepFrame> frames = new ArrayList<>();
     private int folded;
+    /** ★最後のログ行の後に起きた出来事(最終状態に付ける・裁定374)。閲覧者ごと */
+    private final Map<String, List<EventView>> tailByViewer = new HashMap<>();
 
     private StepRecorder(GameViewBuilder viewBuilder, GameRoom room, List<String> viewerIds) {
         this.viewBuilder = viewBuilder;
@@ -101,15 +111,41 @@ public final class StepRecorder implements Consumer<String> {
      */
     @Override
     public void accept(String logLine) {
+        // ★★Batch 85a: この段に属する出来事(このログ行の前に起きたもの)を汲み出す。
+        //   ★<b>畳む段でも汲み出す</b> —— 汲み出さないと、畳んだ段の出来事が
+        //   次の段(または最終状態)へ<b>ずれて</b>載る。
+        List<GameEvent> events = drain();
         if (frames.size() >= LIMIT) {
+            // ★★★畳んだ段の出来事は、段と一緒に落とす(裁定374)。
+            //   最終状態には結果が載っているので、嘘にはならない
             folded++;
             return;
         }
         Map<String, GameView> byViewer = new HashMap<>();
+        Map<String, List<EventView>> eventsByViewer = new HashMap<>();
         for (String viewerId : viewerIds) {
             byViewer.put(viewerId, viewBuilder.build(room, viewerId));
+            eventsByViewer.put(viewerId, viewBuilder.buildEvents(room, viewerId, events));
         }
-        frames.add(new StepFrame(logLine, byViewer));
+        frames.add(new StepFrame(logLine, byViewer, eventsByViewer));
+    }
+
+    /**
+     * 最後のログ行の後に起きた出来事を締める(★Batch 85a・裁定374)。
+     *
+     * <p>★<b>記録係を外す直前に1度だけ呼ぶ</b>({@code GameWsController.execute} の {@code finally})。
+     * 外すと部屋が溜めを空にするので、それより前でなければならない。
+     * ★これは畳みの対象ではない —— 段ではなく<b>最終状態</b>に付く出来事である。
+     */
+    public void closeTail() {
+        List<GameEvent> events = drain();
+        for (String viewerId : viewerIds) {
+            tailByViewer.put(viewerId, viewBuilder.buildEvents(room, viewerId, events));
+        }
+    }
+
+    private List<GameEvent> drain() {
+        return room == null ? List.of() : room.drainEvents();
     }
 
     /**
@@ -127,9 +163,21 @@ public final class StepRecorder implements Consumer<String> {
             if (view == null) {
                 return List.of();
             }
-            steps.add(new GameStep(i + 1, frames.get(i).logLine(), view));
+            steps.add(new GameStep(i + 1, frames.get(i).logLine(), view,
+                    frames.get(i).eventsByViewer().get(viewerId)));
         }
         return steps;
+    }
+
+    /**
+     * その閲覧者へ、<b>最終状態に付けて</b>載せる出来事(★Batch 85a)。
+     *
+     * <p>★★<b>差し込んだ時点で居なかった閲覧者には空を返す</b>(退化の経路)——
+     * その人は {@link #stepsFor} も空なので、最終状態だけを描く。
+     * 段の無い人に出来事の後半だけを渡すと、<b>途中から始まる物語</b>になる。
+     */
+    public List<EventView> eventsFor(String viewerId) {
+        return tailByViewer.getOrDefault(viewerId, List.of());
     }
 
     /** 上限で畳んだ段の数。★0 なら1段も畳んでいない(裁定368 の表示はこの値で決まる) */
