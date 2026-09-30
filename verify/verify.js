@@ -11294,6 +11294,11 @@ async function clearZoom(page) {
   // ---- 85b-4. ★★★段の長さは演出の長さに追随する(84b 2-1・fxRegister を通す)----
   check('★★★出来事の演出も fxRegister を通り、段の長さは演出の長さに追随する(85b・84b 2-1)',
     evAtk.spawn === evMs.ATTACK, JSON.stringify({ spawn: evAtk.spawn, attack: evMs.ATTACK }));
+  await evIdle();
+  // ★★<b>段のあとには必ず最終状態の描き直しが来る</b>ので、そこで本物が作り直されて「戻ったように見える」。
+  //   ★<b>後ろに描き直しが無い形</b>(出来事が最終状態に付いて届く)で測る —— 戻すのは後始末の仕事である
+  //   (壊し検証の軸3 が NG を返して、それを教えた)。
+  await evSend(evPlain(evAtk0, [{ kind: 'ATTACK', side: 'YOU', src: 'a1', dst: 'b1', cards: [] }]));
   const evAtkIdle = await evIdle();
   const evAtkAfter = await evPage.evaluate(() => ({
     holds: document.querySelectorAll('.auto-fx-hold').length,
@@ -11436,6 +11441,10 @@ async function clearZoom(page) {
   await evIdle();
 
   // ---- 85b-12. ★★★消滅は砕けずに光に溶ける(裁定372)----
+  // ★★<b>直前の破壊の破片(余韻)が消えるのを待つ</b> —— 余韻は段の長さに入れないので、
+  //   段が終わっても残っている。待たずに数えると、破壊の破片を消滅のものとして数える(並列で揺れた)。
+  await evPage.waitForFunction(() => document.querySelectorAll('#auto-fx-layer .auto-fx-shatter').length === 0,
+    null, { timeout: 5000 }).catch(() => null);
   await evReset(evDeathBefore);
   const evLostAfter = evView([['a1', '炎の従者']], [['b2', '炎の従者']],
     { opp: { lost: [evTrash], lostCount: 1 } });
@@ -11588,6 +11597,10 @@ async function clearZoom(page) {
   await evReset(evDrawBefore);
   await evSend(evMessage([evDealAfter, evDealAfter], [evDealEvents]));
   const evDeal = await evPage.evaluate(() => ({
+    // ★★<b>ずれは「実際に走っている遅れ」で測る</b> —— 定数を読んで期待値を作ると、
+    //   定数を壊したときに期待値も一緒に動く(壊し検証の軸15 が NG を返して、それを教えた)
+    delays: [...document.querySelectorAll('#auto-fx-layer .auto-fx-story[data-fx-seat="opponent"] .auto-fx-drawn')]
+      .map((g) => (g.getAnimations()[0] ? g.getAnimations()[0].effect.getTiming().delay : -1)),
     entries: document.querySelectorAll('#auto-fx-layer .auto-fx-story[data-fx-kind="draw"]').length,
     ghosts: document.querySelectorAll('#auto-fx-layer .auto-fx-drawn').length,
     faces: document.querySelectorAll('#auto-fx-layer .auto-fx-story[data-fx-seat="you"] .auto-fx-drawn .mcard').length,
@@ -11596,7 +11609,8 @@ async function clearZoom(page) {
   }));
   check('★★★開始の配り(4枚・5枚)も1枚ずつ山札から飛ぶ。席ごとに1本の演出である(85b・裁定377)',
     evDeal.entries === 2 && evDeal.ghosts === 9 && evDeal.faces === 4
-      && evDeal.spawn === evDeal.drawMs + 4 * evDeal.stagger,
+      && new Set(evDeal.delays).size === 5 && Math.min(...evDeal.delays) === 0
+      && evDeal.spawn === evDeal.drawMs + Math.max(...evDeal.delays) && evDeal.spawn > evDeal.drawMs,
     JSON.stringify(evDeal));
   await evIdle();
 
