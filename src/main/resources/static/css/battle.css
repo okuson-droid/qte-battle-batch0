@@ -2306,3 +2306,95 @@ body.manual-drag-active .manual-band {
     .auto-fx-flip { animation: none; }
     .auto-fx-sink { animation: none; }
 }
+
+/* ============================================================
+   ★★★Batch 85b: 出来事の演出(battle-fx.js・裁定371〜377)
+   ★移植元は reference/card-battle/src/style.css の<b>演出層のぶんだけ</b>である。
+     ★★<b>盤面とカードの見た目(石床・金枠・数値珠)は持ち込まない</b>(設計書 0章)。
+   ★すべて演出の層(.auto-fx-layer・position: fixed; inset: 0)の<b>中</b>に置く ——
+     絶対座標がそのままビューポート座標になる。
+   ★★★<b>filter / transform を演出の層の祖先に付けない</b>(84b 7章)。
+     層は body 直下に在るので、盤面の側に何を付けても層の座標はずれない。
+   ★★この節は<b>ファイルの末尾に置く</b>。複製(.auto-fx-clone)は .auto-card / .leader-card の
+     position を上書きする必要があり、詳細度が同じなので後ろに在るほうが勝つ。
+   ============================================================ */
+
+/* ---- 1出来事ぶんの入れ物。★位置を持たない(子は層を基準に置かれる) ---- */
+.auto-fx-story { position: static; }
+
+/* ---- 本物を写した複製(攻撃者・破壊されるミニオン・着地するミニオン) ---- */
+.auto-fx-clone {
+    position: absolute; margin: 0; box-sizing: border-box;
+    pointer-events: none; z-index: 3;
+}
+/* ★★複製が動いているあいだ、本物を隠す(同じ1体が2枚に見えないため)。
+   ★visibility なので<b>場所は空けたまま</b>である —— 盤面の並びは動かない。 */
+.auto-fx-hold { visibility: hidden !important; }
+/* ★攻撃の溜め。複製にだけ付く */
+.auto-fx-clone.auto-fx-charging .mcard,
+.auto-fx-clone.auto-fx-charging.leader-card {
+    box-shadow: 0 0 24px 10px rgba(255, 120, 40, 0.9);
+}
+
+/* ---- 色の膜 ---- */
+/* ★複製の中に重ねる膜(複製は position: absolute なので inset: 0 で覆える) */
+.auto-fx-flashov {
+    position: absolute; inset: 0; border-radius: inherit;
+    pointer-events: none; z-index: 3;
+}
+/* ★★本物の上に重ねる膜。<b>本物には子を足さない</b>ので、層の側に矩形で置く */
+.auto-fx-flashat {
+    position: absolute; border-radius: 6px;
+    pointer-events: none; z-index: 4;
+}
+
+/* ---- ダメージ・回復の数字(裁定376)。★リーダーにも出る ---- */
+/* ★★色は<b>黒背景の上</b>で読める組み合わせにしてある。字は白、縁取りが意味の色を運ぶ
+   (ダメージ = 濃い赤 / 回復 = 濃い緑)。縁取りが無い環境でも白字は黒背景で読める。 */
+.auto-fx-num {
+    position: absolute; z-index: 8; pointer-events: none;
+    font-weight: 900; font-size: 40px; line-height: 1;
+    color: #fff; -webkit-text-stroke: 3px #7a0b0b; paint-order: stroke;
+    text-shadow: 0 4px 10px rgba(0, 0, 0, 0.6);
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+}
+.auto-fx-num-heal { -webkit-text-stroke: 3px #0d5a2a; color: #eafff0; }
+
+/* ---- 破壊(ひび・破片・焦げ跡) ---- */
+.auto-fx-cracks { position: absolute; pointer-events: none; z-index: 4; overflow: visible; }
+.auto-fx-shatter { position: absolute; z-index: 5; pointer-events: none; }
+.auto-fx-shatter > * { position: absolute; left: 0; top: 0; margin: 0; }
+.auto-fx-scorch {
+    position: absolute; z-index: 1; pointer-events: none; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(10, 6, 4, 0.75), rgba(30, 15, 8, 0.45) 55%, rgba(0, 0, 0, 0));
+}
+
+/* ---- 呪文の詠唱(★面は cardFace が作る .mcard。手札のカードと同じ大きさ) ---- */
+.auto-fx-cast { position: absolute; z-index: 4; width: 104px; aspect-ratio: 5 / 7; pointer-events: none; }
+.auto-fx-cast > .mcard { width: 100%; height: 100%; }
+
+/* ---- 引いたカード(★80 のゴーストと同じ入れ物。重なりだけ前へ出す) ---- */
+.auto-fx-ghost.auto-fx-drawn { z-index: 3; transition: none; }
+
+/* ---- 道具: 粒子・画面の閃光・帯テロップ ---- */
+.auto-fx-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 6; pointer-events: none; }
+.auto-fx-flash {
+    position: absolute; inset: 0; z-index: 7; pointer-events: none;
+    background: #fff8e8; opacity: 0; mix-blend-mode: screen;
+}
+.auto-fx-banner {
+    position: absolute; left: 0; right: 0; top: 50%; z-index: 9; pointer-events: none;
+    transform: translateY(-50%); opacity: 0; padding: 0.35em 0;
+    text-align: center; font-weight: 900; letter-spacing: 0.12em;
+    font-size: clamp(28px, 5vw, 56px); color: #fff4d6;
+    text-shadow: 0 0 18px rgba(255, 190, 90, 0.9), 0 3px 0 #6a4a16;
+    background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.72) 20%, rgba(0, 0, 0, 0.72) 80%, transparent);
+}
+.auto-fx-banner-lose { color: #dfe6ff; text-shadow: 0 0 18px rgba(120, 150, 255, 0.85), 0 3px 0 #1c2750; }
+
+/* ★★見た目は CSS と JS の<b>両方</b>で止める(fxAllowed と対になっている)。
+   ★演出の層そのものは上の 80 の節で display: none になる。ここは<b>本物に当てるクラス</b>のぶんである。 */
+@media (prefers-reduced-motion: reduce) {
+    .auto-fx-hold { visibility: visible !important; }
+}

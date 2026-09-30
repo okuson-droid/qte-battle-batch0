@@ -4433,15 +4433,21 @@ function fxBuild(fx, origin, layer) {
  * ★★<b>見た目のゲート({@link fxAllowed})より前で鳴らす</b>のも 62 と同じである。
  * 音は動きではないので {@code prefers-reduced-motion} では止めない。
  */
-function fxCaptureDelivery(prev, next) {
+function fxCaptureDelivery(prev, next, events) {
     pendingFx = null;
     if (!fxDiffNeeded() || !prev || !next) return;
-    const effects = fxEffects(fxDiff(prev, next));
+    const all = fxEffects(fxDiff(prev, next));
     // ★1手で盤面が大きく動いた配信は、音でも演出でも語れない(裁定8 の通常モード版)
-    if (effects.length === 0 || effects.length > FX_LIMIT) return;
-    if (sfxReady()) sfxPlayForEffects(effects);
+    // ★★★Batch 85b: <b>語れないのは「差分」であって「出来事」ではない。</b>
+    //   出来事はサーバが記録した事実なので推測を含まない —— 差分が多すぎても出来事は語る。
+    //   ★<b>音の鳴らしどころは1文字も変えていない</b>(設計書 4-4)。音は抑止する前の差分から選ぶ。
+    const speakable = all.length > 0 && all.length <= FX_LIMIT;
+    if (speakable && sfxReady()) sfxPlayForEffects(all);
     if (!fxAllowed()) return;
-    pendingFx = { effects: effects, origins: fxCaptureOrigins(effects) };
+    const story = fxStoryCapture(events || []);
+    const effects = speakable ? fxSuppress(all, story.events) : [];
+    if (effects.length === 0 && story.events.length === 0) return;
+    pendingFx = { effects: effects, origins: fxCaptureOrigins(effects), story: story };
 }
 
 /**
@@ -4459,6 +4465,8 @@ function fxSpawn() {
     if (!pending || !fxAllowed()) return;
     const layer = fxLayer();
     const plays = [];
+    // ★★★Batch 85b: 出来事の演出を先に組む(差分の飛行と組み合わせるものがあるので、差分の一覧を渡す)
+    for (const play of fxBuildStory(pending.story, pending.effects, layer)) plays.push(play);
     for (const fx of pending.effects) {
         if (fxRunning.size >= FX_LIMIT) break;   // 追いつけない演出は捨ててよい
         const play = fxBuild(fx, pending.origins.get(fx.key), layer);
@@ -4471,6 +4479,479 @@ function fxSpawn() {
     //     盤面のDOMの中に居るので、fx層だけを読んでも「なぜ足りるのか」が読めない
     void document.documentElement.offsetHeight;
     for (const play of plays) play();
+}
+
+// ---------------------------------------------------------------
+// ★★★2-10) 出来事の演出(Batch 85b・裁定371〜377)
+// ---------------------------------------------------------------
+//
+// ★★<b>ここはデモの director.js に相当する —— 出来事 → 演出の対応表だけを持つ。</b>
+//   演出そのもの(動き・粒子・破片)は battle-fx.js(window.QteFx)にあり、
+//   こちらは「どの要素を・いつ・どの演出で」だけを決める(設計書 4-1)。
+//
+// ★★★<b>1段の中身の順序は 80 のままである</b> —— 描く前に旧位置を読み({@link fxStoryCapture})、
+//   描いたあとに新位置を読んで走らせる({@link fxBuildStory})。変わったのは語彙だけである。
+//
+// ★★<b>出来事が語る対象は、差分演出を抑止する</b>(設計書 4-2・裁定376)。鍵は {@code dst} である。
+//   ★<b>出来事が無い変化(マナ・墓地・消滅・禁忌の出入り)は、いまの差分演出のまま残る。</b>
+//
+// ★★<b>演出の長さは必ず {@link fxRegister} を通す</b>(84b 2-1)——
+//   段の長さは {@link fxRegister} を通った ms から決まるので、表を新しく作らない。
+//   ★長さの値は battle-fx.js の {@code QteFx.MS} が1箇所だけ持つ。
+
+/**
+ * ★引いたカードを1枚ずつずらして飛ばす間隔(ms)。
+ * ★★<b>配り(裁定377)のための特別な短縮ではない</b> —— 1段に何枚引いても同じ間隔である。
+ * 配りの段が長くなりうることは裁定377 が承知しており、抑えるのは総再生時間の上限(裁定364)である。
+ */
+const FX_DRAW_STAGGER_MS = 110;
+
+/**
+ * ★★★画面を揺らすダメージの量(裁定375 の「大きい」)。<b>この値以上で揺らす。</b>
+ * ★値はデモが画面全体を光らせる閾値(攻撃力5以上)に揃えた。★★実機調整は 84c で行う。
+ * ★<b>止める条件は {@link fxAllowed} 1本である</b> —— ここに届く時点で演出は許されている。
+ */
+const FX_SHAKE_DAMAGE = 5;
+
+/**
+ * ★呪文の詠唱位置(Batch 85b)。{@code CAST} の段で決まり、<b>後続の段の弾の発射点になる</b>。
+ *
+ * ★★サーバは呪文の効果を<b>別の段</b>に分けて送る(詠唱 → 3ダメージ → 破壊 …)。
+ *   ダメージの段だけを見ると「どこから来たか」が分からないので、詠唱の段が場所を残しておく。
+ * ★<b>残すのはその操作の解決の間だけである</b> —— 攻撃・ターン・決着・最終状態で捨てる
+ *   (次の操作のダメージを、前の呪文の弾として描かない)。
+ */
+let fxCastFrom = null;
+
+/** 出来事の鍵の通し番号。★段をまたいで一意にする(同じ鍵は新しいほうが古いほうを置き換えるため) */
+let fxStorySeq = 0;
+
+/** ★{@code YOU} / {@code OPPONENT} → ビューの欄名。★<b>席の対応表はこれ1つである</b>(85a 2-1) */
+function fxSeatOf(side) {
+    return side === 'YOU' ? 'you' : 'opponent';
+}
+
+/** ★宛先の文字列 → {leader, seat, id}。リーダーは {@code leader:YOU} / {@code leader:OPPONENT} */
+function fxRefOf(ref) {
+    if (!ref) return null;
+    if (ref.indexOf('leader:') === 0) return { leader: true, seat: fxSeatOf(ref.slice(7)), id: null };
+    return { leader: false, seat: null, id: ref };
+}
+
+/** ★宛先の本物の要素。★<b>描き直しのあとに呼べば新しい盤面の要素を、前に呼べば古い盤面の要素を返す</b> */
+function fxRefElement(ref) {
+    if (!ref) return null;
+    if (ref.leader) return autoAnchorElement(fxPlace(ref.seat, 'LEADER'));
+    return fxMinionElement(ref.id);
+}
+
+/** ★ビューの中のミニオン(両席を探す)。見つからなければ null */
+function fxMinionOf(view, instanceId) {
+    if (!view || !instanceId) return null;
+    for (const seat of FX_SEATS) {
+        const side = view[seat];
+        const found = side && (side.minions || []).find((m) => m.instanceId === instanceId);
+        if (found) return found;
+    }
+    return null;
+}
+
+/**
+ * ★★文明の色 → 粒子の色("色相,彩度%,明度%")。
+ * ★<b>色の表を新しく作らない</b>(裁定32)—— 文明の色の正は CSS の {@code --civ-*} であり、
+ *   {@link civColor} が読む値をそのまま変換する。明度だけ光として読める高さまで持ち上げる。
+ */
+function fxGlowOf(civ) {
+    const hex = String(civColor(civ || 'NONE')).replace('#', '');
+    if (!/^[0-9a-f]{6}$/i.test(hex)) return '40,100%,72%';
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    let h = 0;
+    if (max !== min) {
+        const d = max - min;
+        if (max === r) h = ((g - b) / d) % 6;
+        else if (max === g) h = (b - r) / d + 2;
+        else h = (r - g) / d + 4;
+    }
+    h = Math.round(((h * 60) + 360) % 360);
+    const sat = max === min ? 0 : 100;
+    return `${h},${sat}%,72%`;
+}
+
+/** ★粒子の色の色相だけ(破壊・消滅の光) */
+function fxHueOf(civ) {
+    return Number(fxGlowOf(civ).split(',')[0]);
+}
+
+/** ★カードID → フェイスのデータ。★<b>面の正は card-library である</b>(85a 2-3・設計判断28) */
+function fxFaceOfCard(cardId) {
+    const lib = cardId ? autoLibrary.get(cardId) : null;
+    return {
+        name: lib && lib.name ? lib.name : libName(cardId),
+        type: lib ? lib.type : null,
+        civilization: lib ? lib.civilization : null,
+        cost: lib ? lib.cost : null,
+        keywords: [],
+        text: lib ? lib.text : '',
+        attack: lib ? lib.attack : null,
+        hp: lib ? lib.hp : null,
+    };
+}
+
+/** ★カードID → 文明。分からなければ null(色は無文明に落ちる) */
+function fxCivOfCard(cardId) {
+    const lib = cardId ? autoLibrary.get(cardId) : null;
+    return lib ? lib.civilization : null;
+}
+
+/**
+ * ★★出来事が語る対象を、差分演出から外す(設計書 4-2)。
+ *
+ * <ul>
+ *   <li>{@code DESTROY} / {@code BANISH}: そのミニオンが場から出る差分(飛行・消滅)を外す。鍵は {@code dst}。</li>
+ *   <li>{@code SUMMON}: そのミニオンの出現(フェードイン)を外す。★<b>飛行は外さない</b> ——
+ *       出どころはサーバが運ばないので(85a 2-5)、<b>差分の飛行 → SUMMON の着地</b>で語る。</li>
+ *   <li>{@code DAMAGE} / {@code HEAL} がリーダーに来た席: その席の LP の増減(lp 演出)を外す(裁定376)。</li>
+ *   <li>{@code DRAW}: その席の山札 → 手札の飛行と、手札への出現を<b>引いた枚数だけ</b>外す。</li>
+ * </ul>
+ * ★<b>それ以外は1件も外さない</b> —— 出来事が無い変化は、いまの差分演出のまま残る。
+ */
+function fxSuppress(effects, events) {
+    const gone = new Set();
+    const summoned = new Set();
+    const leaderSeats = new Set();
+    const drawQuota = { you: 0, opponent: 0 };
+    const drawnNames = [];
+    for (const e of events) {
+        if ((e.kind === 'DESTROY' || e.kind === 'BANISH') && e.dst) gone.add(e.dst);
+        if (e.kind === 'SUMMON' && e.dst) summoned.add(e.dst);
+        if ((e.kind === 'DAMAGE' || e.kind === 'HEAL') && e.dst && e.dst.indexOf('leader:') === 0) {
+            leaderSeats.add(fxSeatOf(e.dst.slice(7)));
+        }
+        if (e.kind === 'DRAW') {
+            drawQuota[fxSeatOf(e.side)]++;
+            if (e.cards && e.cards[0]) drawnNames.push(libName(e.cards[0]));
+        }
+    }
+    return effects.filter((fx) => {
+        if (fx.fromId && gone.has(fx.fromId)) return false;
+        if (fx.kind === 'appear' && fx.toId && summoned.has(fx.toId)) return false;
+        if (fx.kind === 'lp' && leaderSeats.has(fx.seat)) return false;
+        if (fx.kind === 'draw' && drawQuota[fx.to.seat] > 0) {
+            drawQuota[fx.to.seat]--;
+            return false;
+        }
+        if (fx.kind === 'appear' && fx.to.zone === 'HAND' && drawQuota[fx.to.seat] > 0) {
+            const i = drawnNames.indexOf(fx.face && fx.face.name);
+            if (i >= 0) {
+                drawnNames.splice(i, 1);
+                drawQuota[fx.to.seat]--;
+                return false;
+            }
+        }
+        return true;
+    });
+}
+
+/**
+ * ★★{@code render()} の<b>前</b>に呼ぶ。描き直しで消える要素(破壊・消滅するミニオン)の旧位置を読む。
+ * ★要素そのものも控える —— 描き直しで document から外れても、複製の元には使える。
+ */
+function fxStoryCapture(events) {
+    const before = new Map();
+    for (const e of events) {
+        if (e.kind !== 'DESTROY' && e.kind !== 'BANISH') continue;
+        const el = fxMinionElement(e.dst);
+        const rect = fxRectOf(el);
+        if (el && rect) before.set(e.dst, { el: el, rect: rect, minion: fxMinionOf(latestView, e.dst) });
+    }
+    return { events: events.slice(), before: before };
+}
+
+/**
+ * ★出来事1件ぶんの入れ物を作って演出として登録する。
+ * ★★<b>入れ物ごと外れる</b>ので、途中で捨てられても(部屋消失・次の段)何も残らない。
+ * ★終了は時間だけで決める(終了イベントを持たない)—— {@link fxRegister} のタイムアウトが必ず来る。
+ */
+function fxStoryEntry(layer, kind, ms, play, onStop) {
+    const holder = document.createElement('div');
+    holder.className = 'auto-fx-story';
+    holder.dataset.fxKind = kind;
+    layer.appendChild(holder);
+    const key = 'ev:' + kind + ':' + (fxStorySeq++);
+    fxRegister(key, holder, ms, null, { event: null, onStop: onStop || null });
+    return { holder: holder, key: key, play: play };
+}
+
+/**
+ * ★★★{@code render()} の<b>後</b>に呼ぶ。出来事ごとに演出を組み、走らせる関数の列を返す。
+ * ★<b>差分の一覧を受け取る</b> —— 召喚の着地を差分の飛行のあとへずらすためである。
+ */
+function fxBuildStory(story, effects, layer) {
+    if (!story || story.events.length === 0 || !window.QteFx) return [];
+    const stage = window.QteFx.mount(layer, document.querySelector('#auto-root .auto-columns'));
+    const plays = [];
+    const draws = { you: [], opponent: [] };
+    for (const e of story.events) {
+        if (e.kind === 'DRAW') {
+            draws[fxSeatOf(e.side)].push(e);
+            continue;
+        }
+        const play = fxBuildEvent(e, story, effects, stage, layer);
+        if (play) plays.push(play);
+    }
+    for (const seat of FX_SEATS) {
+        const play = fxBuildDraws(seat, draws[seat], layer);
+        if (play) plays.push(play);
+    }
+    return plays;
+}
+
+function fxBuildEvent(e, story, effects, stage, layer) {
+    switch (e.kind) {
+        case 'ATTACK': return fxBuildAttack(e, stage, layer);
+        case 'DAMAGE': return fxBuildNumber(e, stage, layer, false);
+        case 'HEAL': return fxBuildNumber(e, stage, layer, true);
+        case 'DESTROY': return fxBuildDeath(e, story, stage, layer, false);
+        case 'BANISH': return fxBuildDeath(e, story, stage, layer, true);
+        case 'SUMMON': return fxBuildSummon(e, effects, stage, layer);
+        case 'CAST': return fxBuildCast(e, stage, layer);
+        case 'TURN': return fxBuildBanner(e, stage, layer);
+        case 'GAME_OVER': return fxBuildBanner(e, stage, layer);
+        default: return null;   // ★知らない種類は語らない(推測で描かない)
+    }
+}
+
+/**
+ * ★★攻撃(裁定371・373)。攻撃者の<b>複製</b>が的まで突進する。
+ * ★本物は複製が動いているあいだ隠す({@code auto-fx-hold})—— 同じ1体が2枚に見えないため。
+ * ★★<b>的がリーダーなら右の列のリーダー欄まで突進する</b>(裁定371)。止めると宛先が語られない。
+ */
+function fxBuildAttack(e, stage, layer) {
+    fxCastFrom = null;
+    const src = fxRefOf(e.src);
+    const dst = fxRefOf(e.dst);
+    const att = fxRefElement(src);
+    const tgt = fxRefElement(dst);
+    const rect = fxRectOf(att);
+    if (!att || !tgt || !rect || !fxRectOf(tgt)) return null;   // ★どちらかが見えないなら描かない
+    const minion = src.leader ? null : fxMinionOf(latestView, src.id);
+    const side = src.leader ? latestView[src.seat] : null;
+    const power = minion ? minion.attack : (side && side.weaponAttack) || 1;
+    const entry = fxStoryEntry(layer, 'attack', window.QteFx.MS.ATTACK, null,
+        () => att.classList.remove('auto-fx-hold'));
+    const ghost = window.QteFx.cloneAt(entry.holder, att, rect);
+    ghost.dataset.fxTarget = e.dst;
+    att.classList.add('auto-fx-hold');
+    return () => window.QteFx.run(() => window.QteFx.playAttack(stage, entry.holder, ghost, tgt,
+        { power: power }));
+}
+
+/**
+ * ★★ダメージ・回復の数字(裁定376)。★<b>リーダーにも出す</b> —— いまの lp 演出を置き換える。
+ * ★呪文の解決中なら、詠唱位置から弾を飛ばして着弾の瞬間に数字を出す。
+ * ★★回復の量が 0(満タン)なら何も出さない —— {@code +0} は何も語らない。
+ */
+function fxBuildNumber(e, stage, layer, heal) {
+    const amount = e.amount || 0;
+    if (amount <= 0) return null;
+    const dst = fxRefOf(e.dst);
+    const el = fxRefElement(dst);
+    if (!el || !fxRectOf(el)) return null;
+    const from = fxCastFrom;
+    const ms = (from ? window.QteFx.MS.BOLT : 0) + window.QteFx.MS.NUMBER;
+    const entry = fxStoryEntry(layer, heal ? 'heal' : 'damage', ms, null, null);
+    entry.holder.dataset.fxTarget = e.dst;
+    entry.holder.dataset.fxAmount = String(amount);
+    const land = () => {
+        const n = heal
+            ? window.QteFx.showHeal(stage, entry.holder, el, amount)
+            : window.QteFx.showDamage(stage, entry.holder, el, amount);
+        if (n) n.dataset.fxTarget = e.dst;
+        // ★★★大きいダメージで揺らす(裁定375)。★止める条件は fxAllowed 1本(ここに来た時点で許されている)
+        if (!heal && amount >= FX_SHAKE_DAMAGE) {
+            entry.holder.dataset.fxShake = '1';
+            window.QteFx.shake(stage, Math.min(14, 3 + amount * 1.4), 320);
+            window.QteFx.screenFlash(stage, 0.35, 260);
+        }
+    };
+    if (!from) return land;
+    return () => window.QteFx.run(() => window.QteFx.playBolt(stage, entry.holder, from.point, el,
+        { color: from.color, heal: heal, onHit: land }));
+}
+
+/**
+ * ★★破壊・消滅(裁定372)。★本物は描き直しで既に居ないので、<b>描く前に控えた旧位置</b>に複製を置く。
+ * ★★<b>破壊は砕け散り、消滅は光に溶ける</b> —— 1体に2つの退場を語らない(裁定372)。
+ */
+function fxBuildDeath(e, story, stage, layer, banish) {
+    const before = story.before.get(e.dst);
+    if (!before) return null;   // ★描く前に見えていなかったものは描かない(推測で描かない)
+    if (fxMinionElement(e.dst)) return null;   // ★まだ場に居る(同じ段で戻ってきた等)なら語らない
+    const civ = before.minion ? fxCivOfCard(before.minion.cardId)
+        : fxCivOfCard(e.cards && e.cards[0]);
+    const ms = banish ? window.QteFx.MS.BANISH : window.QteFx.MS.DEATH;
+    const entry = fxStoryEntry(layer, banish ? 'banish' : 'destroy', ms, null, null);
+    const ghost = window.QteFx.cloneAt(entry.holder, before.el, before.rect);
+    ghost.dataset.fxTarget = e.dst;
+    const hue = fxHueOf(civ);
+    return () => window.QteFx.run(() => (banish
+        ? window.QteFx.playBanish(stage, ghost, { hue: hue })
+        : window.QteFx.playDeath(stage, entry.holder, ghost, { hue: hue })));
+}
+
+/**
+ * ★★召喚の着地。★<b>差分の飛行が同じミニオンへ向かっているなら、その着地のあとに始める</b>
+ * (「差分の飛行 → SUMMON の着地」・85a 2-5)。
+ */
+function fxBuildSummon(e, effects, stage, layer) {
+    const el = fxMinionElement(e.dst);
+    const rect = fxRectOf(el);
+    if (!el || !rect) return null;
+    const flies = effects.some((fx) => (fx.kind === 'move' || fx.kind === 'draw') && fx.toId === e.dst);
+    const delay = flies ? FX_MOVE_MS : 0;
+    const minion = fxMinionOf(latestView, e.dst);
+    const civ = minion ? fxCivOfCard(minion.cardId) : fxCivOfCard(e.cards && e.cards[0]);
+    const entry = fxStoryEntry(layer, 'summon', delay + window.QteFx.MS.SUMMON, null,
+        () => el.classList.remove('auto-fx-hold'));
+    entry.holder.dataset.fxDelay = String(delay);
+    const ghost = window.QteFx.cloneAt(entry.holder, el, rect);
+    ghost.dataset.fxTarget = e.dst;
+    ghost.style.opacity = '0';
+    el.classList.add('auto-fx-hold');
+    const side = fxSeatOf(e.side);
+    return () => window.QteFx.run(async () => {
+        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+        if (!ghost.isConnected) return;
+        await window.QteFx.playSummon(stage, ghost, { side: side, color: fxGlowOf(civ) });
+    });
+}
+
+/**
+ * ★★呪文の詠唱(裁定373)。★<b>面は使った瞬間に公開情報である</b>ので、相手の呪文も面で見せる。
+ * ★詠唱位置を {@link fxCastFrom} に残す —— 後続の段のダメージ・回復がそこから弾を飛ばす。
+ */
+function fxBuildCast(e, stage, layer) {
+    const cardId = e.cards && e.cards[0];
+    if (!cardId) return null;
+    const side = fxSeatOf(e.side);
+    const color = fxGlowOf(fxCivOfCard(cardId));
+    const entry = fxStoryEntry(layer, 'cast', window.QteFx.MS.CAST, null, null);
+    entry.holder.dataset.fxCard = cardId;
+    // ★詠唱位置は QteFx.playCastIntro と同じ式で決まる(画面の横中央・自席は下寄り / 相手は上寄り)
+    fxCastFrom = {
+        point: { x: window.innerWidth / 2, y: window.innerHeight * (side === 'opponent' ? 0.36 : 0.56) },
+        color: color,
+    };
+    const face = cardFace(fxFaceOfCard(cardId), 'full');
+    return () => window.QteFx.run(() => window.QteFx.playCastIntro(stage, entry.holder, face,
+        { side: side, color: color }));
+}
+
+/**
+ * ★★帯テロップ(ターン・決着)。
+ * ★<b>観戦者には「あなた」が居ない</b>ので、名前で語る({@code renderResult} と同じ判定)。
+ */
+function fxBuildBanner(e, stage, layer) {
+    fxCastFrom = null;
+    const view = latestView;
+    const spectator = !!(view && view.room && !view.room.viewerSeat);
+    const seat = fxSeatOf(e.side);
+    const name = view && view[seat] ? view[seat].displayName : '';
+    let text;
+    let cls = '';
+    if (e.kind === 'TURN') {
+        text = spectator ? `${name}のターン` : (seat === 'you' ? 'あなたのターン' : '相手のターン');
+    } else {
+        text = spectator ? `${name}の勝利` : (seat === 'you' ? 'VICTORY' : 'DEFEAT');
+        cls = seat === 'you' && !spectator ? 'auto-fx-banner-win' : 'auto-fx-banner-lose';
+    }
+    const entry = fxStoryEntry(layer, e.kind === 'TURN' ? 'turn' : 'gameover', window.QteFx.MS.BANNER,
+        null, () => window.QteFx.clearBanner(stage));
+    entry.holder.dataset.fxText = text;
+    return () => {
+        if (e.kind === 'GAME_OVER') window.QteFx.screenFlash(stage, 0.45, 420);
+        window.QteFx.run(() => window.QteFx.banner(stage, text, cls));
+    };
+}
+
+/**
+ * ★★ドロー(裁定377 を含む)。★<b>1段のドローは席ごとに1本の演出にまとめる</b> ——
+ * 1枚ずつずらして山札から手札へ飛ばす。★開始の配り・マリガンも同じ語彙である(専用の演出を作らない)。
+ *
+ * ★面は出来事が運んだカードIDで作る。★★<b>相手のドローは面が届かない</b>ので裏面で飛ぶ(設計判断9)。
+ * ★着地点は<b>その1枚</b>の要素である —— 自席は名前で、相手席は裏面の列の末尾から引く。
+ *   引けなければ手札の帯そのもの(アンカー)へ落とす(ゾーン全体を根にすれば、どの1枚かは漏れない)。
+ */
+function fxBuildDraws(seat, events, layer) {
+    if (events.length === 0) return null;
+    const from = fxRectOf(autoAnchorElement(fxPlace(seat, 'DECK')));
+    const anchor = autoAnchorElement(fxPlace(seat, 'HAND'));
+    if (!from || !anchor) return null;
+    const targets = fxDrawTargets(seat, events, anchor);
+    const ms = FX_DRAW_MS + (events.length - 1) * FX_DRAW_STAGGER_MS;
+    const held = targets.filter((t) => t.el !== anchor).map((t) => t.el);
+    const entry = fxStoryEntry(layer, 'draw', ms, null,
+        () => held.forEach((el) => el.classList.remove('auto-fx-hold')));
+    entry.holder.dataset.fxSeat = seat;
+    const flights = [];
+    events.forEach((e, i) => {
+        const target = fxRectOf(targets[i].el);
+        if (!target) return;
+        const cardId = e.cards && e.cards[0];
+        const ghost = fxGhost(from, cardId ? fxFaceOfCard(cardId) : null);
+        ghost.classList.add('auto-fx-drawn');
+        if (cardId) ghost.dataset.fxCard = cardId;
+        ghost.style.opacity = '0';
+        entry.holder.appendChild(ghost);
+        flights.push({
+            ghost: ghost, el: targets[i].el !== anchor ? targets[i].el : null, delay: i * FX_DRAW_STAGGER_MS,
+            dx: target.left - from.left + (target.width - from.width) / 2,
+            dy: target.top - from.top + (target.height - from.height) / 2,
+        });
+    });
+    held.forEach((el) => el.classList.add('auto-fx-hold'));
+    return () => {
+        for (const f of flights) {
+            f.ghost.animate([
+                { transform: 'translate(0px, 0px)', opacity: 0 },
+                { transform: 'translate(0px, 0px)', opacity: 0.95, offset: 0.08 },
+                { transform: `translate(${f.dx}px, ${f.dy}px)`, opacity: 0.95, offset: 0.85 },
+                { transform: `translate(${f.dx}px, ${f.dy}px)`, opacity: 0 },
+            ], { duration: FX_DRAW_MS, delay: f.delay, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'both' });
+            // ★その1枚は、飛んできた面が着いた瞬間に見せる
+            if (f.el) setTimeout(() => f.el.classList.remove('auto-fx-hold'), f.delay + FX_DRAW_MS * 0.85);
+        }
+    };
+}
+
+/** ★引いた1枚ずつの着地点。★<b>一意に決まらなければアンカーへ落とす</b>(推測で描かない) */
+function fxDrawTargets(seat, events, anchor) {
+    const children = Array.from(anchor.children);
+    const hand = latestView && latestView[seat] ? latestView[seat].hand : null;
+    const named = !!hand && hand.length === children.length;
+    const used = new Set();
+    let tail = children.length - events.length;
+    return events.map((e) => {
+        const cardId = e.cards && e.cards[0];
+        if (named && cardId) {
+            const name = libName(cardId);
+            for (let i = children.length - 1; i >= 0; i--) {
+                if (used.has(i) || !hand[i] || hand[i].name !== name) continue;
+                used.add(i);
+                return { el: children[i] };
+            }
+            return { el: anchor };
+        }
+        // ★面の無いドロー(相手・観戦者の下段)は、裏面の列の末尾から順に引く
+        if (!named && !cardId && tail >= 0 && tail < children.length) {
+            return { el: children[tail++] };
+        }
+        return { el: anchor };
+    });
 }
 
 // ---------------------------------------------------------------
@@ -4511,7 +4992,7 @@ function stepTune(ms) {
     return Math.max(ms, STEP_MIN_MS);
 }
 
-/** 待っている段。★1件 = {view, logLine, final} */
+/** 待っている段。★1件 = {view, logLine, final, events}(★events は Batch 85b) */
 let stepQueue = [];
 /** 再生中か。★{@link send} のガードと、盤面を沈める判定がこれを読む */
 let stepPlaying = false;
@@ -4544,10 +5025,12 @@ function stepAllowed() {
  */
 function stepEnqueue(message) {
     const steps = stepAllowed() ? (message.steps || []) : [];
+    // ★★★Batch 85b: 段と一緒に<b>その段の出来事</b>も積む(85a の GameStep.events / WsMessage.events)
     for (const step of steps) {
-        stepQueue.push({ view: step.view, logLine: step.logLine, final: false });
+        stepQueue.push({ view: step.view, logLine: step.logLine, final: false, events: step.events || [] });
     }
-    stepQueue.push({ view: message.view, logLine: null, final: true });
+    stepQueue.push({ view: message.view, logLine: null, final: true,
+        events: stepAllowed() ? (message.events || []) : [] });
     // ★サーバが8段で畳んだぶん(裁定370)。★★<b>受け取った側が足し込む</b>
     stepFolded += (message.foldedSteps || 0);
     stepPump();
@@ -4594,6 +5077,12 @@ function stepPump() {
     //     「実装が足りない」ことも教える)。
     if (item.final && stepQueue.length === 0) {
         stepPlaying = false;
+        // ★★★Batch 85b: <b>ここでも累計を戻す。</b>84b は「キューが空の stepPump」でだけ戻しており、
+        //   <b>待たずに終わるこの出口では戻していなかった</b> —— 前の操作で使った時間が次の操作へ持ち越され、
+        //   <b>次の操作の上限(裁定364)が先に尽きていた</b>(1段目から「省いた」が出る)。
+        //   ★84b の番人は毎回 stepDropAll で戻してから測っていたので、この持ち越しを見ていなかった。
+        //   ★★85b で段が長くなって表に出た(1操作 = 詠唱 1.2秒 + 着弾 1.3秒 × n)。
+        stepSpent = 0;
         stepSyncScreen();
         return;
     }
@@ -4633,7 +5122,7 @@ function stepFoldRest() {
  * {@code fxSpawn}(描いたあとに新位置を読んで走らせる)。
  */
 function stepApply(item) {
-    fxCaptureDelivery(latestView, item.view);
+    fxCaptureDelivery(latestView, item.view, item.events);
     latestView = item.view;
     if (!latestView.myTurn || latestView.phase !== 'BATTLE') {
         selectedAttackerId = null;
@@ -4645,6 +5134,8 @@ function stepApply(item) {
     manaPay = null;
     render(latestView);
     fxSpawn();
+    // ★Batch 85b: 呪文の詠唱位置は<b>その操作の解決の間だけ</b>残す(次の操作の弾にしない)
+    if (item.final) fxCastFrom = null;
 }
 
 /**
