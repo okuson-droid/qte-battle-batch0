@@ -41,27 +41,37 @@
     /**
      * ★★★<b>段の長さの材料である。</b>ここを変えれば段の長さも変わる(84b 2-1)。
      * ★値はデモの標準速度の値を、QTE の段に合わせて丸めたものである。
+     *
+     * ★★★Batch 84c(裁定378): <b>数字・破壊・消滅・詠唱の拍を詰めた</b>。
+     * ★<b>拍は「次の段へ進むまでの時間」であり、見た目の長さとは別である</b> ——
+     *   数字は拍が終わっても浮き続けて自分で消える({@link NUMBER_LIFE_MS})。破片・焦げ跡・粒子も余韻のまま。
      */
     const MS = Object.freeze({
         /** 攻撃: 溜め 300 → 突進 150 → ヒットストップ 80 → 戻り 420 */
         ATTACK: 950,
         /** 攻撃の着弾の瞬間(溜め + 突進) */
         ATTACK_IMPACT: 450,
-        /** ダメージ・回復の数字が浮いて消えるまで */
-        NUMBER: 800,
-        /** 破壊: ひびと震え 520 → 砕けたあとの間 420(★破片の飛散は余韻) */
-        DEATH: 940,
-        /** 消滅(裁定372): 光に包まれ 360 → ほどけて昇る 520 */
-        BANISH: 880,
+        /** ダメージ・回復の数字の拍(★84c: 800 → 500。数字そのものは余韻として 800ms 浮く) */
+        NUMBER: 500,
+        /** 破壊: ひびと震え 520 → 砕ける(★84c: 940 → 700。破片の飛散は余韻) */
+        DEATH: 700,
+        /** 消滅(裁定372): 光に包まれ 300 → ほどけて昇る 400(★84c: 880 → 700) */
+        BANISH: 700,
         /** 召喚の着地: 浮き上がり 260 → 溜め 200 → 叩きつけ 170 → 弾み 260 */
         SUMMON: 890,
-        /** 呪文の詠唱: 詠唱位置へ 420 → 収束 620 → ほどける 160 */
-        CAST: 1200,
+        /** 呪文の詠唱: 詠唱位置へ 320 → 収束 440 → ほどける 140(★84c: 1200 → 900) */
+        CAST: 900,
         /** 呪文の弾(詠唱位置 → 対象) */
         BOLT: 480,
         /** 帯テロップ: 出る → 保つ → 消える */
         BANNER: 1150,
     });
+
+    /**
+     * ★★数字が浮いて消えるまでの<b>見た目の長さ</b>(84c・裁定378)。
+     * ★<b>段の長さには入れない</b>(余韻)—— 拍({@code MS.NUMBER})が終われば次の段へ進み、数字は浮いたまま消えていく。
+     */
+    const NUMBER_LIFE_MS = 800;
 
     // =================================================================
     // 2) 小さな道具(デモの core.js)
@@ -466,23 +476,25 @@
 
     /**
      * ダメージや回復の数字を要素の上に弾ませる。cls は '' / 'heal'。
-     * ★★<b>数字は holder の中に置く</b> —— 段が捨てられたら holder ごと消える。
+     * ★★★Batch 84c(裁定378): <b>数字は余韻である</b> —— holder ではなく層の直下に置き、自分で消える。
+     *   holder に置くと、拍(500ms)で holder が外れたとき<b>数字が浮き切る前に消える</b>。
      * @return 置いた要素(検証が文字と種類を読む)
      */
-    function popNumber(holder, rect, text, cls) {
+    function popNumber(stage, rect, text, cls) {
         const c = center(rect);
         const n = document.createElement('div');
         n.className = 'auto-fx-num' + (cls ? ' auto-fx-num-' + cls : '');
         n.textContent = text;
         n.style.left = c.x + 'px';
         n.style.top = c.y + 'px';
-        holder.appendChild(n);
+        stage.layer.appendChild(n);
         n.animate([
             { transform: 'translate(-50%,-50%) scale(.2)', opacity: 1 },
             { transform: 'translate(-50%,-50%) scale(1.5)', opacity: 1, offset: 0.18 },
             { transform: 'translate(-50%,-60%) scale(1)', opacity: 1, offset: 0.35 },
             { transform: 'translate(-50%,-140%) scale(.9)', opacity: 0 },
-        ], { duration: MS.NUMBER, easing: 'ease-out', fill: 'forwards' });
+        ], { duration: NUMBER_LIFE_MS, easing: 'ease-out', fill: 'forwards' }).finished
+            .catch(() => null).then(() => n.remove());
         return n;
     }
 
@@ -652,7 +664,7 @@
             fxAdd(stage, { type: 'spark', x: c.x, y: c.y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
                 g: 0.2, len: 2, size: 2.2, c: pick(['15,100%,65%', '40,100%,75%']), life: rand(220, 420) });
         }
-        return popNumber(holder, r, '-' + amount, '');
+        return popNumber(stage, r, '-' + amount, '');
     }
 
     function showHeal(stage, holder, el, amount) {
@@ -668,7 +680,7 @@
                 drag: 0.99, size: rand(1.5, 3.2), c: pick(['100,90%,75%', '55,100%,80%']),
                 life: rand(500, 800), delay: rand(0, 200) });
         }
-        return popNumber(holder, r, '+' + amount, 'heal');
+        return popNumber(stage, r, '+' + amount, 'heal');
     }
 
     // =================================================================
@@ -889,13 +901,13 @@
         veil.className = 'auto-fx-flashov';
         veil.style.background = `radial-gradient(circle, #fff, hsl(${hue} 90% 78%))`;
         el.appendChild(veil);
-        veil.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: 360, easing: 'ease-in', fill: 'forwards' });
+        veil.animate([{ opacity: 0 }, { opacity: 0.9 }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
         for (let i = 0; i < 18; i++) {
             fxAdd(stage, { type: 'orbit', x: c.x, y: r.bottom - r.height * 0.1, a0: (i / 18) * 6.283, w: 0.008,
                 r0: r.width * 0.7, r1: r.width * 0.3, flat: 0.38, rise: r.height * 1.1, size: rand(4, 7),
                 c: col, life: 800, delay: i * 14 });
         }
-        await anim(el, [{ transform: 'none' }, { transform: 'translateY(-4px) scale(1.04)' }], 360, 'ease-out');
+        await anim(el, [{ transform: 'none' }, { transform: 'translateY(-4px) scale(1.04)' }], 300, 'ease-out');
         if (!el.isConnected) return;
         for (let i = 0; i < 24; i++) {
             fxAdd(stage, { type: 'dot', add: true, x: r.left + rand(0.1, 0.9) * r.width,
@@ -907,7 +919,7 @@
         await anim(el, [
             { transform: 'translateY(-4px) scale(1.04)', opacity: 1 },
             { transform: `translateY(${-r.height * 0.45}px) scale(0.55, 1.35)`, opacity: 0 },
-        ], 520, 'cubic-bezier(.5,0,.9,.5)');
+        ], 400, 'cubic-bezier(.5,0,.9,.5)');
     }
 
     // =================================================================
@@ -1002,7 +1014,7 @@
         await anim(probe, [
             { transform: `translate(0px,${(opts.side === 'opponent' ? -1 : 1) * h * 1.2}px) scale(.6)`, opacity: 0 },
             { transform: 'translate(0,0) scale(1.5)', opacity: 1 },
-        ], 420, 'cubic-bezier(.2,.9,.25,1)');
+        ], 320, 'cubic-bezier(.2,.9,.25,1)');
         if (!probe.isConnected) return { x: cx, y: cy };
 
         // 詠唱: 背後に正面向きの魔法陣、光の粒がらせんに集まる
@@ -1017,10 +1029,10 @@
         veil.className = 'auto-fx-flashov';
         veil.style.background = `radial-gradient(circle, #fff, hsla(${col},1))`;
         probe.appendChild(veil);
-        veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 620, easing: 'ease-in', fill: 'forwards' });
+        veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 440, easing: 'ease-in', fill: 'forwards' });
         await anim(probe, [
             { transform: 'scale(1.5)' }, { transform: 'translateY(-6px) scale(1.54)' }, { transform: 'scale(1.5)' },
-        ], 620, 'ease-in-out');
+        ], 440, 'ease-in-out');
         if (!probe.isConnected) return { x: cx, y: cy };
 
         // カードが光にほどける
@@ -1028,7 +1040,7 @@
             220, 'cubic-bezier(.6,0,1,1)');
         fxAdd(stage, { type: 'burst', x: cx, y: cy, glow: w * 0.9, c: col, life: 300, rays: rays(12, 0.6 * w, 1.1 * w) });
         fxAdd(stage, { type: 'ring', x: cx, y: cy, r0: 10, r1: w * 1.6, w: 5, c: col, life: 420 });
-        await sleep(160);
+        await sleep(140);
         return { x: cx, y: cy };
     }
 

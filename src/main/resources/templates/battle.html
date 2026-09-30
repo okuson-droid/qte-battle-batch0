@@ -523,8 +523,9 @@
      battle.js の対応表は描画のたびに window.QteFx を引く(読めなければ出来事の演出だけが出ない。
      差分の演出(80)はそのまま残る)。
      ★battle.js は v=43 → v=44、battle.css は v=58 → v=59(参照する5枚すべて)。
+     ★★Batch 84c: battle-fx.js を v=1 → v=2(拍を詰めた・裁定378)。battle.js / battle.css は据え置き。
      ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
-<script th:src="@{/js/battle-fx.js(v=1)}"></script>
+<script th:src="@{/js/battle-fx.js(v=2)}"></script>
 <script th:src="@{/js/battle.js(v=44)}"></script>
 </body>
 </html>

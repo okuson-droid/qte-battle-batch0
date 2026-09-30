@@ -11242,9 +11242,12 @@ async function clearZoom(page) {
       [['b1', '風の子'], ['b2', '炎の従者']])));
     await evPage.waitForTimeout(60);
   };
+  // ★★Batch 84c(裁定378): <b>数字は余韻になった</b>(拍が終わっても浮き続ける)ので、落ち着くのを待つときは
+  //   数字が消えるまで待つ —— 待たないと、前の試験の数字を次の試験が数える。
   const evIdle = () => evPage.waitForFunction(
     // eslint-disable-next-line no-undef
-    () => !stepPlaying && stepQueue.length === 0 && fxRunning.size === 0, null, { timeout: 15000 })
+    () => !stepPlaying && stepQueue.length === 0 && fxRunning.size === 0
+      && document.querySelectorAll('#auto-fx-layer .auto-fx-num').length === 0, null, { timeout: 15000 })
     .then(() => true, () => false);
   /** その種類の出来事の入れ物(★data-fx-kind が演出の名前である) */
   const evStories = (kind) => evPage.evaluate((k) =>
@@ -11696,6 +11699,119 @@ async function clearZoom(page) {
       && evCalmState.nums === 0 && evCalmErrors.length === 0,
     JSON.stringify({ ...evCalmState, errors: evCalmErrors }));
   await evCalm.close();
+
+  // ================================================================
+  // ★★★Batch 84c: 段の長さの調整(裁定378〜380)
+  //
+  // 設計解説 notes/batch84c-design-notes.md。
+  // ★★<b>決めた値に番人を置く</b>(裁定54: 変えないと決めたことにも番人を置く)——
+  //   値を変える人は、ここで赤を見てから裁定を改めること。
+  // ★★★<b>この節は独立している</b>(72・75 の教訓)。
+  // ================================================================
+  const tuPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const tuErrors = [];
+  tuPage.on('pageerror', (e) => tuErrors.push(String(e)));
+  tuPage.on('console', (m) => { if (m.type() === 'error') tuErrors.push(m.text()); });
+  await tuPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await tuPage.waitForTimeout(300);
+  const tuSend = (message) => tuPage.evaluate((m) => {
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify(m) });
+  }, message);
+  const tuView = (you, opp) => autoView({
+    you: autoPlayer({ minions: you.map(([id, name]) => autoMinion(id, name)) }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: opp.map(([id, name]) => autoMinion(id, name)) }),
+  });
+  const tuMessage = (views, eventsOf) => ({
+    type: 'VIEW', view: views[views.length - 1], foldedSteps: 0, events: [],
+    steps: views.slice(0, -1).map((v, i) => ({ seq: i + 1, logLine: '段' + (i + 1), view: v, events: eventsOf[i] || [] })),
+  });
+  const tuIdle = () => tuPage.waitForFunction(
+    // eslint-disable-next-line no-undef
+    () => !stepPlaying && stepQueue.length === 0 && fxRunning.size === 0, null, { timeout: 20000 })
+    .then(() => true, () => false);
+  /** 配信を1つ再生し切るまでの時間と、「省いた」の帯が出たか */
+  const tuPlay = async (message) => {
+    const t0 = Date.now();
+    await tuSend(message);
+    const bars = [];
+    for (let i = 0; i < 400; i++) {
+      const st = await tuPage.evaluate(() => ({
+        // eslint-disable-next-line no-undef
+        busy: stepPlaying || stepQueue.length > 0,
+        bar: document.getElementById('auto-step-bar').classList.contains('d-none')
+          ? null : document.getElementById('auto-step-bar').textContent,
+      }));
+      if (st.bar && !bars.includes(st.bar)) bars.push(st.bar);
+      if (!st.busy) break;
+      await tuPage.waitForTimeout(25);
+    }
+    return { ms: Date.now() - t0, folded: bars.some((b) => /省いた/.test(b)) };
+  };
+
+  // ---- 84c-1. ★★★拍の値(裁定378)と、上限・揺れの閾値(裁定379・380)----
+  const tuValues = await tuPage.evaluate(() => ({
+    ms: Object.assign({}, window.QteFx.MS),
+    // eslint-disable-next-line no-undef
+    budget: STEP_BUDGET_MS, shake: FX_SHAKE_DAMAGE, min: STEP_MIN_MS,
+  }));
+  check('★★★拍は数字500・破壊700・消滅700・詠唱900、上限は4秒、揺れは5(84c・裁定378〜380)',
+    tuValues.ms.NUMBER === 500 && tuValues.ms.DEATH === 700 && tuValues.ms.BANISH === 700
+      && tuValues.ms.CAST === 900 && tuValues.ms.ATTACK === 950
+      && tuValues.budget === 4000 && tuValues.shake === 5 && tuValues.min === 200,
+    JSON.stringify(tuValues));
+
+  // ---- 84c-2. ★★★数字は拍が終わっても浮き続け、自分で消える(裁定378)----
+  // ★★<b>拍と見た目は別である</b> —— 数字を入れ物の中に置くと、拍で入れ物が外れたとき浮き切る前に消える。
+  const tuHurt = tuView([['a1', '炎の従者']], [['b1', '風の子'], ['b2', '炎の従者']]);
+  await tuSend({ type: 'VIEW', view: tuHurt, steps: [], foldedSteps: 0, events: [] });
+  await tuPage.waitForTimeout(60);
+  await tuSend(tuMessage([tuHurt, tuHurt, tuHurt],
+    [[{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b1', amount: 2, after: 1, cards: [] }], []]));
+  await tuPage.waitForFunction(
+    // eslint-disable-next-line no-undef
+    () => fxRunning.size === 0 || [...fxRunning.keys()].every((k) => !k.startsWith('ev:damage')), null, { timeout: 3000 })
+    .catch(() => null);
+  const tuAfterBeat = await tuPage.evaluate(() => document.querySelectorAll('#auto-fx-layer .auto-fx-num').length);
+  await tuPage.waitForFunction(() => document.querySelectorAll('#auto-fx-layer .auto-fx-num').length === 0,
+    null, { timeout: 3000 }).catch(() => null);
+  const tuGone = await tuPage.evaluate(() => document.querySelectorAll('#auto-fx-layer .auto-fx-num').length);
+  check('★★★ダメージの数字は拍が終わっても浮き続け、そのあと自分で消える(84c・裁定378)',
+    tuAfterBeat === 1 && tuGone === 0, JSON.stringify({ afterBeat: tuAfterBeat, gone: tuGone }));
+  await tuIdle();
+
+  // ---- 84c-3. ★★★いちばん多い長い操作も、上限4秒の中で最後まで再生される(裁定379)----
+  // ★<b>サーバが実際に作る段の並び</b>(84c 設計解説 1章の実測)をそのまま組む。
+  //   相打ち = [攻撃][ ][ダメージ][ダメージ][破壊][破壊] / 烈火 = [詠唱][ダメージ][ダメージ][破壊][ダメージ]
+  // ★★<b>破壊の段では、そのミニオンを盤面から消す</b> —— 消さないと破壊の演出が出ず(まだ場に居るので語らない)、
+  //   段の長さを短く測ってしまう。
+  const tuBoard = tuView([['a1', '炎の従者']], [['b1', '風の子'], ['b2', '炎の従者']]);
+  const tuNoB1 = tuView([['a1', '炎の従者']], [['b2', '炎の従者']]);
+  const tuNoBoth = tuView([], [['b2', '炎の従者']]);
+  await tuSend({ type: 'VIEW', view: tuBoard, steps: [], foldedSteps: 0, events: [] });
+  await tuPage.waitForTimeout(60);
+  const tuTrade = await tuPlay(tuMessage([tuBoard, tuBoard, tuBoard, tuBoard, tuNoB1, tuNoBoth, tuNoBoth], [
+    [{ kind: 'ATTACK', side: 'YOU', src: 'a1', dst: 'b1', cards: [] }], [],
+    [{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b1', amount: 1, after: 0, cards: [] }],
+    [{ kind: 'DAMAGE', side: 'YOU', dst: 'a1', amount: 1, after: 0, cards: [] }],
+    [{ kind: 'DESTROY', side: 'OPPONENT', dst: 'b1', cards: [] }],
+    [{ kind: 'DESTROY', side: 'YOU', dst: 'a1', cards: [] }],
+  ]));
+  await tuIdle();
+  await tuSend({ type: 'VIEW', view: tuBoard, steps: [], foldedSteps: 0, events: [] });
+  await tuPage.waitForTimeout(60);
+  const tuSpell = await tuPlay(tuMessage([tuBoard, tuBoard, tuBoard, tuNoB1, tuNoB1, tuNoB1], [
+    [{ kind: 'CAST', side: 'YOU', cards: ['QTE-M-FIRE-11'] }],
+    [{ kind: 'DAMAGE', side: 'YOU', dst: 'leader:YOU', amount: 3, after: 17, cards: [] }],
+    [{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b1', amount: 3, after: -2, cards: [] }],
+    [{ kind: 'DESTROY', side: 'OPPONENT', dst: 'b1', cards: [] }],
+    [{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b2', amount: 3, after: 0, cards: [] }],
+  ]));
+  await tuIdle();
+  check('★★★相打ちと《命を削る烈火》の段の並びは、上限4秒で畳まれずに最後まで再生される(84c・裁定378・379)',
+    !tuTrade.folded && !tuSpell.folded, JSON.stringify({ trade: tuTrade, spell: tuSpell }));
+  check('段の長さの調整(84c)でJSエラーが出ない', tuErrors.length === 0, tuErrors.join(' | '));
+  await tuPage.close();
 
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
