@@ -11178,6 +11178,511 @@ async function clearZoom(page) {
     [...stErrors, ...stCalmErrors].join(' | '));
   await stCalm.close();
 
+  // ================================================================
+  // ★★★Batch 85b: 出来事の演出(battle-fx.js・裁定371〜377)
+  //
+  // 設計解説 notes/batch85b-design-notes.md。正は notes/batch85-demo-fx-design.md 4章。
+  //
+  // ★★<b>85a はサーバに出来事を足しただけである。</b>ここで測るのは
+  //   <b>出来事が画面の演出になっているか</b>と、<b>出来事が語る対象の差分演出が抑止されているか</b>である。
+  // ★★★<b>この節は独立している</b>(72・75 の教訓)—— 自分でページを開き、自分で閉じる。
+  // ★<b>本物の入口を通す</b>(裁定187)—— onMessage だけが「サーバから来た出来事」の入口である。
+  // ================================================================
+  const evPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const evErrors = [];
+  evPage.on('pageerror', (e) => evErrors.push(String(e)));
+  evPage.on('console', (m) => { if (m.type() === 'error') evErrors.push(m.text()); });
+  await evPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await evPage.waitForTimeout(300);
+  // ★面の正は card-library である(85a 2-3)。★この節の中だけで使う2枚を入れる
+  await evPage.evaluate(() => {
+    // eslint-disable-next-line no-undef
+    autoLibrary.set('QTE-EV-SPELL', { id: 'QTE-EV-SPELL', name: '検証の烈火', type: 'SPELL',
+      civilization: 'FIRE', cost: 4, text: '相手の全ミニオンに3。' });
+    // eslint-disable-next-line no-undef
+    autoLibrary.set('QTE-EV-MINION', { id: 'QTE-EV-MINION', name: '検証の従者', type: 'MINION',
+      civilization: 'WIND', cost: 1, attack: 1, hp: 1, text: '' });
+  });
+  const evSend = (message) => evPage.evaluate((m) => {
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify(m) });
+  }, message);
+  const evMinions = (list) => list.map(([id, name, o]) => autoMinion(id, name, o || {}));
+  /** 盤面のビュー。★you / opp はミニオンの列、extra は席ごとの上書き */
+  const evView = (you, opp, extra) => autoView({
+    you: autoPlayer(Object.assign({ minions: evMinions(you) }, (extra && extra.you) || {})),
+    opponent: autoPlayer(Object.assign({ displayName: 'あいて', minions: evMinions(opp) },
+      (extra && extra.opp) || {})),
+    ...((extra && extra.view) || {}),
+  });
+  /** 段の列(views の最後が最終状態)と、段ごとの出来事(eventsOf[i])から配信を1つ組む */
+  const evMessage = (views, eventsOf, finalEvents) => ({
+    type: 'VIEW',
+    view: views[views.length - 1],
+    steps: views.slice(0, -1).map((v, i) => ({
+      seq: i + 1, logLine: '段' + (i + 1), view: v, events: (eventsOf && eventsOf[i]) || [],
+    })),
+    foldedSteps: 0,
+    events: finalEvents || [],
+  });
+  /** 段を持たない配信(★出来事は最終状態に付く・85a 3章) */
+  const evPlain = (view, events) => ({ type: 'VIEW', view: view, steps: [], foldedSteps: 0, events: events || [] });
+  const evReset = async (view) => {
+    await evPage.evaluate(() => {
+      // eslint-disable-next-line no-undef
+      stepDropAll();
+      // eslint-disable-next-line no-undef
+      for (const key of [...fxRunning.keys()]) fxStop(key);
+      // eslint-disable-next-line no-undef
+      latestView = null;
+      // eslint-disable-next-line no-undef
+      fxCastFrom = null;
+    });
+    await evSend(evPlain(view || evView([['a1', '炎の従者'], ['a2', '炎の従者']],
+      [['b1', '風の子'], ['b2', '炎の従者']])));
+    await evPage.waitForTimeout(60);
+  };
+  const evIdle = () => evPage.waitForFunction(
+    // eslint-disable-next-line no-undef
+    () => !stepPlaying && stepQueue.length === 0 && fxRunning.size === 0, null, { timeout: 15000 })
+    .then(() => true, () => false);
+  /** その種類の出来事の入れ物(★data-fx-kind が演出の名前である) */
+  const evStories = (kind) => evPage.evaluate((k) =>
+    document.querySelectorAll(`#auto-fx-layer .auto-fx-story[data-fx-kind="${k}"]`).length, kind);
+  const evSpawnMs = () => evPage.evaluate(() => fxSpawnMs);   // eslint-disable-line no-undef
+  const evMs = await evPage.evaluate(() => Object.assign({}, window.QteFx && window.QteFx.MS));
+
+  // ---- 85b-1. ★★★演出モジュールは IIFE で、battle.js より先に読まれる(設計書 4-1)----
+  // ★QTE は ES モジュールを使っていない。★★<b>reference/ から読み込まない</b>(配信物ではない)。
+  const evFxSrc = fs.readFileSync(path.join(RES, 'static/js/battle-fx.js'), 'utf8');
+  const evTpl = fs.readFileSync(path.join(RES, 'templates/battle.html'), 'utf8');
+  const evFxAt = evTpl.indexOf('/js/battle-fx.js(v=');
+  const evJsAt = evTpl.indexOf('/js/battle.js(v=');
+  check('★★★演出モジュール(window.QteFx)は IIFE で、battle.js より先に読まれる(85b・設計書 4-1)',
+    !!evMs.ATTACK && !/^\s*(import|export)\s/m.test(evFxSrc)
+      && evFxAt > 0 && evJsAt > evFxAt && !/reference\//.test(evTpl.replace(/<!--[\s\S]*?-->/g, '')),
+    JSON.stringify({ ms: evMs, fxAt: evFxAt, jsAt: evJsAt }));
+
+  // ---- 85b-2. ★★★演出を出してよいかの正は fxAllowed 1本である(裁定375・設計書 1-3)----
+  // ★★<b>デモの timing.reduced を持ち込まない</b> —— 正を2つにすると、片方だけ直す事故がいつでも起きる。
+  //   ★setSpeed も持ち込まない(QTE の速さの正は stepTune の1箇所・設計書 4-3)。
+  check('★★★演出モジュールは自分で演出の可否を判定しない(fxAllowed に一本化・85b・裁定375)',
+    !/matchMedia|prefers-reduced-motion|timing\.reduced|setSpeed/.test(
+      evFxSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')),
+    'battle-fx.js');
+
+  // ---- 85b-3. ★★★攻撃: 攻撃者の複製が突進し、本物はそのあいだ隠れる(裁定371・373)----
+  await evReset();
+  const evAtk0 = evView([['a1', '炎の従者', { tapped: true }], ['a2', '炎の従者']],
+    [['b1', '風の子'], ['b2', '炎の従者']]);
+  await evSend(evMessage([evAtk0, evAtk0],
+    [[{ kind: 'ATTACK', side: 'YOU', src: 'a1', dst: 'b1', cards: [] }]]));
+  const evAtk = await evPage.evaluate(() => {
+    const holder = document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="attack"]');
+    const clone = holder && holder.querySelector('.auto-fx-clone');
+    return {
+      clone: !!clone, target: clone && clone.dataset.fxTarget,
+      cloneIds: clone ? clone.querySelectorAll('[id],[data-instance-id]').length : -1,
+      held: document.querySelector('[data-instance-id="a1"]').classList.contains('auto-fx-hold'),
+      // eslint-disable-next-line no-undef
+      spawn: fxSpawnMs,
+    };
+  });
+  check('★★★攻撃は攻撃者の複製が的へ突進し、本物はそのあいだ隠れる(85b・裁定371)',
+    evAtk.clone && evAtk.target === 'b1' && evAtk.held && evAtk.cloneIds === 0,
+    JSON.stringify(evAtk));
+  // ---- 85b-4. ★★★段の長さは演出の長さに追随する(84b 2-1・fxRegister を通す)----
+  check('★★★出来事の演出も fxRegister を通り、段の長さは演出の長さに追随する(85b・84b 2-1)',
+    evAtk.spawn === evMs.ATTACK, JSON.stringify({ spawn: evAtk.spawn, attack: evMs.ATTACK }));
+  const evAtkIdle = await evIdle();
+  const evAtkAfter = await evPage.evaluate(() => ({
+    holds: document.querySelectorAll('.auto-fx-hold').length,
+    stories: document.querySelectorAll('#auto-fx-layer .auto-fx-story').length,
+  }));
+  check('★★攻撃が終わると本物が戻り、演出の入れ物は1つも残らない(85b)',
+    evAtkIdle && evAtkAfter.holds === 0 && evAtkAfter.stories === 0, JSON.stringify(evAtkAfter));
+
+  // ---- 85b-5. ★★★リーダーへの攻撃は右の列のリーダー欄まで突進する(裁定371)----
+  await evReset();
+  await evSend(evMessage([evAtk0, evAtk0],
+    [[{ kind: 'ATTACK', side: 'YOU', src: 'a2', dst: 'leader:OPPONENT', cards: [] }]]));
+  const evRush = await evPage.evaluate(() => {
+    const clone = document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="attack"] .auto-fx-clone');
+    if (!clone) return null;
+    const r = clone.getBoundingClientRect();
+    const leader = document.getElementById('opp-leader').getBoundingClientRect();
+    const tx = Number(clone.dataset.fxTravelX || 0);
+    const ty = Number(clone.dataset.fxTravelY || 0);
+    // ★突進しきった位置の中心と、リーダー欄の中心の距離(★盤面の縁で止まっていないこと)
+    const ax = r.left + r.width / 2 + tx;
+    const ay = r.top + r.height / 2 + ty;
+    const lx = leader.left + leader.width / 2;
+    const ly = leader.top + leader.height / 2;
+    return { gap: Math.round(Math.hypot(lx - ax, ly - ay)), reach: Math.round(Math.hypot(tx, ty)),
+      leaderLeft: Math.round(leader.left), target: clone.dataset.fxTarget };
+  });
+  check('★★★リーダーへの攻撃は、右の列のリーダー欄まで突進する(85b・裁定371)',
+    !!evRush && evRush.target === 'leader:OPPONENT' && evRush.gap < 160 && evRush.reach > 500,
+    JSON.stringify(evRush));
+  await evIdle();
+
+  // ---- 85b-6. ★★★ダメージの数字はミニオンに出る(裁定376)----
+  await evReset();
+  const evHurt = evView([['a1', '炎の従者']], [['b1', '風の子', { currentHp: 1 }], ['b2', '炎の従者']]);
+  await evSend(evMessage([evHurt, evHurt],
+    [[{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b1', amount: 2, after: 1, cards: [] }]]));
+  const evNum = await evPage.evaluate(() => [...document.querySelectorAll('#auto-fx-layer .auto-fx-num')]
+    .map((n) => ({ text: n.textContent, target: n.dataset.fxTarget, heal: n.classList.contains('auto-fx-num-heal') })));
+  check('★★★ダメージは受けたミニオンの上に数字で出る(85b・裁定376)',
+    evNum.length === 1 && evNum[0].text === '-2' && evNum[0].target === 'b1' && !evNum[0].heal,
+    JSON.stringify(evNum));
+  await evIdle();
+
+  // ---- 85b-7. ★★★リーダーの LP の増減はデモの数字に置き換わる(裁定376)----
+  // ★★<b>出来事が語るリーダーについては、差分の lp 演出を出さない</b>(設計書 4-2)。
+  await evReset();
+  const evLp = evView([['a1', '炎の従者']], [['b1', '風の子'], ['b2', '炎の従者']], { opp: { lp: 17 } });
+  await evSend(evMessage([evLp, evLp],
+    [[{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'leader:OPPONENT', amount: 3, after: 17, cards: [] }]]));
+  const evLpState = await evPage.evaluate(() => ({
+    nums: [...document.querySelectorAll('#auto-fx-layer .auto-fx-num')].map((n) => n.textContent + '@' + n.dataset.fxTarget),
+    pills: document.querySelectorAll('#auto-fx-layer .auto-fx-lp').length,
+  }));
+  check('★★★リーダーへのダメージは数字で出て、差分の LP 演出は出ない(85b・裁定376)',
+    evLpState.nums.length === 1 && evLpState.nums[0] === '-3@leader:OPPONENT' && evLpState.pills === 0,
+    JSON.stringify(evLpState));
+  await evIdle();
+
+  // ---- 85b-8. ★★出来事が無い LP の変化は、いまの差分演出のまま残る(設計書 4-2)----
+  // ★<b>万一の取りこぼしで嘘にならない</b>(裁定376 の但し書き)—— 抑止するのは出来事が語ったものだけである。
+  await evReset();
+  await evSend(evMessage([evLp, evLp], [[]]));
+  const evLpPlain = await evPage.evaluate(() => ({
+    nums: document.querySelectorAll('#auto-fx-layer .auto-fx-num').length,
+    pills: document.querySelectorAll('#auto-fx-layer .auto-fx-lp[data-fx-seat="opponent"]').length,
+  }));
+  check('★★出来事が無い LP の変化は、差分の LP 演出のまま残る(85b・設計書 4-2)',
+    evLpPlain.nums === 0 && evLpPlain.pills === 1, JSON.stringify(evLpPlain));
+  await evIdle();
+
+  // ---- 85b-9. ★★回復の数字。★量が 0(満タン)なら何も出さない ----
+  await evReset();
+  const evHeal = evView([['a1', '炎の従者']], [['b1', '風の子'], ['b2', '炎の従者']]);
+  await evSend(evMessage([evHeal, evHeal, evHeal], [
+    [{ kind: 'HEAL', side: 'YOU', dst: 'leader:YOU', amount: 0, after: 20, cards: [] }],
+    [{ kind: 'HEAL', side: 'YOU', dst: 'leader:YOU', amount: 4, after: 20, cards: [] }],
+  ]));
+  const evHeal0 = await evPage.evaluate(() => document.querySelectorAll('#auto-fx-layer .auto-fx-num').length);
+  await evPage.waitForFunction(() => document.querySelectorAll('#auto-fx-layer .auto-fx-num-heal').length > 0,
+    null, { timeout: 3000 }).catch(() => null);
+  const evHeal4 = await evPage.evaluate(() => [...document.querySelectorAll('#auto-fx-layer .auto-fx-num-heal')]
+    .map((n) => n.textContent));
+  check('★★回復は緑の数字で出る。量が 0 なら何も出さない(85b・85a 2-7)',
+    evHeal0 === 0 && evHeal4.length === 1 && evHeal4[0] === '+4', JSON.stringify({ zero: evHeal0, four: evHeal4 }));
+  await evIdle();
+
+  // ---- 85b-10. ★★★大きいダメージだけ画面を揺らす(裁定375)----
+  await evReset();
+  const evShakeOf = async (amount) => {
+    await evReset();
+    await evSend(evMessage([evLp, evLp],
+      [[{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'leader:OPPONENT', amount: amount, after: 20 - amount, cards: [] }]]));
+    const got = await evPage.evaluate(() => ({
+      flag: !!document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="damage"][data-fx-shake="1"]'),
+      // ★CSS の遷移(沈めの opacity)は数えない。揺れは WAAPI の Animation である
+      moving: document.querySelector('#auto-root .auto-columns').getAnimations()
+        .filter((a) => a.constructor.name === 'Animation').length,
+    }));
+    await evIdle();
+    return got;
+  };
+  const evSmall = await evShakeOf(2);
+  const evBig = await evShakeOf(6);
+  check('★★★大きいダメージで画面を揺らし、小さいダメージでは揺らさない(85b・裁定375)',
+    !evSmall.flag && evSmall.moving === 0 && evBig.flag && evBig.moving > 0,
+    JSON.stringify({ small: evSmall, big: evBig }));
+
+  // ---- 85b-11. ★★★破壊は砕け散り、そのミニオンの差分の飛行は出ない(裁定372・設計書 4-2)----
+  // ★★<b>鍵は dst</b>。場 → 墓地の飛行(80 の差分)は、破壊の演出が語るので出さない。
+  const evTrash = autoCard('QTE-M-FIRE-6', '風の子');
+  const evDeathBefore = evView([['a1', '炎の従者']], [['b1', '風の子'], ['b2', '炎の従者']]);
+  const evDeathAfter = evView([['a1', '炎の従者']], [['b2', '炎の従者']],
+    { opp: { trash: [evTrash], trashCount: 1 } });
+  // ★対照: 出来事が無いと、80 の差分が場 → 墓地の飛行を出す(抑止の番人が空振りしていないことの証拠)
+  await evReset(evDeathBefore);
+  await evSend(evMessage([evDeathAfter, evDeathAfter], [[]]));
+  const evDeathControl = await evPage.evaluate(() =>
+    document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length);
+  await evIdle();
+  await evReset(evDeathBefore);
+  await evSend(evMessage([evDeathAfter, evDeathAfter],
+    [[{ kind: 'DESTROY', side: 'OPPONENT', dst: 'b1', cards: ['QTE-M-FIRE-6'] }]]));
+  const evDeath = await evPage.evaluate(() => {
+    const holder = document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="destroy"]');
+    return {
+      clone: !!(holder && holder.querySelector('.auto-fx-clone[data-fx-target="b1"]')),
+      ghosts: document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length,
+    };
+  });
+  await evPage.waitForFunction(() => document.querySelectorAll('#auto-fx-layer .auto-fx-shatter').length > 0,
+    null, { timeout: 3000 }).catch(() => null);
+  const evShards = await evPage.evaluate(() => {
+    const s = document.querySelector('#auto-fx-layer .auto-fx-shatter');
+    return s ? s.children.length : 0;
+  });
+  check('★★★破壊されたミニオンは旧位置で砕け散り、差分の飛行は出ない(85b・裁定372・4-2)',
+    evDeathControl === 1 && evDeath.clone && evDeath.ghosts === 0 && evShards >= 8,
+    JSON.stringify({ control: evDeathControl, ...evDeath, shards: evShards }));
+  await evIdle();
+
+  // ---- 85b-12. ★★★消滅は砕けずに光に溶ける(裁定372)----
+  await evReset(evDeathBefore);
+  const evLostAfter = evView([['a1', '炎の従者']], [['b2', '炎の従者']],
+    { opp: { lost: [evTrash], lostCount: 1 } });
+  await evSend(evMessage([evLostAfter, evLostAfter],
+    [[{ kind: 'BANISH', side: 'OPPONENT', dst: 'b1', cards: ['QTE-M-FIRE-6'] }]]));
+  const evBanish = await evPage.evaluate(() => ({
+    banish: !!document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="banish"] .auto-fx-clone[data-fx-target="b1"]'),
+    ghosts: document.querySelectorAll('#auto-fx-layer .auto-fx-ghost').length,
+  }));
+  await evPage.waitForTimeout(700);
+  const evBanishShards = await evPage.evaluate(() => document.querySelectorAll('#auto-fx-layer .auto-fx-shatter').length);
+  check('★★★消滅は専用の演出で光に溶け、砕けない。差分の飛行も出ない(85b・裁定372)',
+    evBanish.banish && evBanish.ghosts === 0 && evBanishShards === 0,
+    JSON.stringify({ ...evBanish, shards: evBanishShards }));
+  await evIdle();
+
+  // ---- 85b-13. ★★★召喚: 差分の飛行 → SUMMON の着地(85a 2-5)。出現のフェードは出ない ----
+  const evHandCard = autoCard('QTE-EV-MINION', '検証の従者');
+  const evPreSummon = evView([['a1', '炎の従者']], [], { you: { hand: [evHandCard], handCount: 1 } });
+  const evSummoned = evView([['a1', '炎の従者'], ['n1', '検証の従者', { cardId: 'QTE-EV-MINION' }]], [],
+    { you: { hand: [], handCount: 0 } });
+  await evReset(evPreSummon);
+  await evSend(evMessage([evSummoned, evSummoned],
+    [[{ kind: 'SUMMON', side: 'YOU', dst: 'n1', cards: ['QTE-EV-MINION'] }]]));
+  const evSummon = await evPage.evaluate(() => {
+    const holder = document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="summon"]');
+    const el = document.querySelector('[data-instance-id="n1"]');
+    return {
+      summon: !!holder, delay: holder ? Number(holder.dataset.fxDelay) : null,
+      flight: document.querySelectorAll('#auto-fx-layer .auto-fx-ghost[data-fx-kind="move"]').length,
+      entered: el.classList.contains('auto-fx-enter'), held: el.classList.contains('auto-fx-hold'),
+    };
+  });
+  // eslint-disable-next-line no-undef
+  const evMoveMs = await evPage.evaluate(() => FX_MOVE_MS);
+  await evIdle();
+  // ★★<b>飛行が無い召喚</b>(山札から2体を同時に出す等)では、80 の差分は出現のフェードを出す ——
+  //   <b>そちらを抑止する行は、上の手札からの召喚では1度も通らない</b>(番人の穴になる)ので、ここで通す。
+  const evFromDeck = evView([['a1', '炎の従者'], ['d1', '炎の従者'], ['d2', '検証の従者', { cardId: 'QTE-EV-MINION' }]],
+    [], { you: { hand: [], handCount: 0, deckCount: 28 } });
+  await evReset(evView([['a1', '炎の従者']], [], { you: { hand: [], handCount: 0, deckCount: 30 } }));
+  await evSend(evMessage([evFromDeck, evFromDeck], [[
+    { kind: 'SUMMON', side: 'YOU', dst: 'd1', cards: ['QTE-M-FIRE-6'] },
+    { kind: 'SUMMON', side: 'YOU', dst: 'd2', cards: ['QTE-EV-MINION'] },
+  ]]));
+  const evDeckSummon = await evPage.evaluate(() => ({
+    summons: document.querySelectorAll('#auto-fx-layer .auto-fx-story[data-fx-kind="summon"]').length,
+    entered: document.querySelectorAll('.auto-fx-enter').length,
+  }));
+  check('★★★召喚は差分の飛行のあとに着地し、出現のフェードは出ない(85b・85a 2-5・4-2)',
+    evSummon.summon && evSummon.flight === 1 && evSummon.delay === evMoveMs
+      && !evSummon.entered && evSummon.held
+      && evDeckSummon.summons === 2 && evDeckSummon.entered === 0,
+    JSON.stringify({ ...evSummon, deck: evDeckSummon }));
+  await evIdle();
+
+  // ---- 85b-14. ★★★呪文は面で詠唱する。相手の呪文も面で見せる(裁定373)----
+  await evReset();
+  const evCastOf = async (side) => {
+    await evReset();
+    await evSend(evMessage([evHeal, evHeal], [[{ kind: 'CAST', side: side, cards: ['QTE-EV-SPELL'] }]]));
+    const got = await evPage.evaluate(() => {
+      const holder = document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="cast"]');
+      return holder ? { card: holder.dataset.fxCard, face: (holder.textContent || '').includes('検証の烈火') } : null;
+    });
+    await evIdle();
+    return got;
+  };
+  const evCastMine = await evCastOf('YOU');
+  const evCastTheirs = await evCastOf('OPPONENT');
+  check('★★★呪文は面で詠唱し、相手の呪文も同じ強さで面を見せる(85b・裁定373)',
+    !!evCastMine && evCastMine.face && !!evCastTheirs && evCastTheirs.face,
+    JSON.stringify({ mine: evCastMine, theirs: evCastTheirs }));
+
+  // ---- 85b-15. ★★★呪文のあとのダメージは、詠唱位置から弾が飛んでから数字になる ----
+  // ★<b>詠唱位置はその操作の間だけ残る</b> —— 次の操作のダメージを前の呪文の弾として描かない。
+  await evReset();
+  const evHurt2 = evView([['a1', '炎の従者']], [['b1', '風の子', { currentHp: 0 }], ['b2', '炎の従者']]);
+  await evSend(evMessage([evHeal, evHurt2, evHurt2], [
+    [{ kind: 'CAST', side: 'YOU', cards: ['QTE-EV-SPELL'] }],
+    [{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b1', amount: 3, after: 0, cards: [] }],
+  ]));
+  await evPage.waitForFunction(
+    () => !!document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="damage"]'), null, { timeout: 5000 })
+    .catch(() => null);
+  const evBoltAt = await evPage.evaluate(() => ({
+    nums: document.querySelectorAll('#auto-fx-layer .auto-fx-num').length,
+    // eslint-disable-next-line no-undef
+    spawn: fxSpawnMs,
+  }));
+  await evIdle();
+  // ★次の操作(呪文を伴わない)のダメージは、弾を待たずにその場で数字になる
+  await evSend(evMessage([evHurt2, evHurt2],
+    [[{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'b1', amount: 1, after: -1, cards: [] }]]));
+  const evNoBolt = await evPage.evaluate(() => ({
+    nums: document.querySelectorAll('#auto-fx-layer .auto-fx-num').length,
+    // eslint-disable-next-line no-undef
+    spawn: fxSpawnMs,
+  }));
+  check('★★★呪文のダメージは詠唱位置から弾が飛んでから数字になり、次の操作には持ち越さない(85b)',
+    evBoltAt.nums === 0 && evBoltAt.spawn === evMs.BOLT + evMs.NUMBER
+      && evNoBolt.nums === 1 && evNoBolt.spawn === evMs.NUMBER,
+    JSON.stringify({ bolt: evBoltAt, next: evNoBolt }));
+  await evIdle();
+
+  // ---- 85b-16. ★★★ドロー: 自分は面で、相手は裏面で飛ぶ(設計判断9)----
+  // ★★<b>相手のドローは面が届かない</b>ので、裏面の1枚が飛ぶだけである(名前は1文字も運ばない)。
+  const evDrawBefore = evView([], [], { you: { hand: [], handCount: 0, deckCount: 30 },
+    opp: { handCount: 0, deckCount: 30 } });
+  const evDrawAfter = evView([], [], { you: { hand: [evHandCard], handCount: 1, deckCount: 29 },
+    opp: { handCount: 1, deckCount: 29 } });
+  await evReset(evDrawBefore);
+  await evSend(evMessage([evDrawAfter, evDrawAfter], [[
+    { kind: 'DRAW', side: 'YOU', amount: 1, cards: ['QTE-EV-MINION'] },
+    { kind: 'DRAW', side: 'OPPONENT', amount: 1, cards: [] },
+  ]]));
+  const evDraw = await evPage.evaluate(() => {
+    const of = (seat) => {
+      const holder = document.querySelector(`#auto-fx-layer .auto-fx-story[data-fx-kind="draw"][data-fx-seat="${seat}"]`);
+      if (!holder) return null;
+      return {
+        ghosts: holder.querySelectorAll('.auto-fx-drawn').length,
+        faces: holder.querySelectorAll('.auto-fx-drawn .mcard').length,
+        backs: holder.querySelectorAll('.auto-fx-drawn .auto-fx-back').length,
+        text: holder.textContent,
+      };
+    };
+    // ★★<b>差分の側(80)のゴーストは種類を問わず数える</b> —— 自分のドローは差分では
+    //   「手札への出現」になる(山札は名前を持たないので飛行に結べない)。飛行だけを数えると、
+    //   <b>出現の抑止が外れても緑のまま</b>になる。
+    return { you: of('you'), opp: of('opponent'),
+      diffDraws: document.querySelectorAll('#auto-fx-layer .auto-fx-ghost:not(.auto-fx-drawn)').length };
+  });
+  check('★★★自分のドローは面で、相手のドローは裏面で山札から手札へ飛ぶ(85b・設計判断9)',
+    !!evDraw.you && evDraw.you.ghosts === 1 && evDraw.you.faces === 1 && evDraw.you.text.includes('検証の従者')
+      && !!evDraw.opp && evDraw.opp.ghosts === 1 && evDraw.opp.faces === 0 && evDraw.opp.backs === 1
+      && !evDraw.opp.text.includes('検証の従者') && evDraw.diffDraws === 0,
+    JSON.stringify(evDraw));
+  await evIdle();
+
+  // ---- 85b-17. ★★★開始の配りも、通常のドローと同じ演出で語る(裁定377)----
+  // ★<b>席ごとに1本の演出にまとめる</b>(1枚ずつずらす)。★★配りのための特別な短縮は入れない。
+  const evDealAfter = evView([], [], {
+    you: { hand: [evHandCard, evHandCard, evHandCard, evHandCard], handCount: 4, deckCount: 26 },
+    opp: { handCount: 5, deckCount: 25 },
+  });
+  const evDealEvents = [];
+  for (let i = 0; i < 4; i++) evDealEvents.push({ kind: 'DRAW', side: 'YOU', amount: 1, cards: ['QTE-EV-MINION'] });
+  for (let i = 0; i < 5; i++) evDealEvents.push({ kind: 'DRAW', side: 'OPPONENT', amount: 1, cards: [] });
+  await evReset(evDrawBefore);
+  await evSend(evMessage([evDealAfter, evDealAfter], [evDealEvents]));
+  const evDeal = await evPage.evaluate(() => ({
+    entries: document.querySelectorAll('#auto-fx-layer .auto-fx-story[data-fx-kind="draw"]').length,
+    ghosts: document.querySelectorAll('#auto-fx-layer .auto-fx-drawn').length,
+    faces: document.querySelectorAll('#auto-fx-layer .auto-fx-story[data-fx-seat="you"] .auto-fx-drawn .mcard').length,
+    // eslint-disable-next-line no-undef
+    spawn: fxSpawnMs, drawMs: FX_DRAW_MS, stagger: FX_DRAW_STAGGER_MS,
+  }));
+  check('★★★開始の配り(4枚・5枚)も1枚ずつ山札から飛ぶ。席ごとに1本の演出である(85b・裁定377)',
+    evDeal.entries === 2 && evDeal.ghosts === 9 && evDeal.faces === 4
+      && evDeal.spawn === evDeal.drawMs + 4 * evDeal.stagger,
+    JSON.stringify(evDeal));
+  await evIdle();
+
+  // ---- 85b-18. ★★★ターンと決着の帯テロップ。観戦者には名前で語る ----
+  await evReset();
+  const evBannerOf = async (event, view) => {
+    await evReset();
+    await evSend(evPlain(view || evHeal, [event]));
+    const got = await evPage.evaluate(() => {
+      const holder = document.querySelector('#auto-fx-layer .auto-fx-story[data-fx-kind="turn"],'
+        + ' #auto-fx-layer .auto-fx-story[data-fx-kind="gameover"]');
+      return holder ? holder.dataset.fxText : null;
+    });
+    await evIdle();
+    return got;
+  };
+  const evTurnMine = await evBannerOf({ kind: 'TURN', side: 'YOU', amount: 3, cards: [] });
+  const evTurnTheirs = await evBannerOf({ kind: 'TURN', side: 'OPPONENT', amount: 4, cards: [] });
+  const evWin = await evBannerOf({ kind: 'GAME_OVER', side: 'YOU', dst: 'leader:YOU', cards: [] });
+  const evLose = await evBannerOf({ kind: 'GAME_OVER', side: 'OPPONENT', dst: 'leader:OPPONENT', cards: [] });
+  const evSpectator = autoView(Object.assign({}, evHeal, { room: { viewerSeat: null } }));
+  const evSpecTurn = await evBannerOf({ kind: 'TURN', side: 'OPPONENT', amount: 4, cards: [] }, evSpectator);
+  check('★★★ターンと決着は帯テロップで語り、観戦者には名前で語る(85b)',
+    evTurnMine === 'あなたのターン' && evTurnTheirs === '相手のターン'
+      && evWin === 'VICTORY' && evLose === 'DEFEAT' && evSpecTurn === 'あいてのターン',
+    JSON.stringify({ evTurnMine, evTurnTheirs, evWin, evLose, evSpecTurn }));
+
+  // ---- 85b-19. ★★★操作をまたいで累計時間を持ち越さない(裁定364・84b の出口の修正)----
+  // ★★<b>84b は最終状態を待たずに終える出口で累計を戻していなかった</b> ——
+  //   前の操作で使った時間が次の操作の上限を食い、<b>1段目から「省いた」が出た</b>。
+  //   ★84b の番人は毎回 stepDropAll で戻してから測っていたので、この持ち越しを見ていなかった。
+  await evReset();
+  const evChain = () => evMessage([evAtk0, evAtk0, evAtk0, evAtk0], [
+    [{ kind: 'ATTACK', side: 'YOU', src: 'a1', dst: 'b1', cards: [] }],
+    [{ kind: 'ATTACK', side: 'YOU', src: 'a2', dst: 'b2', cards: [] }],
+    [{ kind: 'ATTACK', side: 'YOU', src: 'a1', dst: 'b2', cards: [] }],
+  ]);
+  await evSend(evChain());
+  await evIdle();
+  const evCarry = await evPage.evaluate(() => stepSpent);   // eslint-disable-line no-undef
+  await evSend(evChain());
+  const evBars = [];
+  for (let i = 0; i < 80; i++) {
+    const bar = await evPage.evaluate(() => {
+      const b = document.getElementById('auto-step-bar');
+      return b.classList.contains('d-none') ? null : b.textContent;
+    });
+    if (bar && !evBars.includes(bar)) evBars.push(bar);
+    // eslint-disable-next-line no-undef
+    if (await evPage.evaluate(() => !stepPlaying && stepQueue.length === 0)) break;
+    await evPage.waitForTimeout(50);
+  }
+  check('★★★操作をまたいで再生時間の累計を持ち越さない(85b・裁定364)',
+    evCarry === 0 && !evBars.some((b) => /省いた/.test(b)), JSON.stringify({ carry: evCarry, bars: evBars }));
+  await evIdle();
+
+  check('出来事の演出(85b)でJSエラーが出ない', evErrors.length === 0, evErrors.join(' | '));
+  await evPage.close();
+
+  // ---- 85b-20. ★★★演出を切っている人には、出来事の演出を1つも出さない(裁定375・358)----
+  // ★★<b>止める条件は fxAllowed 1本である</b>。★本物を隠すクラスも1つも付けない
+  //   (付けたまま演出が走らないと、ミニオンが消えたままになる)。
+  const evCalm = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+  const evCalmErrors = [];
+  evCalm.on('pageerror', (e) => evCalmErrors.push(String(e)));
+  await evCalm.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await evCalm.waitForTimeout(300);
+  const evCalmState = await evCalm.evaluate((ms) => {
+    // eslint-disable-next-line no-undef
+    for (const m of ms) onMessage({ body: JSON.stringify(m) });
+    return {
+      // eslint-disable-next-line no-undef
+      allowed: fxAllowed(),
+      stories: document.querySelectorAll('.auto-fx-story').length,
+      holds: document.querySelectorAll('.auto-fx-hold').length,
+      nums: document.querySelectorAll('.auto-fx-num').length,
+    };
+  }, [evPlain(evAtk0), evMessage([evAtk0, evLp], [
+    [{ kind: 'ATTACK', side: 'YOU', src: 'a1', dst: 'leader:OPPONENT', cards: [] }],
+  ], [{ kind: 'DAMAGE', side: 'OPPONENT', dst: 'leader:OPPONENT', amount: 6, after: 14, cards: [] }])]);
+  check('★★★演出を切っている人には出来事の演出を出さず、本物も隠さない(85b・裁定375)',
+    evCalmState.allowed === false && evCalmState.stories === 0 && evCalmState.holds === 0
+      && evCalmState.nums === 0 && evCalmErrors.length === 0,
+    JSON.stringify({ ...evCalmState, errors: evCalmErrors }));
+  await evCalm.close();
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();

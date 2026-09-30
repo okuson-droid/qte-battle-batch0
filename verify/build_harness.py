@@ -364,6 +364,15 @@ battle = _sub_once(
     '<script src="/js/battle.js"></script>',
     "battle.html の battle.js",
 )
+# ★★★Batch 85b: 演出モジュール(window.QteFx)。★battle.js と同じく _sub_once で書き換える ——
+#   単純な replace だと、テンプレートの版数が変わった日に黙って0件になり、
+#   ハーネスだけ QteFx の無い(=出来事の演出が1つも出ない)ページになる。
+battle = _sub_once(
+    battle,
+    r'<script th:src="@\{/js/battle-fx\.js\(v=\d+\)\}"></script>',
+    '<script src="/js/battle-fx.js"></script>',
+    "battle.html の battle-fx.js",
+)
 battle = _sub_once(
     battle,
     r"/\*\[\[\$\{roomId\}\]\]\*/ ''",

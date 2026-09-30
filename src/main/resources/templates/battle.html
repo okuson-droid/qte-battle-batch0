@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=58)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=59)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -519,6 +519,12 @@
        上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5)。
      ★79 が4系統すべて据え置いたのは、静的ファイルを1文字も触っていなかったからである。
      ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
-<script th:src="@{/js/battle.js(v=43)}"></script>
+<!-- ★★★Batch 85b: 演出モジュール(window.QteFx)を足した(v=1)。★<b>battle.js より前に読む</b> ——
+     battle.js の対応表は描画のたびに window.QteFx を引く(読めなければ出来事の演出だけが出ない。
+     差分の演出(80)はそのまま残る)。
+     ★battle.js は v=43 → v=44、battle.css は v=58 → v=59(参照する5枚すべて)。
+     ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
+<script th:src="@{/js/battle-fx.js(v=1)}"></script>
+<script th:src="@{/js/battle.js(v=44)}"></script>
 </body>
 </html>
