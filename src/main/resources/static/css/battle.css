@@ -1586,6 +1586,30 @@ body.manual-drag-active .manual-band {
     text-align: center; font-size: 13px; font-weight: 700; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; pointer-events: none;
 }
+/* ---- ★★★段の再生(Batch 84b・裁定365・368)----
+   ★<b>帯は接続の帯と同じ形にしてある</b>(高さ・角丸・字の大きさ)——
+     ヘッダ行に並ぶので、揃っていないと行の高さが動く。
+   ★★<b>pointer-events: none。</b>読むための面であって操作の道具ではない(71 の判断)。
+   ★★★<b>飛ばすボタンは無い</b>(裁定364)。 */
+.auto-step-bar {
+    padding: 3px 14px; border-radius: 4px; max-width: 96vw;
+    text-align: center; font-size: 13px; font-weight: 700; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+    background: #33240a; color: #ffd77a; border: 1px solid #cc9a06;
+}
+
+/* ---- 盤面をわずかに沈める(裁定365・Q3 = a)----
+   ★<b>再生中に見えているのは「古い盤面」である</b>ということを、見た目で伝える。
+   ★★<b>沈めるだけで、触れなくはしない</b> —— 断るのは send の1箇所である(設計判断27)。
+   ★★★<b>filter は使わない</b>: 演出の層(position: fixed)を持つ祖先に filter を掛けると
+     包含ブロックが変わり、<b>fx 層の座標が丸ごとずれる</b>。
+     opacity と背景だけで沈める。 */
+.auto-step-sink .auto-columns {
+    opacity: 0.88;
+    transition: opacity 120ms linear;
+}
+.auto-columns { transition: opacity 120ms linear; }
+
 .manual-conn-bar-offline,
 .auto-conn-bar-offline { background: #58151c; color: #ffb3ba; border: 1px solid #dc3545; }
 .manual-conn-bar-ok,

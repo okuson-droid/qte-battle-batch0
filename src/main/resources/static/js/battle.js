@@ -130,6 +130,10 @@ client.onConnect = () => {
     offlinePeeking = false;
     setConnectionStatus('接続済み');
     updateOfflineLock();
+    // ★★Batch 84b: <b>再接続したら、再生しかけの段を捨てる</b>(設計書 4-4-3)。
+    //   ★これから届く ready の返事が最終状態を運んでくる ——
+    //     <b>古い段を再生し続けるほうが嘘になる</b>
+    stepDropAll();
     setConnBar(reconnected ? '再接続しました。盤面を同期しています' : null,
         'ok', CONN_BAR_MS);
     client.subscribe(`/topic/room/${ROOM_ID}/player/${PLAYER_ID}`, onMessage);
@@ -1370,6 +1374,15 @@ let fxEnabled = true;
 let pendingFx = null;
 
 /**
+ * ★Batch 84b: 直前の {@link fxSpawn} で<b>実際に走った</b>演出の最大長さ(ms)。
+ *
+ * ★★<b>これが段の長さの正である</b>(設計書 4-2)——
+ * 定数の表を新しく作らず、{@link fxRegister} を通った値をそのまま拾う。
+ * ★演出が1つも走らなかった段(ログ行だけの段)では 0 のままである。
+ */
+let fxSpawnMs = 0;
+
+/**
  * 演出を出してよいか。
  * ★{@code prefers-reduced-motion} は CSS と JS の両方で止める(手動モードと同じ)。
  * CSS だけだと DOM は作られ続け、JS だけだと将来 CSS で足した演出が漏れる。
@@ -1796,6 +1809,12 @@ sfxPreload();
  * @return 送ったかどうか。★<b>呼び出し側はこれを見て「畳むかどうか」を決める</b>(4-2)。
  */
 function send(action, payload) {
+    // ★★★Batch 84b(裁定365): 再生中は盤面の操作を送らない。
+    //   ★<b>覆いではなくここで断る</b> —— 覆いは守りではない(71 の判断)。
+    if (stepBlocks(action)) {
+        flashDenied(document.getElementById('auto-step-bar'));
+        return false;
+    }
     if (!isConnected()) {
         // ★宣言(オーバーレイか帯)は既に出ている。ここで足すのは
         //   「いま押したそれが弾かれた」だけである(flashDenied の項を参照)
@@ -4252,6 +4271,11 @@ function fxRegister(key, el, ms, play, opts) {
         if (e && e.target && e.target !== el) return;
         fxStop(key);
     };
+    // ★★★Batch 84b: <b>その段の長さは、ここを通った値そのものである。</b>
+    //   ★<b>段の長さの表を新しく作らない</b>(設計書 4-2: 写すと正が2つになる)——
+    //     builder が使った ms をそのまま拾うので、
+    //     <b>演出の長さを変えた日に、段の長さも黙って追随する</b>。
+    if (ms > fxSpawnMs) fxSpawnMs = ms;
     entry.timer = setTimeout(() => fxStop(key), ms + 140);
     if (entry.event) el.addEventListener(entry.event, entry.done);
     fxRunning.set(key, entry);
@@ -4431,6 +4455,7 @@ function fxCaptureDelivery(prev, next) {
 function fxSpawn() {
     const pending = pendingFx;
     pendingFx = null;
+    fxSpawnMs = 0;   // ★Batch 84b: この配信(=この段)で実際に走った演出の最大長さ
     if (!pending || !fxAllowed()) return;
     const layer = fxLayer();
     const plays = [];
@@ -4449,6 +4474,226 @@ function fxSpawn() {
 }
 
 // ---------------------------------------------------------------
+// 2.5) ★★★段の再生(Batch 84b・裁定362〜370)
+// ---------------------------------------------------------------
+
+/**
+ * ★★★<b>ここが「間」である。</b>84a はサーバに段を作らせただけであり、
+ * <b>画面はまだ最終状態を一息で描いていた</b>。
+ *
+ * <h3>なぜキューなのか</h3>
+ * 配信は<b>いつでも届く</b>。再生の途中で相手の操作が届いたら、
+ * ★<b>その段を後ろに継ぎ足す</b> —— <b>捨てない</b>。
+ * 捨てると<b>表示されない盤面変化</b>が生まれる(設計書 4-1)。
+ * ★★<b>キューは複数のメッセージにまたがって FIFO である。</b>
+ *
+ * <h3>★1段の中身は 80 のままである</h3>
+ * {@link fxCaptureDelivery} → {@code render} → {@link fxSpawn} の順序も役割も
+ * 1行も変えていない。変わったのは<b>いつ呼ばれるか</b>だけである。
+ */
+const STEP_MIN_MS = 200;
+
+/**
+ * ★★★総再生時間の上限(裁定364)。<b>飛ばす出口を作らないので、ここが唯一の逃げ場である。</b>
+ *
+ * ★<b>段数ではなく累計時間で数える</b>(設計書 4-4-2)——
+ * 段の長さは一定ではないので、段数で数えると
+ * <b>短い段ばかりの連鎖と長い段ばかりの連鎖で待ち時間が桁違いになる</b>。
+ *
+ * ★★<b>サーバ側の上限(8段・裁定370)とは別物である。</b>
+ * <b>守っているものが違う</b> —— あちらは配信量、こちらは<b>人が操作できない時間</b>。
+ * ★★★<b>値は 84c の実機調整で決める</b>(裁定363・364)。ここに在るのは<b>仕組み</b>である。
+ */
+const STEP_BUDGET_MS = 4000;
+
+/** ★★★段の長さの<b>調整の取り付け点</b>。84c はここだけを触ればよい(設計書 4-2) */
+function stepTune(ms) {
+    return Math.max(ms, STEP_MIN_MS);
+}
+
+/** 待っている段。★1件 = {view, logLine, final} */
+let stepQueue = [];
+/** 再生中か。★{@link send} のガードと、盤面を沈める判定がこれを読む */
+let stepPlaying = false;
+let stepTimer = null;
+/** 畳んだ段の数(サーバが畳んだぶん + 累計時間で畳んだぶん)。★裁定368 の表示がこれを読む */
+let stepFolded = 0;
+/** この操作でここまでに使った再生時間(ms)。★上限は累計時間で数える */
+let stepSpent = 0;
+
+/**
+ * 段を再生してよいか。
+ *
+ * ★★<b>これは「飛ばし」ではない</b>(設計書 4-4-3)——
+ * <b>人が演出を打ち切る出口</b>は作っていない(裁定364)。
+ * ここで止めているのは<b>そもそも再生しない</b>という別のことである。
+ *
+ * ★{@link fxAllowed} をそのまま使う。★★<b>演出を切っている人に段だけ再生すると、
+ * 何も動かないまま待たされるだけになる</b> —— 裁定358 が
+ * 「演出を切っている人には出さない」と決めたのと同じ形である。
+ */
+function stepAllowed() {
+    return fxAllowed();
+}
+
+/**
+ * 届いた配信をキューへ積む。★<b>最終状態は必ず最後に積む</b>。
+ *
+ * ★★<b>段が空でも画面は必ず動く</b>(設計書 3-3 の退化の経路)——
+ * その場合は最終状態を1件積むだけになり、<b>83 までとまったく同じ振る舞いになる</b>。
+ */
+function stepEnqueue(message) {
+    const steps = stepAllowed() ? (message.steps || []) : [];
+    for (const step of steps) {
+        stepQueue.push({ view: step.view, logLine: step.logLine, final: false });
+    }
+    stepQueue.push({ view: message.view, logLine: null, final: true });
+    // ★サーバが8段で畳んだぶん(裁定370)。★★<b>受け取った側が足し込む</b>
+    stepFolded += (message.foldedSteps || 0);
+    stepPump();
+}
+
+/**
+ * 再接続・部屋消失で<b>捨てる</b>(設計書 4-4-3)。
+ *
+ * ★★<b>これも飛ばしではなく復旧である。</b>
+ * <b>古い段を再生し続けるほうが嘘になる</b> —— 盤面はもう別物である。
+ */
+function stepDropAll() {
+    stepQueue = [];
+    stepPlaying = false;
+    stepSpent = 0;
+    stepFolded = 0;
+    if (stepTimer !== null) {
+        clearTimeout(stepTimer);
+        stepTimer = null;
+    }
+    stepSyncScreen();
+}
+
+/** 1段ずつ取り出して描く。★<b>間を空けるのはここだけである</b> */
+function stepPump() {
+    if (stepPlaying) return;
+    const item = stepQueue.shift();
+    if (!item) {
+        stepSpent = 0;
+        stepSyncScreen();
+        return;
+    }
+    stepPlaying = true;
+    stepSyncScreen();
+    stepApply(item);
+    // ★★★<b>最終状態のあとに待つかどうかは、後ろに何か居るかで決まる。</b>
+    //   ★<b>誰も待っていないなら待たない</b> —— その操作はもう終わっており、
+    //     人をこれ以上止める理由が無い。
+    //   ★★★<b>後ろに次の操作の段が居るなら待つ</b> ——
+    //     待たないと<b>その操作の結末が0ミリ秒だけ映って消える</b>。
+    //     <b>畳んだときの最終状態は、残りの変化を全部背負っている</b>ので、
+    //     いちばん見せなければならない一枚がいちばん見えないことになる。
+    //   ★<b>これは壊し検証の軸9 が教えた</b>(NG は「番人が足りない」だけでなく
+    //     「実装が足りない」ことも教える)。
+    if (item.final && stepQueue.length === 0) {
+        stepPlaying = false;
+        stepSyncScreen();
+        return;
+    }
+    const ms = stepTune(fxSpawnMs);
+    stepSpent += ms;
+    stepTimer = setTimeout(() => {
+        stepTimer = null;
+        stepPlaying = false;
+        stepPump();
+    }, ms);
+    // ★★★累計時間の上限に達したら、以降の段は演出せずに最終状態へ落とす(裁定364・368)。
+    //   ★<b>捨てるのではなく畳む</b> —— <b>ログ行は1行も欠けない</b>(裁定368)。
+    if (stepSpent >= STEP_BUDGET_MS) stepFoldRest();
+}
+
+/** 残りの段を畳む。★最終状態だけは残す(そこへ落とすため) */
+function stepFoldRest() {
+    const kept = [];
+    let folded = 0;
+    for (const item of stepQueue) {
+        if (item.final) {
+            kept.push(item);
+        } else {
+            folded++;
+        }
+    }
+    if (folded === 0) return;
+    stepQueue = kept;
+    stepFolded += folded;
+}
+
+/**
+ * 1段ぶんを画面へ当てる。
+ *
+ * ★★★<b>80 の3手をそのままの順序で呼ぶ。</b>
+ * {@code fxCaptureDelivery}(描く前に差分と旧位置を採る)→ {@code render} →
+ * {@code fxSpawn}(描いたあとに新位置を読んで走らせる)。
+ */
+function stepApply(item) {
+    fxCaptureDelivery(latestView, item.view);
+    latestView = item.view;
+    if (!latestView.myTurn || latestView.phase !== 'BATTLE') {
+        selectedAttackerId = null;
+    }
+    if (!latestView.you || !latestView.you.pendingChoice) {
+        choicePicks = [];
+    }
+    pending = null;
+    manaPay = null;
+    render(latestView);
+    fxSpawn();
+}
+
+/**
+ * 再生中であることを画面に出す(裁定365・368)。
+ *
+ * ★<b>盤面をわずかに沈める</b>(Q3 = a)。★★<b>覆いは被せない</b> ——
+ * <b>覆いは守りではない</b>(71 の判断)。断るのは {@link send} の1箇所である。
+ *
+ * ★★★<b>畳んだことも同じ場所に出す</b>(裁定368)——
+ * <b>黙って畳むと、演出が出ないことと区別がつかない</b>。
+ */
+function stepSyncScreen() {
+    const root = document.getElementById('auto-root');
+    if (root) root.classList.toggle('auto-step-sink', stepPlaying);
+    const bar = document.getElementById('auto-step-bar');
+    if (!bar) return;
+    if (stepPlaying) {
+        bar.textContent = '解決を再生中';
+        bar.classList.remove('d-none');
+        return;
+    }
+    if (stepFolded > 0) {
+        bar.textContent = `残り${stepFolded}段は演出を省いた(ログに全部残っている)`;
+        bar.classList.remove('d-none');
+        stepFolded = 0;
+        return;
+    }
+    bar.classList.add('d-none');
+    bar.textContent = '';
+}
+
+/**
+ * 再生中は盤面の操作を送らない(裁定365)。
+ *
+ * ★★<b>これは演出の都合ではなく事故の防止である。</b>
+ * 再生中に人が見ているのは<b>古い盤面</b>であり、そこでクリックできると
+ * <b>既に居ないミニオンを対象に選ぶ操作が飛ぶ</b>。
+ *
+ * ★<b>盤面を動かさない操作は通す。</b>{@code ready} は接続のたびに飛ぶし、
+ * <b>退室を7秒間断ると、人は画面から出られなくなる</b>。
+ */
+const STEP_FREE_ACTIONS = new Set(['ready', 'leave']);
+
+function stepBlocks(action) {
+    if (STEP_FREE_ACTIONS.has(action)) return false;
+    return stepPlaying || stepQueue.length > 0;
+}
+
+// ---------------------------------------------------------------
 // 3) 受信と描画
 // ---------------------------------------------------------------
 
@@ -4460,6 +4705,9 @@ function onMessage(frame) {
     //     サーバの文言を1文字直しただけで黙って効かなくなる。
     //     しかも効かなくなっても画面は「エラーが出た」ように見えるので、誰も気づかない。
     if (message.type === 'ROOM_LOST') {
+        // ★★Batch 84b: <b>再生の途中でも段を捨てる</b>(設計書 4-4-3)——
+        //   飛ばしではなく<b>復旧</b>である。盤面はもう無い
+        stepDropAll();
         showRoomLostFatal();
         return;
     }
@@ -4488,23 +4736,11 @@ function onMessage(frame) {
     //   ★<b>音の順序は1文字も変えていない</b>(描き直す前に鳴る)。
     //   ★★あわせて<b>旧位置</b>をここで読む —— 描き直したあとでは、
     //     出発点の要素はもう存在しない(読む相と書く相の分離)。
-    fxCaptureDelivery(latestView, message.view);
-    latestView = message.view;
-    // 盤面が変わったら選択状態は仕切り直す(対象が既にいない可能性があるため)
-    if (!latestView.myTurn || latestView.phase !== 'BATTLE') {
-        selectedAttackerId = null;
-    }
-    // 割り込み選択が無くなった(解決済み)なら、選びかけの内容も捨てる
-    if (!latestView.you || !latestView.you.pendingChoice) {
-        choicePicks = [];
-    }
-    pending = null;
-    manaPay = null;
-    render(latestView);
-    // ★★★Batch 80: 描き直したあとに新位置を読み、まとめて走らせる(裁定355)。
-    //   ★<b>ここでしか呼ばない。</b>render は画面の操作でも走るので、
-    //     あちらに置くと<b>クリックのたびに演出が出る</b>
-    fxSpawn();
+    // ★★★Batch 84b: <b>ここはもう「描く」場所ではなく「積む」場所である</b>(設計書 4-1)。
+    //   ★1段の中身({@code fxCaptureDelivery} → {@code render} → {@code fxSpawn})は
+    //     {@link stepApply} が 80 のままの順序で持っている —— 変わったのは<b>いつ呼ばれるか</b>だけ。
+    //   ★★<b>段が空なら最終状態を1件積むだけになる</b>ので、83 までと同じ振る舞いに退化する。
+    stepEnqueue(message);
 }
 
 function render(view) {

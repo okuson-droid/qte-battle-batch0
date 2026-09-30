@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=57)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=58)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -34,6 +34,14 @@
              ここに置くと x:188〜481 に収まり、伸びしろが 285px 残る(battle.css 参照)。
              ★接続表示のすぐ隣に置いたのは、同じことを言う2つを離さないためである。 -->
         <div id="auto-conn-bar" class="auto-conn-bar d-none"></div>
+        <!-- ★★★Batch 84b(裁定365・368): 段を再生している最中であること、
+             および<b>上限で畳んだこと</b>を出す。
+             ★<b>接続の帯とは別物である。</b>あちらは「届いていない」、こちらは「いま再生している」——
+               同じ帯に2つの意味を載せると、どちらの向きか分からない分岐が増える(72 の判断)。
+             ★★<b>覆いではない</b>(pointer-events: none)。断るのは battle.js の send の1箇所である。
+             ★★★<b>飛ばす出口は置かない</b>(裁定364)——
+               ここにボタンを1つ置いた瞬間、演出は「飛ばされる前提のもの」になる。 -->
+        <div id="auto-step-bar" class="auto-step-bar d-none"></div>
         <span class="auto-header-spacer"></span>
         <!-- ★★★Batch 72: 試合の出入り(席・投了・退室)。
              ★<b>ヘッダに置いた。</b>実測でヘッダの伸びしろは 940px あり、
@@ -511,6 +519,6 @@
        上げるのも据え置くのも「触ったかどうか」だけで決まる(7-5)。
      ★79 が4系統すべて据え置いたのは、静的ファイルを1文字も触っていなかったからである。
      ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
-<script th:src="@{/js/battle.js(v=42)}"></script>
+<script th:src="@{/js/battle.js(v=43)}"></script>
 </body>
 </html>

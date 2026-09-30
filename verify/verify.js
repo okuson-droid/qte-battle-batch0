@@ -10953,6 +10953,231 @@ async function clearZoom(page) {
     fxCalmErrors.length === 0, fxCalmErrors.join(' | '));
   await fxCalm.close();
 
+  // ================================================================
+  // ★★★Batch 84b: 段の再生(裁定362〜370)
+  //
+  // 設計解説 notes/batch84b-design-notes.md。正は notes/batch84-auto-staging-design.md。
+  //
+  // ★★<b>84a はサーバに段を作らせただけである。</b>ここで測るのは
+  //   <b>「間」がクライアントに在るか</b>である ——
+  //   <b>段が届いても一息で描いてしまえば、84 は1ミリも解けていない</b>。
+  // ★★★<b>この節は独立している</b>(72・75 の教訓)—— 自分でページを開き、自分で閉じる。
+  // ================================================================
+  const stPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const stErrors = [];
+  stPage.on('pageerror', (e) => stErrors.push(String(e)));
+  stPage.on('console', (m) => { if (m.type() === 'error') stErrors.push(m.text()); });
+  await stPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await stPage.waitForTimeout(300);
+
+  /** ★<b>本物の入口を通す</b>(裁定187)—— onMessage だけが「サーバから来た出来事」の入口 */
+  const stSend = (message) => stPage.evaluate((m) => {
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify(m) });
+  }, message);
+  /** 場のミニオンの数。★<b>DOM を数える</b> —— 変数を読むと「描いていない」を緑にしてしまう */
+  const stField = () => stPage.locator('#my-minions [data-instance-id]').count();
+  const stState = () => stPage.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    playing: stepPlaying, queued: stepQueue.length,
+    sunk: document.getElementById('auto-root').classList.contains('auto-step-sink'),
+    bar: document.getElementById('auto-step-bar').classList.contains('d-none')
+      ? null : document.getElementById('auto-step-bar').textContent,
+  }));
+  /** n体の自席ミニオンを持つビュー */
+  const stView = (n, log) => autoView({
+    you: autoPlayer({
+      minions: Array.from({ length: n }, (_, i) => autoMinion('sm' + i, '従者' + i)),
+    }),
+    log: log || [],
+  });
+  /** 段の列を持つ配信を1つ組む。★最後のビューが最終状態である */
+  const stMessage = (views, folded) => ({
+    type: 'VIEW',
+    view: views[views.length - 1],
+    steps: views.slice(0, -1).map((v, i) => ({ seq: i + 1, logLine: '段' + (i + 1), view: v })),
+    foldedSteps: folded || 0,
+  });
+  const stReset = async () => {
+    await stPage.evaluate(() => {
+      // eslint-disable-next-line no-undef
+      stepDropAll();
+      // eslint-disable-next-line no-undef
+      for (const key of [...fxRunning.keys()]) fxStop(key);
+      // eslint-disable-next-line no-undef
+      latestView = null;
+    });
+    await stSend({ type: 'VIEW', view: stView(5), steps: [], foldedSteps: 0 });
+    await stPage.waitForTimeout(60);
+  };
+
+  // ---- 84b-1. ★★★段が届いたら、一息で最終状態にならない ----
+  // ★★<b>これが 84 の中心命題そのものである。</b>5体 → 3体 → 1体 → 0体 と壊れる連鎖を
+  //   1メッセージで送り、<b>届いた直後の画面が「3体」であること</b>を測る。
+  //   ★<b>「0体」だったら、間がどこにも無いということである</b>。
+  await stReset();
+  await stSend(stMessage([stView(3), stView(1), stView(0)]));
+  const stFirst = await stField();
+  const stDuring = await stState();
+  check('★★★段が届いても一息で最終状態にならない。1段目が描かれる(84b・裁定362)',
+    stFirst === 3 && stDuring.playing === true && stDuring.queued > 0,
+    JSON.stringify({ field: stFirst, ...stDuring }));
+
+  // ---- 84b-2. ★★再生中は盤面が沈み、それと分かる帯が出る(裁定365)----
+  check('★★再生中は盤面が沈み、再生中であることが画面に出る(84b・裁定365)',
+    stDuring.sunk === true && stDuring.bar === '解決を再生中',
+    JSON.stringify(stDuring));
+
+  // ---- 84b-3. ★★★再生中は盤面の操作を送らない(項目5)----
+  // ★★<b>覆いで塞いでいないので、押せてしまう。</b>断るのは send の1箇所である ——
+  //   <b>だからここで測るのは「押した結果、飛んでいないこと」である</b>。
+  const stBlocked = await stPage.evaluate(() => {
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('end-turn', {});
+    return { ok: ok, sent: window.__sent.length };
+  });
+  check('★★★再生中は盤面の操作が送信されない(84b・裁定365・項目5)',
+    stBlocked.ok === false && stBlocked.sent === 0, JSON.stringify(stBlocked));
+
+  // ---- 84b-4. ★★★退室は断らない ----
+  // ★<b>7秒間の再生に人を閉じ込めない。</b>盤面を動かさない操作は通す
+  const stFree = await stPage.evaluate(() => {
+    window.__sent.length = 0;
+    // eslint-disable-next-line no-undef
+    const ok = send('leave', {});
+    return { ok: ok, sent: window.__sent.length };
+  });
+  check('★★再生中でも退室・ready は通る(84b・出られなくしない)',
+    stFree.ok === true && stFree.sent === 1, JSON.stringify(stFree));
+
+  // ---- 84b-5. ★★★飛ばす出口が存在しない(裁定364・項目7c)----
+  // ★★<b>盤面を押しても再生は打ち切られない。</b>
+  //   ★★★<b>コードの側でも測る</b> —— <b>「飛ばす」関数が1つも無いこと</b>。
+  //     出口を1つ足した人は、ここで赤を見る。
+  const stBeforeClick = await stField();
+  await stPage.mouse.click(640, 400);
+  await stPage.waitForTimeout(20);
+  const stAfterClick = await stField();
+  const stJsSrc = fs.readFileSync(
+    path.join(__dirname, '../src/main/resources/static/js/battle.js'), 'utf8');
+  check('★★★飛ばす出口が存在しない(84b・裁定364・項目7c)',
+    stAfterClick === stBeforeClick
+      && !/stepSkip|skipSteps|function stepFinishNow/.test(stJsSrc),
+    JSON.stringify({ before: stBeforeClick, after: stAfterClick }));
+
+  // ---- 84b-6. ★★★再生が終わると最終状態と完全に一致する(項目4)----
+  await stPage.waitForTimeout(1400);
+  const stEnd = await stState();
+  check('★★★再生が終わると盤面は最終状態になり、沈みも帯も戻る(84b・項目4)',
+    (await stField()) === 0 && stEnd.playing === false && stEnd.queued === 0
+      && stEnd.sunk === false, JSON.stringify({ field: await stField(), ...stEnd }));
+
+  // ---- 84b-7. ★★★再生中に届いた配信は捨てられない(項目6)----
+  // ★★<b>捨てると「表示されない盤面変化」が生まれる</b>(設計書 4-1)。
+  //   キューは複数のメッセージにまたがって FIFO である。
+  // ★★★<b>着地点だけを見ても分からない。</b>最後のメッセージの最終状態は、
+  //   キューを捨てても捨てなくても同じところへ落ちる ——
+  //   <b>壊し検証の軸9 が NG を返して、それを教えた</b>(83 の教訓の3例目)。
+  //   ★<b>だから「途中で何が映ったか」を数える</b>。
+  await stReset();
+  await stSend(stMessage([stView(4), stView(3)]));
+  await stSend(stMessage([stView(2), stView(1)]));
+  const stSeen = [];
+  for (let i = 0; i < 40; i++) {
+    const n = await stField();
+    if (stSeen[stSeen.length - 1] !== n) stSeen.push(n);
+    if (n === 1 && (await stState()).queued === 0) break;
+    await stPage.waitForTimeout(50);
+  }
+  check('★★★再生中に届いた次の配信は、後ろに継ぎ足される(84b・項目6)',
+    stSeen.includes(4) && stSeen.includes(3) && stSeen.includes(2)
+      && stSeen[stSeen.length - 1] === 1,
+    JSON.stringify({ seen: stSeen }));
+
+  // ---- 84b-8. ★★★累計時間の上限で畳み、最終状態へ落とす(裁定364・項目7)----
+  // ★★<b>上限は段数ではなく累計時間である</b>(設計書 4-4-2)。
+  //   ★30段の連鎖を投げ、<b>30段ぶんの時間が経つ前に終わっていること</b>を測る。
+  await stReset();
+  const stLong = [];
+  for (let i = 0; i < 30; i++) stLong.push(stView(i % 2 === 0 ? 5 : 4));
+  stLong.push(stView(0));
+  const stT0 = Date.now();
+  await stSend(stMessage(stLong));
+  await stPage.waitForFunction(() => !stepPlaying && stepQueue.length === 0,
+    null, { timeout: 15000 });
+  const stElapsed = Date.now() - stT0;
+  const stFoldBar = (await stState()).bar;
+  check('★★★上限を超えた連鎖は畳まれ、最終状態へ落ちる(84b・裁定364・項目7)',
+    (await stField()) === 0 && stElapsed < 30 * 200,
+    JSON.stringify({ elapsed: stElapsed, field: await stField() }));
+
+  // ---- 84b-9. ★★★畳んだことは画面に出る(裁定368)----
+  // ★<b>黙って畳むと、演出が出ないことと区別がつかない。</b>
+  check('★★★上限で畳んだことは画面に出る(84b・裁定368)',
+    !!stFoldBar && /段は演出を省いた/.test(stFoldBar), JSON.stringify({ bar: stFoldBar }));
+
+  // ---- 84b-10. ★★サーバが畳んだぶん(foldedSteps)も同じ場所に出る(裁定370・368)----
+  await stReset();
+  await stSend(stMessage([stView(2)], 7));
+  await stPage.waitForTimeout(120);
+  const stServerFold = (await stState()).bar;
+  check('★★サーバが畳んだ段数も同じ場所に出る(84b・裁定370)',
+    !!stServerFold && /7段は演出を省いた/.test(stServerFold),
+    JSON.stringify({ bar: stServerFold }));
+
+  // ---- 84b-11. ★★段を持たない配信は、83 までとまったく同じに描かれる(項目9)----
+  // ★★★<b>退化の経路である。</b>サーバだけ先に入れても壊れない形にしてある(設計書 3-3)。
+  await stReset();
+  await stSend({ type: 'VIEW', view: stView(6), steps: [], foldedSteps: 0 });
+  const stPlain = await stState();
+  check('★★段を持たない配信は、その場で最終状態が描かれる(84b・項目9・退化の経路)',
+    (await stField()) === 6 && stPlain.playing === false && stPlain.queued === 0,
+    JSON.stringify({ field: await stField(), ...stPlain }));
+
+  // ---- 84b-12. ★★★部屋が消えたらキューを捨てる(項目8b)----
+  // ★<b>これも飛ばしではなく復旧である</b>(設計書 4-4-3)。
+  await stReset();
+  await stSend(stMessage([stView(4), stView(3), stView(2), stView(0)]));
+  await stSend({ type: 'ROOM_LOST' });
+  const stLost = await stPage.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    queued: stepQueue.length, playing: stepPlaying,
+  }));
+  check('★★★部屋が消えたら、再生しかけの段は捨てられる(84b・項目8b)',
+    stLost.queued === 0 && stLost.playing === false, JSON.stringify(stLost));
+  await stPage.close();
+
+  // ---- 84b-13. ★★★演出を切っている人には段を再生しない(裁定358・4-4-3)----
+  // ★★<b>これは飛ばしではない。</b>「そもそも再生しない」であり、
+  //   <b>演出が出ないのに待たされる</b>という、いちばん理不尽な形を避けるためである。
+  const stCalm = await browser.newPage({
+    viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce',
+  });
+  const stCalmErrors = [];
+  stCalm.on('pageerror', (e) => stCalmErrors.push(String(e)));
+  await stCalm.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await stCalm.waitForTimeout(300);
+  const stCalmState = await stCalm.evaluate((m) => {
+    // eslint-disable-next-line no-undef
+    onMessage({ body: JSON.stringify(m) });
+    return {
+      // eslint-disable-next-line no-undef
+      allowed: fxAllowed(), playing: stepPlaying, queued: stepQueue.length,
+      field: document.querySelectorAll('#my-minions [data-instance-id]').length,
+      sunk: document.getElementById('auto-root').classList.contains('auto-step-sink'),
+    };
+  }, stMessage([stView(4), stView(3), stView(0)]));
+  check('★★★演出を切っている人には段を再生せず、最終状態だけを描く(84b・4-4-3)',
+    stCalmState.allowed === false && stCalmState.playing === false
+      && stCalmState.queued === 0 && stCalmState.field === 0
+      && stCalmState.sunk === false,
+    JSON.stringify(stCalmState));
+  check('段の再生(84b)でJSエラーが出ない',
+    stErrors.length === 0 && stCalmErrors.length === 0,
+    [...stErrors, ...stCalmErrors].join(' | '));
+  await stCalm.close();
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();
