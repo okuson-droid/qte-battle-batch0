@@ -11943,8 +11943,13 @@ async function clearZoom(page) {
   // ---- 85c-5. ★★★ドラッグのあとのクリックの抑えは、次のクリックまで持ち越さない ----
   // ★★<b>初版はここで落ちた</b>: 離した場所が掴んだ要素と違うとブラウザはクリックを出さないので、
   //   抑えの印が残って<b>次のプログラム・キーボードからのクリックを食べた</b>(verify 77-1 が教えた)。
+  // ★★★<b>掴んでいるあいだに描き直しが来る形で測る</b>(実戦では相手の配信が届いたとき)。
+  //   ブラウザは押した要素と離した要素の共通の祖先へクリックを出すので、普通は印がそこで消費される ——
+  //   ★<b>押した要素が描き直しで消えると、共通の祖先が無くなってクリックが出ず、印が残る</b>
+  //   (77-1 が赤くなったのはこの形だった。壊し検証の軸4 が、最初の書き方では当たらないことを教えた)。
   await inDeliver(inPage, inMainView);
-  await inPress(inPage, inFrom, { x: 640, y: 30 });
+  await inPress(inPage, inFrom, { x: inField.x, y: inField.y });
+  await inDeliver(inPage, inMainView);
   await inPage.mouse.up();
   await inPage.waitForTimeout(30);
   const inNoCarry = await inPage.evaluate(() => {
