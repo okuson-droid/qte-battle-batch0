@@ -3008,24 +3008,88 @@ function tabooPayBurns(cost) {
         .some(i => you.manaZone[i] && !you.manaZone[i].faceUp);
 }
 
-/** ドラッグを始められるなら draggable にして、掴んだときの手当てを付ける */
+/**
+ * ドラッグを始められるなら掴めるようにする。
+ *
+ * ★★★Batch 85c: <b>HTML5 の DnD をやめ、ポインタの身振り({@link gestureBegin})にした</b>(設計書 5章)。
+ *   HTML5 の DnD は<b>タッチで動かない</b>。ポインタイベントならマウス・タッチ・ペンが1本の口で届く。
+ * ★{@code draggable} は常に偽にする —— 真のままだとブラウザが HTML5 のドラッグを始めて、ポインタの身振りを奪う。
+ * ★<b>{@code auto-grab} が「掴めるカード」の印である</b>。★CSS がこの印に {@code touch-action: none} を当てる
+ *   (裁定385: 指は掴めるカードの上でだけカードの操作になる)。
+ */
 function attachDrag(el, from, index, card) {
+    el.draggable = false;
     const zones = dropZonesFor(card, from, latestView);
-    if (zones.length === 0) {
-        el.draggable = false;
-        return;
-    }
-    el.draggable = true;
-    el.addEventListener('dragstart', (e) => {
-        dragging = { from, index, card, zones, hoverZone: null };
-        // ★中身は使わない(同じページの中の話である)が、空だとドラッグが成立しないブラウザがある
-        e.dataTransfer.setData('text/plain', from + ':' + index);
-        e.dataTransfer.effectAllowed = 'move';
-        el.classList.add('auto-dragging');
-        markDropZones();
-        refreshPlannedMana();
+    if (zones.length === 0) return;
+    el.classList.add('auto-grab');
+    el.onpointerdown = (e) => gestureBegin(e, 'drag', el, { from, index, card, zones });
+}
+
+/** ★Batch 85c: ドラッグを実際に始める(指が閾値を越えて動いたとき)。★render() を通さない */
+function dragStart(g) {
+    dragging = { from: g.data.from, index: g.data.index, card: g.data.card, zones: g.data.zones, hoverZone: null };
+    hideHover();   // ★裁定383: カードを動かしているあいだは拡大を出さない
+    g.el.classList.add('auto-dragging');
+    // ★掴んだカードが指に付いてくる(設計書 5章)。★本物は描き直しで消えうるので、複製を動かす
+    const rect = g.el.getBoundingClientRect();
+    const ghost = g.el.cloneNode(true);
+    ghost.removeAttribute('id');
+    ghost.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
+    ghost.classList.remove('auto-dragging', 'auto-grab');
+    ghost.classList.add('auto-drag-ghost');
+    ghost.style.width = rect.width + 'px';
+    ghost.style.height = rect.height + 'px';
+    gestureLayer().appendChild(ghost);
+    g.ghost = ghost;
+    g.offsetX = g.startX - rect.left;
+    g.offsetY = g.startY - rect.top;
+    markDropZones();
+    refreshPlannedMana();
+}
+
+/** ★Batch 85c: 指の位置に複製を付け、指している落とし先を光らせる */
+function dragMove(g, x, y) {
+    const tilt = Math.max(-12, Math.min(12, (x - (g.lastX === undefined ? x : g.lastX)) * 0.8));
+    g.lastX = x;
+    g.ghost.style.transform = `translate(${x - g.offsetX}px, ${y - g.offsetY}px) rotate(${tilt.toFixed(1)}deg) scale(1.06)`;
+    const zone = dropZoneAt(x, y);
+    DROP_ZONES.forEach(({ zone: z, id }) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('auto-drop-over', zone === z);
     });
-    el.addEventListener('dragend', () => endDrag());
+    if (dragging.hoverZone !== zone) {
+        dragging.hoverZone = zone;
+        refreshPlannedMana();   // ★賢魂かミニオンかで払う枚数が変わる(裁定318)
+    }
+}
+
+/**
+ * ★Batch 85c: 指を離した。★落とせる場所の上なら使い、そうでなければ何もしない(手札へ戻る)。
+ * ★<b>落ちた場所は座標から取る</b>(20a の A4)。進化の素材はこれでしか分からない。
+ */
+function dragEnd(g, x, y) {
+    const zone = dragging ? dropZoneAt(x, y) : null;
+    let droppedOn = null;
+    if (zone) {
+        const under = document.elementFromPoint(x, y);
+        const card = under && under.closest ? under.closest('#my-minions .auto-card') : null;
+        droppedOn = card ? card.dataset.instanceId : null;
+    }
+    const dropped = dragging;
+    endDrag();
+    if (zone && dropped) playByDrop(dropped, zone, droppedOn);
+}
+
+/** ★Batch 85c: 座標の下にある「今つかんでいるカードを落とせる場所」。無ければ null */
+function dropZoneAt(x, y) {
+    if (!dragging) return null;
+    const under = document.elementFromPoint(x, y);
+    if (!under) return null;
+    for (const { zone, id } of DROP_ZONES) {
+        const el = document.getElementById(id);
+        if (el && el.contains(under) && dragging.zones.includes(zone)) return zone;
+    }
+    return null;
 }
 
 /** 落とせる場所に印を付ける。★render() を通さない(ドラッグ中に DOM を作り直さない) */
@@ -3048,6 +3112,14 @@ function refreshPlannedMana() {
 
 function endDrag() {
     dragging = null;
+    if (gesture && gesture.ghost) {
+        gesture.ghost.remove();
+        gesture.ghost = null;
+    }
+    DROP_ZONES.forEach(({ id }) => {
+        const el = document.getElementById(id);
+        if (el) el.classList.remove('auto-drop-over');
+    });
     markDropZones();
     document.querySelectorAll('.auto-card.auto-dragging')
         .forEach(el => el.classList.remove('auto-dragging'));
@@ -3055,38 +3127,271 @@ function endDrag() {
         .forEach(el => el.classList.remove('auto-pay-planned'));
 }
 
+// ★★★Batch 85c: 落とし先の器に DnD の手当てを付ける registerDropZone は退役した ——
+//   落とし先は指の座標から {@link dropZoneAt} が引く(器ごとに手当てを付けない)。
+
+// ---------------------------------------------------------------
+// ★★★2-8b) ポインタの身振り(Batch 85c・裁定381〜385)
+// ---------------------------------------------------------------
+//
+// ★★<b>マウス・タッチ・ペンを1本の口で受ける</b>(設計書 5章)。身振りは3つである ——
+//   (1) 手札・禁忌を掴んで落とす(ドラッグ)/ (2) 攻撃できるミニオン・リーダーから矢印を引く(照準)/
+//   (3) タッチの長押しで拡大する(裁定384)。
+// ★★<b>押しただけでは何も始まらない。</b>指が {@link GESTURE_THRESHOLD_PX} を越えて動いて初めて、
+//   ドラッグ・照準が始まる —— 動かなければ<b>今までどおりのクリック</b>である(クリックからのプレイ・
+//   クリック2回の攻撃は残す。裁定319・381)。
+// ★★★<b>送信の口は増やしていない。</b>落とした・離した先で呼ぶのは既存の {@link playByDrop} と
+//   {@link onOpponentMinionClick} / {@link onOpponentLeaderClick} であり、
+//   ガード(裁定365)は今までどおり {@link send} の1箇所に居る。
+// ★★<b>指の動きは window で受ける。</b>掴んだ要素は描き直しで作り直されうるので、
+//   要素に指を捕まえさせる(setPointerCapture)と、作り直された瞬間に身振りが途切れる。
+
+/** ★身振りを始めるまでに指が動く距離(px)。★これより小さい動きはクリックとして扱う */
+const GESTURE_THRESHOLD_PX = 6;
+
+/** ★★裁定384: タッチで拡大するまでの長押しの長さ(ms)。デモと同じ長さ */
+const LONG_PRESS_MS = 500;
+
+/** 今の身振り。{kind: 'drag'|'aim', el, data, pointerId, startX, startY, active} */
+let gesture = null;
+
+/** 矢印を引いている最中の攻撃者({@code instanceId} か 'LEADER')。★ホバーの判定が読む */
+let aiming = null;
+
 /**
- * ドロップ先を1つ登録する。★<b>ページの読み込み時に1回だけ</b>呼ぶ ——
- * この4つの器は描画で作り直されない(作り直されるのは中身だけである)。
+ * ★身振りのあとに来るクリックを1回だけ捨てる(掴んで離したのに「クリックで使う」が走らないため)。
+ * ★★<b>離した直後のクリックにだけ効く</b>({@link suppressNextClick})。
+ *   離した場所が掴んだ要素と違うと、ブラウザはクリックを出さない —— 印を残したままにすると、
+ *   <b>次のキーボード・プログラムからのクリックを食べる</b>(verify 77-1 が赤くなって教えた)。
  */
-function registerDropZone(zone, id) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('dragover', (e) => {
-        if (!dragging || !dragging.zones.includes(zone)) return;
-        e.preventDefault();
-        if (dragging.hoverZone !== zone) {
-            dragging.hoverZone = zone;
-            refreshPlannedMana();   // ★賢魂かミニオンかで払う枚数が変わる(裁定318)
-        }
-        el.classList.add('auto-drop-over');
-    });
-    el.addEventListener('dragleave', () => el.classList.remove('auto-drop-over'));
-    el.addEventListener('drop', (e) => {
-        if (!dragging || !dragging.zones.includes(zone)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        // ★落ちた場所は座標から取る(20a の A4)。進化の素材はこれでしか分からない
-        const under = document.elementFromPoint(e.clientX, e.clientY);
-        const card = under && under.closest ? under.closest('#my-minions .auto-card') : null;
-        const droppedOn = card ? card.dataset.instanceId : null;
-        const dropped = dragging;
-        endDrag();
-        playByDrop(dropped, zone, droppedOn);
-    });
+let suppressClickOnce = false;
+
+/**
+ * ★指を離した瞬間に呼ぶ。
+ * ★★<b>クリックが来るまでの間は入力の種類で違う</b> —— マウスは離した処理の中ですぐ来るが、
+ *   タッチは指を離したあと<b>別の処理として少し遅れて</b>来る(実測: pointerup → touchend → click)。
+ *   マウスは次の一巡で、タッチ・ペンは {@link TOUCH_CLICK_WINDOW_MS} で印を消す。
+ */
+const TOUCH_CLICK_WINDOW_MS = 350;
+function suppressNextClick(pointerType) {
+    suppressClickOnce = true;
+    setTimeout(() => { suppressClickOnce = false; },
+        pointerType === 'mouse' ? 0 : TOUCH_CLICK_WINDOW_MS);
 }
 
-DROP_ZONES.forEach(({ zone, id }) => registerDropZone(zone, id));
+/** ドラッグの複製と矢印を置く層。★演出の層(1020)より上、操作の道具(席ゲート 1060〜)より下 */
+function gestureLayer() {
+    let el = document.getElementById('auto-drag-layer');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'auto-drag-layer';
+    el.className = 'auto-drag-layer';
+    document.body.appendChild(el);
+    return el;
+}
+
+/** ★身振りの入口。★掴めるカード・矢印の元に {@code onpointerdown} で付ける(代入なので何度描いても冪等) */
+function gestureBegin(e, kind, el, data) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;   // ★右クリックは拡大のまま(裁定383)
+    if (gesture) return;
+    gesture = { kind, el, data, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false };
+}
+
+window.addEventListener('pointermove', (e) => {
+    if (!gesture || e.pointerId !== gesture.pointerId) return;
+    if (!gesture.active) {
+        if (Math.hypot(e.clientX - gesture.startX, e.clientY - gesture.startY) < GESTURE_THRESHOLD_PX) return;
+        gesture.active = true;
+        longPressCancel();
+        if (gesture.kind === 'drag') dragStart(gesture);
+        else aimStart(gesture);
+    }
+    if (gesture.kind === 'drag') dragMove(gesture, e.clientX, e.clientY);
+    else aimMove(gesture, e.clientX, e.clientY);
+});
+
+window.addEventListener('pointerup', (e) => {
+    if (!gesture || e.pointerId !== gesture.pointerId) return;
+    const g = gesture;
+    if (g.active) {
+        suppressNextClick(e.pointerType);
+        if (g.kind === 'drag') dragEnd(g, e.clientX, e.clientY);
+        else aimEnd(g, e.clientX, e.clientY);
+    }
+    gesture = null;
+});
+
+window.addEventListener('pointercancel', (e) => {
+    if (!gesture || e.pointerId !== gesture.pointerId) return;
+    const g = gesture;
+    if (g.active) {
+        if (g.kind === 'drag') endDrag();
+        else aimClear(true);
+    }
+    gesture = null;
+});
+
+// ★身振りのあとのクリックを捨てる。★捕獲相で止めるので、要素の onclick には届かない
+window.addEventListener('click', (e) => {
+    if (!suppressClickOnce) return;
+    suppressClickOnce = false;
+    e.preventDefault();
+    e.stopPropagation();
+}, true);
+
+// ---- 照準(矢印)。★裁定381・382 ----
+
+/**
+ * ★矢印を引き始めた。★<b>攻撃者を選んだ状態にして描き直す</b> —— 攻撃できる対象の光り
+ * ({@code attack-target} / {@code attackable})は描画が既に持っているので、写さずにそれを使う。
+ */
+function aimStart(g) {
+    aiming = g.data.attacker;
+    hideHover();   // ★裁定383: 矢印を引いているあいだは拡大を出さない
+    g.fromRect = g.el.getBoundingClientRect();
+    selectedAttackerId = g.data.attacker;
+    render(latestView);
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'auto-aim');
+    const path = document.createElementNS(NS, 'path');
+    path.setAttribute('class', 'auto-aim-line');
+    const head = document.createElementNS(NS, 'circle');
+    head.setAttribute('class', 'auto-aim-head');
+    head.setAttribute('r', '9');
+    svg.appendChild(path);
+    svg.appendChild(head);
+    gestureLayer().appendChild(svg);
+    g.svg = svg;
+    g.path = path;
+    g.head = head;
+}
+
+/** ★指の下の、攻撃できる対象。{kind: 'minion'|'leader', el, id} か null */
+function aimTargetAt(x, y) {
+    const under = document.elementFromPoint(x, y);
+    if (!under || !under.closest) return null;
+    const minion = under.closest('#opp-minions .auto-card.attack-target');
+    if (minion) return { kind: 'minion', el: minion, id: minion.dataset.instanceId };
+    const leader = under.closest('#opp-leader.attackable');
+    if (leader) return { kind: 'leader', el: leader, id: null };
+    return null;
+}
+
+function aimMove(g, x, y) {
+    const sx = g.fromRect.left + g.fromRect.width / 2;
+    const sy = g.fromRect.top + g.fromRect.height / 2;
+    const mx = (sx + x) / 2;
+    const my = Math.min(sy, y) - Math.abs(x - sx) * 0.15 - 30;
+    g.path.setAttribute('d', `M${sx.toFixed(1)},${sy.toFixed(1)} Q${mx.toFixed(1)},${my.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}`);
+    g.head.setAttribute('cx', x.toFixed(1));
+    g.head.setAttribute('cy', y.toFixed(1));
+    const target = aimTargetAt(x, y);
+    const lockedEl = target ? target.el : null;
+    if (g.locked && g.locked !== lockedEl) g.locked.classList.remove('auto-aim-locked');
+    if (lockedEl) lockedEl.classList.add('auto-aim-locked');
+    g.locked = lockedEl;
+    g.svg.classList.toggle('auto-aim-on', !!lockedEl);
+}
+
+/**
+ * ★★裁定381: 攻撃できる対象の上で離したら<b>確認なしで送る</b>。それ以外で離したら何もしない(取り消し)。
+ * ★送るのは<b>クリック2回のときと同じ関数</b>である —— 入口で手触りを変えない。
+ */
+function aimEnd(g, x, y) {
+    const target = aimTargetAt(x, y);
+    aimClear(false);
+    if (target && target.kind === 'minion') {
+        onOpponentMinionClick(target.id);
+        render(latestView);
+    } else if (target && target.kind === 'leader') {
+        onOpponentLeaderClick();
+        render(latestView);
+    } else {
+        selectedAttackerId = null;
+        render(latestView);
+    }
+}
+
+function aimClear(rerender) {
+    const g = gesture;
+    aiming = null;
+    if (g && g.locked) g.locked.classList.remove('auto-aim-locked');
+    if (g && g.svg) g.svg.remove();
+    if (rerender) {
+        selectedAttackerId = null;
+        render(latestView);
+    }
+}
+
+// ---- 長押しで拡大(タッチだけ)。★裁定384 ----
+
+let longPressTimer = null;
+/** ★長押しで拡大した直後の、ブラウザ自身の contextmenu を捨てる期限(Android は長押しで出す) */
+let longPressQuietUntil = 0;
+
+function longPressCancel() {
+    if (longPressTimer !== null) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
+}
+
+/** ★押した要素から祖先へ、拡大の手当て({@code oncontextmenu})を持つ要素を探す(attachZoom が代入で付ける) */
+function zoomableFrom(target) {
+    for (let el = target; el && el !== document.body; el = el.parentElement) {
+        if (typeof el.oncontextmenu === 'function') return el;
+    }
+    return null;
+}
+
+document.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch') return;
+    longPressCancel();
+    const el = zoomableFrom(e.target);
+    if (!el) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const id = e.pointerId;
+    let pressed = false;
+    const moved = (ev) => {
+        if (ev.pointerId === id && Math.hypot(ev.clientX - startX, ev.clientY - startY) >= GESTURE_THRESHOLD_PX) {
+            longPressCancel();
+        }
+    };
+    const done = () => {
+        longPressCancel();
+        if (pressed) suppressNextClick('touch');   // ★長押しで拡大したなら、離したときのクリックを捨てる
+        window.removeEventListener('pointermove', moved);
+        window.removeEventListener('pointerup', done);
+        window.removeEventListener('pointercancel', done);
+    };
+    window.addEventListener('pointermove', moved);
+    window.addEventListener('pointerup', done);
+    window.addEventListener('pointercancel', done);
+    longPressTimer = setTimeout(() => {
+        longPressTimer = null;
+        if (gesture && gesture.active) return;   // ★動かしているあいだは拡大しない(裁定383)
+        gesture = null;                          // ★長押しは身振りを奪う(離してもドラッグ・クリックにしない)
+        pressed = true;
+        longPressQuietUntil = Date.now() + 800;
+        el.oncontextmenu({ preventDefault() {}, stopPropagation() {} });
+    }, LONG_PRESS_MS);
+});
+
+// ★★掴めるカード・矢印の元では、ブラウザ自身のドラッグ(画像のドラッグ)を始めさせない ——
+//   始まると pointercancel が来て、ポインタの身振りが途中で切れる
+document.addEventListener('dragstart', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.auto-grab, .auto-aim-source')) e.preventDefault();
+});
+
+// ★長押しで拡大した直後にブラウザ自身の contextmenu が来ても、二度は開かない
+window.addEventListener('contextmenu', (e) => {
+    if (Date.now() < longPressQuietUntil) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+}, true);
 
 /**
  * ★★★Batch 70: 落としたものを実際にプレイする(裁定318・321・322)。
@@ -3908,8 +4213,9 @@ let hoverTimer = null;
  *     同じ式を書き写さずに<b>呼ぶ</b>(裁定130)。
  */
 function hoverBlocked() {
+    // ★★★Batch 85c(裁定383): カードを動かしているあいだ・矢印を引いているあいだも出さない
     return !!pending || !!evolution || !!manaPay || hasPendingChoice()
-        || !!(latestView && latestView.mulligan);
+        || !!(latestView && latestView.mulligan) || !!dragging || !!aiming;
 }
 
 function hideHover() {
@@ -5986,6 +6292,11 @@ function renderSelf(you, view) {
     myLeaderEl.classList.toggle('attackable', leaderReady);
     myLeaderEl.classList.toggle('selected-attacker', selectedAttackerId === 'LEADER');
     myLeaderEl.onclick = leaderReady ? onMyLeaderClick : null;
+    // ★★★Batch 85c(裁定382): ウェポンを持ったリーダーも矢印を引ける(ミニオンと同じ所作)。
+    //   ★リーダーは描き直しで作り直されない要素なので、外すときも代入で外す
+    myLeaderEl.classList.toggle('auto-aim-source', leaderReady);
+    myLeaderEl.onpointerdown = leaderReady
+        ? (e) => gestureBegin(e, 'aim', myLeaderEl, { attacker: 'LEADER' }) : null;
 
     // ★44→45: マナは名前つきタイル(buildManaTile)。選択のクラス名と click は 43 以前から不変
     const manaReq = currentRequirement();
@@ -6042,6 +6353,9 @@ function renderSelf(you, view) {
             if (battleReady) {
                 el.classList.add('can-attack');
                 el.onclick = () => onMyMinionClick(minion.instanceId);
+                // ★★★Batch 85c(裁定381): ここから矢印を引ける。★印 auto-aim-source に CSS が touch-action を当てる
+                el.classList.add('auto-aim-source');
+                el.onpointerdown = (e) => gestureBegin(e, 'aim', el, { attacker: minion.instanceId });
             }
             // メインフェイズ: 起動能力が使えるミニオンもクリック可能にする(a6)
             if (view.myTurn && view.phase === 'MAIN' && minion.canUseAbility) {

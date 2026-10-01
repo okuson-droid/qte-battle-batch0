@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" th:href="@{/apple-touch-icon.png}">
     <!-- ★Batch 41: CDN をやめて自前配信にした(理由は batch41 設計解説 1章) -->
     <link th:href="@{/vendor/bootstrap-5.3.3.min.css}" rel="stylesheet">
-    <link th:href="@{/css/battle.css(v=59)}" rel="stylesheet">
+    <link th:href="@{/css/battle.css(v=60)}" rel="stylesheet">
 </head>
 <body class="bg-dark text-light">
 <!-- ★★Batch 43: 1画面レイアウト(設計解説 1章)。
@@ -524,8 +524,9 @@
      差分の演出(80)はそのまま残る)。
      ★battle.js は v=43 → v=44、battle.css は v=58 → v=59(参照する5枚すべて)。
      ★★Batch 84c: battle-fx.js を v=1 → v=2(拍を詰めた・裁定378)。battle.js / battle.css は据え置き。
+     ★★Batch 85c: battle.js を v=44 → v=45、battle.css を v=59 → v=60(5枚とも)。操作をポインタの身振りにした(裁定381〜385)。battle-fx.js は据え置き。
      ★★★<b>manual-battle.js は据え置き</b>(v=34)—— 手動モードは1文字も触っていない。 -->
 <script th:src="@{/js/battle-fx.js(v=2)}"></script>
-<script th:src="@{/js/battle.js(v=44)}"></script>
+<script th:src="@{/js/battle.js(v=45)}"></script>
 </body>
 </html>
