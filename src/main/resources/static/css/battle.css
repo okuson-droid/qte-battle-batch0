@@ -2398,3 +2398,51 @@ body.manual-drag-active .manual-band {
 @media (prefers-reduced-motion: reduce) {
     .auto-fx-hold { visibility: visible !important; }
 }
+
+/* ============================================================
+   ★★★Batch 85c: ポインタの身振り(ドラッグ・矢印・長押し・裁定381〜385)
+   ============================================================ */
+
+/* ★★裁定385: <b>指は掴めるカードの上でだけカードの操作になる</b>。
+   それ以外の場所では touch-action を触らないので、今までどおりページが動く。 */
+/* ★★<b>中身にも当てる。</b>カードの本文の欄(.mcard-text)はそれ自身がスクロールできる箱なので、
+   指の扱いはその箱の値で決まる —— 外側だけ none にしても、本文の上に指を置くとページが動き、
+   ブラウザが身振りを取り消した(pointercancel・85c の番人が教えた)。 */
+.auto-grab, .auto-aim-source,
+.auto-grab *, .auto-aim-source * {
+    touch-action: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+}
+.auto-grab img, .auto-aim-source img { -webkit-user-drag: none; }
+.auto-grab { cursor: grab; }
+
+/* ---- 身振りの層。★演出の層(1020)より上、操作の道具(席ゲート 1060〜)より下 ---- */
+.auto-drag-layer { position: fixed; inset: 0; z-index: 1035; pointer-events: none; }
+
+/* ---- 指に付いてくるカード(本物の複製) ---- */
+.auto-drag-ghost {
+    position: absolute; left: 0; top: 0; margin: 0;
+    pointer-events: none; transform-origin: 50% 50%; will-change: transform;
+    filter: drop-shadow(0 18px 22px rgba(0, 0, 0, 0.55));
+}
+
+/* ---- 矢印(照準)。★色は 43 以来の「攻撃の選択」と同じ橙(.selected-attacker の #ff5722)---- */
+.auto-aim { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.auto-aim-line {
+    fill: none; stroke: #ff5722; stroke-width: 7; stroke-linecap: round;
+    stroke-dasharray: 4 12; opacity: 0.85;
+    animation: auto-aim-dash 0.5s linear infinite;
+}
+.auto-aim-head { fill: none; stroke: #ff5722; stroke-width: 3; opacity: 0.9; }
+.auto-aim.auto-aim-on .auto-aim-line { opacity: 1; stroke-width: 9; }
+.auto-aim.auto-aim-on .auto-aim-head { fill: rgba(255, 87, 34, 0.35); }
+@keyframes auto-aim-dash { to { stroke-dashoffset: -16; } }
+/* ★指が乗っている対象。★面の質感には触れず、輪だけを足す(32c) */
+.auto-card.auto-aim-locked .mcard,
+.auto-leader.auto-aim-locked {
+    box-shadow: 0 0 0 3px #fff, 0 0 22px 8px rgba(255, 87, 34, 0.85);
+}
+@media (prefers-reduced-motion: reduce) {
+    .auto-aim-line { animation: none; }
+}

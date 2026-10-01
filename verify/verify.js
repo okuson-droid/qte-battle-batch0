@@ -11813,6 +11813,308 @@ async function clearZoom(page) {
   check('段の長さの調整(84c)でJSエラーが出ない', tuErrors.length === 0, tuErrors.join(' | '));
   await tuPage.close();
 
+  // ================================================================
+  // ★★★Batch 85c: 操作の作り直し(ポインタの身振り・裁定381〜385)
+  //
+  // 設計解説 notes/batch85c-design-notes.md。正は notes/batch85-demo-fx-design.md 5章。
+  // ★★<b>マウスは page.mouse の実マウスで、タッチは CDP のタッチの出来事で起こす</b> ——
+  //   合成の PointerEvent を投げない(19b hotfix2・20a の教訓: 合成は本物の入力の道を通らない)。
+  // ★★★<b>この節は独立している</b>(72・75 の教訓)。
+  // ================================================================
+  const inPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const inErrors = [];
+  inPage.on('pageerror', (e) => inErrors.push(String(e)));
+  inPage.on('console', (m) => { if (m.type() === 'error') inErrors.push(m.text()); });
+  await inPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await inPage.waitForTimeout(300);
+  const inDeliver = async (page, view) => {
+    await page.evaluate((v) => {
+      // eslint-disable-next-line no-undef
+      onMessage({ body: JSON.stringify({ type: 'VIEW', view: v, steps: [], foldedSteps: 0, events: [] }) });
+    }, view);
+    await page.waitForTimeout(60);
+  };
+  const inCenter = async (page, sel) => {
+    const b = await page.locator(sel).first().boundingBox();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  };
+  /** 実マウスで押して、途中で止まって様子を見られるドラッグ。★離すのは呼び出し側 */
+  const inPress = async (page, from, to, steps) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    const n = steps || 20;
+    for (let i = 1; i <= n; i++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * i) / n, from.y + ((to.y - from.y) * i) / n);
+      await page.waitForTimeout(4);
+    }
+  };
+  const inSent = (page) => page.evaluate(() => window.__sent.map((s) => ({ d: s.destination.split('/').pop(), b: s.body })));
+  const inClear = (page) => page.evaluate(() => { window.__sent.length = 0; });
+  // ★メインフェイズ: 手札の0枚目は払えるミニオン(掴める)、1枚目は払えない(掴めない)
+  const inMainView = autoView({
+    phase: 'MAIN', myTurn: true,
+    you: autoPlayer({
+      availableMp: 3, totalMana: 3, manaZone: [autoMana(), autoMana(), autoMana()], manaPayOrder: [0, 1, 2],
+      hand: [autoCard('QTE-M-FIRE-6', '掴める従者', { cost: 2 }), autoCard('QTE-M-FIRE-7', '重すぎる従者', { cost: 9 })],
+      handCount: 2, minions: [autoMinion('m0', '場の従者')],
+    }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e0', '敵の従者')] }),
+  });
+  // ★バトルフェイズ: a0 は攻撃できる、a1 はできない。リーダーはウェポンで攻撃できる
+  const inBattleView = autoView({
+    phase: 'BATTLE', myTurn: true,
+    you: autoPlayer({
+      minions: [autoMinion('a0', '攻める従者', { canAttackMinion: true, canAttackLeader: true }),
+        autoMinion('a1', '休む従者')],
+      leaderCanAttack: true, weaponName: '検証の剣', weaponAttack: 2,
+    }),
+    opponent: autoPlayer({ displayName: 'あいて', minions: [autoMinion('e0', '敵の従者'), autoMinion('e1', '敵の従者2')] }),
+  });
+
+  // ---- 85c-1. ★★★掴めるカードと矢印の元にだけ、指の操作が付く(裁定385)----
+  await inDeliver(inPage, inMainView);
+  const inGrab = await inPage.evaluate(() => {
+    const ta = (el) => (el ? getComputedStyle(el).touchAction : null);
+    const hand = [...document.querySelectorAll('#my-hand .auto-card')];
+    return {
+      grab: hand.map((el) => el.classList.contains('auto-grab')),
+      draggable: hand.map((el) => el.draggable),
+      touch: hand.map(ta),
+      board: ta(document.getElementById('my-minions')),
+    };
+  });
+  await inDeliver(inPage, inBattleView);
+  const inAimSrc = await inPage.evaluate(() => ({
+    minions: [...document.querySelectorAll('#my-minions .auto-card')].map((el) => el.classList.contains('auto-aim-source')),
+    leader: document.getElementById('my-leader').classList.contains('auto-aim-source'),
+    touch: getComputedStyle(document.querySelector('#my-minions .auto-card')).touchAction,
+  }));
+  check('★★★掴めるカードと矢印の元にだけ指の操作が付き、それ以外ではページが動く(85c・裁定385)',
+    JSON.stringify(inGrab.grab) === '[true,false]' && JSON.stringify(inGrab.draggable) === '[false,false]'
+      && inGrab.touch[0] === 'none' && inGrab.touch[1] !== 'none' && inGrab.board !== 'none'
+      && JSON.stringify(inAimSrc.minions) === '[true,false]' && inAimSrc.leader === true
+      && inAimSrc.touch === 'none',
+    JSON.stringify({ inGrab, inAimSrc }));
+
+  // ---- 85c-2. ★★★掴んだカードが指に付いてくる(設計書 5章)----
+  await inDeliver(inPage, inMainView);
+  const inFrom = await inCenter(inPage, '#my-hand .auto-card');
+  const inField = await inCenter(inPage, '#my-minions');
+  await inPress(inPage, inFrom, { x: inField.x, y: inField.y });
+  const inDuring = await inPage.evaluate((p) => {
+    const g = document.querySelector('#auto-drag-layer .auto-drag-ghost');
+    const r = g ? g.getBoundingClientRect() : null;
+    return {
+      ghost: !!g, near: r ? Math.round(Math.hypot(r.left + r.width / 2 - p.x, r.top + r.height / 2 - p.y)) : null,
+      held: document.querySelector('#my-hand .auto-card').classList.contains('auto-dragging'),
+      over: document.getElementById('my-minions').classList.contains('auto-drop-over'),
+    };
+  }, inField);
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(60);
+  const inAfter = await inPage.evaluate(() => document.querySelectorAll('#auto-drag-layer .auto-drag-ghost').length);
+  check('★★★掴んだカードは指に付いてきて、落とし先が光り、離せば消える(85c・設計書 5章)',
+    inDuring.ghost && inDuring.near !== null && inDuring.near < 80 && inDuring.held && inDuring.over && inAfter === 0,
+    JSON.stringify({ inDuring, inAfter }));
+
+  // ---- 85c-3. ★★落とし先でない場所で離したら何も起きない(クリックとしても扱わない)----
+  await inDeliver(inPage, inMainView);
+  await inClear(inPage);
+  await inPress(inPage, inFrom, { x: 640, y: 30 });
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(60);
+  const inMiss = await inPage.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    sent: window.__sent.length, paying: !!manaPay, pending: !!pending,
+  }));
+  check('★★落とし先でない場所で離すと何も送らず、クリックからのプレイも始まらない(85c)',
+    inMiss.sent === 0 && !inMiss.paying && !inMiss.pending, JSON.stringify(inMiss));
+
+  // ---- 85c-4. ★★★動かさずに押して離せば、今までどおりのクリックである(裁定319)----
+  await inDeliver(inPage, inMainView);
+  await inClear(inPage);
+  await inPage.mouse.click(inFrom.x, inFrom.y);
+  await inPage.waitForTimeout(60);
+  // eslint-disable-next-line no-undef
+  const inClickPlay = await inPage.evaluate(() => ({ paying: !!manaPay, sent: window.__sent.length }));
+  check('★★★動かさずに押して離せば、クリックからのプレイ(確定つき)が始まる(85c・裁定319)',
+    inClickPlay.paying === true && inClickPlay.sent === 0, JSON.stringify(inClickPlay));
+
+  // ---- 85c-5. ★★★ドラッグのあとのクリックの抑えは、次のクリックまで持ち越さない ----
+  // ★★<b>初版はここで落ちた</b>: 離した場所が掴んだ要素と違うとブラウザはクリックを出さないので、
+  //   抑えの印が残って<b>次のプログラム・キーボードからのクリックを食べた</b>(verify 77-1 が教えた)。
+  await inDeliver(inPage, inMainView);
+  await inPress(inPage, inFrom, { x: 640, y: 30 });
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(30);
+  const inNoCarry = await inPage.evaluate(() => {
+    let hit = 0;
+    const b = document.createElement('button');
+    b.onclick = () => { hit += 1; };
+    document.body.appendChild(b);
+    b.click();
+    b.remove();
+    return hit;
+  });
+  check('★★★ドラッグのあとのクリックの抑えは、次のクリックまで持ち越さない(85c)',
+    inNoCarry === 1, JSON.stringify({ hit: inNoCarry }));
+
+  // ---- 85c-6. ★★★カードを動かしているあいだは拡大(ホバー)を出さない(裁定383)----
+  await inDeliver(inPage, inMainView);
+  const inOther = await inCenter(inPage, '#my-hand .auto-card:nth-child(2)');
+  await inPress(inPage, inFrom, { x: inOther.x, y: inOther.y - 4 });
+  await inPage.waitForTimeout(500);
+  const inHoverDrag = await inPage.evaluate(() => document.getElementById('auto-hover').classList.contains('d-none'));
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(40);
+  // ★対照: 動かしていないときは、カードに入って 0.35秒待てば出る(69 のまま)。
+  //   ★<b>いったん外へ出てから入り直す</b> —— 同じ場所に居たままでは「入った」が起きない
+  await inPage.mouse.move(640, 30);
+  await inPage.waitForTimeout(40);
+  await inPage.mouse.move(inOther.x, inOther.y - 4, { steps: 4 });
+  await inPage.waitForTimeout(500);
+  const inHoverIdle = await inPage.evaluate(() => !document.getElementById('auto-hover').classList.contains('d-none'));
+  await inPage.mouse.move(640, 30);
+  await inPage.waitForTimeout(40);
+  check('★★★カードを動かしているあいだは拡大を出さず、止まっていれば出る(85c・裁定383)',
+    inHoverDrag === true && inHoverIdle === true, JSON.stringify({ inHoverDrag, inHoverIdle }));
+
+  // ---- 85c-7. ★★★矢印を対象の上で離すと、確認なしで攻撃が飛ぶ(裁定381)----
+  await inDeliver(inPage, inBattleView);
+  await inClear(inPage);
+  const inA0 = await inCenter(inPage, '#my-minions .auto-card');
+  const inE1 = await inCenter(inPage, '#opp-minions .auto-card:nth-child(2)');
+  await inPress(inPage, inA0, inE1);
+  const inAimDuring = await inPage.evaluate(() => ({
+    arrow: !!document.querySelector('#auto-drag-layer .auto-aim'),
+    locked: [...document.querySelectorAll('#opp-minions .auto-card')].map((el) => el.classList.contains('auto-aim-locked')),
+    // eslint-disable-next-line no-undef
+    aiming: aiming, hoverHidden: document.getElementById('auto-hover').classList.contains('d-none'),
+  }));
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(60);
+  const inAimSent = await inSent(inPage);
+  const inAimGone = await inPage.evaluate(() => document.querySelectorAll('#auto-drag-layer .auto-aim').length);
+  check('★★★矢印を引いて対象の上で離すと、確認なしで攻撃が飛ぶ(85c・裁定381)',
+    inAimDuring.arrow && JSON.stringify(inAimDuring.locked) === '[false,true]' && inAimDuring.aiming === 'a0'
+      && inAimDuring.hoverHidden
+      && inAimSent.length === 1 && inAimSent[0].d === 'attack'
+      && inAimSent[0].b.attackerInstanceId === 'a0' && inAimSent[0].b.targetInstanceId === 'e1'
+      && inAimGone === 0,
+    JSON.stringify({ inAimDuring, inAimSent, inAimGone }));
+
+  // ---- 85c-8. ★★対象でない場所で離せば取り消し。何も送らない(裁定381)----
+  await inDeliver(inPage, inBattleView);
+  await inClear(inPage);
+  await inPress(inPage, inA0, { x: 640, y: 30 });
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(60);
+  const inAimMiss = await inPage.evaluate(() => ({
+    // eslint-disable-next-line no-undef
+    sent: window.__sent.length, selected: selectedAttackerId,
+    marked: document.querySelectorAll('#opp-minions .auto-card.attack-target').length,
+  }));
+  check('★★矢印を対象でない場所で離すと取り消しになり、何も送らない(85c・裁定381)',
+    inAimMiss.sent === 0 && inAimMiss.selected === null && inAimMiss.marked === 0, JSON.stringify(inAimMiss));
+
+  // ---- 85c-9. ★★★リーダーへも、リーダーからも矢印で攻撃できる(裁定381・382)----
+  await inDeliver(inPage, inBattleView);
+  await inClear(inPage);
+  const inOppLeader = await inCenter(inPage, '#opp-leader');
+  await inPress(inPage, inA0, inOppLeader);
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(60);
+  await inDeliver(inPage, inBattleView);
+  const inMyLeader = await inCenter(inPage, '#my-leader');
+  const inE0 = await inCenter(inPage, '#opp-minions .auto-card');
+  await inPress(inPage, inMyLeader, inE0);
+  await inPage.mouse.up();
+  await inPage.waitForTimeout(60);
+  const inLeaderSent = await inSent(inPage);
+  check('★★★ミニオンからリーダーへ、ウェポンを持ったリーダーからミニオンへ、矢印で攻撃できる(85c・裁定381・382)',
+    inLeaderSent.length === 2
+      && inLeaderSent[0].d === 'attack' && inLeaderSent[0].b.attackerInstanceId === 'a0'
+      && inLeaderSent[0].b.targetInstanceId === null
+      && inLeaderSent[1].d === 'leader-attack' && inLeaderSent[1].b.targetInstanceId === 'e0',
+    JSON.stringify(inLeaderSent));
+
+  // ---- 85c-10. ★★クリック2回の攻撃も残る(裁定381)----
+  await inDeliver(inPage, inBattleView);
+  await inClear(inPage);
+  await inPage.mouse.click(inA0.x, inA0.y);
+  await inPage.waitForTimeout(40);
+  const inE0b = await inCenter(inPage, '#opp-minions .auto-card');
+  await inPage.mouse.click(inE0b.x, inE0b.y);
+  await inPage.waitForTimeout(60);
+  const inClickAtk = await inSent(inPage);
+  check('★★クリック2回の攻撃も今までどおり飛ぶ(85c・裁定381)',
+    inClickAtk.length === 1 && inClickAtk[0].d === 'attack' && inClickAtk[0].b.targetInstanceId === 'e0',
+    JSON.stringify(inClickAtk));
+  check('ポインタの身振り(85c)でJSエラーが出ない', inErrors.length === 0, inErrors.join(' | '));
+  await inPage.close();
+
+  // ---- 85c-11〜13. ★★★タッチ(スマホ)。★CDP でタッチの出来事を直接送る ----
+  const tcCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, hasTouch: true });
+  const tcPage = await tcCtx.newPage();
+  const tcErrors = [];
+  tcPage.on('pageerror', (e) => tcErrors.push(String(e)));
+  await tcPage.goto(`http://127.0.0.1:${port}/harness-battle.html`);
+  await tcPage.waitForTimeout(300);
+  const tcCdp = await tcCtx.newCDPSession(tcPage);
+  const tcTouch = (type, p) => tcCdp.send('Input.dispatchTouchEvent', {
+    type, touchPoints: type === 'touchEnd' ? [] : [{ x: p.x, y: p.y }],
+  });
+  /** 指を置いて、滑らせて、離す */
+  const tcSwipe = async (from, to) => {
+    await tcTouch('touchStart', from);
+    for (let i = 1; i <= 20; i++) {
+      await tcTouch('touchMove', { x: from.x + ((to.x - from.x) * i) / 20, y: from.y + ((to.y - from.y) * i) / 20 });
+      await tcPage.waitForTimeout(8);
+    }
+    await tcTouch('touchEnd', to);
+    await tcPage.waitForTimeout(80);
+  };
+
+  // ---- 85c-11. ★★★指で手札を場へ落とせる(設計書 5章の中心)----
+  await inDeliver(tcPage, inMainView);
+  await inClear(tcPage);
+  await tcSwipe(await inCenter(tcPage, '#my-hand .auto-card'), await inCenter(tcPage, '#my-minions'));
+  const tcDrop = await inSent(tcPage);
+  check('★★★指で手札を掴んで場へ落とすと、プレイが飛ぶ(85c・設計書 5章)',
+    tcDrop.length === 1 && tcDrop[0].d === 'play-card' && tcDrop[0].b.handIndex === 0, JSON.stringify(tcDrop));
+
+  // ---- 85c-12. ★★★指で矢印を引いて攻撃できる(裁定381)----
+  await inDeliver(tcPage, inBattleView);
+  await inClear(tcPage);
+  await tcSwipe(await inCenter(tcPage, '#my-minions .auto-card'), await inCenter(tcPage, '#opp-minions .auto-card'));
+  const tcAim = await inSent(tcPage);
+  check('★★★指で矢印を引いて対象の上で離すと、攻撃が飛ぶ(85c・裁定381)',
+    tcAim.length === 1 && tcAim[0].d === 'attack' && tcAim[0].b.targetInstanceId === 'e0', JSON.stringify(tcAim));
+
+  // ---- 85c-13. ★★★長押し(500ms)で拡大する。短いタップでは拡大しない(裁定384)----
+  await inDeliver(tcPage, inBattleView);
+  const tcOpp = await inCenter(tcPage, '#opp-minions .auto-card');
+  await tcTouch('touchStart', tcOpp);
+  await tcPage.waitForTimeout(150);
+  await tcTouch('touchEnd', tcOpp);
+  await tcPage.waitForTimeout(80);
+  const tcShort = await tcPage.evaluate(() => !document.getElementById('auto-zoom').classList.contains('d-none'));
+  await tcTouch('touchStart', tcOpp);
+  await tcPage.waitForTimeout(650);
+  const tcLong = await tcPage.evaluate(() => ({
+    open: !document.getElementById('auto-zoom').classList.contains('d-none'),
+    text: document.getElementById('auto-zoom-card').textContent,
+  }));
+  await tcTouch('touchEnd', tcOpp);
+  await tcPage.waitForTimeout(80);
+  // ★長押しのあとの離しはクリックにしない(拡大が開いたまま残る)
+  const tcAfter = await tcPage.evaluate(() => !document.getElementById('auto-zoom').classList.contains('d-none'));
+  check('★★★長押し(500ms)で拡大し、短いタップでは拡大せず、離してもクリックにならない(85c・裁定384)',
+    tcShort === false && tcLong.open === true && tcLong.text.includes('敵の従者') && tcAfter === true,
+    JSON.stringify({ tcShort, tcLong, tcAfter }));
+  check('タッチの身振り(85c)でJSエラーが出ない', tcErrors.length === 0, tcErrors.join(' | '));
+  await tcCtx.close();
+
   check('全工程を通じてJSエラーが出ない', errors.length === 0, errors.join(' | '));
 
   await browser.close();
